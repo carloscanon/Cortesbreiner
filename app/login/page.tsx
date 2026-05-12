@@ -1,16 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, ArrowRight, Loader2, Scissors, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Loader2, Scissors, AlertCircle, Image as ImageIcon } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const fetchLogo = async () => {
+      const { data } = await supabase.from('company_params').select('value').eq('name', 'logo_url').single();
+      if (data?.value) setLogoUrl(data.value);
+    };
+    fetchLogo();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,16 +67,22 @@ export default function LoginPage() {
       }}>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ 
-            width: '60px', 
-            height: '60px', 
+            width: '80px', 
+            height: '80px', 
             backgroundColor: 'rgba(255,255,255,0.1)', 
-            borderRadius: '16px',
+            borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            marginBottom: '2rem'
+            marginBottom: '2rem',
+            overflow: 'hidden',
+            padding: logoUrl ? '0' : '1rem'
           }}>
-            <Scissors size={32} color="white" />
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            ) : (
+              <Scissors size={40} color="white" />
+            )}
           </div>
           <h1 style={{ fontSize: '3rem', color: 'white', marginBottom: '1.5rem', lineHeight: 1.1 }}>
             Gestiona tu producción textil con precisión quirúrgica.
@@ -147,16 +162,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
-// Simple helper for animation if not using tailwind
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  .animate-spin {
-    animation: spin 1s linear infinite;
-  }
-`;
-if (typeof document !== 'undefined') document.head.appendChild(style);

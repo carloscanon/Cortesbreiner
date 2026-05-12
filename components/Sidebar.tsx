@@ -1,7 +1,9 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import { 
   LayoutDashboard, 
   Database, 
@@ -12,49 +14,136 @@ import {
   Settings, 
   HelpCircle, 
   LogOut,
-  Layers
+  Layers,
+  Factory,
+  ShieldCheck,
+  Calculator
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
-  { icon: Database, label: 'Maestros', href: '/masters' },
-  { icon: Package, label: 'Inventario', href: '/inventory' },
-  { icon: Scissors, label: 'Órdenes', href: '/orders' },
-  { icon: Layers, label: 'Seguimiento', href: '/tracking' },
-  { icon: BarChart3, label: 'Analíticas', href: '/analytics' },
+const allMenuItems = [
+  { icon: LayoutDashboard, label: 'Dashboard', href: '/', module: 'dashboard' },
+  { icon: Scissors, label: 'Órdenes', href: '/orders', module: 'orders' },
+  { icon: Database, label: 'Maestros', href: '/masters', module: 'masters' },
+  { icon: Package, label: 'Inventario', href: '/inventory', module: 'inventory' },
+  { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
+  { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
+  { icon: Factory, label: 'Talleres', href: '/workshops', module: 'workshops' },
+  { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
 ];
 
-const bottomItems = [
-  { icon: Settings, label: 'Ajustes', href: '/settings' },
-  { icon: HelpCircle, label: 'Ayuda', href: '/help' },
+const allBottomItems = [
+  { icon: Settings, label: 'Ajustes', href: '/settings', module: 'settings' },
+  { icon: HelpCircle, label: 'Ayuda', href: '/help', module: 'help' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
+  const [logoData, setLogoData] = useState({ url: '', width: '150' });
+  const [allowedModules, setAllowedModules] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLogoAndPermissions = async () => {
+      try {
+        // Fetch Logo
+        const { data: params } = await supabase.from('company_params').select('name, value');
+        if (params) {
+          const url = params.find(p => p.name === 'logo_url')?.value || '';
+          const width = params.find(p => p.name === 'logo_width')?.value || '150';
+          setLogoData({ url, width });
+        }
+
+        // Fetch Permissions if user is logged in
+        if (user) {
+          // 1. Get profile and role_id
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role_id')
+            .eq('id', user.id)
+            .single();
+
+          if (profile?.role_id) {
+            // 2. Get permissions for that role
+            const { data: rolePerms } = await supabase
+              .from('role_permissions')
+              .select('permissions(module)')
+              .eq('role_id', profile.role_id);
+
+            if (rolePerms) {
+              const modules = rolePerms.map((rp: any) => rp.permissions?.module).filter(Boolean);
+              setAllowedModules(modules);
+            }
+          } else {
+            // No role assigned? Default to empty or some base modules
+            setAllowedModules([]);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching sidebar data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLogoAndPermissions();
+  }, [user]);
+
+  // Filter items
+  const filteredMenuItems = allMenuItems.filter(item => 
+    allowedModules.includes(item.module) || item.module === 'dashboard' // Dashboard always visible or fix it
+  );
+
+  const filteredBottomItems = allBottomItems.filter(item => 
+    allowedModules.includes(item.module) || item.module === 'help'
+  );
 
   return (
     <aside className="sidebar">
-      <div style={{ marginBottom: '2.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        <div style={{ 
-          width: '40px', 
-          height: '40px', 
-          backgroundColor: 'var(--primary)', 
-          borderRadius: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'white',
-          fontWeight: '700'
-        }}>B</div>
-        <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '700' }}>Breiner</h2>
+      <div style={{ 
+        marginBottom: '2.5rem', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        minHeight: '60px',
+        width: '100%'
+      }}>
+        {logoData.url ? (
+          <div style={{ 
+            width: '100%', 
+            display: 'flex', 
+            justifyContent: 'center',
+            padding: '0 1rem'
+          }}>
+            <img 
+              src={logoData.url} 
+              alt="Logo" 
+              style={{ 
+                maxWidth: '100%', 
+                maxHeight: '80px', 
+                width: logoData.width ? `${logoData.width}px` : 'auto',
+                height: 'auto', 
+                objectFit: 'contain' 
+              }} 
+            />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ 
+              width: '40px', height: '40px', backgroundColor: 'var(--primary)', 
+              borderRadius: '8px', display: 'flex', alignItems: 'center', 
+              justifyContent: 'center', color: 'white', fontWeight: '700' 
+            }}>B</div>
+            <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '700' }}>Breiner</h2>
+          </div>
+        )}
       </div>
 
       <nav style={{ flex: 1 }}>
         <p style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Menú</p>
         <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {menuItems.map((item) => {
+          {filteredMenuItems.map((item) => {
             const isActive = pathname === item.href;
             return (
               <li key={item.label}>
@@ -79,7 +168,7 @@ export default function Sidebar() {
 
         <p style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', margin: '2rem 0 1rem 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>General</p>
         <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {bottomItems.map((item) => (
+          {filteredBottomItems.map((item) => (
             <li key={item.label}>
               <Link 
                 href={item.href}
