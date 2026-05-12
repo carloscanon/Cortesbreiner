@@ -78,7 +78,8 @@ export default function SettingsPage() {
         } else {
           setCompanyParams([
             { name: 'logo_url', value: '', description: 'URL del logo' },
-            { name: 'logo_width', value: '150', description: 'Ancho del logo (px)' }
+            { name: 'logo_width', value: '150', description: 'Ancho del logo (px)' },
+            { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' }
           ]);
         }
       }
@@ -368,9 +369,93 @@ export default function SettingsPage() {
               )}
 
               {activeTab === 'company' && (
-                <div>
-                  <h3>Branding e Identidad</h3>
-                  {/* ... same as before ... */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3>Branding e Identidad</h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura la apariencia visual de tu plataforma.</p>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                    {/* Logo Config */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ImageIcon size={18} /> Logo Principal</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ 
+                          height: '120px', 
+                          border: '2px dashed var(--border)', 
+                          borderRadius: '12px', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          backgroundColor: 'white',
+                          overflow: 'hidden'
+                        }}>
+                          {companyParams.find(p => p.name === 'logo_url')?.value ? (
+                            <img src={companyParams.find(p => p.name === 'logo_url')?.value} alt="Logo" style={{ maxHeight: '100px' }} />
+                          ) : <ImageIcon size={40} color="var(--border)" />}
+                        </div>
+                        <input type="file" accept="image/*" id="logo-upload" hidden onChange={handleLogoUpload} />
+                        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('logo-upload')?.click()}>
+                          <Upload size={16} /> Cambiar Logo
+                        </button>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.4rem', display: 'block' }}>Ancho del Logo (px)</label>
+                          <input 
+                            type="number" 
+                            className="input" 
+                            style={{ width: '100%' }} 
+                            defaultValue={companyParams.find(p => p.name === 'logo_width')?.value || '150'} 
+                            onBlur={(e) => handleUpdateParam('logo_width', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mobile App Image Config */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Maximize size={18} /> Imagen App Móvil (Sidebar)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ 
+                          height: '120px', 
+                          border: '2px dashed var(--border)', 
+                          borderRadius: '12px', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          backgroundColor: 'white',
+                          overflow: 'hidden'
+                        }}>
+                          {companyParams.find(p => p.name === 'mobile_app_image_url')?.value ? (
+                            <img src={companyParams.find(p => p.name === 'mobile_app_image_url')?.value} alt="App Image" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                          ) : <ImageIcon size={40} color="var(--border)" />}
+                        </div>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          id="mobile-app-upload" 
+                          hidden 
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setSaving(true);
+                            try {
+                              const fileExt = file.name.split('.').pop();
+                              const fileName = `mobile-app-${Date.now()}.${fileExt}`;
+                              const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
+                              if (uploadError) throw uploadError;
+                              const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
+                              await handleUpdateParam('mobile_app_image_url', publicUrl);
+                              fetchData();
+                            } catch (err: any) { alert(err.message); } finally { setSaving(false); }
+                          }} 
+                        />
+                        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('mobile-app-upload')?.click()}>
+                          <Upload size={16} /> Cambiar Imagen App
+                        </button>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrará en la tarjeta de promoción de la app móvil en el menú lateral.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </>

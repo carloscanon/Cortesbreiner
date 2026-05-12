@@ -40,7 +40,7 @@ const allBottomItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { signOut, user } = useAuth();
-  const [logoData, setLogoData] = useState({ url: '', width: '150' });
+  const [logoData, setLogoData] = useState({ url: '', width: '150', mobileAppImg: '' });
   const [allowedModules, setAllowedModules] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,7 +52,8 @@ export default function Sidebar() {
         if (params) {
           const url = params.find(p => p.name === 'logo_url')?.value || '';
           const width = params.find(p => p.name === 'logo_width')?.value || '150';
-          setLogoData({ url, width });
+          const mobileAppImg = params.find(p => p.name === 'mobile_app_image_url')?.value || '';
+          setLogoData({ url, width, mobileAppImg });
         }
 
         // Fetch Permissions if user is logged in
@@ -203,10 +204,44 @@ export default function Sidebar() {
         </ul>
       </nav>
 
-      <div className="card" style={{ marginTop: '2rem', padding: '1rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none' }}>
-        <p style={{ fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>App Móvil</p>
-        <p style={{ fontSize: '0.75rem', opacity: 0.8, marginBottom: '1rem' }}>Gestiona tu producción desde cualquier lugar.</p>
-        <button className="btn" style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', fontSize: '0.75rem' }}>Descargar</button>
+      <div className="card" style={{ 
+        marginTop: '2rem', 
+        padding: '1.25rem', 
+        backgroundColor: 'var(--primary)', 
+        color: 'white', 
+        border: 'none',
+        position: 'relative',
+        overflow: 'hidden',
+        minHeight: '160px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-end'
+      }}>
+        {logoData.mobileAppImg && (
+          <div style={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            opacity: 0.3,
+            zIndex: 0
+          }}>
+            <img src={logoData.mobileAppImg} alt="App" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        )}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <p style={{ fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.25rem' }}>App Móvil</p>
+          <p style={{ fontSize: '0.75rem', opacity: 0.9, marginBottom: '1rem', lineHeight: '1.4' }}>Gestiona tu producción desde cualquier lugar.</p>
+          <button className="btn" style={{ 
+            width: '100%', 
+            backgroundColor: 'white', 
+            color: 'var(--primary)', 
+            fontSize: '0.75rem',
+            fontWeight: '700',
+            border: 'none'
+          }}>Descargar Ahora</button>
+        </div>
       </div>
     </aside>
   );
