@@ -1,8 +1,11 @@
 'use client';
 
-import { Search, Bell, Mail, User } from 'lucide-react';
+import { Search, Bell, Mail, User, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Navbar() {
+  const { user, profile, loading } = useAuth();
+
   return (
     <header style={{ 
       display: 'flex', 
@@ -70,21 +73,44 @@ export default function Navbar() {
         </button>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '1.5rem', borderLeft: '1px solid var(--border)' }}>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: '0.875rem', fontWeight: '600' }}>Carlos Cañón</p>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Admin</p>
-          </div>
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+               <Loader2 size={16} className="animate-spin" color="var(--primary)" />
+               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cargando...</span>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--text)', marginBottom: '0.1rem' }}>
+                {profile?.full_name || user?.email?.split('@')[0] || 'Invitado'}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <span style={{ 
+                  fontSize: '0.625rem', 
+                  backgroundColor: 'var(--primary-lighter)', 
+                  color: 'var(--primary)', 
+                  padding: '2px 8px', 
+                  borderRadius: '6px',
+                  fontWeight: '800',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  {profile?.roles?.name || 'Sin Rol'}
+                </span>
+              </div>
+            </div>
+          )}
           <div style={{ 
             width: '40px', 
             height: '40px', 
-            borderRadius: '50%', 
-            backgroundColor: '#e2e8f0',
+            borderRadius: '12px', 
+            backgroundColor: 'var(--bg-secondary)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            border: '1px solid var(--border)'
           }}>
-            <User size={24} color="#94a3b8" />
+            <User size={20} color="var(--text-muted)" />
           </div>
         </div>
       </div>
