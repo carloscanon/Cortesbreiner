@@ -67,21 +67,17 @@ export default function LoginPage() {
       }}>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ 
-            width: '80px', 
-            height: '80px', 
-            backgroundColor: 'rgba(255,255,255,0.1)', 
-            borderRadius: '20px',
+            height: '180px', 
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: '2rem',
-            overflow: 'hidden',
-            padding: logoUrl ? '0' : '1rem'
+            justifyContent: 'flex-start',
+            marginBottom: '2.5rem',
+            overflow: 'hidden'
           }}>
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <img src={logoUrl} alt="Logo" style={{ height: '100%', width: 'auto', objectFit: 'contain' }} />
             ) : (
-              <Scissors size={40} color="white" />
+              <Scissors size={60} color="white" />
             )}
           </div>
           <h1 style={{ fontSize: '3rem', color: 'white', marginBottom: '1.5rem', lineHeight: 1.1 }}>

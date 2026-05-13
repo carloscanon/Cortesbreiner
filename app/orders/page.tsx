@@ -31,6 +31,20 @@ export default function OrdersPage() {
   const [orderItems, setOrderItems] = useState<any[]>([
     { id: Date.now(), product_id: '', color_id: '', sizes: {} }
   ]);
+
+  // Fabric colors with kilos for Step 1
+  const [fabricColors, setFabricColors] = useState<any[]>([
+    { id: Date.now(), color_id: '', kilos: '' }
+  ]);
+
+  const addFabricColor = () =>
+    setFabricColors(prev => [...prev, { id: Date.now(), color_id: '', kilos: '' }]);
+
+  const removeFabricColor = (id: number) =>
+    setFabricColors(prev => prev.filter(fc => fc.id !== id));
+
+  const updateFabricColor = (id: number, field: string, value: any) =>
+    setFabricColors(prev => prev.map(fc => fc.id === id ? { ...fc, [field]: value } : fc));
   
   // Masters
   const [fabrics, setFabrics] = useState<any[]>([]);
@@ -164,6 +178,7 @@ export default function OrdersPage() {
       setStep(1);
       setFormData({ status: 'Planeada', priority: 'Media', client_name: '', brand: '', fabric_id: '', workshop_id: '', largo_trazo: 0 });
       setOrderItems([{ id: Date.now(), product_id: '', color_id: '', sizes: {} }]);
+      setFabricColors([{ id: Date.now(), color_id: '', kilos: '' }]);
       fetchData();
     } catch (err: any) {
       alert('Error al crear orden multireferencia: ' + err.message);
@@ -277,6 +292,107 @@ export default function OrdersPage() {
                     </div>
                   </div>
 
+                  {/* Colores y Kilos de Tela */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Palette size={15} /> Colores de Tela y Cantidad (kg)
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}
+                        onClick={addFabricColor}
+                      >
+                        <Plus size={14} /> Añadir Color
+                      </button>
+                    </div>
+
+                    {fabricColors.map((fc, idx) => {
+                      const col = colors.find(c => c.id === fc.color_id);
+                      return (
+                        <div
+                          key={fc.id}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 160px auto',
+                            gap: '0.75rem',
+                            alignItems: 'center',
+                            padding: '0.75rem 1rem',
+                            borderRadius: '10px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: '#fafafa'
+                          }}
+                        >
+                          {/* Color selector */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            {col && (
+                              <div style={{
+                                width: '14px', height: '14px', borderRadius: '50%',
+                                backgroundColor: col.hex_color || '#ccc',
+                                border: '1px solid rgba(0,0,0,0.12)',
+                                flexShrink: 0
+                              }} />
+                            )}
+                            <select
+                              style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8125rem' }}
+                              value={fc.color_id}
+                              onChange={e => updateFabricColor(fc.id, 'color_id', e.target.value)}
+                            >
+                              <option value="">Seleccionar Color...</option>
+                              {colors.map(c => (
+                                <option key={c.id} value={c.id}>{c.nombre_color}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Kilos input */}
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={fc.kilos}
+                              onChange={e => updateFabricColor(fc.id, 'kilos', e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '0.55rem 2.5rem 0.55rem 0.75rem',
+                                borderRadius: '8px',
+                                border: `1.5px solid ${Number(fc.kilos) > 0 ? 'var(--primary)' : 'var(--border)'}`,
+                                fontSize: '0.875rem',
+                                fontWeight: Number(fc.kilos) > 0 ? '700' : '400',
+                                backgroundColor: Number(fc.kilos) > 0 ? '#eff6ff' : 'white',
+                                textAlign: 'right'
+                              }}
+                            />
+                            <span style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '600', pointerEvents: 'none' }}>kg</span>
+                          </div>
+
+                          {/* Remove button */}
+                          <button
+                            type="button"
+                            onClick={() => removeFabricColor(fc.id)}
+                            disabled={fabricColors.length === 1}
+                            style={{ color: '#ef4444', border: 'none', background: 'none', cursor: fabricColors.length === 1 ? 'not-allowed' : 'pointer', opacity: fabricColors.length === 1 ? 0.3 : 1, padding: '0.3rem' }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    {/* Total kilos summary */}
+                    {fabricColors.some(fc => Number(fc.kilos) > 0) && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '8px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total:</span>
+                        <span style={{ fontSize: '1rem', fontWeight: '800', color: '#16a34a' }}>
+                          {fabricColors.reduce((sum, fc) => sum + (Number(fc.kilos) || 0), 0).toFixed(2)} kg
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
                   <button className="btn btn-primary" style={{ padding: '1rem', width: '100%' }} onClick={() => setStep(2)}>
                     Configurar Referencias y Tallas <ArrowRight size={18} />
                   </button>
@@ -284,57 +400,213 @@ export default function OrdersPage() {
               )}
 
               {step === 2 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Package size={18} /> Referencias en esta Orden</h3>
-                    <button className="btn btn-secondary" onClick={addProductRow} style={{ padding: '0.5rem 1rem' }}><Plus size={16} /> Añadir Referencia</button>
+                    <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Package size={18} /> Referencias en esta Orden
+                    </h3>
+                    <button className="btn btn-secondary" onClick={addProductRow} style={{ padding: '0.5rem 1rem' }}>
+                      <Plus size={16} /> Añadir Referencia
+                    </button>
                   </div>
 
-                  {orderItems.map((item, index) => (
-                    <div key={item.id} style={{ padding: '1.5rem', border: '1px solid var(--border)', borderRadius: '16px', position: 'relative', backgroundColor: '#fdfdfd' }}>
-                      <button onClick={() => removeProductRow(item.id)} style={{ position: 'absolute', top: '1rem', right: '1rem', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}><Trash2 size={18} /></button>
-                      
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.3rem' }}>Producto / Referencia</label>
-                          <select style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={item.product_id} onChange={(e) => updateItem(item.id, 'product_id', e.target.value)}>
-                            <option value="">Seleccionar Producto...</option>
-                            {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.3rem' }}>Color</label>
-                          <select style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={item.color_id} onChange={(e) => updateItem(item.id, 'color_id', e.target.value)}>
-                            <option value="">Seleccionar Color...</option>
-                            {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
-                          </select>
-                        </div>
-                      </div>
+                  {/* Split layout: Left = attributes + sizes, Right = product list */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: '1.5rem', minHeight: '400px' }}>
+                    
+                    {/* LEFT PANEL — Atributos y Tallas de cada referencia */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      <p style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                        Atributos y Tallas por Referencia
+                      </p>
+                      {orderItems.map((item, index) => {
+                        const prod = products.find(p => p.id === item.product_id);
+                        return (
+                          <div
+                            key={item.id}
+                            style={{ padding: '1.25rem', border: '1px solid var(--border)', borderRadius: '14px', backgroundColor: '#fafafa' }}
+                          >
+                            {/* Reference header */}
+                            <p style={{ fontSize: '0.8125rem', fontWeight: '700', marginBottom: '1rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Layers size={14} />
+                              {prod ? `${prod.nombre_producto} (${prod.codigo_referencia})` : `Referencia ${index + 1}`}
+                            </p>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '0.75rem' }}>
-                        {sizes.map(size => (
-                          <div key={size.id} style={{ textAlign: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: '600' }}>{size.codigo_talla}</span>
-                            <input 
-                              type="number" min="0" placeholder="Capas"
-                              style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', textAlign: 'center', fontSize: '0.875rem' }}
-                              value={item.sizes[size.id] || ''}
-                              onChange={(e) => updateItemSize(item.id, size.id, parseInt(e.target.value))}
-                            />
+                            {/* Product + Color selects */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.3rem' }}>Producto</label>
+                                <select
+                                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8125rem' }}
+                                  value={item.product_id}
+                                  onChange={(e) => updateItem(item.id, 'product_id', e.target.value)}
+                                >
+                                  <option value="">Seleccionar Producto...</option>
+                                  {products.map(p => (
+                                    <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.3rem' }}>Color</label>
+                                <select
+                                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8125rem' }}
+                                  value={item.color_id}
+                                  onChange={(e) => updateItem(item.id, 'color_id', e.target.value)}
+                                >
+                                  <option value="">Seleccionar Color...</option>
+                                  {colors.map(c => (
+                                    <option key={c.id} value={c.id}>{c.nombre_color}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Sizes grid */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <Palette size={13} /> Tallas y Capas
+                              </label>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
+                                {sizes.map(size => {
+                                  const val = item.sizes[size.id];
+                                  const hasQty = Number(val) > 0;
+                                  return (
+                                    <div
+                                      key={size.id}
+                                      style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        minWidth: '72px'
+                                      }}
+                                    >
+                                      <span style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: '700',
+                                        padding: '0.2rem 0.6rem',
+                                        borderRadius: '999px',
+                                        backgroundColor: hasQty ? 'var(--primary)' : '#f1f5f9',
+                                        color: hasQty ? 'white' : 'var(--text-muted)',
+                                        transition: 'all 0.15s'
+                                      }}>
+                                        {size.codigo_talla}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="0"
+                                        style={{
+                                          width: '72px',
+                                          padding: '0.4rem 0.3rem',
+                                          borderRadius: '8px',
+                                          border: `1.5px solid ${hasQty ? 'var(--primary)' : 'var(--border)'}`,
+                                          textAlign: 'center',
+                                          fontSize: '0.875rem',
+                                          fontWeight: hasQty ? '700' : '400',
+                                          backgroundColor: hasQty ? '#eff6ff' : 'white',
+                                          outline: 'none',
+                                          transition: 'all 0.15s'
+                                        }}
+                                        value={val || ''}
+                                        onChange={(e) => updateItemSize(item.id, size.id, parseInt(e.target.value))}
+                                      />
+                                      {hasQty && (
+                                        <span style={{ fontSize: '0.6rem', color: 'var(--primary)', fontWeight: '600' }}>
+                                          {Number(val)} cap.
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
-                  ))}
 
-                  <div style={{ padding: '1.5rem', borderRadius: '12px', backgroundColor: isOverLimit ? '#fef2f2' : '#f0fdf4', border: `1px solid ${isOverLimit ? '#fecaca' : '#bbf7d0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {/* RIGHT PANEL — Lista de Productos */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <p style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                        Productos / Referencias
+                      </p>
+                      {orderItems.map((item, index) => {
+                        const prod = products.find(p => p.id === item.product_id);
+                        const col = colors.find(c => c.id === item.color_id);
+                        const totalItemLayers = Object.values(item.sizes).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0);
+                        const sizesWithQty = Object.values(item.sizes).filter((v: any) => Number(v) > 0).length;
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              padding: '0.875rem 1rem',
+                              borderRadius: '12px',
+                              border: `2px solid var(--border)`,
+                              backgroundColor: '#fdfdfd',
+                              cursor: 'default',
+                              position: 'relative'
+                            }}
+                          >
+                            {/* Delete button */}
+                            <button
+                              onClick={() => removeProductRow(item.id)}
+                              style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer', padding: '0.2rem' }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+
+                            {/* Product name */}
+                            <p style={{ fontWeight: '700', fontSize: '0.8125rem', marginBottom: '0.25rem', paddingRight: '1.5rem' }}>
+                              {prod ? prod.nombre_producto : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin producto</span>}
+                            </p>
+                            {prod && (
+                              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                                Ref: {prod.codigo_referencia}
+                              </p>
+                            )}
+
+                            {/* Color chip */}
+                            {col ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: col.hex_color || '#ccc', border: '1px solid rgba(0,0,0,0.1)' }} />
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{col.nombre_color}</span>
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontStyle: 'italic' }}>Sin color</p>
+                            )}
+
+                            {/* Stats */}
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#eff6ff', color: '#3b82f6', fontWeight: '600' }}>
+                                {sizesWithQty} talla{sizesWithQty !== 1 ? 's' : ''}
+                              </span>
+                              <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#f0fdf4', color: '#16a34a', fontWeight: '600' }}>
+                                {totalItemLayers} capas
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Total capas bar */}
+                  <div style={{ padding: '1.25rem', borderRadius: '12px', backgroundColor: isOverLimit ? '#fef2f2' : '#f0fdf4', border: `1px solid ${isOverLimit ? '#fecaca' : '#bbf7d0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <p style={{ fontSize: '0.8125rem', fontWeight: '600', color: 'var(--text-muted)' }}>TOTAL CAPAS (TENDIDO GLOBAL)</p>
                       <h3 style={{ fontSize: '1.5rem', color: isOverLimit ? '#ef4444' : '#16a34a' }}>{totalLayers} / 125</h3>
                     </div>
-                    {isOverLimit && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ef4444' }}><AlertTriangle size={24} /><span style={{ fontSize: '0.75rem', fontWeight: '700' }}>Excede límite técnico de 125 capas.</span></div>}
+                    {isOverLimit && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ef4444' }}>
+                        <AlertTriangle size={24} />
+                        <span style={{ fontSize: '0.75rem', fontWeight: '700' }}>Excede límite técnico de 125 capas.</span>
+                      </div>
+                    )}
                   </div>
 
+                  {/* Action buttons */}
                   <div style={{ display: 'flex', gap: '1rem' }}>
                     <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setStep(1)}>Atrás</button>
                     <button className="btn btn-primary" style={{ flex: 2 }} disabled={saving || totalLayers === 0} onClick={handleSave}>

@@ -10,6 +10,18 @@ import {
 
 // Configuration for all masters
 const MASTER_CONFIG: any = {
+  accessories: {
+    title: 'Maestro de Accesorios',
+    table: 'accessories',
+    icon: Tag,
+    listFields: ['codigo', 'tipo', 'unidad_medida', 'costo_unitario'],
+    fields: [
+      { name: 'nombre', label: 'Nombre Accesorio', type: 'text', required: true },
+      { name: 'tipo', label: 'Tipo', type: 'select', options: ['Hilo', 'Aguja', 'Botón', 'Cremallera', 'Elástico', 'Cinta', 'Marquilla', 'Otro'] },
+      { name: 'unidad_medida', label: 'Unidad de Medida', type: 'text' },
+      { name: 'costo_unitario', label: 'Costo Unitario ($)', type: 'number' }
+    ]
+  },
   fabrics: {
     title: 'Maestro de Telas',
     table: 'fabrics',
@@ -219,9 +231,20 @@ export default function MastersPage() {
         }
       }
 
-      // Mapeo automático al campo 'name' para compatibilidad total
-      const primary = payload.nombre_tela || payload.nombre_color || payload.nombre_talla || payload.nombre_producto || payload.nombre_taller || payload.razon_social || payload.nombre_bodega || payload.nombre;
-      if (primary) payload.name = primary;
+      // Auto-generar código jerárquico para accesorios
+      if (activeTab === 'accessories' && !editingId) {
+        const prefixMap: Record<string, string> = {
+          'Hilo': 'HIL', 'Aguja': 'AGU', 'Botón': 'BOT', 'Cremallera': 'CRE',
+          'Elástico': 'ELA', 'Cinta': 'CIN', 'Marquilla': 'MRQ', 'Otro': 'ACC'
+        };
+        const prefix = prefixMap[payload.tipo] || 'ACC';
+        const { count } = await supabase
+          .from('accessories')
+          .select('*', { count: 'exact', head: true })
+          .eq('tipo', payload.tipo || '');
+        const seq = ((count || 0) + 1).toString().padStart(3, '0');
+        payload.codigo = `${prefix}-${seq}`;
+      }
 
       if (editingId) {
         const { error } = await supabase.from(config.table).update(payload).eq('id', editingId);
@@ -444,13 +467,27 @@ export default function MastersPage() {
               {config.fields.map((field: any) => (
                 <div key={field.name} style={{ gridColumn: field.type === 'textarea' ? 'span 2' : 'span 1' }}>
                   <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '600', marginBottom: '0.4rem' }}>{field.label}</label>
-                  <input 
-                    type={field.type}
-                    required={field.required}
-                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', height: field.type === 'color' ? '45px' : 'auto' }}
-                    value={formData[field.name] || (field.type === 'color' ? '#000000' : '')}
-                    onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
-                  />
+                  {field.type === 'select' ? (
+                    <select
+                      required={field.required}
+                      style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                      value={formData[field.name] || ''}
+                      onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                    >
+                      <option value=''>Seleccionar...</option>
+                      {field.options?.map((opt: string) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input 
+                      type={field.type}
+                      required={field.required}
+                      style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', height: field.type === 'color' ? '45px' : 'auto' }}
+                      value={formData[field.name] || (field.type === 'color' ? '#000000' : '')}
+                      onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                    />
+                  )}
                 </div>
               ))}
               <div style={{ gridColumn: 'span 2', display: 'flex', gap: '1rem', marginTop: '1rem' }}>
