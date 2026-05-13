@@ -10,7 +10,6 @@ import {
   Package, 
   Scissors, 
   Truck, 
-  BarChart3, 
   Settings, 
   HelpCircle, 
   LogOut,
@@ -39,66 +38,42 @@ const allBottomItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { signOut, user } = useAuth();
-  const [logoData, setLogoData] = useState({ url: '', width: '150', mobileAppImg: '' });
+  const { signOut, user, profile, config } = useAuth();
   const [allowedModules, setAllowedModules] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchLogoAndPermissions = async () => {
-      try {
-        // Fetch Logo
-        const { data: params } = await supabase.from('company_params').select('name, value');
-        if (params) {
-          const url = params.find(p => p.name === 'logo_url')?.value || '';
-          const width = params.find(p => p.name === 'logo_width')?.value || '150';
-          const mobileAppImg = params.find(p => p.name === 'mobile_app_image_url')?.value || '';
-          setLogoData({ url, width, mobileAppImg });
-        }
+    const fetchPermissions = async () => {
+      if (profile?.role_id) {
+        try {
+          const { data: rolePerms } = await supabase
+            .from('role_permissions')
+            .select('permissions(module)')
+            .eq('role_id', profile.role_id);
 
-        // Fetch Permissions if user is logged in
-        if (user) {
-          // 1. Get profile and role_id
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('role_id')
-            .eq('id', user.id)
-            .single();
-
-          if (profile?.role_id) {
-            // 2. Get permissions for that role
-            const { data: rolePerms } = await supabase
-              .from('role_permissions')
-              .select('permissions(module)')
-              .eq('role_id', profile.role_id);
-
-            if (rolePerms) {
-              const modules = rolePerms.map((rp: any) => rp.permissions?.module).filter(Boolean);
-              setAllowedModules(modules);
-            }
-          } else {
-            // No role assigned? Default to empty or some base modules
-            setAllowedModules([]);
+          if (rolePerms) {
+            const modules = rolePerms.map((rp: any) => rp.permissions?.module).filter(Boolean);
+            setAllowedModules(modules);
           }
+        } catch (err) {
+          console.error('Error fetching sidebar permissions:', err);
         }
-      } catch (err) {
-        console.error('Error fetching sidebar data:', err);
-      } finally {
-        setLoading(false);
       }
     };
 
-    fetchLogoAndPermissions();
-  }, [user]);
+    fetchPermissions();
+  }, [profile]);
 
-  // Filter items
   const filteredMenuItems = allMenuItems.filter(item => 
-    allowedModules.includes(item.module) || item.module === 'dashboard' // Dashboard always visible or fix it
+    allowedModules.includes(item.module) || item.module === 'dashboard'
   );
 
   const filteredBottomItems = allBottomItems.filter(item => 
     allowedModules.includes(item.module) || item.module === 'help'
   );
+
+  const logoUrl = config?.logo_url || '';
+  const logoWidth = config?.logo_width || '150';
+  const mobileAppImg = config?.mobile_app_image_url || '';
 
   return (
     <aside className="sidebar">
@@ -107,10 +82,10 @@ export default function Sidebar() {
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'center',
-        minHeight: '60px',
+        minHeight: '80px',
         width: '100%'
       }}>
-        {logoData.url ? (
+        {logoUrl ? (
           <div style={{ 
             width: '100%', 
             display: 'flex', 
@@ -118,14 +93,15 @@ export default function Sidebar() {
             padding: '0 1rem'
           }}>
             <img 
-              src={logoData.url} 
+              src={logoUrl} 
               alt="Logo" 
               style={{ 
                 maxWidth: '100%', 
-                maxHeight: '80px', 
-                width: logoData.width ? `${logoData.width}px` : 'auto',
+                maxHeight: '120px', 
+                width: `${logoWidth}px`,
                 height: 'auto', 
-                objectFit: 'contain' 
+                objectFit: 'contain',
+                transition: 'width 0.3s ease'
               }} 
             />
           </div>
@@ -217,7 +193,7 @@ export default function Sidebar() {
         flexDirection: 'column',
         justifyContent: 'flex-end'
       }}>
-        {logoData.mobileAppImg && (
+        {mobileAppImg && (
           <div style={{ 
             position: 'absolute', 
             top: 0, 
@@ -227,7 +203,7 @@ export default function Sidebar() {
             opacity: 0.3,
             zIndex: 0
           }}>
-            <img src={logoData.mobileAppImg} alt="App" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img src={mobileAppImg} alt="App" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
         )}
         <div style={{ position: 'relative', zIndex: 1 }}>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { 
   Settings as SettingsIcon, 
   Users, 
@@ -27,6 +28,7 @@ import {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('roles');
+  const { refreshConfig } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -248,6 +250,7 @@ export default function SettingsPage() {
   const handleUpdateParam = async (name: string, value: string) => {
     try {
       await supabase.from('company_params').upsert({ name, value }, { onConflict: 'name' });
+      await refreshConfig();
       setMessage('Ajuste guardado.');
       setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {
@@ -398,15 +401,31 @@ export default function SettingsPage() {
                         <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('logo-upload')?.click()}>
                           <Upload size={16} /> Cambiar Logo
                         </button>
-                        <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.4rem', display: 'block' }}>Ancho del Logo (px)</label>
+                        <div style={{ marginTop: '0.5rem', padding: '1rem', backgroundColor: 'white', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <label style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text)' }}>Escalar Logo (Ancho)</label>
+                            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', backgroundColor: 'var(--primary-lighter)', padding: '2px 8px', borderRadius: '4px' }}>
+                              {companyParams.find(p => p.name === 'logo_width')?.value || '150'}px
+                            </span>
+                          </div>
                           <input 
-                            type="number" 
-                            className="input" 
-                            style={{ width: '100%' }} 
-                            defaultValue={companyParams.find(p => p.name === 'logo_width')?.value || '150'} 
-                            onBlur={(e) => handleUpdateParam('logo_width', e.target.value)}
+                            type="range" 
+                            min="50" 
+                            max="500" 
+                            step="5"
+                            style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                            value={companyParams.find(p => p.name === 'logo_width')?.value || '150'} 
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              setCompanyParams(prev => prev.map(p => p.name === 'logo_width' ? { ...p, value: newVal } : p));
+                            }}
+                            onMouseUp={(e: any) => handleUpdateParam('logo_width', e.target.value)}
+                            onTouchEnd={(e: any) => handleUpdateParam('logo_width', e.target.value)}
                           />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
+                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Pequeño</span>
+                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Grande</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -445,6 +464,7 @@ export default function SettingsPage() {
                               if (uploadError) throw uploadError;
                               const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
                               await handleUpdateParam('mobile_app_image_url', publicUrl);
+                              await refreshConfig();
                               fetchData();
                             } catch (err: any) { alert(err.message); } finally { setSaving(false); }
                           }} 

@@ -7,23 +7,30 @@ import { User } from '@supabase/supabase-js';
 interface AuthContextType {
   user: User | null;
   profile: any | null;
+  config: any;
   loading: boolean;
   signOut: () => Promise<void>;
+  refreshConfig: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
+  config: {},
   loading: true,
-  signOut: async () => {},
+  signOut: async () => { },
+  refreshConfig: async () => { },
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
+  const [config, setConfig] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    fetchConfig();
+
     // Check active sessions
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -44,13 +51,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  const fetchConfig = async () => {
+    try {
+      const { data } = await supabase.from('company_params').select('name, value');
+      if (data) {
+        const configMap = data.reduce((acc: any, curr: any) => {
+          acc[curr.name] = curr.value;
+          return acc;
+        }, {});
+        setConfig(configMap);
+      }
+    } catch (err) {
+      console.error('Error fetching global config:', err);
+    }
+  };
+
   const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*, roles(name)')
         .eq('id', userId)
-        .maybeSingle(); // Changed single() to maybeSingle() to avoid throwing on empty results
+        .maybeSingle();
 
       if (error) {
         console.warn('Profile fetch error:', error.message);
@@ -70,8 +92,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await supabase.auth.signOut();
   };
 
+  const refreshConfig = async () => {
+    await fetchConfig();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ user, profile, config, loading, signOut, refreshConfig }}>
       {children}
     </AuthContext.Provider>
   );
