@@ -332,7 +332,7 @@ export default function SettingsPage() {
                           <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Módulos Habilitados:</p>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                             {role.permissions?.length > 0 ? (
-                              role.permissions.map(pId => (
+                              role.permissions.map((pId: string) => (
                                 <span key={pId} className="badge badge-success" style={{ fontSize: '0.625rem' }}>
                                   {permissions.find(p => p.id === pId)?.module}
                                 </span>
