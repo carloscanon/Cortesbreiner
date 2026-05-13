@@ -464,7 +464,7 @@ export default function OrdersPage() {
 
                             {/* Sizes grid */}
                             <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                 <Palette size={13} /> Tallas y Capas
                               </label>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem' }}>
