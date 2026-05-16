@@ -26,7 +26,7 @@ const MASTER_CONFIG: any = {
     title: 'Maestro de Telas',
     table: 'fabrics',
     icon: Droplets,
-    listFields: ['tipo_tela', 'composicion', 'ancho', 'gramaje'],
+    listFields: ['tipo_tela', 'composicion', 'ancho', 'gramaje', 'capas_maximas', 'costo_con_iva'],
     fields: [
       { name: 'codigo_tela', label: 'Código Tela', type: 'text' },
       { name: 'nombre_tela', label: 'Nombre Tela', type: 'text', required: true },
@@ -35,7 +35,9 @@ const MASTER_CONFIG: any = {
       { name: 'ancho', label: 'Ancho (m)', type: 'number' },
       { name: 'gramaje', label: 'Gramaje (g/m²)', type: 'number' },
       { name: 'rendimiento_estimado', label: 'Rendimiento Estimado', type: 'number' },
-      { name: 'costo_unitario', label: 'Costo Unitario', type: 'number' }
+      { name: 'capas_maximas', label: 'Capas (Límite)', type: 'number' },
+      { name: 'costo_unitario', label: 'Costo Unitario ($)', type: 'number' },
+      { name: 'costo_con_iva', label: 'Costo con IVA ($)', type: 'number', disabled: true }
     ]
   },
   colors: {
@@ -193,6 +195,15 @@ export default function MastersPage() {
   const [formData, setFormData] = useState<any>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [iva, setIva] = useState(19);
+ 
+  useEffect(() => {
+    const fetchIva = async () => {
+      const { data } = await supabase.from('company_params').select('value').eq('name', 'iva_percent').single();
+      if (data) setIva(Number(data.value));
+    };
+    fetchIva();
+  }, []);
 
   const config = MASTER_CONFIG[activeTab];
 
@@ -483,9 +494,29 @@ export default function MastersPage() {
                     <input 
                       type={field.type}
                       required={field.required}
-                      style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', height: field.type === 'color' ? '45px' : 'auto' }}
+                      disabled={field.disabled}
+                      style={{ 
+                        width: '100%', 
+                        padding: '0.625rem', 
+                        borderRadius: '8px', 
+                        border: '1px solid var(--border)', 
+                        fontSize: '0.875rem', 
+                        height: field.type === 'color' ? '45px' : 'auto',
+                        backgroundColor: field.disabled ? '#f1f5f9' : 'white'
+                      }}
                       value={formData[field.name] || (field.type === 'color' ? '#000000' : '')}
-                      onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const newFormData = { ...formData, [field.name]: val };
+                        
+                        // Cálculo automático de IVA para telas
+                        if (activeTab === 'fabrics' && field.name === 'costo_unitario') {
+                          const cost = Number(val) || 0;
+                          newFormData.costo_con_iva = (cost * (1 + iva / 100)).toFixed(2);
+                        }
+                        
+                        setFormData(newFormData);
+                      }}
                     />
                   )}
                 </div>

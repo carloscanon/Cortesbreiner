@@ -73,16 +73,20 @@ export default function SettingsPage() {
         setUsers(profiles || []);
         const { data: rolesData } = await supabase.from('roles').select('*');
         setRoles(rolesData || []);
-      } else if (activeTab === 'company') {
+      } else if (activeTab === 'company' || activeTab === 'parametrization') {
         const { data } = await supabase.from('company_params').select('*');
         if (data && data.length > 0) {
           setCompanyParams(data);
         } else {
-          setCompanyParams([
+          // Initialize defaults if empty
+          const defaults = [
             { name: 'logo_url', value: '', description: 'URL del logo' },
             { name: 'logo_width', value: '150', description: 'Ancho del logo (px)' },
-            { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' }
-          ]);
+            { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' },
+            { name: 'min_wage', value: '1300000', description: 'Salario Mínimo' },
+            { name: 'iva_percent', value: '19', description: 'IVA (%)' }
+          ];
+          setCompanyParams(defaults);
         }
       }
     } catch (err) {
@@ -280,6 +284,7 @@ export default function SettingsPage() {
               { id: 'roles', label: 'Roles & Accesos', icon: ShieldCheck },
               { id: 'users', label: 'Usuarios', icon: Users },
               { id: 'company', label: 'Identidad Empresa', icon: Building2 },
+              { id: 'parametrization', label: 'Parametrización', icon: Database },
               { id: 'notifications', label: 'Notificaciones', icon: Bell },
               { id: 'database', label: 'Base de Datos', icon: Database },
             ].map((item) => (
@@ -474,6 +479,55 @@ export default function SettingsPage() {
                         </button>
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrará en la tarjeta de promoción de la app móvil en el menú lateral.</p>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'parametrization' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3>Variables Globales</h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura los valores base para cálculos de costos.</p>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>Salario Mínimo Legal</label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>$</span>
+                        <input 
+                          type="number" 
+                          className="input" 
+                          style={{ width: '100%', paddingLeft: '2rem' }} 
+                          value={companyParams.find(p => p.name === 'min_wage')?.value || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => prev.map(p => p.name === 'min_wage' ? { ...p, value: val } : p));
+                          }}
+                          onBlur={(e) => handleUpdateParam('min_wage', e.target.value)}
+                        />
+                      </div>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Utilizado para el cálculo de carga prestacional y MOD.</p>
+                    </div>
+
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>IVA (%)</label>
+                      <div style={{ position: 'relative' }}>
+                        <input 
+                          type="number" 
+                          className="input" 
+                          style={{ width: '100%', paddingRight: '2rem' }} 
+                          value={companyParams.find(p => p.name === 'iva_percent')?.value || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => prev.map(p => p.name === 'iva_percent' ? { ...p, value: val } : p));
+                          }}
+                          onBlur={(e) => handleUpdateParam('iva_percent', e.target.value)}
+                        />
+                        <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>%</span>
+                      </div>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Porcentaje de IVA aplicado a materias primas y servicios.</p>
                     </div>
                   </div>
                 </div>

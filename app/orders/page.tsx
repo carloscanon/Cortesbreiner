@@ -13,6 +13,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [filterType, setFilterType] = useState('all'); // all, corte, confeccion
   
   // Form State
   const [step, setStep] = useState(1);
@@ -24,7 +25,9 @@ export default function OrdersPage() {
     largo_trazo: 0,
     marcaciones_config: '',
     status: 'Planeada',
-    priority: 'Media'
+    priority: 'Media',
+    order_type: 'corte',
+    internal_code: ''
   });
 
   // Multireference items: Each item is a combination of Product + Color + Size Curve
@@ -32,13 +35,13 @@ export default function OrdersPage() {
     { id: Date.now(), product_id: '', color_id: '', sizes: {} }
   ]);
 
-  // Fabric colors with kilos for Step 1
+  // Fabric colors with kilos and layers for Step 1
   const [fabricColors, setFabricColors] = useState<any[]>([
-    { id: Date.now(), color_id: '', kilos: '' }
+    { id: Date.now(), color_id: '', kilos: '', layers: '' }
   ]);
 
   const addFabricColor = () =>
-    setFabricColors(prev => [...prev, { id: Date.now(), color_id: '', kilos: '' }]);
+    setFabricColors(prev => [...prev, { id: Date.now(), color_id: '', kilos: '', layers: '' }]);
 
   const removeFabricColor = (id: number) =>
     setFabricColors(prev => prev.filter(fc => fc.id !== id));
@@ -56,15 +59,15 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchData();
     fetchMasters();
-  }, []);
+  }, [filterType]);
 
   const fetchMasters = async () => {
     try {
-      const { data: f } = await supabase.from('fabrics').select('id, nombre_tela');
       const { data: p } = await supabase.from('products').select('id, nombre_producto, codigo_referencia');
       const { data: c } = await supabase.from('colors').select('id, nombre_color, hex_color');
       const { data: s } = await supabase.from('sizes').select('id, nombre_talla, codigo_talla').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('workshops').select('id, nombre_taller');
+      const { data: f } = await supabase.from('fabrics').select('id, nombre_tela, capas_maximas');
       
       setFabrics(f || []);
       setProducts(p || []);
@@ -79,7 +82,7 @@ export default function OrdersPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: result, error } = await supabase
+      let query = supabase
         .from('orders')
         .select(`
           *,
@@ -87,6 +90,12 @@ export default function OrdersPage() {
           workshops (nombre_taller)
         `)
         .order('created_at', { ascending: false });
+
+      if (filterType !== 'all') {
+        query = query.eq('order_type', filterType);
+      }
+
+      const { data: result, error } = await query;
       if (error) throw error;
       setData(result || []);
     } catch (err: any) {
@@ -133,11 +142,15 @@ export default function OrdersPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 1. Insert Main Order
+      const isCorte = formData.order_type === 'corte';
+      const randomCode = isCorte ? `CT-${Math.random().toString(36).substring(2, 8).toUpperCase()}` : '';
+
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
         .insert([{
           ...formData,
+          client_name: isCorte ? randomCode : formData.client_name,
+          internal_code: isCorte ? randomCode : '',
           capas_proyectadas: totalLayers
         }])
         .select()
@@ -176,7 +189,7 @@ export default function OrdersPage() {
       
       setShowModal(false);
       setStep(1);
-      setFormData({ status: 'Planeada', priority: 'Media', client_name: '', brand: '', fabric_id: '', workshop_id: '', largo_trazo: 0 });
+      setFormData({ status: 'Planeada', priority: 'Media', client_name: '', brand: '', fabric_id: '', workshop_id: '', largo_trazo: 0, order_type: 'corte' });
       setOrderItems([{ id: Date.now(), product_id: '', color_id: '', sizes: {} }]);
       setFabricColors([{ id: Date.now(), color_id: '', kilos: '' }]);
       fetchData();
@@ -191,11 +204,63 @@ export default function OrdersPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}><Scissors /> Órdenes de Corte Multireferencia</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}><Package /> Gestión de Órdenes</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Gestión avanzada de producción por taller y producto.</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setStep(1); setShowModal(true); }}>
           <Plus size={18} /> Nueva Orden
+        </button>
+      </div>
+
+      {/* Filtros de Tipo */}
+      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <button 
+          onClick={() => setFilterType('all')}
+          style={{ 
+            padding: '0.5rem 1.5rem', 
+            borderRadius: '999px', 
+            border: 'none', 
+            background: filterType === 'all' ? 'var(--primary)' : 'transparent',
+            color: filterType === 'all' ? 'white' : 'var(--text-muted)',
+            fontWeight: '600',
+            cursor: 'pointer'
+          }}
+        >
+          Todas
+        </button>
+        <button 
+          onClick={() => setFilterType('corte')}
+          style={{ 
+            padding: '0.5rem 1.5rem', 
+            borderRadius: '999px', 
+            border: 'none', 
+            background: filterType === 'corte' ? 'var(--primary)' : 'transparent',
+            color: filterType === 'corte' ? 'white' : 'var(--text-muted)',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}
+        >
+          <Scissors size={14} /> Corte
+        </button>
+        <button 
+          onClick={() => setFilterType('confeccion')}
+          style={{ 
+            padding: '0.5rem 1.5rem', 
+            borderRadius: '999px', 
+            border: 'none', 
+            background: filterType === 'confeccion' ? 'var(--primary)' : 'transparent',
+            color: filterType === 'confeccion' ? 'white' : 'var(--text-muted)',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}
+        >
+          <ArrowRight size={14} /> Confección
         </button>
       </div>
 
@@ -213,6 +278,7 @@ export default function OrdersPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>ID</th>
+                <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tipo</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cliente / Marca</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Taller Asignado</th>
                 <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Tela</th>
@@ -222,13 +288,26 @@ export default function OrdersPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ padding: '3rem', textAlign: 'center' }}><Loader2 className="animate-spin" /></td></tr>
+                <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center' }}><Loader2 className="animate-spin" /></td></tr>
               ) : data.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>No hay órdenes.</td></tr>
+                <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>No hay órdenes.</td></tr>
               ) : (
                 data.map((order) => (
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '1rem 1.5rem', fontSize: '0.875rem', fontWeight: '700' }}>#{order.consecutive?.toString().padStart(4, '0')}</td>
+                    <td style={{ padding: '1rem 1.5rem' }}>
+                      <span style={{ 
+                        padding: '0.25rem 0.6rem', 
+                        borderRadius: '999px', 
+                        fontSize: '0.7rem', 
+                        fontWeight: '700',
+                        backgroundColor: order.order_type === 'confeccion' ? '#fdf2f8' : '#eff6ff',
+                        color: order.order_type === 'confeccion' ? '#db2777' : '#2563eb',
+                        border: `1px solid ${order.order_type === 'confeccion' ? '#fbcfe8' : '#bfdbfe'}`
+                      }}>
+                        {order.order_type === 'confeccion' ? 'CONFECCIÓN' : 'CORTE'}
+                      </span>
+                    </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ fontWeight: '600' }}>{order.client_name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{order.brand}</div>
@@ -267,18 +346,60 @@ export default function OrdersPage() {
             <div style={{ padding: '2rem' }}>
               {step === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Selector de Tipo */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                    <button 
+                      onClick={() => setFormData({...formData, order_type: 'corte'})}
+                      style={{ 
+                        padding: '1rem', 
+                        borderRadius: '8px', 
+                        border: `2px solid ${formData.order_type === 'corte' ? 'var(--primary)' : 'transparent'}`,
+                        backgroundColor: formData.order_type === 'corte' ? 'white' : 'transparent',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Scissors color={formData.order_type === 'corte' ? 'var(--primary)' : '#64748b'} />
+                      <span style={{ fontWeight: '700', color: formData.order_type === 'corte' ? 'var(--primary)' : '#64748b' }}>Orden de Corte</span>
+                    </button>
+                    <button 
+                      onClick={() => setFormData({...formData, order_type: 'confeccion'})}
+                      style={{ 
+                        padding: '1rem', 
+                        borderRadius: '8px', 
+                        border: `2px solid ${formData.order_type === 'confeccion' ? 'var(--primary)' : 'transparent'}`,
+                        backgroundColor: formData.order_type === 'confeccion' ? 'white' : 'transparent',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Factory color={formData.order_type === 'confeccion' ? 'var(--primary)' : '#64748b'} />
+                      <span style={{ fontWeight: '700', color: formData.order_type === 'confeccion' ? 'var(--primary)' : '#64748b' }}>Orden de Confección</span>
+                    </button>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.5rem' }}>Cliente / Marca</label>
-                      <input type="text" style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={formData.client_name} onChange={(e) => setFormData({...formData, client_name: e.target.value, brand: e.target.value})} placeholder="Ej: Gef" />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.5rem' }}>Asignar Taller (Producción)</label>
-                      <select style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={formData.workshop_id} onChange={(e) => setFormData({...formData, workshop_id: e.target.value})}>
-                        <option value="">Seleccionar Taller...</option>
-                        {workshops.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
-                      </select>
-                    </div>
+                    {formData.order_type === 'confeccion' && (
+                      <>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.5rem' }}>Cliente / Marca</label>
+                          <input type="text" style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={formData.client_name} onChange={(e) => setFormData({...formData, client_name: e.target.value, brand: e.target.value})} placeholder="Ej: Gef" />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.5rem' }}>Asignar Taller (Producción)</label>
+                          <select style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={formData.workshop_id} onChange={(e) => setFormData({...formData, workshop_id: e.target.value})}>
+                            <option value="">Seleccionar Taller...</option>
+                            {workshops.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
+                          </select>
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.5rem' }}>Tela Principal</label>
                       <select style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }} value={formData.fabric_id} onChange={(e) => setFormData({...formData, fabric_id: e.target.value})}>
@@ -296,7 +417,7 @@ export default function OrdersPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <label style={{ fontSize: '0.8125rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <Palette size={15} /> Colores de Tela y Cantidad (kg)
+                        <Palette size={15} /> Colores de Tela, kg y Capas
                       </label>
                       <button
                         type="button"
@@ -310,12 +431,15 @@ export default function OrdersPage() {
 
                     {fabricColors.map((fc, idx) => {
                       const col = colors.find(c => c.id === fc.color_id);
+                      const selectedFabric = fabrics.find(f => f.id === formData.fabric_id);
+                      const maxCapas = selectedFabric?.capas_maximas || 125;
+
                       return (
                         <div
                           key={fc.id}
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: '1fr 160px auto',
+                            gridTemplateColumns: '1fr 140px 140px auto',
                             gap: '0.75rem',
                             alignItems: 'center',
                             padding: '0.75rem 1rem',
@@ -339,7 +463,7 @@ export default function OrdersPage() {
                               value={fc.color_id}
                               onChange={e => updateFabricColor(fc.id, 'color_id', e.target.value)}
                             >
-                              <option value="">Seleccionar Color...</option>
+                              <option value="">Color...</option>
                               {colors.map(c => (
                                 <option key={c.id} value={c.id}>{c.nombre_color}</option>
                               ))}
@@ -352,21 +476,46 @@ export default function OrdersPage() {
                               type="number"
                               min="0"
                               step="0.01"
-                              placeholder="0.00"
+                              placeholder="0.00 kg"
                               value={fc.kilos}
                               onChange={e => updateFabricColor(fc.id, 'kilos', e.target.value)}
                               style={{
                                 width: '100%',
-                                padding: '0.55rem 2.5rem 0.55rem 0.75rem',
+                                padding: '0.55rem 0.75rem',
                                 borderRadius: '8px',
                                 border: `1.5px solid ${Number(fc.kilos) > 0 ? 'var(--primary)' : 'var(--border)'}`,
-                                fontSize: '0.875rem',
-                                fontWeight: Number(fc.kilos) > 0 ? '700' : '400',
-                                backgroundColor: Number(fc.kilos) > 0 ? '#eff6ff' : 'white',
+                                fontSize: '0.8125rem',
                                 textAlign: 'right'
                               }}
                             />
-                            <span style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '600', pointerEvents: 'none' }}>kg</span>
+                            <span style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.65rem', color: 'var(--text-muted)', pointerEvents: 'none' }}>kg</span>
+                          </div>
+
+                          {/* Capas input */}
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              max={maxCapas}
+                              placeholder={`Capas (max ${maxCapas})`}
+                              value={fc.layers}
+                              onChange={e => {
+                                const val = Math.min(Number(e.target.value), maxCapas);
+                                updateFabricColor(fc.id, 'layers', val);
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '0.55rem 0.75rem',
+                                borderRadius: '8px',
+                                border: `1.5px solid ${Number(fc.layers) > 0 ? '#10b981' : 'var(--border)'}`,
+                                fontSize: '0.8125rem',
+                                textAlign: 'right'
+                              }}
+                            />
+                            <span style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.65rem', color: 'var(--text-muted)', pointerEvents: 'none' }}>cap</span>
+                            {Number(fc.layers) >= maxCapas && (
+                              <div style={{ position: 'absolute', bottom: '-12px', right: 0, fontSize: '0.6rem', color: '#ef4444', fontWeight: '700' }}>Límite: {maxCapas}</div>
+                            )}
                           </div>
 
                           {/* Remove button */}
