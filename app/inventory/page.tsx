@@ -34,9 +34,9 @@ export default function InventoryPage() {
 
   const fetchMasters = async () => {
     try {
-      const { data: f } = await supabase.from('fabrics').select('id, nombre_tela');
-      const { data: c } = await supabase.from('colors').select('id, nombre_color, hex_color');
-      const { data: w } = await supabase.from('warehouses').select('id, nombre_bodega');
+      const { data: f } = await supabase.from('fabrics').select('*');
+      const { data: c } = await supabase.from('colors').select('*');
+      const { data: w } = await supabase.from('warehouses').select('*');
       setFabrics(f || []);
       setColors(c || []);
       setWarehouses(w || []);

@@ -63,19 +63,26 @@ export default function OrdersPage() {
 
   const fetchMasters = async () => {
     try {
-      const { data: p } = await supabase.from('products').select('id, nombre_producto, codigo_referencia');
-      const { data: c } = await supabase.from('colors').select('id, nombre_color, hex_color');
-      const { data: s } = await supabase.from('sizes').select('id, nombre_talla, codigo_talla').order('orden_visual', { ascending: true });
-      const { data: w } = await supabase.from('workshops').select('id, nombre_taller');
-      const { data: f } = await supabase.from('fabrics').select('id, nombre_tela, capas_maximas');
+      // Usamos select('*') para ser más resilientes a cambios en el esquema
+      const { data: p, error: pErr } = await supabase.from('products').select('*');
+      const { data: c, error: cErr } = await supabase.from('colors').select('*');
+      const { data: s, error: sErr } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
+      const { data: w, error: wErr } = await supabase.from('workshops').select('*');
+      const { data: f, error: fErr } = await supabase.from('fabrics').select('*');
       
-      setFabrics(f || []);
-      setProducts(p || []);
-      setColors(c || []);
-      setSizes(s || []);
-      setWorkshops(w || []);
+      if (p) setProducts(p);
+      if (c) setColors(c);
+      if (s) setSizes(s);
+      if (w) setWorkshops(w);
+      if (f) setFabrics(f);
+
+      if (pErr) console.error('Error cargando productos:', pErr);
+      if (cErr) console.error('Error cargando colores:', cErr);
+      if (sErr) console.error('Error cargando tallas:', sErr);
+      if (wErr) console.error('Error cargando talleres:', wErr);
+      if (fErr) console.error('Error cargando telas:', fErr);
     } catch (err) {
-      console.error('Error fetching masters:', err);
+      console.error('Error inesperado en fetchMasters:', err);
     }
   };
 
@@ -126,18 +133,17 @@ export default function OrdersPage() {
     }));
   };
 
-  const calculateTotalLayers = () => {
-    let total = 0;
-    orderItems.forEach(item => {
-      Object.values(item.sizes).forEach((val: any) => {
-        total += (Number(val) || 0);
-      });
-    });
-    return total;
-  };
+  const selectedFabric = fabrics.find(f => f.id === formData.fabric_id);
+  const fabricMaxCapas = selectedFabric?.capas_maximas || 125;
+  const currentTotalLayersStep1 = fabricColors.reduce((sum, fc) => sum + (Number(fc.layers) || 0), 0);
+  const isLimitExceeded = currentTotalLayersStep1 > fabricMaxCapas;
 
-  const totalLayers = calculateTotalLayers();
-  const isOverLimit = totalLayers > 125;
+  const totalLayers = orderItems.reduce((acc, item) => {
+    const itemSum = Object.values(item.sizes).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0);
+    return acc + itemSum;
+  }, 0);
+  
+  const isOverLimit = totalLayers > fabricMaxCapas;
 
   const handleSave = async () => {
     setSaving(true);
@@ -531,18 +537,43 @@ export default function OrdersPage() {
                       );
                     })}
 
-                    {/* Total kilos summary */}
-                    {fabricColors.some(fc => Number(fc.kilos) > 0) && (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '8px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total:</span>
-                        <span style={{ fontSize: '1rem', fontWeight: '800', color: '#16a34a' }}>
-                          {fabricColors.reduce((sum, fc) => sum + (Number(fc.kilos) || 0), 0).toFixed(2)} kg
-                        </span>
+                    {/* Total summary (Kilos and Layers) */}
+                    {(fabricColors.some(fc => Number(fc.kilos) > 0) || fabricColors.some(fc => Number(fc.layers) > 0)) && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1.5rem', padding: '0.75rem 1rem', borderRadius: '8px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Total Kilos:</span>
+                          <span style={{ fontSize: '1rem', fontWeight: '800', color: '#16a34a' }}>
+                            {fabricColors.reduce((sum, fc) => sum + (Number(fc.kilos) || 0), 0).toFixed(2)} kg
+                          </span>
+                        </div>
+                        <div style={{ width: '1px', height: '1.5rem', backgroundColor: '#bbf7d0' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Total Capas:</span>
+                          <span style={{ fontSize: '1rem', fontWeight: '800', color: '#16a34a' }}>
+                            {fabricColors.reduce((sum, fc) => sum + (Number(fc.layers) || 0), 0)}
+                          </span>
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  <button className="btn btn-primary" style={{ padding: '1rem', width: '100%' }} onClick={() => setStep(2)}>
+                    {/* Limit exceeded warning */}
+                    {isLimitExceeded && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem', borderRadius: '12px', backgroundColor: '#fff1f2', border: '1px solid #fecaca', color: '#e11d48' }}>
+                        <AlertTriangle size={20} />
+                        <div>
+                          <p style={{ fontSize: '0.8125rem', fontWeight: '700' }}>Límite Técnico Excedido</p>
+                          <p style={{ fontSize: '0.75rem', opacity: 0.9 }}>El total de capas ({currentTotalLayersStep1}) supera el máximo permitido para esta tela ({fabricMaxCapas}).</p>
+                        </div>
+                      </div>
+                    )}
+
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ padding: '1rem', width: '100%', opacity: isLimitExceeded ? 0.6 : 1, cursor: isLimitExceeded ? 'not-allowed' : 'pointer' }} 
+                    onClick={() => !isLimitExceeded && setStep(2)}
+                    disabled={isLimitExceeded}
+                  >
                     Configurar Referencias y Tallas <ArrowRight size={18} />
                   </button>
                 </div>

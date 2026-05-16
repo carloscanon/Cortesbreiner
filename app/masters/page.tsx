@@ -68,13 +68,26 @@ const MASTER_CONFIG: any = {
     title: 'Maestro de Productos',
     table: 'products',
     icon: LayoutGrid,
-    listFields: ['categoria', 'linea', 'genero'],
+    listFields: ['category_id', 'precio', 'precio_con_iva'],
     fields: [
-      { name: 'codigo_referencia', label: 'Referencia', type: 'text', required: true },
+      { name: 'codigo_referencia', label: 'Referencia (Auto)', type: 'text', disabled: true },
       { name: 'nombre_producto', label: 'Nombre Producto', type: 'text', required: true },
-      { name: 'categoria', label: 'Categoría', type: 'text' },
-      { name: 'linea', label: 'Línea', type: 'text' },
-      { name: 'genero', label: 'Género', type: 'text' }
+      { name: 'category_id', label: 'Categoría', type: 'select', options: [] },
+      { name: 'genero', label: 'Género', type: 'select', options: ['M', 'F'] },
+      { name: 'iva', label: 'IVA (%)', type: 'number', disabled: true },
+      { name: 'precio', label: 'Precio ($)', type: 'number' },
+      { name: 'precio_con_iva', label: 'Precio con IVA ($)', type: 'number', disabled: true }
+    ]
+  },
+  categories: {
+    title: 'Maestro de Categorías',
+    table: 'categories',
+    icon: Tag,
+    listFields: ['cod_categoria', 'linea'],
+    fields: [
+      { name: 'cod_categoria', label: 'Cód. Categoría (Auto)', type: 'text', disabled: true },
+      { name: 'categoria', label: 'Nombre Categoría', type: 'text', required: true },
+      { name: 'linea', label: 'Línea', type: 'text' }
     ]
   },
   workshops: {
@@ -209,7 +222,18 @@ export default function MastersPage() {
 
   useEffect(() => {
     fetchData();
+    const fetchMasters = async () => {
+      try {
+        const { data: catData } = await supabase.from('categories').select('*').order('categoria');
+        if (catData) setCategories(catData);
+      } catch (err) {
+        console.error('Error fetching categories:', err);
+      }
+    };
+    fetchMasters();
   }, [activeTab]);
+
+  const [categories, setCategories] = useState<any[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -228,12 +252,31 @@ export default function MastersPage() {
     }
   };
 
+  const handleAdd = () => {
+    setEditingId(null);
+    const initialData: any = {};
+    
+    // Pre-cargar IVA global para productos y telas
+    if (activeTab === 'products' || activeTab === 'fabrics') {
+      initialData.iva = iva;
+    }
+    
+    setFormData(initialData);
+    setShowModal(true);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       const payload = { ...formData };
       
+      // Auto-generar referencia para productos si es nuevo
+      if (activeTab === 'products' && !editingId) {
+        const count = data.length + 1;
+        payload.codigo_referencia = `REF-${count.toString().padStart(4, '0')}`;
+      }
+
       // Lógica específica para colores
       if (activeTab === 'colors') {
         if (!payload.hex_color) payload.hex_color = '#000000';
@@ -255,6 +298,12 @@ export default function MastersPage() {
           .eq('tipo', payload.tipo || '');
         const seq = ((count || 0) + 1).toString().padStart(3, '0');
         payload.codigo = `${prefix}-${seq}`;
+      }
+
+      // Auto-generar código de categoría si es nuevo
+      if (activeTab === 'categories' && !editingId) {
+        const count = data.length + 1;
+        formData.cod_categoria = `CAT-${count.toString().padStart(3, '0')}`;
       }
 
       if (editingId) {
@@ -392,10 +441,17 @@ export default function MastersPage() {
                             const val = item[fieldKey];
                             if (val === undefined || val === null || val === '') return null;
                             
-                            // Formato especial para ciertos campos
                             let label = fieldKey.replace('_', ' ');
                             let displayVal = val;
-                            if (fieldKey === 'valor') displayVal = `$${val.toLocaleString()}`;
+
+                            if (fieldKey === 'category_id') {
+                              const cat = categories.find(c => c.id === val);
+                              displayVal = cat ? cat.categoria : 'Sin Categoría';
+                              label = 'Categoría';
+                            }
+                            if (fieldKey === 'valor' || fieldKey === 'precio' || fieldKey === 'precio_con_iva' || fieldKey === 'costo_con_iva') {
+                              displayVal = `$${Number(val).toLocaleString()}`;
+                            }
                             if (fieldKey === 'ancho') displayVal = `${val}m`;
                             if (fieldKey === 'gramaje') displayVal = `${val}g/m²`;
                             
@@ -486,9 +542,15 @@ export default function MastersPage() {
                       onChange={(e) => setFormData({...formData, [field.name]: e.target.value})}
                     >
                       <option value=''>Seleccionar...</option>
-                      {field.options?.map((opt: string) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
+                      {field.name === 'category_id' ? (
+                        categories.map((cat: any) => (
+                          <option key={cat.id} value={cat.id}>{cat.categoria}</option>
+                        ))
+                      ) : (
+                        field.options?.map((opt: string) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))
+                      )}
                     </select>
                   ) : (
                     <input 
@@ -513,6 +575,15 @@ export default function MastersPage() {
                         if (activeTab === 'fabrics' && field.name === 'costo_unitario') {
                           const cost = Number(val) || 0;
                           newFormData.costo_con_iva = (cost * (1 + iva / 100)).toFixed(2);
+                        }
+
+                        // Cálculo automático de IVA para productos
+                        if (activeTab === 'products') {
+                          if (field.name === 'precio') {
+                            const price = Number(val) || 0;
+                            const productIva = Number(newFormData.iva) || iva;
+                            newFormData.precio_con_iva = (price * (1 + productIva / 100)).toFixed(2);
+                          }
                         }
                         
                         setFormData(newFormData);
