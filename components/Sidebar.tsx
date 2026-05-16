@@ -28,6 +28,7 @@ const allMenuItems = [
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: Factory, label: 'Talleres', href: '/workshops', module: 'workshops' },
+  { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
 ];
 

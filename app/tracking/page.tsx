@@ -12,6 +12,8 @@ export default function TrackingPage() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
 
   useEffect(() => {
     fetchData();
@@ -68,12 +70,14 @@ export default function TrackingPage() {
     }
   };
 
-  const phases = ['Planeada', 'En Corte', 'Terminada', 'Enviada', 'Cerrada'];
+  const phases = ['Planeada', 'En Corte', 'Cortado', 'En Confección', 'Terminada', 'Cerrada'];
 
   const getStatusStyle = (status: string) => {
     switch(status) {
       case 'Planeada': return { border: '#bfdbfe', bg: '#eff6ff', color: '#2563eb', icon: <Clock size={16} /> };
       case 'En Corte': return { border: '#fef08a', bg: '#fefce8', color: '#a16207', icon: <Scissors size={16} /> };
+      case 'Cortado': return { border: '#fed7aa', bg: '#fff7ed', color: '#ea580c', icon: <CheckCircle size={16} /> };
+      case 'En Confección': return { border: '#ddd6fe', bg: '#f5f3ff', color: '#7c3aed', icon: <Factory size={16} /> };
       case 'Terminada': return { border: '#bbf7d0', bg: '#f0fdf4', color: '#16a34a', icon: <CheckCircle size={16} /> };
       case 'Enviada': return { border: '#ddd6fe', bg: '#f5f3ff', color: '#7c3aed', icon: <Truck size={16} /> };
       case 'Cerrada': return { border: '#e2e8f0', bg: '#f8fafc', color: '#64748b', icon: <Package size={16} /> };
@@ -82,6 +86,17 @@ export default function TrackingPage() {
   };
 
   const getPhaseIndex = (status: string) => phases.indexOf(status);
+
+  const filteredData = data.filter(order => {
+    const matchesSearch = 
+      order.client_name?.toLowerCase().includes(search.toLowerCase()) ||
+      order.fabrics?.nombre_tela?.toLowerCase().includes(search.toLowerCase()) ||
+      `oc-${order.consecutive?.toString().padStart(4, '0')}`.includes(search.toLowerCase());
+    
+    const matchesFilter = activeFilter === 'all' || order.status === activeFilter;
+    
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -93,27 +108,50 @@ export default function TrackingPage() {
       </div>
 
       <div className="card" style={{ padding: '0' }}>
-        <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+        <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: '1rem', backgroundColor: '#f8fafc' }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Buscar por OC, cliente o taller..." 
-              style={{ width: '100%', padding: '0.625rem 1rem 0.625rem 3rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+              placeholder="Buscar por código, cliente o tela..." 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }}
             />
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {['all', 'En Corte', 'Cortado', 'En Confección', 'Terminada'].map(f => (
+              <button 
+                key={f}
+                onClick={() => setActiveFilter(f)}
+                className="btn"
+                style={{ 
+                  fontSize: '0.7rem', 
+                  fontWeight: '700',
+                  backgroundColor: activeFilter === f ? 'var(--primary)' : 'white',
+                  color: activeFilter === f ? 'white' : 'var(--text)',
+                  border: '1px solid var(--border)',
+                  padding: '0.5rem 0.8rem',
+                  cursor: 'pointer',
+                  borderRadius: '6px'
+                }}
+              >
+                {f === 'all' ? 'Ver Todas' : f}
+              </button>
+            ))}
           </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {loading ? (
             <div style={{ padding: '5rem', textAlign: 'center' }}><Loader2 className="animate-spin" /></div>
-          ) : data.length === 0 ? (
+          ) : filteredData.length === 0 ? (
             <div style={{ padding: '5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               <Package size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
               <p>No se encontraron órdenes de corte registradas.</p>
             </div>
           ) : (
-            data.map((order) => {
+            filteredData.map((order) => {
               const currentStyle = getStatusStyle(order.status);
               const currentPhaseIndex = getPhaseIndex(order.status);
 
@@ -164,6 +202,8 @@ export default function TrackingPage() {
                         >
                           <option value="Planeada">⏳ Planeada</option>
                           <option value="En Corte">✂️ En Corte</option>
+                          <option value="Cortado">📏 Cortado</option>
+                          <option value="En Confección">🧵 En Confección</option>
                           <option value="Terminada">✅ Terminada</option>
                           <option value="Enviada">🚚 Enviada</option>
                           <option value="Cerrada">🔒 Cerrada</option>

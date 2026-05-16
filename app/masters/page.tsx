@@ -374,7 +374,7 @@ export default function MastersPage() {
             <h1>{config.title}</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Gestión de datos técnicos del sistema.</p>
           </div>
-          <button className="btn btn-primary" onClick={() => { setFormData({}); setEditingId(null); setShowModal(true); }}>
+          <button className="btn btn-primary" onClick={handleAdd}>
             <Plus size={18} /> Nuevo Registro
           </button>
         </div>
