@@ -99,7 +99,7 @@ export default function OrdersPage() {
         .select(`*, fabrics (nombre_tela, capas_maximas), workshops (nombre_taller)`)
         .order('created_at', { ascending: false });
 
-      if (filterType !== 'all') query = query.eq('order_type', filterType);
+      if (filterType !== 'all') query = query.eq('status', filterType);
 
       const { data: result, error } = await query;
       if (error) throw error;

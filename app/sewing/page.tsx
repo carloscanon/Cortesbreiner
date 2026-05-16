@@ -22,6 +22,9 @@ export default function SewingPage() {
     scheduled_date: new Date().toISOString().split('T')[0],
     notes: ''
   });
+  const [accessories, setAccessories] = useState<any[]>([]);
+  const [assignmentAccessories, setAssignmentAccessories] = useState<{acc_id: string, qty: number}[]>([]);
+  const [tempAcc, setTempAcc] = useState({ id: '', qty: '' });
 
   const [showGenerationModal, setShowGenerationModal] = useState(false);
 
@@ -51,6 +54,9 @@ export default function SewingPage() {
 
       if (workshopsError) throw workshopsError;
 
+      const { data: accData } = await supabase.from('accessories').select('*').order('nombre', { ascending: true });
+      if (accData) setAccessories(accData);
+
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
     } catch (err: any) {
@@ -64,12 +70,24 @@ export default function SewingPage() {
     if (!assignment.workshop_id || !selectedOrder) return alert('Seleccione un taller.');
     setSaving(true);
     try {
+      let accNotes = '';
+      if (assignmentAccessories.length > 0) {
+        accNotes = '\n[Accesorios Enviados]:\n' + assignmentAccessories.map(a => {
+          const acc = accessories.find(x => x.id === a.acc_id);
+          return `- ${acc?.nombre || 'Desconocido'}: ${a.qty} ${acc?.unidad_medida || 'unidades'}`;
+        }).join('\n');
+      }
+
+      const finalNotes = assignment.notes 
+        ? `${selectedOrder.observaciones || ''}\n[Salida Taller]: ${assignment.notes}${accNotes}` 
+        : `${selectedOrder.observaciones || ''}${accNotes}`;
+
       const { error } = await supabase
         .from('orders')
         .update({
           workshop_id: assignment.workshop_id,
           status: 'En Confección',
-          observaciones: assignment.notes ? `${selectedOrder.observaciones || ''}\n[Salida Taller]: ${assignment.notes}` : selectedOrder.observaciones
+          observaciones: finalNotes
         })
         .eq('id', selectedOrder.id);
 
@@ -78,6 +96,8 @@ export default function SewingPage() {
       setShowModal(false);
       setShowGenerationModal(false);
       setAssignment({ workshop_id: '', scheduled_date: new Date().toISOString().split('T')[0], notes: '' });
+      setAssignmentAccessories([]);
+      setTempAcc({ id: '', qty: '' });
       fetchData();
     } catch (err: any) {
       alert('Error al asignar taller: ' + err.message);
@@ -336,9 +356,58 @@ export default function SewingPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ fontWeight: '800', fontSize: '0.75rem', color: '#64748b' }}>OBSERVACIONES / ACCESORIOS</label>
+                <label style={{ fontWeight: '800', fontSize: '0.75rem', color: '#64748b' }}>ACCESORIOS E INSUMOS</label>
+                <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1.5px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <select 
+                      style={{ flex: 2, padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.875rem' }}
+                      value={tempAcc.id}
+                      onChange={e => setTempAcc({...tempAcc, id: e.target.value})}
+                    >
+                      <option value="">Seleccionar Accesorio...</option>
+                      {accessories.map(a => <option key={a.id} value={a.id}>{a.nombre} ({a.unidad_medida})</option>)}
+                    </select>
+                    <input 
+                      type="number" 
+                      placeholder="Cant." 
+                      style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.875rem' }}
+                      value={tempAcc.qty}
+                      onChange={e => setTempAcc({...tempAcc, qty: e.target.value})}
+                    />
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ padding: '0 1rem', borderRadius: '8px', backgroundColor: '#e2e8f0', border: 'none', fontWeight: '800' }}
+                      onClick={() => {
+                        if (tempAcc.id && tempAcc.qty) {
+                          setAssignmentAccessories([...assignmentAccessories, { acc_id: tempAcc.id, qty: Number(tempAcc.qty) }]);
+                          setTempAcc({ id: '', qty: '' });
+                        }
+                      }}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+
+                  {assignmentAccessories.length > 0 && (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {assignmentAccessories.map((a, i) => {
+                        const accInfo = accessories.find(x => x.id === a.acc_id);
+                        return (
+                          <li key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8125rem' }}>
+                            <span><strong>{accInfo?.nombre}</strong> ({a.qty} {accInfo?.unidad_medida})</span>
+                            <button onClick={() => setAssignmentAccessories(assignmentAccessories.filter((_, idx) => idx !== i))} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ fontWeight: '800', fontSize: '0.75rem', color: '#64748b' }}>NOTAS ADICIONALES</label>
                 <textarea 
-                  placeholder="Incluye hilos, marquillas, cierres, etc."
+                  placeholder="Instrucciones específicas para el taller..."
                   style={{ width: '100%', padding: '0.875rem', borderRadius: '10px', border: '2.5px solid #e2e8f0', minHeight: '80px', fontSize: '0.875rem' }}
                   value={assignment.notes}
                   onChange={e => setAssignment({...assignment, notes: e.target.value})}
