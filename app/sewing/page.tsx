@@ -13,7 +13,7 @@ export default function SewingPage() {
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('Cortado');
+  const [filterStatus, setFilterStatus] = useState('En Confección');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);

@@ -23,7 +23,10 @@ import {
   Mail,
   Lock,
   AlertTriangle,
-  ChevronRight
+  ChevronRight,
+  Eye,
+  EyeOff,
+  User as UserIcon
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -46,6 +49,7 @@ export default function SettingsPage() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -201,29 +205,42 @@ export default function SettingsPage() {
     const password = formData.get('password') as string;
     const full_name = formData.get('full_name') as string;
     const role_id = formData.get('role_id') as string;
+    const cleanRoleId = role_id && role_id !== '' ? role_id : null;
+
+    if (password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
+      setSaving(false);
+      return;
+    }
 
     try {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
-        password
+        password,
+        options: {
+          data: {
+            full_name,
+            role_id: cleanRoleId
+          }
+        }
       });
 
       if (authError) throw authError;
 
-      if (authData.user) {
-        const cleanRoleId = role_id && role_id !== '' ? role_id : null;
-        await new Promise(resolve => setTimeout(resolve, 800));
-        await supabase.from('profiles').upsert([
-          { id: authData.user.id, full_name, role_id: cleanRoleId }
-        ]);
+      if (!authData.user) {
+        throw new Error('Supabase rechazó la creación silenciosamente. Es muy probable que este correo ya esté registrado o hayas excedido el límite de pruebas por hora.');
       }
+
+      // La creación del perfil público será manejada automáticamente 
+      // por un Trigger en Supabase (handle_new_user)
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       setShowCreateUserModal(false);
       fetchData();
-      setMessage('Usuario registrado con éxito.');
+      setMessage('Usuario registrado exitosamente.');
       setTimeout(() => setMessage(''), 5000);
     } catch (err: any) {
-      alert('Error: ' + err.message);
+      alert('Error en registro: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -603,35 +620,73 @@ export default function SettingsPage() {
 
       {/* Other Modals (Same as before) */}
       {showCreateUserModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ width: '90%', maxWidth: '450px', padding: '2.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-              <h3>Nuevo Usuario</h3>
-              <button className="btn-icon" onClick={() => setShowCreateUserModal(false)}><X size={24} /></button>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="card" style={{ width: '90%', maxWidth: '480px', padding: '0', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <UserIcon size={22} /> Nuevo Usuario
+                </h2>
+                <p style={{ fontSize: '0.8rem', opacity: 0.9, margin: '0.25rem 0 0 0' }}>Crea accesos y asigna roles al personal.</p>
+              </div>
+              <button onClick={() => setShowCreateUserModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '50%', padding: '0.5rem', display: 'flex' }}><X size={20} /></button>
             </div>
-            <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Nombre Completo</label>
-                <input name="full_name" required className="input" style={{ width: '100%' }} />
+            
+            <form onSubmit={handleCreateUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
+                <div style={{ position: 'relative' }}>
+                  <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="full_name" required placeholder="Ej. Ana Pérez" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Email</label>
-                <input name="email" type="email" required className="input" style={{ width: '100%' }} />
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO (EMAIL)</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="email" type="email" required placeholder="correo@empresa.com" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Password</label>
-                <input name="password" type="password" required className="input" style={{ width: '100%' }} />
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CONTRASEÑA SECRETA</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input 
+                    name="password" 
+                    type={showPassword ? 'text' : 'password'} 
+                    required 
+                    placeholder="Mínimo 6 caracteres" 
+                    minLength={6}
+                    style={{ width: '100%', padding: '0.875rem 3rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Rol</label>
-                <select name="role_id" required className="input" style={{ width: '100%' }}>
-                  <option value="">Seleccione...</option>
-                  {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>ROL DEL SISTEMA</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <select name="role_id" required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                    <option value="">Seleccione el nivel de acceso...</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowCreateUserModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={saving}>Registrar</button>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setShowCreateUserModal(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontWeight: '800', borderRadius: '10px', backgroundColor: '#7c3aed', border: 'none' }} disabled={saving}>
+                  {saving ? <><Loader2 className="animate-spin" size={18} style={{ marginRight: '0.5rem' }} /> Registrando...</> : 'Confirmar Registro'}
+                </button>
               </div>
             </form>
           </div>
@@ -639,27 +694,50 @@ export default function SettingsPage() {
       )}
 
       {showUserModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ width: '90%', maxWidth: '450px', padding: '2.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-              <h3>Editar Perfil</h3>
-              <button className="btn-icon" onClick={() => setShowUserModal(false)}><X size={24} /></button>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="card" style={{ width: '90%', maxWidth: '480px', padding: '0', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #475569 0%, #334155 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Edit2 size={22} /> Editar Perfil
+                </h2>
+                <p style={{ fontSize: '0.8rem', opacity: 0.9, margin: '0.25rem 0 0 0' }}>Actualiza los permisos y datos del personal.</p>
+              </div>
+              <button onClick={() => setShowUserModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '50%', padding: '0.5rem', display: 'flex' }}><X size={20} /></button>
             </div>
-            <form onSubmit={handleSaveUser} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Nombre</label>
-                <input name="full_name" defaultValue={editingUser?.full_name} required className="input" style={{ width: '100%' }} />
+            
+            <form onSubmit={handleSaveUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
+                <div style={{ position: 'relative' }}>
+                  <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="full_name" defaultValue={editingUser?.full_name} required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', marginBottom: '0.5rem' }}>Rol</label>
-                <select name="role_id" defaultValue={editingUser?.role_id} className="input" style={{ width: '100%' }}>
-                  <option value="">Sin Rol</option>
-                  {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>ROL DEL SISTEMA</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <select name="role_id" defaultValue={editingUser?.role_id} required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                    <option value="">Seleccione el nivel de acceso...</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
               </div>
+
+              <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <AlertTriangle size={14} color="#f59e0b" />
+                  El correo y contraseña se gestionan desde Supabase Auth.
+                </p>
+              </div>
+
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowUserModal(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={saving}>Actualizar</button>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setShowUserModal(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontWeight: '800', borderRadius: '10px', backgroundColor: '#334155', border: 'none' }} disabled={saving}>
+                  {saving ? <><Loader2 className="animate-spin" size={18} style={{ marginRight: '0.5rem' }} /> Actualizando...</> : 'Actualizar Perfil'}
+                </button>
               </div>
             </form>
           </div>

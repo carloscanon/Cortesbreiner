@@ -26,8 +26,9 @@ const MASTER_CONFIG: any = {
     title: 'Maestro de Telas',
     table: 'fabrics',
     icon: Droplets,
-    listFields: ['tipo_tela', 'composicion', 'ancho', 'gramaje', 'capas_maximas', 'costo_con_iva'],
+    listFields: ['factura_relacionada', 'tipo_tela', 'composicion', 'kilos', 'capas', 'costo_con_iva'],
     fields: [
+      { name: 'factura_relacionada', label: 'N° Factura Relacionada', type: 'text' },
       { name: 'codigo_tela', label: 'Código Tela', type: 'text' },
       { name: 'nombre_tela', label: 'Nombre Tela', type: 'text', required: true },
       { name: 'tipo_tela', label: 'Tipo de Tela', type: 'text' },
@@ -35,6 +36,8 @@ const MASTER_CONFIG: any = {
       { name: 'ancho', label: 'Ancho (m)', type: 'number' },
       { name: 'gramaje', label: 'Gramaje (g/m²)', type: 'number' },
       { name: 'rendimiento_estimado', label: 'Rendimiento Estimado', type: 'number' },
+      { name: 'kilos', label: 'Kilos (Facturados)', type: 'number' },
+      { name: 'capas', label: 'Capas (Calculadas)', type: 'number' },
       { name: 'capas_maximas', label: 'Capas (Límite)', type: 'number' },
       { name: 'costo_unitario', label: 'Costo Unitario ($)', type: 'number' },
       { name: 'costo_con_iva', label: 'Costo con IVA ($)', type: 'number', disabled: true }
