@@ -39,6 +39,28 @@ export default function OrdersPage() {
   // Step 2 Matrix State
   const [matrixCols, setMatrixCols] = useState<any[]>([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
   const [matrixCells, setMatrixCells] = useState<Record<string, number>>({});
+  const [longitud, setLongitud] = useState<number>(1);
+
+  const handleLongitudChange = (valStr: string) => {
+    const val = Number(valStr) || 1;
+    setLongitud(val);
+    
+    // Re-fill/re-calculate all matrix cells using the new longitud
+    setMatrixCells(prev => {
+      const newCells = { ...prev };
+      fabricColors.forEach(fc => {
+        if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
+          matrixCols.forEach(col => {
+            const m1 = col.marker1 === '' ? 1 : Number(col.marker1);
+            const m2 = col.marker2 === '' ? 1 : Number(col.marker2);
+            newCells[`${fc.id}_${col.id}_1`] = Math.round(((Number(fc.layers) || 0) * m1) / val);
+            newCells[`${fc.id}_${col.id}_2`] = Math.round(((Number(fc.layers) || 0) * m2) / val);
+          });
+        }
+      });
+      return newCells;
+    });
+  };
 
   const addMatrixCol = () => {
     if (matrixCols.length < 8) {
@@ -62,7 +84,7 @@ export default function OrdersPage() {
         fabricColors.forEach(fc => {
           if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
             const key = `${fc.id}_${id}_${sizeIndex}`;
-            newCells[key] = Math.round((Number(fc.layers) || 0) * markerVal);
+            newCells[key] = Math.round(((Number(fc.layers) || 0) * markerVal) / (longitud || 1));
           }
         });
         return newCells;
@@ -725,8 +747,8 @@ export default function OrdersPage() {
                       validColors.forEach(fc => {
                         if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
                           matrixCols.forEach(col => {
-                            newCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 1 : Number(col.marker1)));
-                            newCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 1 : Number(col.marker2)));
+                            newCells[`${fc.id}_${col.id}_1`] = Math.round(((Number(fc.layers) || 0) * (col.marker1 === '' ? 1 : Number(col.marker1))) / (longitud || 1));
+                            newCells[`${fc.id}_${col.id}_2`] = Math.round(((Number(fc.layers) || 0) * (col.marker2 === '' ? 1 : Number(col.marker2))) / (longitud || 1));
                           });
                         }
                       });
@@ -743,8 +765,22 @@ export default function OrdersPage() {
               {/* STEP 2: PROGRAMACIÓN TÉCNICA (ANTES PASO 3) */}
               {step === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: '900' }}>Matriz de Programación Técnica</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '1rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>Matriz de Programación Técnica</h3>
+                      <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Configure las tallas y marcaciones de producción.</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>FACTOR LONGITUD (DIVISOR):</label>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min="0.01" 
+                        value={longitud} 
+                        onChange={e => handleLongitudChange(e.target.value)} 
+                        style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: 'var(--primary)' }} 
+                      />
+                    </div>
                   </div>
 
                   <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
