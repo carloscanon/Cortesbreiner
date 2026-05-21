@@ -97,6 +97,24 @@ export default function OrdersPage() {
     setMatrixCells({ ...matrixCells, [key]: Number(value) || 0 });
   };
 
+  // Calculated Consumo / Prenda based on longitud and matrixCols
+  const totalActiveSizes = matrixCols.reduce((acc, col) => {
+    let count = 0;
+    if (col.size1_id && (Number(col.marker1) || 0) >= 1) count++;
+    if (col.size2_id && (Number(col.marker2) || 0) >= 1) count++;
+    return acc + count;
+  }, 0);
+
+  const totalTallasMarcacionMayorA1 = matrixCols.reduce((acc, col) => {
+    let count = 0;
+    if (col.size1_id && (Number(col.marker1) || 0) > 1) count++;
+    if (col.size2_id && (Number(col.marker2) || 0) > 1) count++;
+    return acc + count;
+  }, 0);
+
+  const divisorConsumo = totalTallasMarcacionMayorA1 > 0 ? totalTallasMarcacionMayorA1 : totalActiveSizes;
+  const consumoPrenda = divisorConsumo > 0 ? (longitud / divisorConsumo).toFixed(3) : '0.000';
+
   // Fabric colors for Step 2
   const [fabricColors, setFabricColors] = useState<any[]>([
     { id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', nombre_tela: '' }
@@ -381,7 +399,9 @@ export default function OrdersPage() {
                 product_id: col.product_id,
                 color_id: fc.color_id || null,
                 kilos: itemKilos,
-                layers: Number(fc.layers) || 0
+                layers: Number(fc.layers) || 0,
+                consumption: Number(consumoPrenda) || 0,
+                stroke_length: longitud
               }])
               .select()
               .single();
@@ -770,16 +790,28 @@ export default function OrdersPage() {
                       <h3 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>Matriz de Programación Técnica</h3>
                       <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Configure las tallas y marcaciones de producción.</p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>FACTOR LONGITUD (DIVISOR):</label>
-                      <input 
-                        type="number" 
-                        step="0.01" 
-                        min="0.01" 
-                        value={longitud} 
-                        onChange={e => handleLongitudChange(e.target.value)} 
-                        style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: 'var(--primary)' }} 
-                      />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>FACTOR LONGITUD (DIVISOR):</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          min="0.01" 
+                          value={longitud} 
+                          onChange={e => handleLongitudChange(e.target.value)} 
+                          style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: 'var(--primary)' }} 
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>CONSUMO / PRENDA:</label>
+                        <input 
+                          type="text" 
+                          readOnly 
+                          value={consumoPrenda} 
+                          title={`Fórmula: Longitud (${longitud}) / Divisor (${divisorConsumo})`}
+                          style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: '#10b981', backgroundColor: '#f8fafc', cursor: 'not-allowed' }} 
+                        />
+                      </div>
                     </div>
                   </div>
 
