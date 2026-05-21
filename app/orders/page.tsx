@@ -496,7 +496,7 @@ export default function OrdersPage() {
           <button className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', fontWeight: '700' }} onClick={() => { 
             const randomCode = `OC-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
             const sortedFabrics = fabrics && fabrics.length > 0 ? [...fabrics].sort((a, b) => b.id - a.id) : [];
-            const latestFactura = sortedFabrics.length > 0 ? sortedFabrics[0].factura_relacionada : '';
+            const latestFactura = sortedFabrics.length > 0 ? (sortedFabrics[0].factura_relacionada ?? '') : '';
             setFormData({ 
               status: 'Planeada', 
               priority: 'Media', 

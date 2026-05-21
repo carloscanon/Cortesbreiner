@@ -16,6 +16,7 @@ export default function CutRegistrationPage() {
   const [formData, setFormData] = useState({
     yield: 4.5, // Rendimiento
     length: 3.2, // Largo trazo
+    longitud: 1, // Longitud (default 1)
     layers: 100, // Capas
     color: 'Negro',
     initialKilos: 50,
@@ -31,21 +32,26 @@ export default function CutRegistrationPage() {
   const [results, setResults] = useState({
     totalPrendas: 0,
     consumoKilos: 0,
+    consumoPorPrenda: 0,
     kilosRestantes: 0,
     mermaPercent: 0,
     costoCorte: 0
   });
 
   useEffect(() => {
-    const totalPorLote = Object.values(sizes).reduce((a, b) => a + b, 0);
+    const totalPorLoteRaw = Object.values(sizes).reduce((a, b) => a + b, 0);
+    const totalPorLote = totalPorLoteRaw / formData.longitud;
     const totalPrendas = totalPorLote * formData.layers;
     const consumoKilos = totalPrendas / formData.yield;
+    const sumaMarcaciones = Object.values(sizes).filter(v => v > 1).reduce((a, b) => a + b, 0);
+    const consumoPorPrenda = sumaMarcaciones > 0 ? formData.longitud / sumaMarcaciones : 0;
     const kilosRestantes = formData.initialKilos - consumoKilos;
     const mermaPercent = ((formData.initialKilos - consumoKilos) / formData.initialKilos) * 100;
     
     setResults({
       totalPrendas,
       consumoKilos: Number(consumoKilos.toFixed(2)),
+      consumoPorPrenda: Number(consumoPorPrenda.toFixed(2)),
       kilosRestantes: Number(kilosRestantes.toFixed(2)),
       mermaPercent: Number(mermaPercent.toFixed(2)),
       costoCorte: totalPrendas * 1500 // Ejemplo: 1500 por prenda
@@ -165,6 +171,10 @@ export default function CutRegistrationPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.875rem', opacity: 0.8 }}>Consumo Tela</span>
                 <span style={{ fontSize: '1.125rem', fontWeight: '600' }}>{results.consumoKilos} Kg</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.875rem', opacity: 0.8 }}>Consumo / Prenda</span>
+                <span style={{ fontSize: '1.125rem', fontWeight: '600' }}>{results.consumoPorPrenda} Kg</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.875rem', opacity: 0.8 }}>Kilos Restantes</span>
