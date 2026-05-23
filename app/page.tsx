@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { 
   ArrowUpRight, 
   Plus, 
@@ -149,9 +150,9 @@ export default function Dashboard() {
           </div>
           
           <div style={{ marginTop: '2rem' }}>
-            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-              <Scissors size={18} /> Iniciar Corte
-            </button>
+            <Link href="/cutting" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', display: 'flex', textDecoration: 'none' }}>
+              <Scissors size={18} style={{ marginRight: '0.5rem' }} /> Iniciar Corte
+            </Link>
           </div>
         </div>
 

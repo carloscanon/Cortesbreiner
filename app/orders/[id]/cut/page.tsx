@@ -43,8 +43,8 @@ export default function CutRegistrationPage() {
     const totalPorLote = totalPorLoteRaw / formData.longitud;
     const totalPrendas = totalPorLote * formData.layers;
     const consumoKilos = totalPrendas / formData.yield;
-    const sumaMarcaciones = Object.values(sizes).filter(v => v > 1).reduce((a, b) => a + b, 0);
-    const consumoPorPrenda = sumaMarcaciones > 0 ? formData.longitud / sumaMarcaciones : 0;
+    const marcacionesActivas = Object.values(sizes).filter(v => v >= 1).length;
+    const consumoPorPrenda = marcacionesActivas > 0 ? formData.longitud / marcacionesActivas : 0;
     const kilosRestantes = formData.initialKilos - consumoKilos;
     const mermaPercent = ((formData.initialKilos - consumoKilos) / formData.initialKilos) * 100;
     

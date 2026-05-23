@@ -147,10 +147,15 @@ export default function SettingsPage() {
         if (permError) throw permError;
       }
 
+      // Esperar que los datos se recarguen ANTES de cerrar el modal
+      // para que al reabrirlo los permisos ya estén actualizados
+      await fetchData();
+      // Refresca la navegación/sidebar para reflejar los nuevos módulos del rol
+      await refreshConfig();
+
       setShowRoleModal(false);
       setEditingRole(null);
       setSelectedPermissions([]);
-      fetchData();
       setMessage('Rol y permisos actualizados correctamente.');
       setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {

@@ -98,22 +98,22 @@ export default function OrdersPage() {
   };
 
   // Calculated Consumo / Prenda based on longitud and matrixCols
+  // Divisor counts all active markers (value >= 1) on the form (estimated / real-time)
   const totalActiveSizes = matrixCols.reduce((acc, col) => {
     let count = 0;
-    if (col.size1_id && (Number(col.marker1) || 0) >= 1) count++;
-    if (col.size2_id && (Number(col.marker2) || 0) >= 1) count++;
+    if ((Number(col.marker1) || 0) >= 1) count++;
+    if ((Number(col.marker2) || 0) >= 1) count++;
     return acc + count;
   }, 0);
 
-  const totalTallasMarcacionMayorA1 = matrixCols.reduce((acc, col) => {
+  const totalMarcacionesActivas = matrixCols.reduce((acc, col) => {
     let count = 0;
-    if (col.size1_id && (Number(col.marker1) || 0) > 1) count++;
-    if (col.size2_id && (Number(col.marker2) || 0) > 1) count++;
+    if ((Number(col.marker1) || 0) >= 1) count++;
+    if ((Number(col.marker2) || 0) >= 1) count++;
     return acc + count;
   }, 0);
 
-  const divisorConsumo = totalTallasMarcacionMayorA1 > 0 ? totalTallasMarcacionMayorA1 : totalActiveSizes;
-  const consumoPrenda = divisorConsumo > 0 ? (longitud / divisorConsumo).toFixed(3) : '0.000';
+  const consumoPrenda = totalMarcacionesActivas > 0 ? (longitud / totalMarcacionesActivas).toFixed(3) : '0.000';
 
   // Fabric colors for Step 2
   const [fabricColors, setFabricColors] = useState<any[]>([
@@ -256,6 +256,8 @@ export default function OrdersPage() {
         .eq('order_id', order.id);
 
       const firstProductId = cutsData?.[0]?.product_id || '';
+      const orderStrokeLength = cutsData?.[0]?.stroke_length || 1;
+      setLongitud(orderStrokeLength);
 
       setFormData({
         internal_code: order.internal_code || '',
@@ -292,14 +294,30 @@ export default function OrdersPage() {
         const newCols = productIds.map(pid => {
           const productCuts = cutsData.filter(c => c.product_id === pid);
           const sizesForProduct = Array.from(new Set(productCuts.flatMap(c => c.cut_sizes.map((cs: any) => cs.size_id))));
+          
+          const activeCut = productCuts.find(c => (Number(c.layers) || 0) > 0);
+          const layers = activeCut ? (Number(activeCut.layers) || 1) : 1;
+          
+          let m1 = 1;
+          let m2 = 1;
+          
+          if (activeCut) {
+            const cs1 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[0]);
+            const cs2 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[1]);
+            if (cs1) m1 = Math.round((cs1.quantity * orderStrokeLength) / layers);
+            if (cs2) m2 = Math.round((cs2.quantity * orderStrokeLength) / layers);
+          }
+
           return {
             id: Math.random(),
             product_id: pid,
             size1_id: sizesForProduct[0] || '',
-            size2_id: sizesForProduct[1] || ''
+            size2_id: sizesForProduct[1] || '',
+            marker1: String(m1),
+            marker2: String(m2)
           };
         });
-        setMatrixCols(newCols.length > 0 ? newCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '' }]);
+        setMatrixCols(newCols.length > 0 ? newCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
 
         const newCells: Record<string, number> = {};
         cutsData.forEach(cut => {
@@ -808,7 +826,7 @@ export default function OrdersPage() {
                           type="text" 
                           readOnly 
                           value={consumoPrenda} 
-                          title={`Fórmula: Longitud (${longitud}) / Divisor (${divisorConsumo})`}
+                          title={`Fórmula: Longitud (${longitud}) / Divisor (${totalMarcacionesActivas})`}
                           style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: '#10b981', backgroundColor: '#f8fafc', cursor: 'not-allowed' }} 
                         />
                       </div>
