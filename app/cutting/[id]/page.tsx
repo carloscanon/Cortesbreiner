@@ -14,7 +14,9 @@ import {
   AlertTriangle,
   Info,
   Save,
-  Play
+  Play,
+  X,
+  FileText
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
@@ -38,6 +40,14 @@ export default function CutDetailsPage() {
   // Cutter inputs
   const [cutterNotes, setCutterNotes] = useState('');
   const [actualCutsData, setActualCutsData] = useState<Record<number, { actualLayers: number; actualKilos: number }>>({});
+
+  // Partial progress modal states
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressCutId, setProgressCutId] = useState<string>('');
+  const [progressLayers, setProgressLayers] = useState('');
+  const [progressKilos, setProgressKilos] = useState('');
+  const [progressNotes, setProgressNotes] = useState('');
+  const [progressSaving, setProgressSaving] = useState(false);
 
   const fetchData = async () => {
     if (!orderId) return;
@@ -153,6 +163,60 @@ export default function CutDetailsPage() {
       alert('Error al guardar el registro de corte: ' + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveProgress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderId || !progressCutId) return;
+    setProgressSaving(true);
+    
+    try {
+      const cut = cuts.find(c => String(c.id) === String(progressCutId));
+      if (!cut) throw new Error("Corte no encontrado");
+
+      // Acumulamos en layers_produced (no tocamos layers que son las capas planeadas)
+      const newLayersProduced = (cut.layers_produced || 0) + (Number(progressLayers) || 0);
+      const newKilos = (cut.kilos || 0) + (Number(progressKilos) || 0);
+
+      // 1. Update cuts table — solo layers_produced y kilos
+      const { error: cutErr } = await supabase
+        .from('cuts')
+        .update({ layers_produced: newLayersProduced, kilos: newKilos })
+        .eq('id', cut.id);
+      
+      if (cutErr) throw cutErr;
+
+      // 2. Append to observations
+      const colorData = colors.find(c => c.id === cut.color_id || c.id === Number(cut.color_id));
+      const colorName = colorData?.nombre_color || 'Tela';
+      const productName = getProductName(cut.product_id);
+      
+      const timeStamp = new Date().toLocaleString('es-ES');
+      const progressLog = `\n\n=== AVANCE PARCIAL (${timeStamp}) ===\nProducto: ${productName} [${colorName}]\nCapas cortadas este avance: ${progressLayers} | Acumuladas: ${newLayersProduced} de ${cut.layers || 0} planeadas\nKilos acumulados: ${newKilos.toFixed(2)} kg\nNotas: ${progressNotes || 'Sin observaciones adicionales.'}`;
+      
+      const newObservations = (order.observaciones || '') + progressLog;
+
+      const { error: orderErr } = await supabase
+        .from('orders')
+        .update({ observaciones: newObservations })
+        .eq('id', orderId);
+
+      if (orderErr) throw orderErr;
+
+      alert('Avance parcial registrado con éxito.');
+      setShowProgressModal(false);
+      setProgressCutId('');
+      setProgressLayers('');
+      setProgressKilos('');
+      setProgressNotes('');
+      
+      // Refresh Data to show new values
+      fetchData();
+    } catch (err: any) {
+      alert('Error al guardar el avance: ' + err.message);
+    } finally {
+      setProgressSaving(false);
     }
   };
 
@@ -299,13 +363,13 @@ export default function CutDetailsPage() {
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
                   <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', minWidth: '180px' }}>
-                    Tela / Color
+                    Producto
                   </th>
-                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', minWidth: '180px' }}>
-                    Producto Relacionado
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>
+                    Capas Programadas
                   </th>
-                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
-                    Capas Prog.
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#059669', textTransform: 'uppercase', minWidth: '130px' }}>
+                    Capas Producidas
                   </th>
                   {activeSizes.map(size => (
                     <th key={size.id} style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase' }}>
@@ -325,25 +389,80 @@ export default function CutDetailsPage() {
                   // Compute total prendas for this cut row
                   const totalPrendas = cut.cut_sizes.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0);
 
+                  // Capas planeadas originales (campo layers NO se toca al reportar avance)
+                  const capasPlaneadas = cut.layers || 0;
+                  // Capas producidas acumuladas via avances parciales
+                  const capasProducidas = cut.layers_produced || 0;
+                  const capasRestantes = Math.max(0, capasPlaneadas - capasProducidas);
+                  const porcentajeProd = capasPlaneadas > 0 ? Math.min(100, Math.round((capasProducidas / capasPlaneadas) * 100)) : 0;
+                  // Porcentaje consumido de las programadas (para la barra que se va vaciando)
+                  const porcentajeRestante = 100 - porcentajeProd;
+
                   return (
                     <tr key={cut.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
-                      <td style={{ padding: '1rem', textAlign: 'left', fontWeight: '850', fontSize: '0.85rem' }}>
+                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', fontWeight: '700' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <div style={{ 
-                            width: '14px', 
-                            height: '14px', 
+                            width: '10px', 
+                            height: '10px', 
                             borderRadius: '50%', 
                             backgroundColor: color?.hex_color || '#cbd5e1',
-                            border: '1px solid #94a3b8'
+                            border: '1px solid #94a3b8',
+                            flexShrink: 0
                           }}></div>
-                          <span>{color?.nombre_color || 'Manual / Sin Color'}</span>
+                          <div>
+                            <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>{productName}</div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{color?.nombre_color || 'Sin Color'}</div>
+                          </div>
                         </div>
                       </td>
-                      <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#475569', fontWeight: '700' }}>
-                        {productName}
+
+                      {/* CAPAS PROGRAMADAS: muestra restantes con barra que se va vaciando */}
+                      <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
+                            <span style={{ fontSize: '1rem', fontWeight: '900', color: capasRestantes === 0 ? '#059669' : '#6366f1' }}>
+                              {capasRestantes}
+                            </span>
+                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '600' }}>/ {capasPlaneadas}</span>
+                          </div>
+                          {capasPlaneadas > 0 && (
+                            <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ 
+                                height: '100%', 
+                                width: `${porcentajeRestante}%`,
+                                backgroundColor: porcentajeRestante <= 0 ? '#059669' : porcentajeRestante < 30 ? '#f59e0b' : '#6366f1',
+                                borderRadius: '3px',
+                                transition: 'width 0.4s ease'
+                              }}></div>
+                            </div>
+                          )}
+                          <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeRestante}% restante</span>
+                        </div>
                       </td>
-                      <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800', color: '#334155' }}>
-                        {cut.layers || 0}
+
+                      {/* CAPAS PRODUCIDAS: muestra acumulado con barra que se va llenando */}
+                      <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+                          <span style={{ 
+                            fontSize: '1rem', fontWeight: '900',
+                            color: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : capasProducidas > 0 ? '#3b82f6' : '#94a3b8' 
+                          }}>
+                            {capasProducidas}
+                          </span>
+                          {capasPlaneadas > 0 && (
+                            <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ 
+                                height: '100%', 
+                                width: `${porcentajeProd}%`,
+                                backgroundColor: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : '#3b82f6',
+                                borderRadius: '3px',
+                                transition: 'width 0.4s ease'
+                              }}></div>
+                            </div>
+                          )}
+                          <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeProd}% completado</span>
+                        </div>
                       </td>
                       {activeSizes.map(size => {
                         const qty = cut.cut_sizes.find((cs: any) => cs.size_id === size.id || cs.size_id === Number(size.id))?.quantity || 0;
@@ -489,6 +608,29 @@ export default function CutDetailsPage() {
                 />
               </div>
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem', marginBottom: '1rem' }}>
+                <button 
+                  type="button"
+                  onClick={() => setShowProgressModal(true)}
+                  disabled={saving}
+                  className="btn"
+                  style={{ 
+                    width: '100%', 
+                    padding: '1rem', 
+                    justifyContent: 'center', 
+                    fontSize: '0.9rem', 
+                    fontWeight: '800',
+                    backgroundColor: '#f1f5f9',
+                    color: '#334155',
+                    borderRadius: '12px',
+                    border: '1.5px solid #cbd5e1',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <FileText size={18} style={{ marginRight: '0.5rem', color: '#3b82f6' }} /> Reportar Avance Parcial
+                </button>
+              </div>
+
               <button 
                 onClick={handleFinishCut}
                 disabled={saving}
@@ -547,6 +689,92 @@ export default function CutDetailsPage() {
 
         </div>
       </div>
+
+      {/* Partial Progress Modal */}
+      {showProgressModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden', padding: 0 }}>
+            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>Reportar Avance Parcial</h3>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Registra un progreso sin finalizar la orden completa.</p>
+              </div>
+              <button onClick={() => setShowProgressModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveProgress} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>¿Sobre qué tela/color avanzaste?</label>
+                <select 
+                  required
+                  value={progressCutId}
+                  onChange={e => setProgressCutId(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600' }}
+                >
+                  <option value="">Selecciona una opción...</option>
+                  {cuts.map(c => {
+                    const colorDat = getColorData(c.color_id);
+                    const productNam = getProductName(c.product_id);
+                    const producidas = c.layers_produced || 0;
+                    const planeadas = c.layers || 0;
+                    return (
+                      <option key={String(c.id)} value={String(c.id)}>
+                        {colorDat?.nombre_color || 'Sin Color'} — {productNam} ({producidas} / {planeadas} capas producidas)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Nuevas Capas Cortadas</label>
+                  <input 
+                    type="number" 
+                    required
+                    min="1"
+                    value={progressLayers}
+                    onChange={e => setProgressLayers(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
+                    placeholder="Ej. 20"
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Nuevos Kilos Gastados</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    required
+                    min="0.01"
+                    value={progressKilos}
+                    onChange={e => setProgressKilos(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
+                    placeholder="Ej. 5.5"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Notas / Observaciones del Avance</label>
+                <textarea 
+                  value={progressNotes}
+                  onChange={e => setProgressNotes(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', minHeight: '80px', resize: 'vertical' }}
+                  placeholder="Ej: Se paró la máquina a las 3pm, terminamos la mitad del tendido negro..."
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button type="button" onClick={() => setShowProgressModal(false)} className="btn btn-secondary" style={{ flex: 1, padding: '1rem', justifyContent: 'center', fontWeight: '800' }}>Cancelar</button>
+                <button type="submit" disabled={progressSaving} className="btn btn-primary" style={{ flex: 2, padding: '1rem', justifyContent: 'center', fontWeight: '900', border: 'none', backgroundColor: '#3b82f6' }}>
+                  {progressSaving ? 'Guardando...' : 'Guardar Avance'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
