@@ -80,6 +80,7 @@ export default function WorkshopsPage() {
     
     const payload = {
       ...form,
+      name: form.nombre_taller,
       capacidad_diaria: form.capacidad_diaria ? parseInt(form.capacidad_diaria, 10) : null
     };
 

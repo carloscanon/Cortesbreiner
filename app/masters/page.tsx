@@ -306,7 +306,14 @@ export default function MastersPage() {
       // Auto-generar código de categoría si es nuevo
       if (activeTab === 'categories' && !editingId) {
         const count = data.length + 1;
-        formData.cod_categoria = `CAT-${count.toString().padStart(3, '0')}`;
+        const code = `CAT-${count.toString().padStart(3, '0')}`;
+        payload.cod_categoria = code;
+        formData.cod_categoria = code;
+      }
+
+      // Lógica específica para talleres (workshops): la columna 'name' tiene NOT NULL
+      if (activeTab === 'workshops') {
+        payload.name = payload.nombre_taller;
       }
 
       if (editingId) {
@@ -335,7 +342,11 @@ export default function MastersPage() {
       if (error) throw error;
       fetchData();
     } catch (err: any) {
-      alert('Error al eliminar: ' + err.message);
+      let friendlyMessage = err.message;
+      if (err.message?.includes('violates foreign key constraint') || err.code === '23503') {
+        friendlyMessage = 'No se puede eliminar este registro porque está asociado a otros datos en el sistema (por ejemplo, cortes, productos u órdenes). Primero debes eliminar o modificar esas asociaciones en los módulos correspondientes.';
+      }
+      alert('Error al eliminar: ' + friendlyMessage);
     }
   };
 

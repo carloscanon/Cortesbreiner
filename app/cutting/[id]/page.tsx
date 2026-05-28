@@ -16,7 +16,9 @@ import {
   Save,
   Play,
   X,
-  FileText
+  FileText,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
@@ -31,6 +33,7 @@ export default function CutDetailsPage() {
   
   // Masters state
   const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
   
@@ -45,7 +48,9 @@ export default function CutDetailsPage() {
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressCutId, setProgressCutId] = useState<string>('');
   const [progressLayers, setProgressLayers] = useState('');
-  const [progressKilos, setProgressKilos] = useState('');
+  const [progressNovelties, setProgressNovelties] = useState<{ capa: string; tipo: string }[]>([]);
+  const [noveltyCapa, setNoveltyCapa] = useState('');
+  const [noveltyTipo, setNoveltyTipo] = useState('');
   const [progressNotes, setProgressNotes] = useState('');
   const [progressSaving, setProgressSaving] = useState(false);
 
@@ -84,10 +89,12 @@ export default function CutDetailsPage() {
       const { data: pData } = await supabase.from('products').select('*');
       const { data: cData } = await supabase.from('colors').select('*');
       const { data: sData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
+      const { data: catData } = await supabase.from('categories').select('*');
       
       setProducts(pData || []);
       setColors(cData || []);
       setSizes(sData || []);
+      setCategories(catData || []);
 
     } catch (err: any) {
       console.error('Error fetching cut details:', err);
@@ -177,12 +184,11 @@ export default function CutDetailsPage() {
 
       // Acumulamos en layers_produced (no tocamos layers que son las capas planeadas)
       const newLayersProduced = (cut.layers_produced || 0) + (Number(progressLayers) || 0);
-      const newKilos = (cut.kilos || 0) + (Number(progressKilos) || 0);
 
-      // 1. Update cuts table — solo layers_produced y kilos
+      // 1. Update cuts table — solo layers_produced
       const { error: cutErr } = await supabase
         .from('cuts')
-        .update({ layers_produced: newLayersProduced, kilos: newKilos })
+        .update({ layers_produced: newLayersProduced })
         .eq('id', cut.id);
       
       if (cutErr) throw cutErr;
@@ -193,7 +199,13 @@ export default function CutDetailsPage() {
       const productName = getProductName(cut.product_id);
       
       const timeStamp = new Date().toLocaleString('es-ES');
-      const progressLog = `\n\n=== AVANCE PARCIAL (${timeStamp}) ===\nProducto: ${productName} [${colorName}]\nCapas cortadas este avance: ${progressLayers} | Acumuladas: ${newLayersProduced} de ${cut.layers || 0} planeadas\nKilos acumulados: ${newKilos.toFixed(2)} kg\nNotas: ${progressNotes || 'Sin observaciones adicionales.'}`;
+      
+      // Formatear novedades de corte por capa
+      const noveltiesStr = progressNovelties.length > 0 
+        ? progressNovelties.map(n => `- Capa ${n.capa}: ${n.tipo}`).join('\n')
+        : 'Ninguna novedad reportada.';
+
+      const progressLog = `\n\n=== AVANCE PARCIAL (${timeStamp}) ===\nProducto: ${productName} [${colorName}]\nCapas cortadas este avance: ${progressLayers} | Acumuladas: ${newLayersProduced} de ${cut.layers || 0} planeadas\nNovedades de corte por capa:\n${noveltiesStr}\nNotas: ${progressNotes || 'Sin observaciones adicionales.'}`;
       
       const newObservations = (order.observaciones || '') + progressLog;
 
@@ -208,7 +220,9 @@ export default function CutDetailsPage() {
       setShowProgressModal(false);
       setProgressCutId('');
       setProgressLayers('');
-      setProgressKilos('');
+      setProgressNovelties([]);
+      setNoveltyCapa('');
+      setNoveltyTipo('');
       setProgressNotes('');
       
       // Refresh Data to show new values
@@ -245,7 +259,12 @@ export default function CutDetailsPage() {
   }
 
   // Helper resolvers
-  const getProductName = (pid: string) => products.find(p => p.id === pid || p.id === Number(pid))?.nombre_producto || 'Sin Producto';
+  const getProductName = (pid: string) => {
+    const prod = products.find(p => p.id === pid || p.id === Number(pid));
+    if (!prod) return 'Sin Producto';
+    const cat = categories.find(c => c.id === prod.category_id);
+    return cat ? cat.categoria : prod.nombre_producto || 'Sin Producto';
+  };
   const getColorData = (cid: string) => colors.find(c => c.id === cid || c.id === Number(cid));
 
   // Determine active size columns based on what's configured in the cut sizes
@@ -726,32 +745,128 @@ export default function CutDetailsPage() {
                 </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Nuevas Capas Cortadas</label>
-                  <input 
-                    type="number" 
-                    required
-                    min="1"
-                    value={progressLayers}
-                    onChange={e => setProgressLayers(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
-                    placeholder="Ej. 20"
-                  />
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Nuevas Capas Cortadas</label>
+                <input 
+                  type="number" 
+                  required
+                  min="1"
+                  value={progressLayers}
+                  onChange={e => setProgressLayers(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
+                  placeholder="Ej. 20"
+                />
+              </div>
+
+              {/* Novedades de Corte Section */}
+              <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '1rem', backgroundColor: '#f8fafc' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Novedades de Corte (Por Capa)</label>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr auto', gap: '0.5rem', alignItems: 'end', marginBottom: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '0.25rem' }}>Nº CAPA</label>
+                    <input 
+                      type="number"
+                      min="1"
+                      value={noveltyCapa}
+                      onChange={e => setNoveltyCapa(e.target.value)}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', textAlign: 'center' }}
+                      placeholder="Ej. 5"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '0.25rem' }}>NOVEDAD</label>
+                    <select
+                      value={noveltyTipo}
+                      onChange={e => setNoveltyTipo(e.target.value)}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
+                    >
+                      <option value="">Selecciona...</option>
+                      <option value="Marra">Marra</option>
+                      <option value="Manchas">Manchas</option>
+                      <option value="Traslape">Traslape</option>
+                      <option value="Anchos de Tela">Anchos de Tela</option>
+                      <option value="Rotos">Rotos</option>
+                    </select>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (!noveltyCapa.trim()) {
+                        alert("Por favor ingresa el número de capa.");
+                        return;
+                      }
+                      if (!noveltyTipo) {
+                        alert("Por favor selecciona el tipo de novedad.");
+                        return;
+                      }
+                      setProgressNovelties([...progressNovelties, { capa: noveltyCapa, tipo: noveltyTipo }]);
+                      setNoveltyCapa('');
+                      setNoveltyTipo('');
+                    }}
+                    style={{ 
+                      padding: '0.55rem 1rem', 
+                      borderRadius: '6px', 
+                      backgroundColor: '#3b82f6', 
+                      color: 'white', 
+                      border: 'none', 
+                      fontWeight: '800', 
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      height: '38px'
+                    }}
+                  >
+                    <Plus size={16} /> Añadir
+                  </button>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Nuevos Kilos Gastados</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    required
-                    min="0.01"
-                    value={progressKilos}
-                    onChange={e => setProgressKilos(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
-                    placeholder="Ej. 5.5"
-                  />
-                </div>
+
+                {/* List of added novelties */}
+                {progressNovelties.length > 0 ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem', maxHeight: '120px', overflowY: 'auto', padding: '0.25rem' }}>
+                    {progressNovelties.map((n, index) => (
+                      <div 
+                        key={index}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '0.5rem', 
+                          backgroundColor: 'white', 
+                          border: '1px solid #cbd5e1', 
+                          borderRadius: '8px', 
+                          padding: '0.35rem 0.65rem', 
+                          fontSize: '0.8rem', 
+                          fontWeight: '700',
+                          color: '#334155'
+                        }}
+                      >
+                        <span style={{ color: '#2563eb' }}>Capa {n.capa}:</span> 
+                        <span>{n.tipo}</span>
+                        <button 
+                          type="button"
+                          onClick={() => setProgressNovelties(progressNovelties.filter((_, idx) => idx !== index))}
+                          style={{ 
+                            background: 'none', 
+                            border: 'none', 
+                            cursor: 'pointer', 
+                            color: '#ef4444', 
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '0.5rem 0' }}>
+                    No se han registrado novedades de corte para este avance.
+                  </p>
+                )}
               </div>
 
               <div>

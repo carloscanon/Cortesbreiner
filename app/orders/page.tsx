@@ -37,34 +37,24 @@ export default function OrdersPage() {
   });
 
   // Step 2 Matrix State
-  const [matrixCols, setMatrixCols] = useState<any[]>([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
+  const [matrixCols, setMatrixCols] = useState<any[]>([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
   const [matrixCells, setMatrixCells] = useState<Record<string, number>>({});
-  const [longitud, setLongitud] = useState<number>(1);
+  const [longitud, setLongitud] = useState<string>('1');
 
   const handleLongitudChange = (valStr: string) => {
-    const val = Number(valStr) || 1;
-    setLongitud(val);
-    
-    // Re-fill/re-calculate all matrix cells using the new longitud
-    setMatrixCells(prev => {
-      const newCells = { ...prev };
-      fabricColors.forEach(fc => {
-        if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
-          matrixCols.forEach(col => {
-            const m1 = col.marker1 === '' ? 1 : Number(col.marker1);
-            const m2 = col.marker2 === '' ? 1 : Number(col.marker2);
-            newCells[`${fc.id}_${col.id}_1`] = Math.round(((Number(fc.layers) || 0) * m1) / val);
-            newCells[`${fc.id}_${col.id}_2`] = Math.round(((Number(fc.layers) || 0) * m2) / val);
-          });
-        }
-      });
-      return newCells;
-    });
+    // Permite tipear decimales libremente (e.g. '1.', '1.5', '0.')
+    // Solo acepta números y un punto decimal
+    if (valStr === '' || /^\d*\.?\d*$/.test(valStr)) {
+      setLongitud(valStr);
+    }
   };
+
+  const longitudNum = parseFloat(longitud) || 1;
+
 
   const addMatrixCol = () => {
     if (matrixCols.length < 8) {
-      setMatrixCols([...matrixCols, { id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
+      setMatrixCols([...matrixCols, { id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
     }
   };
   
@@ -75,16 +65,16 @@ export default function OrdersPage() {
   const updateMatrixCol = (id: number, field: string, value: string) => {
     setMatrixCols(matrixCols.map(c => c.id === id ? { ...c, [field]: value } : c));
     
-    // Auto-calculate quantities if marker changes
+    // Auto-calculate quantities when marker changes: value = layers × marker
     if (field === 'marker1' || field === 'marker2') {
       const sizeIndex = field === 'marker1' ? 1 : 2;
-      const markerVal = value === '' ? 1 : Number(value);
+      const markerVal = value === '' ? 0 : Number(value);
       setMatrixCells(prev => {
         const newCells = { ...prev };
         fabricColors.forEach(fc => {
-          if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
+          if (Number(fc.layers) > 0) {
             const key = `${fc.id}_${id}_${sizeIndex}`;
-            newCells[key] = Math.round(((Number(fc.layers) || 0) * markerVal) / (longitud || 1));
+            newCells[key] = Math.round((Number(fc.layers) || 0) * markerVal);
           }
         });
         return newCells;
@@ -113,7 +103,7 @@ export default function OrdersPage() {
     return acc + count;
   }, 0);
 
-  const consumoPrenda = totalMarcacionesActivas > 0 ? (longitud / totalMarcacionesActivas).toFixed(3) : '0.000';
+  const consumoPrenda = totalMarcacionesActivas > 0 ? (longitudNum / totalMarcacionesActivas).toFixed(3) : '0.000';
 
   // Fabric colors for Step 2
   const [fabricColors, setFabricColors] = useState<any[]>([
@@ -132,6 +122,7 @@ export default function OrdersPage() {
   // Masters
   const [fabrics, setFabrics] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
   const [workshops, setWorkshops] = useState<any[]>([]);
@@ -153,12 +144,14 @@ export default function OrdersPage() {
       const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('workshops').select('*');
       const { data: f } = await supabase.from('fabrics').select('*');
+      const { data: cat } = await supabase.from('categories').select('*').order('categoria');
       
       if (p) setProducts(p);
       if (c) setColors(c);
       if (s) setSizes(s);
       if (w) setWorkshops(w);
       if (f) setFabrics(f);
+      if (cat) setCategories(cat);
     } catch (err) {
       console.error('Error fetching masters:', err);
     }
@@ -257,12 +250,21 @@ export default function OrdersPage() {
 
       const firstProductId = cutsData?.[0]?.product_id || '';
       const orderStrokeLength = cutsData?.[0]?.stroke_length || 1;
-      setLongitud(orderStrokeLength);
+      setLongitud(String(orderStrokeLength));
+
+      let fetchedFabrics: any[] = [];
+      if (order.brand) {
+        const { data: fabs } = await supabase
+          .from('fabrics')
+          .select('*')
+          .eq('factura_relacionada', order.brand);
+        if (fabs) fetchedFabrics = fabs;
+      }
 
       setFormData({
         internal_code: order.internal_code || '',
         brand: order.brand || '',
-        factura_relacionada: '',
+        factura_relacionada: order.brand || '',
         product_id: firstProductId,
         status: order.status || 'Planeada',
         priority: order.priority || 'Media',
@@ -272,6 +274,11 @@ export default function OrdersPage() {
         scheduled_date: order.scheduled_date || new Date().toISOString().split('T')[0]
       });
 
+      const getCategoryOfProduct = (pid: string) => {
+        const prod = products.find(p => p.id === pid);
+        return prod?.category_id || '';
+      };
+
       if (cutsData && cutsData.length > 0) {
         const uniqueColors = Array.from(new Set(cutsData.map(c => c.color_id)));
         const fCols = uniqueColors.map(cid => {
@@ -279,51 +286,61 @@ export default function OrdersPage() {
           const totalKilosForColor = colorCuts.reduce((sum, c) => sum + (Number(c.kilos) || 0), 0);
           const maxLayersForColor = Math.max(...colorCuts.map(c => Number(c.layers) || 0));
           
+          const colorName = colors.find(col => col.id === cid)?.nombre_color || '';
+          const matchedFabric = fetchedFabrics.find(f => {
+            const fName = (f.nombre_tela || '').toLowerCase();
+            const cName = colorName.toLowerCase();
+            return fName.includes(cName) || cName.includes(fName);
+          }) || fetchedFabrics[0];
+
           return {
             id: Math.random(),
             color_id: cid,
             kilos: totalKilosForColor || '',
             layers: maxLayersForColor || '',
             observation: '',
-            capas_definidas: ''
+            fabric_id: matchedFabric?.id || '',
+            nombre_tela: matchedFabric?.nombre_tela || '',
+            capas_definidas: matchedFabric?.capas ? Math.round(Number(matchedFabric.capas)) : ''
           };
         });
         setFabricColors(fCols.length > 0 ? fCols : [{ id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', capas_definidas: '' }]);
 
-        const productIds = Array.from(new Set(cutsData.map(c => c.product_id)));
-        const newCols = productIds.map(pid => {
-          const productCuts = cutsData.filter(c => c.product_id === pid);
-          const sizesForProduct = Array.from(new Set(productCuts.flatMap(c => c.cut_sizes.map((cs: any) => cs.size_id))));
+        const categoryIds = Array.from(new Set(cutsData.map(c => getCategoryOfProduct(c.product_id)).filter(Boolean)));
+        const newCols = categoryIds.map(catId => {
+          const categoryCuts = cutsData.filter(c => getCategoryOfProduct(c.product_id) === catId);
+          const sizesForProduct = Array.from(new Set(categoryCuts.flatMap(c => c.cut_sizes.map((cs: any) => cs.size_id))));
           
-          const activeCut = productCuts.find(c => (Number(c.layers) || 0) > 0);
+          const activeCut = categoryCuts.find(c => (Number(c.layers) || 0) > 0);
           const layers = activeCut ? (Number(activeCut.layers) || 1) : 1;
           
-          let m1 = 1;
-          let m2 = 1;
+          let m1 = 0;
+          let m2 = 0;
           
           if (activeCut) {
             const cs1 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[0]);
             const cs2 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[1]);
-            if (cs1) m1 = Math.round((cs1.quantity * orderStrokeLength) / layers);
-            if (cs2) m2 = Math.round((cs2.quantity * orderStrokeLength) / layers);
+            if (cs1) m1 = Math.round(cs1.quantity / layers);
+            if (cs2) m2 = Math.round(cs2.quantity / layers);
           }
 
           return {
             id: Math.random(),
-            product_id: pid,
+            product_id: catId,
             size1_id: sizesForProduct[0] || '',
             size2_id: sizesForProduct[1] || '',
             marker1: String(m1),
             marker2: String(m2)
           };
         });
-        setMatrixCols(newCols.length > 0 ? newCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
+        setMatrixCols(newCols.length > 0 ? newCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
 
         const newCells: Record<string, number> = {};
         cutsData.forEach(cut => {
           const fc = fCols.find(f => f.color_id === cut.color_id);
           if (!fc) return;
-          const col = newCols.find(c => c.product_id === cut.product_id);
+          const cutCategoryId = getCategoryOfProduct(cut.product_id);
+          const col = newCols.find(c => c.product_id === cutCategoryId);
           if (!col) return;
           
           cut.cut_sizes.forEach((cs: any) => {
@@ -336,7 +353,6 @@ export default function OrdersPage() {
         });
         setMatrixCells(newCells);
       }
-      
       setStep(1);
       setShowModal(true);
     } catch (err) {
@@ -364,7 +380,21 @@ export default function OrdersPage() {
 
       let orderId = editingId;
 
+      // ── REVERSIÓN DE CAPAS ANTERIORES (solo si es edición) ───────────────
+      // Usamos fabricColors (cargados desde la factura al editar) para saber
+      // cuántas capas restaurar — no necesitamos columna fabric_id en cuts.
       if (editingId) {
+        for (const fc of fabricColors) {
+          if (fc.fabric_id && Number(fc.layers) > 0) {
+            const { data: fab } = await supabase.from('fabrics').select('capas').eq('id', fc.fabric_id).single();
+            if (fab) {
+              const restoredCapas = (Number(fab.capas) || 0) + (Number(fc.layers) || 0);
+              await supabase.from('fabrics').update({ capas: restoredCapas }).eq('id', fc.fabric_id);
+            }
+          }
+        }
+
+        // Actualizar la orden y borrar cortes viejos
         const { error: updateError } = await supabase
           .from('orders')
           .update(orderPayload)
@@ -373,7 +403,7 @@ export default function OrdersPage() {
 
         const { data: oldCuts } = await supabase.from('cuts').select('id').eq('order_id', editingId);
         if (oldCuts && oldCuts.length > 0) {
-          const cutIds = oldCuts.map(c => c.id);
+          const cutIds = oldCuts.map((c: any) => c.id);
           await supabase.from('cut_sizes').delete().in('cut_id', cutIds);
           await supabase.from('cuts').delete().in('id', cutIds);
         }
@@ -388,56 +418,121 @@ export default function OrdersPage() {
       }
       setCurrentOrderId(orderId);
 
-      const colorKilosMap: Record<string, number> = {};
-      fabricColors.forEach(fc => {
-        if (fc.id) colorKilosMap[fc.id.toString()] = Number(fc.kilos) || 0;
-      });
+      // ── CACHÉ: resolución de categoría → product_id válido ────────────────
+      const categoryProductCache: Record<string, string> = {};
 
-      const assignedFabrics = new Set<string>();
+      const resolveCategoryToProduct = async (categoryId: string): Promise<string> => {
+        if (categoryProductCache[categoryId]) return categoryProductCache[categoryId];
+        const { data: existingProd } = await supabase
+          .from('products')
+          .select('id')
+          .eq('category_id', categoryId)
+          .limit(1);
+        if (existingProd && existingProd.length > 0) {
+          categoryProductCache[categoryId] = existingProd[0].id;
+          return existingProd[0].id;
+        }
+        // Crear producto genérico si no existe ninguno en esa categoría
+        const catName = categories.find((c: any) => c.id === categoryId)?.categoria || 'Producto Generico';
+        const { data: newProd, error: newProdErr } = await supabase
+          .from('products')
+          .insert([{
+            nombre_producto: catName,
+            category_id: categoryId,
+            codigo_referencia: 'REF-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
+            iva: 0,
+            precio: 0,
+            precio_con_iva: 0
+          }])
+          .select()
+          .single();
+        if (newProdErr) throw newProdErr;
+        categoryProductCache[categoryId] = newProd.id;
+        return newProd.id;
+      };
+
+      // ── INSERTAR NUEVOS CORTES ────────────────────────────────────────────
+      // Rastrear capas a descontar por fabric_id (una sola vez por tela)
+      const layersToDeductByFabric: Record<string, number> = {};
+
       for (const fc of fabricColors) {
         if (!fc.nombre_tela && !fc.color_id && !fc.fabric_id) continue;
-        
+        const fcLayers = Number(fc.layers) || 0;
+
         for (const col of matrixCols) {
           if (!col.product_id) continue;
-          
+
           const qty1 = matrixCells[`${fc.id}_${col.id}_1`] || 0;
           const qty2 = matrixCells[`${fc.id}_${col.id}_2`] || 0;
-          
-          if (qty1 > 0 || qty2 > 0) {
-            let itemKilos = 0;
-            if (!assignedFabrics.has(fc.id.toString())) {
-              itemKilos = colorKilosMap[fc.id.toString()] || 0;
-              assignedFabrics.add(fc.id.toString());
-            }
-            
-            const { data: newCut, error: cutError } = await supabase
-              .from('cuts')
-              .insert([{
-                order_id: orderId,
-                product_id: col.product_id,
-                color_id: fc.color_id || null,
-                kilos: itemKilos,
-                layers: Number(fc.layers) || 0,
-                consumption: Number(consumoPrenda) || 0,
-                stroke_length: longitud
-              }])
-              .select()
-              .single();
+          if (qty1 === 0 && qty2 === 0) continue;
 
-            if (cutError) throw cutError;
+          const finalProductId = await resolveCategoryToProduct(col.product_id);
 
-            const sizesToInsert = [];
-            if (qty1 > 0 && col.size1_id) sizesToInsert.push({ cut_id: newCut.id, size_id: col.size1_id, quantity: qty1 });
-            if (qty2 > 0 && col.size2_id) sizesToInsert.push({ cut_id: newCut.id, size_id: col.size2_id, quantity: qty2 });
-            
-            if (sizesToInsert.length > 0) {
-              const { error: sizeError } = await supabase.from('cut_sizes').insert(sizesToInsert);
-              if (sizeError) throw sizeError;
-            }
+          // Kilos proporcionales para este corte
+          const totalUnitsForFc = (() => {
+            let sum = 0;
+            matrixCols.forEach((c: any) => {
+              sum += matrixCells[`${fc.id}_${c.id}_1`] || 0;
+              sum += matrixCells[`${fc.id}_${c.id}_2`] || 0;
+            });
+            return sum;
+          })();
+          const itemUnits = qty1 + qty2;
+          const itemKilos = totalUnitsForFc > 0 ? ((Number(fc.kilos) || 0) * itemUnits / totalUnitsForFc) : 0;
+
+          const { data: newCut, error: cutError } = await supabase
+            .from('cuts')
+            .insert([{
+              order_id: orderId,
+              product_id: finalProductId,
+              color_id: fc.color_id || null,
+              kilos: itemKilos,
+              layers: fcLayers,
+              consumption: Number(consumoPrenda) || 0,
+              stroke_length: longitudNum
+            }])
+            .select()
+            .single();
+
+          if (cutError) throw cutError;
+
+          const sizesMap = new Map<string, number>();
+          if (qty1 > 0 && col.size1_id) {
+            sizesMap.set(col.size1_id, (sizesMap.get(col.size1_id) || 0) + qty1);
+          }
+          if (qty2 > 0 && col.size2_id) {
+            sizesMap.set(col.size2_id, (sizesMap.get(col.size2_id) || 0) + qty2);
+          }
+
+          const sizesToInsert = Array.from(sizesMap.entries()).map(([size_id, quantity]) => ({
+            cut_id: newCut.id,
+            size_id,
+            quantity
+          }));
+
+          if (sizesToInsert.length > 0) {
+            const { error: sizeError } = await supabase.from('cut_sizes').insert(sizesToInsert);
+            if (sizeError) throw sizeError;
+          }
+
+          // Registrar capas a descontar (una sola vez por fabric_id, usando id local)
+          const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
+          if (fabricKey && !(fabricKey in layersToDeductByFabric)) {
+            layersToDeductByFabric[fabricKey] = fcLayers;
           }
         }
       }
-      
+
+      // ── DESCUENTO DE CAPAS EN TABLA FABRICS ──────────────────────────────
+      // Restar las capas usadas en esta orden del inventario de telas
+      for (const [fabricId, layersToDeduct] of Object.entries(layersToDeductByFabric)) {
+        const { data: fab } = await supabase.from('fabrics').select('capas').eq('id', fabricId).single();
+        if (fab) {
+          const newCapas = Math.max(0, (Number(fab.capas) || 0) - layersToDeduct);
+          await supabase.from('fabrics').update({ capas: newCapas }).eq('id', fabricId);
+        }
+      }
+
       setStep(3); 
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -449,10 +544,14 @@ export default function OrdersPage() {
   const handleFinishAndSend = async () => {
     setSaving(true);
     try {
+      // Guardar los campos editados en Step 3 (prioridad, cortador, fecha) + cambiar estado
       const { error } = await supabase
         .from('orders')
         .update({ 
-          status: 'En Corte'
+          status: 'En Corte',
+          priority: formData.priority,
+          cortador_name: formData.cortador_name,
+          scheduled_date: formData.scheduled_date
         })
         .eq('id', currentOrderId || editingId);
       
@@ -532,7 +631,7 @@ export default function OrdersPage() {
             setEditingId(null);
             setStep(1); 
             setFabricColors([{ id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', capas_definidas: '' }]);
-            setMatrixCols([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '1', marker2: '1' }]);
+            setMatrixCols([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
             setMatrixCells({});
             setShowModal(true); 
             
@@ -780,13 +879,13 @@ export default function OrdersPage() {
                         setMatrixCols([{ ...matrixCols[0], product_id: formData.product_id }]);
                       }
                       
-                      // Auto-fill Step 2 grid
+                      // Auto-fill Step 2 grid: value = layers × marker (NO division by longitud)
                       const newCells: Record<string, number> = { ...matrixCells };
                       validColors.forEach(fc => {
-                        if ((fc.fabric_id || fc.nombre_tela) && Number(fc.layers) > 0) {
+                        if (Number(fc.layers) > 0) {
                           matrixCols.forEach(col => {
-                            newCells[`${fc.id}_${col.id}_1`] = Math.round(((Number(fc.layers) || 0) * (col.marker1 === '' ? 1 : Number(col.marker1))) / (longitud || 1));
-                            newCells[`${fc.id}_${col.id}_2`] = Math.round(((Number(fc.layers) || 0) * (col.marker2 === '' ? 1 : Number(col.marker2))) / (longitud || 1));
+                            newCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 0 : Number(col.marker1)));
+                            newCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 0 : Number(col.marker2)));
                           });
                         }
                       });
@@ -794,7 +893,7 @@ export default function OrdersPage() {
                       
                       setStep(2);
                     }} 
-                    disabled={fabricColors.filter(f => f.nombre_tela || f.fabric_id).length === 0}>
+                    disabled={fabricColors.filter(f => f.nombre_tela || f.fabric_id || f.color_id || Number(f.layers) > 0).length === 0}>
                     Continuar a Programación Técnica <ArrowRight size={24} style={{ marginLeft: '1rem' }} />
                   </button>
                 </div>
@@ -844,8 +943,8 @@ export default function OrdersPage() {
                             <th key={col.id} colSpan={2} style={{ padding: '0.5rem', borderLeft: '2px solid #e2e8f0' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateMatrixCol(col.id, 'product_id', e.target.value)}>
-                                  <option value="">Seleccionar Producto...</option>
-                                  {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto}</option>)}
+                                  <option value="">Seleccionar Categoría...</option>
+                                  {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.categoria}</option>)}
                                 </select>
                                 {matrixCols.length > 1 && (
                                   <button onClick={() => removeMatrixCol(col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -855,7 +954,7 @@ export default function OrdersPage() {
                           ))}
                           {matrixCols.length < 8 && (
                             <th rowSpan={3} style={{ padding: '1rem', borderLeft: '2px solid #e2e8f0', backgroundColor: '#f1f5f9' }}>
-                              <button className="btn btn-secondary" onClick={addMatrixCol} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Producto</button>
+                              <button className="btn btn-secondary" onClick={addMatrixCol} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Categoría</button>
                             </th>
                           )}
                         </tr>
