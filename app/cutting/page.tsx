@@ -14,15 +14,20 @@ import {
   ChevronRight,
   TrendingUp,
   Search,
-  BookOpen
+  BookOpen,
+  BarChart2,
+  X,
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 
 export default function CuttingDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'Planeada' | 'En Corte' | 'Cortado'>('all');
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -30,7 +35,7 @@ export default function CuttingDashboard() {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .order('scheduled_date', { ascending: true });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       setOrders(data || []);
@@ -59,16 +64,35 @@ export default function CuttingDashboard() {
     }
   };
 
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch = 
-      order.internal_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.cortador_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.brand?.toLowerCase().includes(searchQuery.toLowerCase());
+  const handleDeleteOrder = async (id: number, code: string) => {
+    if (!confirm(`¿Eliminar la orden OC-${code || id}? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+    if (error) {
+      alert('Error al eliminar: ' + error.message);
+    } else {
+      fetchOrders();
+    }
+  };
 
-    const matchesStatus = 
-      filterStatus === 'all' 
-        ? ['Planeada', 'En Corte', 'Cortado'].includes(order.status)
-        : order.status === filterStatus;
+  const filteredOrders = orders.filter(order => {
+    const searchLower = searchQuery.trim().toLowerCase();
+
+    if (!searchLower) {
+      // Sin búsqueda: solo aplicar filtro de estado
+      return filterStatus === 'all' || order.status === filterStatus;
+    }
+
+    // Manejar nulos correctamente: null → '' (no 'null')
+    const codeStr   = (order.internal_code  ?? '').toString().toLowerCase();
+    const cortadorStr = (order.cortador_name ?? '').toString().toLowerCase();
+    const brandStr  = (order.brand           ?? '').toString().toLowerCase();
+
+    const matchesSearch = 
+      codeStr.includes(searchLower) ||
+      cortadorStr.includes(searchLower) ||
+      brandStr.includes(searchLower);
+
+    const matchesStatus = filterStatus === 'all' || order.status === filterStatus;
 
     return matchesSearch && matchesStatus;
   });
@@ -78,6 +102,29 @@ export default function CuttingDashboard() {
     active: orders.filter(o => o.status === 'En Corte').length,
     completedToday: orders.filter(o => o.status === 'Cortado').length
   };
+
+  const mockWeeklyData = [
+    { name: 'Lun', cortes: 45 },
+    { name: 'Mar', cortes: 52 },
+    { name: 'Mie', cortes: 38 },
+    { name: 'Jue', cortes: 65 },
+    { name: 'Vie', cortes: 48 },
+    { name: 'Sab', cortes: 25 },
+  ];
+
+  const mockMonthlyData = [
+    { semana: 'Sem 1', meta: 200, actual: 210 },
+    { semana: 'Sem 2', meta: 200, actual: 180 },
+    { semana: 'Sem 3', meta: 200, actual: 230 },
+    { semana: 'Sem 4', meta: 200, actual: 250 },
+  ];
+
+  const PIE_COLORS = ['#10b981', '#f59e0b', '#3b82f6'];
+  const pieData = [
+    { name: 'Cortados', value: stats.completedToday + 12 },
+    { name: 'En Mesa', value: stats.active + 3 },
+    { name: 'Pendientes', value: stats.pending + 8 },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', padding: '1rem 0' }}>
@@ -111,7 +158,7 @@ export default function CuttingDashboard() {
             Panel de control para cortadores. Gestiona el extendido, trazo y corte físico en el taller.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <div style={{ textAlign: 'center', backgroundColor: 'white', padding: '0.75rem 1.25rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
             <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>Pendientes</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#93c5fd' }}>{stats.pending}</h3>
@@ -124,6 +171,32 @@ export default function CuttingDashboard() {
             <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>Cortadas</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#86efac' }}>{stats.completedToday}</h3>
           </div>
+          <button 
+            onClick={() => setShowDashboardModal(true)}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '0.25rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.2)', 
+              backdropFilter: 'blur(10px)',
+              color: 'white', 
+              border: '1px solid rgba(255, 255, 255, 0.4)', 
+              padding: '0.75rem 1.25rem', 
+              borderRadius: '12px', 
+              cursor: 'pointer',
+              fontWeight: '800',
+              boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+              transition: 'all 0.2s ease',
+              height: '100%'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'}
+            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+          >
+            <BarChart2 size={24} />
+            <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Rendimiento</span>
+          </button>
         </div>
       </div>
 
@@ -347,7 +420,7 @@ export default function CuttingDashboard() {
                     href={`/cutting/${order.id}`} 
                     className="btn btn-primary" 
                     style={{ 
-                      flex: isPending ? 0.7 : 1, 
+                      flex: isPending ? 0.5 : 1, 
                       justifyContent: 'center', 
                       fontSize: '0.85rem', 
                       padding: '0.75rem',
@@ -369,10 +442,178 @@ export default function CuttingDashboard() {
                       </>
                     )}
                   </Link>
+
+                  <button
+                    onClick={() => handleDeleteOrder(order.id, order.internal_code)}
+                    title="Eliminar orden"
+                    style={{
+                      padding: '0.75rem',
+                      borderRadius: '10px',
+                      border: '1.5px solid #fecaca',
+                      backgroundColor: '#fff5f5',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Dashboard Modal */}
+      {showDashboardModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* Backdrop */}
+          <div 
+            style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)' }}
+            onClick={() => setShowDashboardModal(false)}
+          />
+          
+          {/* Modal Content */}
+          <div style={{ 
+            position: 'relative',
+            backgroundColor: '#f8fafc',
+            width: '95%',
+            maxWidth: '1200px',
+            height: '90vh',
+            borderRadius: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              padding: '1.5rem 2rem',
+              background: 'white',
+              borderBottom: '1px solid #e2e8f0'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <TrendingUp color="var(--primary)" /> Rendimiento del Cortador
+                </h2>
+                <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', fontWeight: '500' }}>Análisis estadístico de la producción de corte semanal y mensual.</p>
+              </div>
+              <button 
+                onClick={() => setShowDashboardModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', padding: '0.5rem', borderRadius: '50%', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
+              
+              {/* KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ background: '#dbeafe', color: '#3b82f6', padding: '1rem', borderRadius: '12px' }}><Layers size={24} /></div>
+                  <div>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Capas Totales Mes</p>
+                    <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>4,520</h3>
+                  </div>
+                </div>
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ background: '#d1fae5', color: '#10b981', padding: '1rem', borderRadius: '12px' }}><Scissors size={24} /></div>
+                  <div>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Cortes Exitosos</p>
+                    <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>268</h3>
+                  </div>
+                </div>
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ background: '#fef3c7', color: '#f59e0b', padding: '1rem', borderRadius: '12px' }}><Clock size={24} /></div>
+                  <div>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Eficiencia Promedio</p>
+                    <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>94%</h3>
+                  </div>
+                </div>
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ background: '#fee2e2', color: '#ef4444', padding: '1rem', borderRadius: '12px' }}><Weight size={24} /></div>
+                  <div>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Desperdicio (Merma)</p>
+                    <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>2.4%</h3>
+                  </div>
+                </div>
+              </div>
+
+              {/* Charts Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                {/* Bar Chart - Weekly */}
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#334155', margin: '0 0 1.5rem 0' }}>Rendimiento Semanal (Cortes Diarios)</h3>
+                  <div style={{ height: '300px', width: '100%' }}>
+                    <ResponsiveContainer>
+                      <BarChart data={mockWeeklyData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontWeight: 600}} dy={10} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
+                        <Tooltip 
+                          cursor={{fill: '#f1f5f9'}}
+                          contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} 
+                        />
+                        <Bar dataKey="cortes" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={40} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Pie Chart - Status */}
+                <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#334155', margin: '0 0 1.5rem 0' }}>Estado del Trabajo</h3>
+                  <div style={{ height: '300px', width: '100%' }}>
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          innerRadius={70}
+                          outerRadius={100}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {pieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
+                        <Legend iconType="circle" wrapperStyle={{ fontSize: '0.8rem', fontWeight: '600' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Line Chart - Monthly */}
+              <div style={{ background: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#334155', margin: '0 0 1.5rem 0' }}>Evolución Mensual vs Meta</h3>
+                <div style={{ height: '300px', width: '100%' }}>
+                  <ResponsiveContainer>
+                    <LineChart data={mockMonthlyData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="semana" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontWeight: 600}} dy={10} />
+                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
+                      <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '0.8rem', fontWeight: '600', paddingTop: '10px' }} />
+                      <Line type="monotone" name="Producción Real" dataKey="actual" stroke="#3b82f6" strokeWidth={4} dot={{ r: 6, fill: '#3b82f6', strokeWidth: 2, stroke: 'white' }} activeDot={{ r: 8 }} />
+                      <Line type="monotone" name="Meta (Objetivo)" dataKey="meta" stroke="#94a3b8" strokeWidth={3} strokeDasharray="5 5" dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+            </div>
+          </div>
         </div>
       )}
     </div>

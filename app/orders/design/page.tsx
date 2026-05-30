@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { 
   UploadCloud, FileText, CheckCircle, AlertTriangle, 
   ArrowLeft, RefreshCw, Layers, Droplets, Save, X, Loader2, RotateCcw, Settings2,
-  FileSpreadsheet, Download
+  FileSpreadsheet, Download, Trash2, Search
 } from 'lucide-react';
 
 interface ParsedFabric {
@@ -28,7 +28,14 @@ export default function DesignSubmodulePage() {
   const [parsedItems, setParsedItems] = useState<ParsedFabric[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
-  const [importMode, setImportMode] = useState<'xml' | 'csv' | 'pdf'>('xml');
+  const [importMode, setImportMode] = useState<'xml' | 'csv' | 'pdf' | 'manage'>('xml');
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [isDeletingInvoice, setIsDeletingInvoice] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<string | null>(null);
+  const [fabricsInModal, setFabricsInModal] = useState<any[]>([]);
+  const [isLoadingFabricsModal, setIsLoadingFabricsModal] = useState(false);
   
   // Advanced Global Settings
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -42,6 +49,149 @@ export default function DesignSubmodulePage() {
   const [newlyInsertedCodes, setNewlyInsertedCodes] = useState<string[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchLoadedInvoices = async () => {
+    setIsLoadingInvoices(true);
+    try {
+      const { data, error } = await supabase
+        .from('fabrics')
+        .select('factura_relacionada, created_at')
+        .not('factura_relacionada', 'is', null)
+        .neq('factura_relacionada', '');
+
+      if (error) throw error;
+
+      const groups: Record<string, { invoiceNumber: string; fabricCount: number; minCreatedAt: string }> = {};
+
+      data?.forEach(row => {
+        const inv = row.factura_relacionada;
+        if (!groups[inv]) {
+          groups[inv] = {
+            invoiceNumber: inv,
+            fabricCount: 0,
+            minCreatedAt: row.created_at
+          };
+        }
+        groups[inv].fabricCount += 1;
+        if (row.created_at < groups[inv].minCreatedAt) {
+          groups[inv].minCreatedAt = row.created_at;
+        }
+      });
+
+      const list = Object.values(groups).sort((a, b) => {
+        return new Date(b.minCreatedAt).getTime() - new Date(a.minCreatedAt).getTime();
+      });
+
+      setInvoices(list);
+    } catch (err: any) {
+      setError('Error al cargar la lista de facturas: ' + err.message);
+    } finally {
+      setIsLoadingInvoices(false);
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceNum: string) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar la factura "${invoiceNum}" y todas las telas asociadas? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    setIsDeletingInvoice(invoiceNum);
+    setError(null);
+
+    try {
+      const { data: fabricsInInvoice, error: fabricsErr } = await supabase
+        .from('fabrics')
+        .select('id, nombre_tela, codigo_tela')
+        .eq('factura_relacionada', invoiceNum);
+
+      if (fabricsErr) throw new Error('No se pudieron consultar las telas de la factura: ' + fabricsErr.message);
+
+      if (fabricsInInvoice && fabricsInInvoice.length > 0) {
+        const fabricIds = fabricsInInvoice.map(f => f.id);
+
+        const { data: cutsData, error: cutsErr } = await supabase
+          .from('cuts')
+          .select('id, fabric_id')
+          .in('fabric_id', fabricIds)
+          .limit(5);
+
+        if (cutsErr) throw new Error('No se pudo verificar el consumo en la mesa de corte: ' + cutsErr.message);
+        if (cutsData && cutsData.length > 0) {
+          throw new Error('La factura no puede eliminarse porque algunas de sus telas ya están programadas o usadas en la mesa de corte.');
+        }
+
+        const { data: ordersData, error: ordersErr } = await supabase
+          .from('orders')
+          .select('id, fabric_id')
+          .in('fabric_id', fabricIds)
+          .limit(5);
+
+        if (ordersErr) throw new Error('No se pudo verificar el consumo en órdenes de producción: ' + ordersErr.message);
+        if (ordersData && ordersData.length > 0) {
+          throw new Error('La factura no puede eliminarse porque algunas de sus telas ya están asociadas a órdenes de producción.');
+        }
+
+        const { data: inventoryData, error: inventoryErr } = await supabase
+          .from('fabric_inventory')
+          .select('id, fabric_id')
+          .in('fabric_id', fabricIds)
+          .limit(5);
+
+        if (inventoryErr) throw new Error('No se pudo verificar el inventario de rollos: ' + inventoryErr.message);
+        if (inventoryData && inventoryData.length > 0) {
+          throw new Error('La factura no puede eliminarse porque algunas de sus telas tienen rollos registrados en el Inventario de Telas.');
+        }
+
+        const { error: deleteErr } = await supabase
+          .from('fabrics')
+          .delete()
+          .eq('factura_relacionada', invoiceNum);
+
+        if (deleteErr) throw new Error('Error al eliminar las telas de la factura: ' + deleteErr.message);
+      }
+
+      alert(`La factura "${invoiceNum}" y todas sus telas asociadas han sido eliminadas exitosamente.`);
+      fetchLoadedInvoices();
+      
+      if (invoiceNumber === invoiceNum) {
+        setParsedItems([]);
+        setFile(null);
+        setInvoiceNumber('');
+        setSuccess(false);
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'Error desconocido al eliminar la factura.');
+    } finally {
+      setIsDeletingInvoice(null);
+    }
+  };
+
+  const handleOpenFabricsModal = async (invoiceNum: string) => {
+    setSelectedInvoiceForModal(invoiceNum);
+    setIsLoadingFabricsModal(true);
+    setFabricsInModal([]);
+    try {
+      const { data, error } = await supabase
+        .from('fabrics')
+        .select('codigo_tela, nombre_tela, kilos, capas, costo_unitario, costo_con_iva')
+        .eq('factura_relacionada', invoiceNum)
+        .order('codigo_tela', { ascending: true });
+
+      if (error) throw error;
+      setFabricsInModal(data || []);
+    } catch (err: any) {
+      setError('Error al cargar las telas de la factura: ' + err.message);
+    } finally {
+      setIsLoadingFabricsModal(false);
+    }
+  };
+
+  useEffect(() => {
+    if (importMode === 'manage') {
+      fetchLoadedInvoices();
+    }
+  }, [importMode]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -87,7 +237,7 @@ export default function DesignSubmodulePage() {
     });
   };
 
-  const parsePDFInvoice = async (pdfFile: File): Promise<ParsedFabric[]> => {
+  const parsePDFInvoice = async (pdfFile: File, targetInvoice: string): Promise<ParsedFabric[]> => {
     const pdfjsLib = await loadPdfJS();
     const arrayBuffer = await pdfFile.arrayBuffer();
     
@@ -108,7 +258,8 @@ export default function DesignSubmodulePage() {
     
     const { data: existingFabrics, error: dbError } = await supabase
       .from('fabrics')
-      .select('id, codigo_tela, nombre_tela');
+      .select('id, codigo_tela, nombre_tela, factura_relacionada')
+      .eq('factura_relacionada', targetInvoice);
       
     if (dbError) throw dbError;
     
@@ -213,12 +364,12 @@ export default function DesignSubmodulePage() {
 
     try {
       if (isPdf) {
-        const items = await parsePDFInvoice(selectedFile);
-        
+        const targetInvoiceNumber = invoiceNumber || `FAC-PDF-${new Date().toISOString().split('T')[0].replace(/-/g, '')}`;
         if (!invoiceNumber) {
-          const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
-          setInvoiceNumber(`FAC-PDF-${dateStr}`);
+          setInvoiceNumber(targetInvoiceNumber);
         }
+        
+        const items = await parsePDFInvoice(selectedFile, targetInvoiceNumber);
         
         setParsedItems(items);
         setImportMode('pdf'); // switch tab automatically
@@ -250,10 +401,16 @@ export default function DesignSubmodulePage() {
         
         const items: ParsedFabric[] = [];
         
-        // Fetch existing fabrics to check for duplicates
+        const targetInvoiceNumber = invoiceNumber || `FAC-MAN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}`;
+        if (!invoiceNumber) {
+          setInvoiceNumber(targetInvoiceNumber);
+        }
+        
+        // Fetch existing fabrics associated with this invoice to check for duplicates
         const { data: existingFabrics, error: dbError } = await supabase
           .from('fabrics')
-          .select('id, codigo_tela, nombre_tela');
+          .select('id, codigo_tela, nombre_tela, factura_relacionada')
+          .eq('factura_relacionada', targetInvoiceNumber);
           
         if (dbError) throw dbError;
         
@@ -384,10 +541,11 @@ export default function DesignSubmodulePage() {
 
         setInvoiceNumber(extractedInvoiceId);
 
-        // Fetch existing fabrics to check for duplicates
+        // Fetch existing fabrics associated with this invoice to check for duplicates
         const { data: existingFabrics, error: dbError } = await supabase
           .from('fabrics')
-          .select('id, codigo_tela, nombre_tela');
+          .select('id, codigo_tela, nombre_tela, factura_relacionada')
+          .eq('factura_relacionada', extractedInvoiceId);
           
         if (dbError) throw dbError;
 
@@ -653,9 +811,196 @@ export default function DesignSubmodulePage() {
         >
           <FileText size={18} /> Factura PDF
         </button>
+        <button 
+          onClick={() => { setImportMode('manage'); setError(null); }}
+          style={{
+            padding: '0.75rem 1.5rem',
+            fontWeight: '850',
+            fontSize: '0.9rem',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            backgroundColor: importMode === 'manage' ? 'var(--primary)' : '#f1f5f9',
+            color: importMode === 'manage' ? 'white' : '#475569',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginLeft: 'auto'
+          }}
+        >
+          <Settings2 size={18} /> Gestión de Facturas
+        </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: parsedItems.length > 0 ? '300px 1fr' : '1fr', gap: '2rem' }}>
+      {importMode === 'manage' ? (
+        <div className="card" style={{ padding: '2rem', width: '100%', minHeight: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', border: '1px solid #cbd5e1', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)', backgroundColor: 'white', borderRadius: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#1e293b', margin: 0 }}>
+                <Layers size={24} style={{ color: 'var(--primary)' }} /> Facturas de Telas Importadas
+              </h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>Administra y elimina de forma segura las facturas de telas cargadas en el sistema.</p>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ position: 'relative', width: '300px' }}>
+                <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input 
+                  type="text" 
+                  placeholder="Buscar factura..." 
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{ width: '100%', padding: '0.625rem 1rem 0.625rem 2.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.875rem', fontWeight: '600' }}
+                />
+              </div>
+              <button 
+                onClick={fetchLoadedInvoices}
+                disabled={isLoadingInvoices}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.625rem 1rem',
+                  borderRadius: '8px',
+                  border: '1.5px solid #cbd5e1',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  fontWeight: '700',
+                  color: '#475569',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <RefreshCw size={16} className={isLoadingInvoices ? 'animate-spin' : ''} /> Refrescar
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div style={{ backgroundColor: '#fef2f2', border: '1px solid #ef4444', color: '#b91c1c', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <p style={{ fontSize: '0.875rem', fontWeight: '800', margin: 0 }}>Error de Validación</p>
+                <p style={{ fontSize: '0.875rem', fontWeight: '600', marginTop: '0.25rem', margin: 0 }}>{error}</p>
+              </div>
+            </div>
+          )}
+
+          {isLoadingInvoices ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '4rem 0', gap: '1rem' }}>
+              <Loader2 size={40} className="animate-spin" style={{ color: 'var(--primary)' }} />
+              <p style={{ color: '#64748b', fontWeight: '700' }}>Cargando listado de facturas...</p>
+            </div>
+          ) : invoices.filter(inv => inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '5rem 0', backgroundColor: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+              <Layers size={48} style={{ color: '#94a3b8', margin: '0 auto 1rem' }} />
+              <h3 style={{ fontSize: '1.125rem', fontWeight: '850', color: '#334155', marginBottom: '0.5rem' }}>
+                {searchQuery ? 'No se encontraron facturas coincidentes' : 'No hay facturas cargadas'}
+              </h3>
+              <p style={{ color: '#64748b', fontSize: '0.875rem', maxWidth: '400px', margin: '0 auto' }}>
+                {searchQuery ? 'Prueba escribiendo otro número de factura en la barra de búsqueda.' : 'Las facturas que cargues usando XML, CSV o PDF aparecerán listadas aquí para su gestión.'}
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Factura Relacionada</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Fecha de Carga</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Total Telas</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices
+                    .filter(inv => inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .map((inv) => (
+                      <tr key={inv.invoiceNumber} style={{ borderBottom: '1px solid #e2e8f0', transition: 'background-color 0.2s' }}>
+                        <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.9rem', fontWeight: '800', color: '#0f172a' }}>
+                          {inv.invoiceNumber}
+                        </td>
+                        <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', color: '#475569', fontWeight: '600' }}>
+                          {new Date(inv.minCreatedAt).toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
+                          <span 
+                            onClick={() => handleOpenFabricsModal(inv.invoiceNumber)}
+                            style={{ 
+                              backgroundColor: '#eff6ff', 
+                              color: '#1d4ed8', 
+                              padding: '0.35rem 0.85rem', 
+                              borderRadius: '99px', 
+                              fontSize: '0.8rem', 
+                              fontWeight: '800', 
+                              border: '1px solid #bfdbfe',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              transition: 'all 0.2s',
+                              userSelect: 'none'
+                            }}
+                            onMouseOver={e => {
+                              e.currentTarget.style.backgroundColor = '#dbeafe';
+                              e.currentTarget.style.transform = 'scale(1.05)';
+                            }}
+                            onMouseOut={e => {
+                              e.currentTarget.style.backgroundColor = '#eff6ff';
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                          >
+                            {inv.fabricCount} {inv.fabricCount === 1 ? 'tela' : 'telas'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
+                          <button 
+                            onClick={() => handleDeleteInvoice(inv.invoiceNumber)}
+                            disabled={isDeletingInvoice !== null}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '0.5rem',
+                              backgroundColor: '#fef2f2',
+                              color: '#dc2626',
+                              border: '1.5px solid #fca5a5',
+                              padding: '0.5rem 1rem',
+                              borderRadius: '8px',
+                              fontWeight: '800',
+                              fontSize: '0.8rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {isDeletingInvoice === inv.invoiceNumber ? (
+                              <>
+                                <Loader2 size={14} className="animate-spin" />
+                                Validando...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 size={14} />
+                                Eliminar Factura
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: parsedItems.length > 0 ? '300px 1fr' : '1fr', gap: '2rem' }}>
         
         {/* Upload Zone */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -885,6 +1230,136 @@ export default function DesignSubmodulePage() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Modal de Detalle de Telas de la Factura */}
+      {selectedInvoiceForModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          backdropFilter: 'blur(8px)',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            width: '90%',
+            maxWidth: '850px',
+            maxHeight: '85vh',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            border: '1px solid #cbd5e1',
+            animation: 'scaleUp 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.5rem',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Layers size={22} style={{ color: 'var(--primary)' }} /> Telas en Factura: {selectedInvoiceForModal}
+                </h3>
+                <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0.25rem 0 0 0', fontWeight: '500' }}>Listado maestro de telas cargadas bajo este comprobante.</p>
+              </div>
+              <button 
+                onClick={() => setSelectedInvoiceForModal(null)} 
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.5rem',
+                  borderRadius: '50%',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.2s'
+                }}
+                onMouseOver={e => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              {isLoadingFabricsModal ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0', gap: '1rem' }}>
+                  <Loader2 size={36} className="animate-spin" style={{ color: 'var(--primary)' }} />
+                  <p style={{ color: '#64748b', fontWeight: '700', fontSize: '0.9rem' }}>Consultando base de datos...</p>
+                </div>
+              ) : fabricsInModal.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#64748b', padding: '2rem 0', fontWeight: '600' }}>No se encontraron telas asociadas a esta factura.</p>
+              ) : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Código</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Nombre / Descripción</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Kilos</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Capas Est.</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo Unitario</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo + IVA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fabricsInModal.map((fabric, index) => (
+                        <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? 'white' : '#f8fafc' }}>
+                          <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#0f172a' }}>{fabric.codigo_tela}</td>
+                          <td style={{ padding: '0.85rem 1rem', color: '#334155', fontWeight: '500' }}>{fabric.nombre_tela}</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700' }}>{(fabric.kilos || 0).toLocaleString()} kg</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{fabric.capas || '0'}</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '600' }}>${(fabric.costo_unitario || 0).toLocaleString('es-CO')}</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: '#16a34a' }}>${Math.round(fabric.costo_con_iva || (fabric.costo_unitario * 1.19)).toLocaleString('es-CO')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', color: '#475569', fontWeight: '700' }}>
+                <span>Total Items: <strong style={{ color: '#0f172a' }}>{fabricsInModal.length}</strong></span>
+                <span>Kilos Totales: <strong style={{ color: 'var(--primary)' }}>{fabricsInModal.reduce((sum, f) => sum + (f.kilos || 0), 0).toFixed(1)} kg</strong></span>
+              </div>
+              <button 
+                onClick={() => setSelectedInvoiceForModal(null)} 
+                className="btn btn-secondary"
+                style={{ padding: '0.625rem 1.25rem', fontSize: '0.85rem', fontWeight: '800' }}
+              >
+                Cerrar Detalle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

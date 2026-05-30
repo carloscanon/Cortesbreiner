@@ -80,7 +80,7 @@ export default function CutDetailsPage() {
       cutsData?.forEach(cut => {
         initialInputState[cut.id] = {
           actualLayers: cut.layers || 0,
-          actualKilos: cut.kilos || 0
+          actualKilos: Math.round((cut.kilos || 0) * 100) / 100
         };
       });
       setActualCutsData(initialInputState);
@@ -194,7 +194,7 @@ export default function CutDetailsPage() {
       if (cutErr) throw cutErr;
 
       // 2. Append to observations
-      const colorData = colors.find(c => c.id === cut.color_id || c.id === Number(cut.color_id));
+      const colorData = getColorData(cut.color_id, cut);
       const colorName = colorData?.nombre_color || 'Tela';
       const productName = getProductName(cut.product_id);
       
@@ -260,16 +260,31 @@ export default function CutDetailsPage() {
 
   // Helper resolvers
   const getProductName = (pid: string) => {
-    const prod = products.find(p => p.id === pid || p.id === Number(pid));
+    const prod = products.find(p => String(p.id) === String(pid));
     if (!prod) return 'Sin Producto';
-    const cat = categories.find(c => c.id === prod.category_id);
-    return cat ? cat.categoria : prod.nombre_producto || 'Sin Producto';
+    return prod.nombre_producto || 'Sin Producto';
   };
-  const getColorData = (cid: string) => colors.find(c => c.id === cid || c.id === Number(cid));
+  const getColorData = (cid: string, cut?: any) => {
+    if (cid) {
+      const found = colors.find(c => String(c.id) === String(cid));
+      if (found) return found;
+    }
+    if (cut && cut.product_id) {
+      const prod = products.find(p => String(p.id) === String(cut.product_id));
+      if (prod && prod.nombre_producto) {
+        const prodNameLower = prod.nombre_producto.toLowerCase();
+        const foundColor = colors.find(c => 
+          prodNameLower.includes((c.nombre_color || '').toLowerCase())
+        );
+        if (foundColor) return foundColor;
+      }
+    }
+    return null;
+  };
 
   // Determine active size columns based on what's configured in the cut sizes
   const activeSizes = sizes.filter(size => 
-    cuts.some(cut => cut.cut_sizes.some((cs: any) => cs.size_id === size.id || cs.size_id === Number(size.id)))
+    cuts.some(cut => cut.cut_sizes.some((cs: any) => String(cs.size_id) === String(size.id)))
   );
 
   // Group cuts by fabric color & product to display cleanly
@@ -402,7 +417,7 @@ export default function CutDetailsPage() {
               </thead>
               <tbody>
                 {cuts.map((cut, idx) => {
-                  const color = getColorData(cut.color_id);
+                  const color = getColorData(cut.color_id, cut);
                   const productName = getProductName(cut.product_id);
                   
                   // Compute total prendas for this cut row
@@ -484,7 +499,7 @@ export default function CutDetailsPage() {
                         </div>
                       </td>
                       {activeSizes.map(size => {
-                        const qty = cut.cut_sizes.find((cs: any) => cs.size_id === size.id || cs.size_id === Number(size.id))?.quantity || 0;
+                        const qty = cut.cut_sizes.find((cs: any) => String(cs.size_id) === String(size.id))?.quantity || 0;
                         return (
                           <td key={size.id} style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: qty > 0 ? '#1e1b4b' : '#cbd5e1' }}>
                             {qty > 0 ? qty : '-'}
@@ -574,7 +589,7 @@ export default function CutDetailsPage() {
               <h4 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#1e293b', margin: 0, textTransform: 'uppercase' }}>Registros Reales del Taller</h4>
               
               {cuts.map(cut => {
-                const color = getColorData(cut.color_id);
+                const color = getColorData(cut.color_id, cut);
                 const input = actualCutsData[cut.id] || { actualLayers: cut.layers, actualKilos: cut.kilos };
 
                 return (
@@ -604,10 +619,10 @@ export default function CutDetailsPage() {
                         <input 
                           type="number" 
                           step="0.01"
-                          value={input.actualKilos}
+                          value={Number(input.actualKilos.toFixed(2))}
                           onChange={e => setActualCutsData({
                             ...actualCutsData,
-                            [cut.id]: { ...input, actualKilos: Number(e.target.value) || 0 }
+                            [cut.id]: { ...input, actualKilos: Math.round((Number(e.target.value) || 0) * 100) / 100 }
                           })}
                           style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '700', fontSize: '0.85rem' }}
                         />
@@ -678,14 +693,14 @@ export default function CutDetailsPage() {
               <h4 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: 0, textTransform: 'uppercase' }}>Resumen del Trabajo Realizado</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {cuts.map(cut => {
-                  const color = getColorData(cut.color_id);
+                  const color = getColorData(cut.color_id, cut);
                   const totalPrendas = cut.cut_sizes.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0);
                   
                   return (
                     <div key={cut.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
                       <span style={{ fontWeight: '750', color: '#475569' }}>{color?.nombre_color || 'Tela'}</span>
                       <div style={{ textAlign: 'right', fontWeight: '800', color: '#1e293b' }}>
-                        <div>{cut.layers} capas | {cut.kilos} kg</div>
+                        <div>{cut.layers} capas | {(Math.round((cut.kilos || 0) * 100) / 100).toFixed(2)} kg</div>
                         <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.15rem' }}>{totalPrendas} prendas cortadas</div>
                       </div>
                     </div>
@@ -732,7 +747,7 @@ export default function CutDetailsPage() {
                 >
                   <option value="">Selecciona una opción...</option>
                   {cuts.map(c => {
-                    const colorDat = getColorData(c.color_id);
+                    const colorDat = getColorData(c.color_id, c);
                     const productNam = getProductName(c.product_id);
                     const producidas = c.layers_produced || 0;
                     const planeadas = c.layers || 0;

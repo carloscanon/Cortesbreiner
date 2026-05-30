@@ -17,6 +17,8 @@ export default function OrdersPage() {
   const [filterType, setFilterType] = useState('all'); 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [viewingOrder, setViewingOrder] = useState<any | null>(null);
+  const [viewCuts, setViewCuts] = useState<any[]>([]);
   const router = useRouter();
   
   // Form State
@@ -217,7 +219,16 @@ export default function OrdersPage() {
 
   const step2TotalLayers = fabricColors.reduce((acc, fc) => acc + (Number(fc.layers) || 0), 0);
   const totalCapasEstimadas = fabricColors.reduce((acc, fc) => acc + (Number(fc.capas_definidas) || 0), 0);
-  const totalUnits = Object.values(matrixCells).reduce((a, b) => a + b, 0);
+  const totalUnits = (() => {
+    let sum = 0;
+    fabricColors.forEach(fc => {
+      matrixCols.forEach(col => {
+        sum += Number(matrixCells[`${fc.id}_${col.id}_1`]) || 0;
+        sum += Number(matrixCells[`${fc.id}_${col.id}_2`]) || 0;
+      });
+    });
+    return sum;
+  })();
   const totalLayersSummary = step2TotalLayers;
   const totalKilos = fabricColors.reduce((sum, fc) => sum + (Number(fc.kilos) || 0), 0);
   
@@ -225,16 +236,18 @@ export default function OrdersPage() {
 
   const orderItems: any[] = [];
   fabricColors.forEach(fc => {
-    if (!fc.nombre_tela && !fc.fabric_id) return;
     matrixCols.forEach(col => {
-      if (!col.product_id) return;
       const qty1 = matrixCells[`${fc.id}_${col.id}_1`] || 0;
       const qty2 = matrixCells[`${fc.id}_${col.id}_2`] || 0;
-      if (qty1 > 0 && col.size1_id) {
-        orderItems.push({ product_id: col.product_id, color_id: fc.color_id, nombre_tela: fc.nombre_tela, size_id: col.size1_id, layers: fc.layers || 0, marker: col.marker1 || 0, total: qty1 });
+      
+      const colData = colors.find(c => String(c.id) === String(fc.color_id));
+      const finalFabricName = fc.nombre_tela || colData?.nombre_color || 'Tela Base';
+
+      if (qty1 > 0) {
+        orderItems.push({ product_id: col.product_id || '', color_id: fc.color_id, nombre_tela: finalFabricName, size_id: col.size1_id || '', layers: fc.layers || 0, marker: col.marker1 || 0, total: qty1 });
       }
-      if (qty2 > 0 && col.size2_id) {
-        orderItems.push({ product_id: col.product_id, color_id: fc.color_id, nombre_tela: fc.nombre_tela, size_id: col.size2_id, layers: fc.layers || 0, marker: col.marker2 || 0, total: qty2 });
+      if (qty2 > 0) {
+        orderItems.push({ product_id: col.product_id || '', color_id: fc.color_id, nombre_tela: finalFabricName, size_id: col.size2_id || '', layers: fc.layers || 0, marker: col.marker2 || 0, total: qty2 });
       }
     });
   });
@@ -243,10 +256,17 @@ export default function OrdersPage() {
     setEditingId(order.id);
     
     try {
+      // Recargar maestros en tiempo real para evitar inconsistencias con productos dinámicos
+      const { data: latestProducts } = await supabase.from('products').select('*');
+      const currentProducts = latestProducts || products;
+      if (latestProducts) setProducts(latestProducts);
+
       const { data: cutsData } = await supabase
         .from('cuts')
         .select('*, cut_sizes(*)')
         .eq('order_id', order.id);
+
+      console.log('Cargando orden en edición:', order.internal_code, { cutsCount: cutsData?.length, productsCount: currentProducts.length });
 
       const firstProductId = cutsData?.[0]?.product_id || '';
       const orderStrokeLength = cutsData?.[0]?.stroke_length || 1;
@@ -275,82 +295,169 @@ export default function OrdersPage() {
       });
 
       const getCategoryOfProduct = (pid: string) => {
-        const prod = products.find(p => p.id === pid);
+        const prod = currentProducts.find(p => String(p.id) === String(pid));
         return prod?.category_id || '';
       };
 
       if (cutsData && cutsData.length > 0) {
-        const uniqueColors = Array.from(new Set(cutsData.map(c => c.color_id)));
-        const fCols = uniqueColors.map(cid => {
-          const colorCuts = cutsData.filter(c => c.color_id === cid);
-          const totalKilosForColor = colorCuts.reduce((sum, c) => sum + (Number(c.kilos) || 0), 0);
-          const maxLayersForColor = Math.max(...colorCuts.map(c => Number(c.layers) || 0));
-          
-          const colorName = colors.find(col => col.id === cid)?.nombre_color || '';
-          const matchedFabric = fetchedFabrics.find(f => {
-            const fName = (f.nombre_tela || '').toLowerCase();
-            const cName = colorName.toLowerCase();
-            return fName.includes(cName) || cName.includes(fName);
-          }) || fetchedFabrics[0];
+        console.log('[handleEdit] cutsData sample:', cutsData.slice(0, 3).map(c => ({
+          id: c.id, fabric_id: c.fabric_id, color_id: c.color_id, layers: c.layers, kilos: c.kilos, sizes: c.cut_sizes?.length
+        })));
+        console.log('[handleEdit] fetchedFabrics:', fetchedFabrics.map(f => ({ id: f.id, nombre_tela: f.nombre_tela })));
 
-          return {
-            id: Math.random(),
-            color_id: cid,
-            kilos: totalKilosForColor || '',
-            layers: maxLayersForColor || '',
-            observation: '',
-            fabric_id: matchedFabric?.id || '',
-            nombre_tela: matchedFabric?.nombre_tela || '',
-            capas_definidas: matchedFabric?.capas ? Math.round(Number(matchedFabric.capas)) : ''
-          };
-        });
+        // ── RECONSTRUIR FILAS DE TELAS ────────────────────────────────────────
+        // Estrategia:
+        //   1) Si hay telas de la factura → son la fuente de verdad (siempre las 4 correctas)
+        //   2) Si no hay factura → agrupar por fabric_id (o color_id) de los cortes
+        let fCols: any[];
+
+        if (fetchedFabrics.length > 0) {
+          // Fuente 1: telas directamente de la factura relacionada a la orden
+          // Cada fabric de la factura = una fila de la matriz
+          fCols = fetchedFabrics.map(f => {
+            // Buscar el corte que corresponde a esta tela para sacar layers/kilos reales
+            const fabricCuts = cutsData.filter(c => c.fabric_id && String(c.fabric_id) === String(f.id));
+            const maxLayers = fabricCuts.length > 0 
+              ? Math.max(...fabricCuts.map((c: any) => Number(c.layers) || 0))
+              : (f.capas ? Math.round(Number(f.capas)) : '');
+            const totalKilos = fabricCuts.length > 0
+              ? fabricCuts.reduce((sum: number, c: any) => sum + (Number(c.kilos) || 0), 0)
+              : (f.kilos || '');
+
+            return {
+              id: Math.random(),
+              color_id: fabricCuts[0]?.color_id || '',
+              kilos: totalKilos || f.kilos || '',
+              layers: maxLayers || '',
+              observation: '',
+              fabric_id: f.id,
+              nombre_tela: f.nombre_tela || 'Tela Cargada',
+              capas_definidas: f.capas ? Math.round(Number(f.capas)) : ''
+            };
+          });
+        } else {
+          // Fuente 2 (fallback): agrupar cortes por fabric_id o color_id
+          const uniqueKeys = Array.from(new Set(cutsData.map((c: any) =>
+            c.fabric_id ? `fab_${c.fabric_id}` : `col_${c.color_id || 'null'}`
+          )));
+          fCols = uniqueKeys.map((key: string) => {
+            const isFabric = key.startsWith('fab_');
+            const refId = key.substring(4);
+            const colorCuts = cutsData.filter((c: any) =>
+              isFabric ? String(c.fabric_id) === refId : String(c.color_id) === (refId === 'null' ? null : refId)
+            );
+            const firstCut = colorCuts[0];
+            const totalKilosForColor = colorCuts.reduce((sum: number, c: any) => sum + (Number(c.kilos) || 0), 0);
+            const maxLayersForColor = Math.max(...colorCuts.map((c: any) => Number(c.layers) || 0));
+            return {
+              id: Math.random(),
+              color_id: firstCut.color_id || '',
+              kilos: totalKilosForColor || '',
+              layers: maxLayersForColor || '',
+              observation: '',
+              fabric_id: firstCut.fabric_id || '',
+              nombre_tela: 'Tela Manual',
+              capas_definidas: ''
+            };
+          });
+        }
+
+        console.log('[handleEdit] fCols generados:', fCols.length, fCols.map(f => ({ nombre_tela: f.nombre_tela, fabric_id: f.fabric_id })));
         setFabricColors(fCols.length > 0 ? fCols : [{ id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', capas_definidas: '' }]);
 
-        const categoryIds = Array.from(new Set(cutsData.map(c => getCategoryOfProduct(c.product_id)).filter(Boolean)));
-        const newCols = categoryIds.map(catId => {
-          const categoryCuts = cutsData.filter(c => getCategoryOfProduct(c.product_id) === catId);
-          const sizesForProduct = Array.from(new Set(categoryCuts.flatMap(c => c.cut_sizes.map((cs: any) => cs.size_id))));
-          
-          const activeCut = categoryCuts.find(c => (Number(c.layers) || 0) > 0);
-          const layers = activeCut ? (Number(activeCut.layers) || 1) : 1;
-          
-          let m1 = 0;
-          let m2 = 0;
-          
-          if (activeCut) {
-            const cs1 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[0]);
-            const cs2 = activeCut.cut_sizes.find((cs: any) => cs.size_id === sizesForProduct[1]);
-            if (cs1) m1 = Math.round(cs1.quantity / layers);
-            if (cs2) m2 = Math.round(cs2.quantity / layers);
-          }
+        // 1. Recopilar columnas únicas a partir de los cortes guardados
+        // Usamos un Map con clave "catId|size1|size2" (normalizado) para evitar duplicados entre telas
+        const colMap = new Map<string, any>();
+        cutsData.forEach(cut => {
+          const catId = getCategoryOfProduct(cut.product_id);
+          if (!catId) return;
 
-          return {
+          // Ordenar los size_ids para normalizar (S,M == M,S)
+          const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
+          if (allSizes.length === 0) return;
+
+          const size1 = allSizes[0] || '';
+          const size2 = allSizes[1] || '';
+          const colKey = `${catId}|${size1}|${size2}`;
+
+          if (colMap.has(colKey)) return; // Ya existe esta combinación de tallas, no duplicar
+
+          const layers = Number(cut.layers) || 1;
+          const cs1 = cut.cut_sizes.find((cs: any) => String(cs.size_id) === String(size1));
+          const cs2 = cut.cut_sizes.find((cs: any) => String(cs.size_id) === String(size2));
+          const m1 = cs1 ? Math.round(cs1.quantity / layers) : 0;
+          const m2 = cs2 ? Math.round(cs2.quantity / layers) : 0;
+
+          colMap.set(colKey, {
             id: Math.random(),
             product_id: catId,
-            size1_id: sizesForProduct[0] || '',
-            size2_id: sizesForProduct[1] || '',
+            size1_id: size1,
+            size2_id: size2,
             marker1: String(m1),
-            marker2: String(m2)
-          };
+            marker2: String(m2),
+            _colKey: colKey // guardar la clave para localizar la columna al reconstruir celdas
+          });
         });
+
+        const newCols: any[] = Array.from(colMap.values());
         setMatrixCols(newCols.length > 0 ? newCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
 
         const newCells: Record<string, number> = {};
-        cutsData.forEach(cut => {
-          const fc = fCols.find(f => f.color_id === cut.color_id);
-          if (!fc) return;
-          const cutCategoryId = getCategoryOfProduct(cut.product_id);
-          const col = newCols.find(c => c.product_id === cutCategoryId);
-          if (!col) return;
-          
-          cut.cut_sizes.forEach((cs: any) => {
-            if (cs.size_id === col.size1_id) {
-              newCells[`${fc.id}_${col.id}_1`] = Number(cs.quantity) || 0;
-            } else if (cs.size_id === col.size2_id) {
-              newCells[`${fc.id}_${col.id}_2`] = Number(cs.quantity) || 0;
-            }
+
+        // Agrupar los cortes por fabric_id para reconstruir celdas correctamente
+        // Para datos legados sin fabric_id, hacer fallback posicional agrupando por posición relativa
+        const hasFabricIds = cutsData.some((c: any) => !!c.fabric_id);
+
+        if (hasFabricIds) {
+          // Caso moderno: los cortes tienen fabric_id → mapeo directo
+          cutsData.forEach((cut: any) => {
+            const fc = fCols.find((f: any) => cut.fabric_id && String(f.fabric_id) === String(cut.fabric_id));
+            if (!fc) return;
+
+            const cutCategoryId = getCategoryOfProduct(cut.product_id);
+            if (!cutCategoryId) return;
+
+            const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
+            if (allSizes.length === 0) return;
+            const lookupKey = `${cutCategoryId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
+            const col = newCols.find((c: any) => c._colKey === lookupKey);
+            if (!col) return;
+
+            cut.cut_sizes.forEach((cs: any) => {
+              if (String(cs.size_id) === String(col.size1_id)) {
+                newCells[`${fc.id}_${col.id}_1`] = Number(cs.quantity) || 0;
+              } else if (String(cs.size_id) === String(col.size2_id)) {
+                newCells[`${fc.id}_${col.id}_2`] = Number(cs.quantity) || 0;
+              }
+            });
           });
-        });
+        } else {
+          // Caso legado: cortes sin fabric_id → usar solo la primera fila de tela
+          // (No podemos saber a qué tela pertenece cada corte, mostramos en la primera)
+          const fallbackFc = fCols[0];
+          if (fallbackFc) {
+            cutsData.forEach((cut: any) => {
+              const cutCategoryId = getCategoryOfProduct(cut.product_id);
+              if (!cutCategoryId) return;
+
+              const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
+              if (allSizes.length === 0) return;
+              const lookupKey = `${cutCategoryId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
+              const col = newCols.find((c: any) => c._colKey === lookupKey);
+              if (!col) return;
+
+              cut.cut_sizes.forEach((cs: any) => {
+                if (String(cs.size_id) === String(col.size1_id)) {
+                  newCells[`${fallbackFc.id}_${col.id}_1`] = Number(cs.quantity) || 0;
+                } else if (String(cs.size_id) === String(col.size2_id)) {
+                  newCells[`${fallbackFc.id}_${col.id}_2`] = Number(cs.quantity) || 0;
+                }
+              });
+            });
+          }
+        }
+
+        console.log('[handleEdit] newCells keys:', Object.keys(newCells).length);
         setMatrixCells(newCells);
       }
       setStep(1);
@@ -365,8 +472,8 @@ export default function OrdersPage() {
     try {
       const orderPayload = {
         internal_code: formData.internal_code,
-        client_name: formData.brand || formData.internal_code,
-        brand: formData.brand || formData.internal_code,
+        client_name: formData.factura_relacionada || formData.internal_code,
+        brand: formData.factura_relacionada || formData.internal_code,
         workshop_id: null,
         status: formData.status,
         priority: formData.priority,
@@ -486,6 +593,7 @@ export default function OrdersPage() {
               order_id: orderId,
               product_id: finalProductId,
               color_id: fc.color_id || null,
+              fabric_id: fc.fabric_id || null,
               kilos: itemKilos,
               layers: fcLayers,
               consumption: Number(consumoPrenda) || 0,
@@ -679,9 +787,8 @@ export default function OrdersPage() {
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
                 <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Cód. Interno</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha</th>
                 <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Cliente / Marca</th>
-                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tela Base</th>
-                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Taller</th>
                 <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Capas</th>
                 <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Kilos</th>
                 <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Estado</th>
@@ -696,11 +803,14 @@ export default function OrdersPage() {
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover-row">
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '900', color: 'var(--primary)' }}>{order.internal_code}</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
+                      <span style={{ fontWeight: '700', color: '#475569' }}>
+                        {order.created_at ? new Date(order.created_at).toLocaleDateString('es-ES') : '---'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ fontWeight: '700' }}>{order.client_name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{order.brand}</div>
                     </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>---</td>
-                    <td style={{ padding: '1rem 1.5rem' }}>{order.workshops?.nombre_taller || '---'}</td>
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', backgroundColor: '#f1f5f9', padding: '0.25rem 0.75rem', borderRadius: '6px' }}>{order.capas_proyectadas}</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', color: '#64748b' }}>{order.total_kilos_proyectados || 0} kg</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
@@ -717,8 +827,19 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
-                      <button className="btn btn-secondary" onClick={() => handleEdit(order)} style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '700' }}>
-                        Editar / Detalle
+                      <button
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                          const { data: cuts } = await supabase
+                            .from('cuts')
+                            .select('*, cut_sizes(*)')
+                            .eq('order_id', order.id);
+                          setViewCuts(cuts || []);
+                          setViewingOrder(order);
+                        }}
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        <Info size={14} /> Ver Detalle
                       </button>
                     </td>
                   </tr>
@@ -728,6 +849,222 @@ export default function OrdersPage() {
           </table>
         </div>
       </div>
+
+      {/* MODAL DETALLE (solo lectura) */}
+      {viewingOrder && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(10px)' }}>
+          <div className="card" style={{ width: '72vw', maxWidth: '1000px', padding: 0, maxHeight: '92vh', overflowY: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px -10px rgba(0,0,0,0.6)', borderRadius: '20px' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #0f172a, #1e3a5f)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '20px 20px 0 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.75rem', borderRadius: '12px' }}>
+                  <Scissors size={24} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '950', letterSpacing: '-0.02em' }}>Orden {viewingOrder.internal_code}</h2>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
+                    {viewingOrder.created_at ? new Date(viewingOrder.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' }) : '---'}
+                    {viewingOrder.brand ? ` · Factura ${viewingOrder.brand}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span style={{
+                  padding: '0.4rem 1rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '800', border: '1.5px solid rgba(255,255,255,0.3)',
+                  backgroundColor: viewingOrder.status === 'Planeada' ? 'rgba(100,116,139,0.3)' : viewingOrder.status === 'En Corte' ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)',
+                  color: viewingOrder.status === 'Planeada' ? '#94a3b8' : viewingOrder.status === 'En Corte' ? '#fcd34d' : '#6ee7b7'
+                }}>{viewingOrder.status?.toUpperCase()}</span>
+                <button onClick={() => { setViewingOrder(null); setViewCuts([]); }} style={{ color: 'white', background: 'rgba(255,255,255,0.1)', border: 'none', padding: '0.65rem', borderRadius: '10px', cursor: 'pointer' }}><X size={20} /></button>
+              </div>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+
+              {/* KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                {[
+                  { label: 'Total Capas', value: viewingOrder.capas_proyectadas ?? '---', color: '#6366f1' },
+                  { label: 'Total Kilos', value: `${Number(viewingOrder.total_kilos_proyectados || 0).toFixed(2)} kg`, color: '#0ea5e9' },
+                  { label: 'Prioridad', value: viewingOrder.priority || '---', color: viewingOrder.priority === 'Alta' ? '#ef4444' : viewingOrder.priority === 'Baja' ? '#10b981' : '#f59e0b' },
+                  { label: 'Cortador', value: viewingOrder.cortador_name || 'Sin asignar', color: '#64748b' }
+                ].map((kpi, i) => (
+                  <div key={i} style={{ backgroundColor: '#f8fafc', border: `2px solid ${kpi.color}22`, borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
+                    <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', margin: '0 0 0.35rem 0' }}>{kpi.label}</p>
+                    <p style={{ fontSize: '1.1rem', fontWeight: '900', color: kpi.color, margin: 0 }}>{kpi.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Telas programadas */}
+              {(() => {
+                const uniqueFabricIds = Array.from(new Set(viewCuts.map((c: any) => c.fabric_id).filter(Boolean)));
+                const fabricRows = uniqueFabricIds.length > 0
+                  ? uniqueFabricIds.map(fid => {
+                      const fc = viewCuts.filter((c: any) => String(c.fabric_id) === String(fid));
+                      const first = fc[0];
+                      return { fabric_id: fid, layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)), kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), label: first?.fabric_id ? `Tela ID ${fid}` : 'Tela' };
+                    })
+                  : [{ fabric_id: null, layers: viewCuts[0]?.layers || 0, kilos: viewCuts.reduce((s, c) => s + (Number(c.kilos) || 0), 0), label: 'Tela programada' }];
+
+                // Intentar enricher con fabrics maestro
+                const enriched = fabricRows.map(row => {
+                  const master = fabrics.find(f => String(f.id) === String(row.fabric_id));
+                  return { ...row, nombre_tela: master?.nombre_tela || row.label };
+                });
+
+                return (
+                  <div>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Telas Programadas ({enriched.length})
+                    </h3>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9' }}>
+                            {['Tela', 'Capas', 'Kilos'].map(h => <th key={h} style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: h === 'Tela' ? 'left' : 'center', textTransform: 'uppercase' }}>{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {enriched.map((row, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', fontSize: '0.875rem' }}>{row.nombre_tela}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: '#6366f1' }}>{Math.round(row.layers)}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '700', color: '#0ea5e9' }}>{Number(row.kilos).toFixed(2)} kg</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Distribución por tallas */}
+              {(() => {
+                type SizeEntry = { size_id: string; quantity: number };
+                const sizeMap: Record<string, number> = {};
+                viewCuts.forEach((cut: any) => {
+                  (cut.cut_sizes || []).forEach((cs: SizeEntry) => {
+                    const label = sizes.find(s => String(s.id) === String(cs.size_id))?.codigo_talla || `Talla ${cs.size_id}`;
+                    sizeMap[label] = (sizeMap[label] || 0) + (Number(cs.quantity) || 0);
+                  });
+                });
+                const entries = Object.entries(sizeMap).sort((a, b) => a[0].localeCompare(b[0]));
+                const totalUnds = entries.reduce((s, [, v]) => s + v, 0);
+                if (entries.length === 0) return null;
+                return (
+                  <div>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Package size={16} style={{ color: 'var(--primary)' }} /> Distribución por Tallas — <span style={{ color: '#10b981' }}>{totalUnds} unidades</span>
+                    </h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      {entries.map(([talla, qty]) => (
+                        <div key={talla} style={{ backgroundColor: '#f0fdf4', border: '2px solid #86efac', borderRadius: '12px', padding: '0.75rem 1.25rem', textAlign: 'center', minWidth: '80px' }}>
+                          <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', margin: '0 0 0.2rem 0', textTransform: 'uppercase' }}>{talla}</p>
+                          <p style={{ fontSize: '1.5rem', fontWeight: '900', color: '#065f46', margin: 0 }}>{qty}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Relación por Categorías */}
+              {(() => {
+                // Agrupar cuts por categoría (vía product_id → category_id)
+                const catMap: Record<string, { nombre: string; units: number; cuts: number }> = {};
+                viewCuts.forEach((cut: any) => {
+                  const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+                  const cat = prod ? categories.find((c: any) => String(c.id) === String(prod.category_id)) : null;
+                  const catKey = cat?.id || 'sin_categoria';
+                  const catNombre = cat?.categoria || 'Sin Categoría';
+                  const totalQty = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+                  if (!catMap[catKey]) catMap[catKey] = { nombre: catNombre, units: 0, cuts: 0 };
+                  catMap[catKey].units += totalQty;
+                  catMap[catKey].cuts += 1;
+                });
+                const catEntries = Object.entries(catMap).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre));
+                if (catEntries.length === 0) return null;
+                const totalCatUnits = catEntries.reduce((s, [, v]) => s + v.units, 0);
+
+                // Paleta de colores para las categorías
+                const palette = ['#6366f1', '#0ea5e9', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+
+                return (
+                  <div>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <ChevronRight size={16} style={{ color: 'var(--primary)' }} /> Relación por Categorías — <span style={{ color: '#6366f1' }}>{totalCatUnits} unidades</span>
+                    </h3>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9' }}>
+                            <th style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>Categoría</th>
+                            <th style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', textTransform: 'uppercase' }}>Cortes</th>
+                            <th style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', textTransform: 'uppercase' }}>Unidades</th>
+                            <th style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>% del Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {catEntries.map(([key, cat], i) => {
+                            const pct = totalCatUnits > 0 ? Math.round((cat.units / totalCatUnits) * 100) : 0;
+                            const color = palette[i % palette.length];
+                            return (
+                              <tr key={key} style={{ borderTop: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color, flexShrink: 0 }} />
+                                    <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>{cat.nombre}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#64748b', fontWeight: '700' }}>{cat.cuts}</td>
+                                <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', fontSize: '1rem', color: color }}>{cat.units}</td>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <div style={{ flex: 1, height: '8px', backgroundColor: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                                      <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '999px', transition: 'width 0.3s' }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', minWidth: '32px' }}>{pct}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{ backgroundColor: '#0f172a', color: 'white' }}>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: '900', fontSize: '0.8rem' }}>TOTAL</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900' }}>{catEntries.reduce((s, [, v]) => s + v.cuts, 0)}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', fontSize: '1rem' }}>{totalCatUnits}</td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: '800', fontSize: '0.8rem' }}>100%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+
+              {/* Observaciones */}
+              {viewingOrder.observaciones && (
+                <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '12px', padding: '1rem 1.25rem' }}>
+                  <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#92400e', textTransform: 'uppercase', margin: '0 0 0.35rem 0' }}>Notas / Observaciones</p>
+                  <p style={{ fontSize: '0.9rem', color: '#78350f', margin: 0 }}>{viewingOrder.observaciones}</p>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '1rem 2rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', backgroundColor: '#f8fafc' }}>
+              <button onClick={() => { setViewingOrder(null); setViewCuts([]); }} className="btn btn-secondary" style={{ padding: '0.6rem 1.5rem', fontWeight: '700' }}>Cerrar</button>
+              <button onClick={() => window.print()} className="btn" style={{ padding: '0.6rem 1.5rem', fontWeight: '700', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Printer size={16} /> Imprimir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* WIZARD MODAL */}
       {showModal && (
@@ -872,7 +1209,15 @@ export default function OrdersPage() {
 
                   <button className="btn btn-primary" style={{ width: '100%', padding: '1.25rem', fontSize: '1.125rem', fontWeight: '900' }} 
                     onClick={() => {
-                      const validColors = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id);
+                      const validColors = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
+
+                      // Validar límite de 125 capas
+                      const totalCapasProgramadas = validColors.reduce((sum, fc) => sum + (Number(fc.layers) || 0), 0);
+                      if (totalCapasProgramadas > 125) {
+                        alert(`⚠️ El total de capas programadas es ${totalCapasProgramadas}, lo que supera el límite máximo permitido de 125 capas por orden. Por favor ajusta las capas antes de continuar.`);
+                        return;
+                      }
+
                       setFabricColors(validColors.length > 0 ? validColors : [{ id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', capas_definidas: '' }]);
 
                       if (formData.product_id && matrixCols.length === 1 && !matrixCols[0].product_id) {
@@ -983,7 +1328,7 @@ export default function OrdersPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                   <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                   <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker1} onChange={e => updateMatrixCol(col.id, 'marker1', e.target.value)}>
-                                    {[0,1,2,3,4,5].map(v => <option key={v} value={v}>{v}</option>)}
+                                    {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
                                   </select>
                                 </div>
                               </th>
@@ -991,7 +1336,7 @@ export default function OrdersPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                   <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                   <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker2} onChange={e => updateMatrixCol(col.id, 'marker2', e.target.value)}>
-                                    {[0,1,2,3,4,5].map(v => <option key={v} value={v}>{v}</option>)}
+                                    {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
                                   </select>
                                 </div>
                               </th>
@@ -1236,9 +1581,9 @@ export default function OrdersPage() {
                         ) : (
                           orderItems.map((item, i) => (
                             <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#f8fafc' }}>
-                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>{products.find(p => p.id === item.product_id)?.nombre_producto || '---'}</td>
+                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>{categories.find(c => String(c.id) === String(item.product_id))?.categoria || '---'}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{item.nombre_tela || '---'}</td>
-                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{sizes.find(s => s.id === item.size_id)?.codigo_talla || '---'}</td>
+                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{sizes.find(s => String(s.id) === String(item.size_id))?.codigo_talla || '---'}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{Math.round(Number(item.layers))}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{item.marker}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>{item.total}</td>

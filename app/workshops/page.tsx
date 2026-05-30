@@ -26,6 +26,9 @@ export default function WorkshopsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>(EMPTY_FORM);
   const [orderCounts, setOrderCounts] = useState<Record<string, number>>({});
+  const [selectedWorkshopForOrders, setSelectedWorkshopForOrders] = useState<any>(null);
+  const [workshopOrders, setWorkshopOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   useEffect(() => {
     fetchWorkshops();
@@ -52,6 +55,18 @@ export default function WorkshopsPage() {
       counts[o.workshop_id] = (counts[o.workshop_id] || 0) + 1;
     });
     setOrderCounts(counts);
+  };
+
+  const handleViewOrders = async (w: any) => {
+    setSelectedWorkshopForOrders(w);
+    setLoadingOrders(true);
+    const { data } = await supabase
+      .from('orders')
+      .select('id, internal_code, brand, status, scheduled_date')
+      .eq('workshop_id', w.id)
+      .order('created_at', { ascending: false });
+    setWorkshopOrders(data || []);
+    setLoadingOrders(false);
   };
 
   const openCreate = () => {
@@ -99,7 +114,14 @@ export default function WorkshopsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este taller? Esta acción no se puede deshacer.')) return;
     const { error } = await supabase.from('workshops').delete().eq('id', id);
-    if (error) alert('Error al eliminar: ' + error.message);
+    if (error) {
+      if (error.message.includes('foreign key constraint')) {
+        alert('❌ No se puede eliminar este taller porque tiene envíos (remisiones) u órdenes de trabajo asociadas. Por favor, edítalo y cambia su estado a "Inactivo" para ocultarlo sin perder el historial.');
+      } else {
+        alert('Error al eliminar: ' + error.message);
+      }
+      return;
+    }
     fetchWorkshops();
   };
 
@@ -207,9 +229,16 @@ export default function WorkshopsPage() {
                     {w.capacidad_diaria ? `${w.capacidad_diaria} pnd` : '—'}
                   </p>
                 </div>
-                <div>
-                  <p style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Órdenes Asignadas</p>
-                  <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem' }}>
+                <div 
+                  onClick={() => handleViewOrders(w)}
+                  style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '0.25rem', borderRadius: '4px' }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <p style={{ fontSize: '0.625rem', color: 'var(--primary)', fontWeight: '800', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    Órdenes Asignadas <Search size={10} />
+                  </p>
+                  <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem', color: 'var(--text)' }}>
                     {orderCounts[w.id] || 0}
                   </p>
                 </div>
@@ -314,6 +343,56 @@ export default function WorkshopsPage() {
               >
                 {saving ? <Loader2 className="animate-spin" size={18} /> : <><Save size={18} /> {editingId ? 'Guardar Cambios' : 'Crear Taller'}</>}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Orders Modal */}
+      {selectedWorkshopForOrders && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(6px)' }}>
+          <div className="card" style={{ width: '95%', maxWidth: '600px', padding: '0', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '1.25rem 1.75rem', background: 'white', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.125rem', margin: 0, color: 'var(--text)' }}>Órdenes Asignadas</h2>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: '600' }}>Taller: {selectedWorkshopForOrders.nombre_taller}</p>
+              </div>
+              <button onClick={() => setSelectedWorkshopForOrders(null)} style={{ color: 'var(--text-muted)', background: '#f1f5f9', border: 'none', padding: '0.4rem', cursor: 'pointer', borderRadius: '50%', display: 'flex' }}>
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div style={{ padding: '1.75rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
+              {loadingOrders ? (
+                <div style={{ textAlign: 'center', padding: '2rem' }}><Loader2 className="animate-spin" style={{ margin: 'auto' }} /></div>
+              ) : workshopOrders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem 2rem', color: 'var(--text-muted)', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed var(--border)' }}>
+                  <Search size={32} style={{ opacity: 0.2, margin: '0 auto 1rem' }} />
+                  <p style={{ margin: 0, fontWeight: '600' }}>No hay órdenes asignadas a este taller.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {workshopOrders.map(order => (
+                    <div key={order.id} style={{ padding: '1.25rem', background: 'white', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 0.35rem 0', fontWeight: '800', color: 'var(--primary)', fontSize: '1rem' }}>OC-{order.internal_code}</h4>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600' }}>{order.brand || 'Sin marca'} • {order.scheduled_date || 'Sin fecha'}</span>
+                      </div>
+                      <span style={{ 
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: '800',
+                        textTransform: 'uppercase',
+                        backgroundColor: order.status === 'Completado' || order.status === 'Terminado' ? '#dcfce7' : order.status === 'En Proceso' ? '#fef3c7' : '#f1f5f9',
+                        color: order.status === 'Completado' || order.status === 'Terminado' ? '#166534' : order.status === 'En Proceso' ? '#b45309' : '#475569'
+                      }}>
+                        {order.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -60,7 +60,36 @@ export default function SettingsPage() {
     try {
       if (activeTab === 'roles') {
         const { data: rolesData } = await supabase.from('roles').select('*').order('name', { ascending: true });
-        const { data: permsData } = await supabase.from('permissions').select('*').order('module', { ascending: true });
+        let { data: permsData } = await supabase.from('permissions').select('*');
+
+        // Sincronizar módulos faltantes automáticamente para que siempre se vean en el menú
+        const expectedModules = [
+          { module: 'dashboard', name: 'Dashboard', description: 'Vista de indicadores clave' },
+          { module: 'orders', name: 'Órdenes', description: 'Gestión de órdenes de producción' },
+          { module: 'cutting', name: 'Mesa de Corte', description: 'Gestión de cortes y trazos' },
+          { module: 'masters', name: 'Maestros', description: 'Configuración de telas, colores y tallas' },
+          { module: 'inventory', name: 'Inventario', description: 'Control de stock de insumos' },
+          { module: 'costs', name: 'Costos', description: 'Módulo de costeo de producción' },
+          { module: 'tracking', name: 'Seguimiento', description: 'Estado de envíos a talleres' },
+          { module: 'workshops', name: 'Talleres', description: 'Gestión de talleres satélite' },
+          { module: 'sewing', name: 'Confección', description: 'Gestión de envío y recepción de prendas' },
+          { module: 'quality', name: 'Calidad', description: 'Control de calidad y auditoría' },
+          { module: 'settings', name: 'Ajustes', description: 'Configuración del sistema' },
+          { module: 'help', name: 'Ayuda', description: 'Documentación y soporte' }
+        ];
+
+        if (permsData) {
+          const missingModules = expectedModules.filter(em => !permsData?.some(p => p.module === em.module));
+          if (missingModules.length > 0) {
+            const { data: inserted } = await supabase.from('permissions').insert(missingModules).select('*');
+            if (inserted) {
+              permsData = [...permsData, ...inserted];
+            }
+          }
+        }
+        
+        // Ordenar los permisos por módulo
+        permsData?.sort((a, b) => a.module.localeCompare(b.module));
         
         // Fetch role permissions for all roles
         const { data: rolePerms } = await supabase.from('role_permissions').select('*');
@@ -184,16 +213,31 @@ export default function SettingsPage() {
       full_name: formData.get('full_name'),
       role_id: formData.get('role_id') || null,
     };
+    const newPassword = formData.get('new_password') as string;
 
     try {
       if (editingUser) {
+        // Actualizar perfil del usuario
         const { error } = await supabase.from('profiles').update(userData).eq('id', editingUser.id);
         if (error) throw error;
+
+        // Actualizar contraseña si se proporcionó una
+        if (newPassword && newPassword.trim() !== '') {
+          const res = await fetch('/api/users/password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: editingUser.id, newPassword })
+          });
+          const result = await res.json();
+          if (!res.ok) {
+            throw new Error(result.error || 'Error al actualizar contraseña');
+          }
+        }
       }
       setShowUserModal(false);
       setEditingUser(null);
       fetchData();
-      setMessage('Usuario actualizado.');
+      setMessage('Usuario y accesos actualizados.');
       setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -356,15 +400,17 @@ export default function SettingsPage() {
                         </div>
                         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.5rem', minHeight: '3em' }}>{role.description}</p>
                         <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-                          <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Módulos Habilitados:</p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                            {role.permissions?.length > 0 ? (
-                              role.permissions.map((pId: string) => (
-                                <span key={pId} className="badge badge-success" style={{ fontSize: '0.625rem' }}>
-                                  {permissions.find(p => p.id === pId)?.module}
-                                </span>
-                              ))
-                            ) : <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>Sin accesos configurados</span>}
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Accesos a Módulos:</p>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            {permissions.map(perm => {
+                              const hasAccess = role.permissions?.includes(perm.id);
+                              return (
+                                <div key={perm.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: hasAccess ? 'var(--text)' : 'var(--text-muted)', opacity: hasAccess ? 1 : 0.6 }}>
+                                  {hasAccess ? <CheckCircle2 size={14} color="#10b981" /> : <X size={14} color="#ef4444" />}
+                                  {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
@@ -584,13 +630,13 @@ export default function SettingsPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Accesos al Menú</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     {permissions.map(perm => (
                       <label key={perm.id} style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: '0.75rem', 
-                        padding: '0.75rem 1rem', 
+                        padding: '0.75rem', 
                         borderRadius: '10px',
                         border: '1px solid var(--border)',
                         cursor: 'pointer',
@@ -601,10 +647,10 @@ export default function SettingsPage() {
                           type="checkbox" 
                           checked={selectedPermissions.includes(perm.id)} 
                           onChange={() => handleTogglePermission(perm.id)}
-                          style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--primary)', cursor: 'pointer' }}
                         />
-                        <span style={{ fontSize: '0.875rem', fontWeight: selectedPermissions.includes(perm.id) ? '700' : '500' }}>
-                          {perm.name}
+                        <span style={{ fontSize: '0.8125rem', fontWeight: selectedPermissions.includes(perm.id) ? '700' : '500' }}>
+                          {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
                         </span>
                       </label>
                     ))}
@@ -731,11 +777,26 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <AlertTriangle size={14} color="#f59e0b" />
-                  El correo y contraseña se gestionan desde Supabase Auth.
-                </p>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NUEVA CONTRASEÑA (OPCIONAL)</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input 
+                    name="new_password" 
+                    type={showPassword ? 'text' : 'password'} 
+                    placeholder="Dejar en blanco para mantener actual" 
+                    minLength={6}
+                    style={{ width: '100%', padding: '0.875rem 3rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem' }}>Escribe aquí solo si deseas cambiar la contraseña de este usuario.</p>
               </div>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
