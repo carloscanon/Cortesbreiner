@@ -317,6 +317,11 @@ export default function MastersPage() {
         payload.name = payload.nombre_taller;
       }
 
+      // Eliminar columnas calculadas virtualmente que no existen en base de datos
+      if (activeTab === 'fabrics') {
+        delete payload.metros;
+      }
+
       if (editingId) {
         const { error } = await supabase.from(config.table).update(payload).eq('id', editingId);
         if (error) throw error;
@@ -453,7 +458,12 @@ export default function MastersPage() {
                         {/* Dynamic Tags / Extra Info */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {config.listFields.map((fieldKey: string) => {
-                            const val = item[fieldKey];
+                            let val = item[fieldKey];
+                            
+                            if (fieldKey === 'metros' && val === undefined) {
+                              val = ((item.kilos || 0) * (item.rendimiento_estimado || 3.5)).toFixed(2);
+                            }
+
                             if (val === undefined || val === null || val === '') return null;
                             
                             let label = fieldKey.replace('_', ' ');
