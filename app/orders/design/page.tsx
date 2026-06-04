@@ -497,6 +497,8 @@ export default function DesignSubmodulePage() {
           extractedInvoiceId = cbcIds[0]?.textContent || '';
         }
 
+        let targetDoc: Document | any = xmlDoc;
+
         // 1. Detectar si es un contenedor AttachedDocument (DIAN) que contiene el Invoice en CDATA
         let invoiceLines = getElements(xmlDoc, 'cac:InvoiceLine');
         
@@ -516,6 +518,7 @@ export default function DesignSubmodulePage() {
           if (invoiceXmlString) {
             // Parsear el XML interno que estaba en el CDATA
             const internalDoc = parser.parseFromString(invoiceXmlString, 'text/xml');
+            targetDoc = internalDoc;
             invoiceLines = getElements(internalDoc, 'cac:InvoiceLine');
             
             // Re-extract ID from internal invoice
@@ -544,7 +547,14 @@ export default function DesignSubmodulePage() {
         setInvoiceNumber(extractedInvoiceId);
 
         // Extract Supplier Data (NIT and Company Name)
-        const supplierParties = getElements(xmlDoc, 'cac:AccountingSupplierParty');
+        // Try searching in targetDoc first (which is internalDoc if it was an AttachedDocument), fallback to xmlDoc
+        let supplierParties = getElements(targetDoc, 'cac:AccountingSupplierParty');
+        if (supplierParties.length === 0 && targetDoc !== xmlDoc) {
+          supplierParties = getElements(xmlDoc, 'cac:AccountingSupplierParty');
+        }
+        if (supplierParties.length === 0) {
+          supplierParties = getElements(targetDoc, 'cac:SenderParty');
+        }
         let extractedSupplier = null;
         if (supplierParties.length > 0) {
           const supplierNode = supplierParties[0];
