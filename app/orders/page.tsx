@@ -704,16 +704,17 @@ export default function OrdersPage() {
 
       let orderId = editingId;
 
-      // ── REVERSIÓN DE CAPAS ANTERIORES (solo si es edición) ───────────────
+      // ── REVERSIÓN DE CAPAS Y METROS ANTERIORES (solo si es edición) ───────────────
       // Usamos fabricColors (cargados desde la factura al editar) para saber
-      // cuántas capas restaurar — no necesitamos columna fabric_id en cuts.
+      // cuántas capas y metros restaurar.
       if (editingId) {
         for (const fc of fabricColors) {
           if (fc.fabric_id && Number(fc.layers) > 0) {
-            const { data: fab } = await supabase.from('fabrics').select('capas').eq('id', fc.fabric_id).single();
+            const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fc.fabric_id).single();
             if (fab) {
               const restoredCapas = (Number(fab.capas) || 0) + (Number(fc.layers) || 0);
-              await supabase.from('fabrics').update({ capas: restoredCapas }).eq('id', fc.fabric_id);
+              const restoredMetros = (Number(fab.metros) || 0) + ((Number(fc.layers) || 0) * longitudNum);
+              await supabase.from('fabrics').update({ capas: restoredCapas, metros: restoredMetros }).eq('id', fc.fabric_id);
             }
           }
         }
@@ -776,12 +777,20 @@ export default function OrdersPage() {
       };
 
       // ── INSERTAR NUEVOS CORTES ────────────────────────────────────────────
-      // Rastrear capas a descontar por fabric_id (una sola vez por tela)
-      const layersToDeductByFabric: Record<string, number> = {};
+      // Rastrear capas y metros a descontar por fabric_id
+      const usageByFabric: Record<string, { capas: number, metros: number }> = {};
 
       for (const fc of fabricColors) {
         if (!fc.nombre_tela && !fc.color_id && !fc.fabric_id) continue;
         const fcLayers = Number(fc.layers) || 0;
+        
+        // Registrar consumo para la orden principal (una sola vez por fila de tela)
+        const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
+        if (fabricKey) {
+          if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
+          usageByFabric[fabricKey].capas += fcLayers;
+          usageByFabric[fabricKey].metros += (fcLayers * longitudNum);
+        }
 
         for (const col of matrixCols) {
           if (!col.product_id) continue;
@@ -839,12 +848,6 @@ export default function OrdersPage() {
             const { error: sizeError } = await supabase.from('cut_sizes').insert(sizesToInsert);
             if (sizeError) throw sizeError;
           }
-
-          // Registrar capas a descontar (una sola vez por fabric_id, usando id local)
-          const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
-          if (fabricKey && !(fabricKey in layersToDeductByFabric)) {
-            layersToDeductByFabric[fabricKey] = fcLayers;
-          }
         }
       }
 
@@ -854,6 +857,14 @@ export default function OrdersPage() {
         for (const fc of corte.fabricColors) {
           if (!fc.nombre_tela && !fc.color_id && !fc.fabric_id) continue;
           const fcLayers = Number(fc.layers) || 0;
+
+          // Registrar consumo para el corte adicional (una sola vez por fila de tela del corte adicional)
+          const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
+          if (fabricKey) {
+            if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
+            usageByFabric[fabricKey].capas += fcLayers;
+            usageByFabric[fabricKey].metros += (fcLayers * corteLongitudNum);
+          }
 
           for (const col of corte.matrixCols) {
             if (!col.product_id) continue;
@@ -897,23 +908,19 @@ export default function OrdersPage() {
               const { error: sizeError } = await supabase.from('cut_sizes').insert(sizesToInsert);
               if (sizeError) throw sizeError;
             }
-
-            const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
-            if (fabricKey && !(fabricKey in layersToDeductByFabric)) {
-              layersToDeductByFabric[fabricKey] = fcLayers;
-            }
           }
         }
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // ── DESCUENTO DE CAPAS EN TABLA FABRICS ──────────────────────────────
-      // Restar las capas usadas en esta orden del inventario de telas
-      for (const [fabricId, layersToDeduct] of Object.entries(layersToDeductByFabric)) {
-        const { data: fab } = await supabase.from('fabrics').select('capas').eq('id', fabricId).single();
+      // ── DESCUENTO DE CAPAS Y METROS EN TABLA FABRICS ─────────────────────
+      // Restar las capas y metros usados en esta orden del inventario de telas
+      for (const [fabricId, usage] of Object.entries(usageByFabric)) {
+        const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fabricId).single();
         if (fab) {
-          const newCapas = Math.max(0, (Number(fab.capas) || 0) - layersToDeduct);
-          await supabase.from('fabrics').update({ capas: newCapas }).eq('id', fabricId);
+          const newCapas = Math.max(0, (Number(fab.capas) || 0) - usage.capas);
+          const newMetros = Math.max(0, (Number(fab.metros) || 0) - usage.metros);
+          await supabase.from('fabrics').update({ capas: newCapas, metros: newMetros }).eq('id', fabricId);
         }
       }
 
