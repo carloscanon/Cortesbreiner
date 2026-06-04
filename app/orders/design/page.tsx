@@ -43,7 +43,7 @@ export default function DesignSubmodulePage() {
   const [globalWidth, setGlobalWidth] = useState('1.50');
   const [globalWeight, setGlobalWeight] = useState('1');
   const [globalYield, setGlobalYield] = useState('3.5');
-  const [globalLargo, setGlobalLargo] = useState('10'); // Largo del tendido
+  const [globalLargo, setGlobalLargo] = useState('1'); // Largo del tendido
 
   // Track inserted codes for Undo
   const [newlyInsertedCodes, setNewlyInsertedCodes] = useState<string[]>([]);
@@ -1182,7 +1182,7 @@ export default function DesignSubmodulePage() {
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>CÓDIGO</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>NOMBRE / DESCRIPCIÓN</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'right' }}>KILOS (XML)</th>
-                      <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textAlign: 'right' }}>CAPAS</th>
+                      <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textAlign: 'right' }}>METROS</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'right' }}>COSTO U.</th>
                       <th style={{ padding: '1rem 1.5rem' }}></th>
                     </tr>
@@ -1207,7 +1207,7 @@ export default function DesignSubmodulePage() {
                           {item.cantidad_factura.toLocaleString()}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>
-                          {((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2)} capas
+                          {((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2)}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.25rem' }}>
@@ -1314,7 +1314,7 @@ export default function DesignSubmodulePage() {
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Código</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Nombre / Descripción</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Kilos</th>
-                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Capas Est.</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Metros Est.</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo Unitario</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo + IVA</th>
                       </tr>
@@ -1325,7 +1325,7 @@ export default function DesignSubmodulePage() {
                           <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#0f172a' }}>{fabric.codigo_tela}</td>
                           <td style={{ padding: '0.85rem 1rem', color: '#334155', fontWeight: '500' }}>{fabric.nombre_tela}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700' }}>{(fabric.kilos || 0).toLocaleString()} kg</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{fabric.capas || '0'}</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{fabric.capas ? Number(fabric.capas).toFixed(2) : '0.00'}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '600' }}>${(fabric.costo_unitario || 0).toLocaleString('es-CO')}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: '#16a34a' }}>${Math.round(fabric.costo_con_iva || (fabric.costo_unitario * 1.19)).toLocaleString('es-CO')}</td>
                         </tr>
