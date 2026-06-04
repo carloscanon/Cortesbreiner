@@ -29,6 +29,7 @@ export default function DesignSubmodulePage() {
   const [parsedItems, setParsedItems] = useState<ParsedFabric[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
+  const [supplierData, setSupplierData] = useState<{ nit: string, razon_social: string } | null>(null);
   const [importMode, setImportMode] = useState<'xml' | 'csv' | 'pdf' | 'manage'>('xml');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
@@ -542,6 +543,41 @@ export default function DesignSubmodulePage() {
 
         setInvoiceNumber(extractedInvoiceId);
 
+        // Extract Supplier Data (NIT and Company Name)
+        const supplierParties = getElements(xmlDoc, 'cac:AccountingSupplierParty');
+        let extractedSupplier = null;
+        if (supplierParties.length > 0) {
+          const supplierNode = supplierParties[0];
+          // Extracción del NIT
+          let nit = '';
+          const companyIds = getElements(supplierNode, 'cbc:CompanyID');
+          if (companyIds.length > 0) {
+            nit = companyIds[0]?.textContent || '';
+          } else {
+            const ids = getElements(supplierNode, 'cbc:ID');
+            if (ids.length > 0) nit = ids[0]?.textContent || '';
+          }
+          
+          // Extracción del Nombre / Razón Social
+          let name = '';
+          const regNames = getElements(supplierNode, 'cbc:RegistrationName');
+          if (regNames.length > 0) {
+            name = regNames[0]?.textContent || '';
+          } else {
+            const names = getElements(supplierNode, 'cbc:Name');
+            if (names.length > 0) name = names[0]?.textContent || '';
+          }
+          
+          if (nit || name) {
+            extractedSupplier = { nit, razon_social: name || 'Proveedor Desconocido' };
+            setSupplierData(extractedSupplier);
+          } else {
+            setSupplierData(null);
+          }
+        } else {
+          setSupplierData(null);
+        }
+
         // Fetch existing fabrics associated with this invoice to check for duplicates
         const { data: existingFabrics, error: dbError } = await supabase
           .from('fabrics')
@@ -668,6 +704,35 @@ export default function DesignSubmodulePage() {
           capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
           factura_relacionada: invoiceNumber
         }));
+
+      // Si hay supplierData (Proveedor de la factura XML), verificar e insertar si no existe
+      if (supplierData && supplierData.nit) {
+        const { data: existingSupplier, error: supplierCheckError } = await supabase
+          .from('suppliers')
+          .select('id')
+          .eq('nit', supplierData.nit)
+          .single();
+          
+        if (supplierCheckError && supplierCheckError.code !== 'PGRST116') {
+          console.error("Error al buscar proveedor:", supplierCheckError);
+        }
+        
+        if (!existingSupplier) {
+          const { error: supplierInsertError } = await supabase
+            .from('suppliers')
+            .insert({
+              nit: supplierData.nit,
+              razon_social: supplierData.razon_social,
+              tipo_proveedor: 'Telas',
+              contacto: '',
+              telefono: ''
+            });
+            
+          if (supplierInsertError) {
+            console.error("Error al crear proveedor:", supplierInsertError);
+          }
+        }
+      }
 
       // INSERT nuevas (sin id, la DB lo autogenera)
       if (newItems.length > 0) {
@@ -1156,6 +1221,24 @@ export default function DesignSubmodulePage() {
                 <div className="form-group">
                   <label style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase' }}>Largo Tendido (m)</label>
                   <input type="number" step="0.01" value={globalLargo} onChange={e => setGlobalLargo(e.target.value)} style={{ padding: '0.75rem', borderRadius: '8px', border: '2px solid var(--primary)', backgroundColor: 'white', width: '100%', fontWeight: '800' }} />
+                </div>
+              </div>
+
+              {/* Proveedor de la Factura Info */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', marginTop: '0.5rem' }}>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Proveedor de la Factura (Automático)</label>
+                  <div style={{ padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: supplierData ? '#f0fdf4' : '#f8fafc', width: '100%', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    {supplierData ? (
+                      <>
+                        <div style={{ fontWeight: '800', color: '#166534' }}>{supplierData.razon_social}</div>
+                        <div style={{ fontSize: '0.85rem', color: '#15803d' }}>NIT: {supplierData.nit}</div>
+                        <div style={{ fontSize: '0.75rem', marginLeft: 'auto', backgroundColor: '#dcfce7', padding: '0.2rem 0.5rem', borderRadius: '4px', color: '#166534', fontWeight: '700' }}>Se registrará en el Maestro</div>
+                      </>
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>No se detectó proveedor en el archivo.</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
