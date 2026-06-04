@@ -14,6 +14,7 @@ interface ParsedFabric {
   nombre_tela: string;
   costo_unitario: number;
   cantidad_factura: number;
+  rendimiento?: number;
   status: 'new' | 'existing' | 'error';
   db_id?: number;
 }
@@ -641,10 +642,10 @@ export default function DesignSubmodulePage() {
             composicion: globalComposition,
             ancho: parseFloat(globalWidth) || 1.5,
             gramaje: parseFloat(globalWeight) || 1,
-            rendimiento_estimado: parseFloat(globalYield) || 3.5,
+            rendimiento_estimado: item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5),
             kilos: item.cantidad_factura,
-            metros: parseFloat((item.cantidad_factura * (parseFloat(globalYield) || 3.5)).toFixed(2)),
-            capas: ((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2),
+            metros: parseFloat((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))).toFixed(2)),
+            capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
             factura_relacionada: invoiceNumber
           };
         });
@@ -661,10 +662,10 @@ export default function DesignSubmodulePage() {
           composicion: globalComposition,
           ancho: parseFloat(globalWidth) || 1.5,
           gramaje: parseFloat(globalWeight) || 1,
-          rendimiento_estimado: parseFloat(globalYield) || 3.5,
+          rendimiento_estimado: item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5),
           kilos: item.cantidad_factura,
-          metros: parseFloat((item.cantidad_factura * (parseFloat(globalYield) || 3.5)).toFixed(2)),
-          capas: ((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2),
+          metros: parseFloat((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))).toFixed(2)),
+          capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
           factura_relacionada: invoiceNumber
         }));
 
@@ -1184,6 +1185,7 @@ export default function DesignSubmodulePage() {
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>CÓDIGO</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>NOMBRE / DESCRIPCIÓN</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'right' }}>KILOS (XML)</th>
+                      <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'right' }}>RENDIMIENTO</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#0ea5e9', textAlign: 'right' }}>METROS CALC.</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textAlign: 'right' }}>CAPAS EST.</th>
                       <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'right' }}>COSTO U.</th>
@@ -1191,7 +1193,9 @@ export default function DesignSubmodulePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {parsedItems.map((item, idx) => (
+                    {parsedItems.map((item, idx) => {
+                      const rowYield = item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5);
+                      return (
                       <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: item.status === 'new' ? '#f0fdf4' : 'white' }}>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           {item.status === 'new' ? (
@@ -1209,11 +1213,14 @@ export default function DesignSubmodulePage() {
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '700' }}>
                           {item.cantidad_factura.toLocaleString()}
                         </td>
+                        <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
+                          <input type="number" step="0.01" value={item.rendimiento !== undefined ? item.rendimiento : globalYield} onChange={e => handleUpdateItem(idx, 'rendimiento', parseFloat(e.target.value) || 0)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0', width: '80px', textAlign: 'right', fontWeight: '700' }} />
+                        </td>
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '800', color: '#0ea5e9' }}>
-                          {(item.cantidad_factura * (parseFloat(globalYield) || 3.5)).toFixed(2)}
+                          {(item.cantidad_factura * rowYield).toFixed(2)}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>
-                          {((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2)}
+                          {((item.cantidad_factura * rowYield) / (parseFloat(globalLargo) || 1)).toFixed(2)}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.25rem' }}>
@@ -1225,7 +1232,8 @@ export default function DesignSubmodulePage() {
                           <button onClick={() => removeItem(idx)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}><X size={18} /></button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
