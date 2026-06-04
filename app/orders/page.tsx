@@ -339,6 +339,7 @@ export default function OrdersPage() {
           id: Math.random(),
           color_id: '', 
           kilos: fabric.kilos || '',
+          metros: fabric.metros || '',
           layers: fabric.capas ? Math.round(Number(fabric.capas)) : '',
           observation: '',
           fabric_id: fabric.id,
@@ -375,6 +376,7 @@ export default function OrdersPage() {
           id: Math.random(),
           color_id: '', 
           kilos: fabric.kilos || '',
+          metros: fabric.metros || '',
           layers: fabric.capas ? Math.round(Number(fabric.capas)) : '',
           observation: '',
           fabric_id: fabric.id,
@@ -1462,12 +1464,12 @@ export default function OrdersPage() {
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'right' }}>
                                 <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#0ea5e9' }}>
-                                  {fc.kilos ? Number(fc.kilos).toFixed(2) : '---'}
+                                  {fc.metros ? Number(fc.metros).toFixed(2) : '---'}
                                 </div>
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'right' }}>
                                 <div style={{ fontWeight: '900', fontSize: '0.95rem', color: '#6366f1', backgroundColor: '#eef2ff', padding: '0.35rem 0.6rem', borderRadius: '8px', border: '1px solid #a5b4fc', display: 'inline-block', minWidth: '60px' }}>
-                                  {fc.kilos && Number(longitud) > 0 ? (Number(fc.kilos) / Number(longitud)).toFixed(2) : '---'}
+                                  {fc.metros && Number(longitud) > 0 ? (Number(fc.metros) / Number(longitud)).toFixed(2) : '---'}
                                 </div>
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'center' }}>
