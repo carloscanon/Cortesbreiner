@@ -780,6 +780,22 @@ export default function DesignSubmodulePage() {
           if (supplierInsertError) {
             console.error("Error al crear proveedor:", supplierInsertError);
           }
+        } else {
+          const { error: supplierUpdateError } = await supabase
+            .from('suppliers')
+            .update({
+              razon_social: supplierData.razon_social,
+              direccion: supplierData.direccion || '',
+              ciudad: supplierData.ciudad || '',
+              departamento: supplierData.departamento || '',
+              telefono: supplierData.telefono || '',
+              email: supplierData.email || ''
+            })
+            .eq('id', existingSupplier.id);
+            
+          if (supplierUpdateError) {
+            console.error("Error al actualizar proveedor:", supplierUpdateError);
+          }
         }
       }
 
