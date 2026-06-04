@@ -317,11 +317,6 @@ export default function MastersPage() {
         payload.name = payload.nombre_taller;
       }
 
-      // Eliminar columnas calculadas virtualmente que no existen en base de datos
-      if (activeTab === 'fabrics') {
-        delete payload.metros;
-      }
-
       if (editingId) {
         const { error } = await supabase.from(config.table).update(payload).eq('id', editingId);
         if (error) throw error;

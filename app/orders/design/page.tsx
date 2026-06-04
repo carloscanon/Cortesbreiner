@@ -643,6 +643,7 @@ export default function DesignSubmodulePage() {
             gramaje: parseFloat(globalWeight) || 1,
             rendimiento_estimado: parseFloat(globalYield) || 3.5,
             kilos: item.cantidad_factura,
+            metros: parseFloat((item.cantidad_factura * (parseFloat(globalYield) || 3.5)).toFixed(2)),
             capas: ((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2),
             factura_relacionada: invoiceNumber
           };
@@ -662,6 +663,7 @@ export default function DesignSubmodulePage() {
           gramaje: parseFloat(globalWeight) || 1,
           rendimiento_estimado: parseFloat(globalYield) || 3.5,
           kilos: item.cantidad_factura,
+          metros: parseFloat((item.cantidad_factura * (parseFloat(globalYield) || 3.5)).toFixed(2)),
           capas: ((item.cantidad_factura * (parseFloat(globalYield) || 3.5)) / (parseFloat(globalLargo) || 1)).toFixed(2),
           factura_relacionada: invoiceNumber
         }));
