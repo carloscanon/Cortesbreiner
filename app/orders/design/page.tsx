@@ -29,7 +29,7 @@ export default function DesignSubmodulePage() {
   const [parsedItems, setParsedItems] = useState<ParsedFabric[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
-  const [supplierData, setSupplierData] = useState<{ nit: string, razon_social: string } | null>(null);
+  const [supplierData, setSupplierData] = useState<{ nit: string, razon_social: string, direccion?: string, ciudad?: string, departamento?: string, telefono?: string, email?: string } | null>(null);
   const [importMode, setImportMode] = useState<'xml' | 'csv' | 'pdf' | 'manage'>('xml');
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
@@ -568,8 +568,43 @@ export default function DesignSubmodulePage() {
             if (names.length > 0) name = names[0]?.textContent || '';
           }
           
+          // Extracción de Dirección y Ciudad
+          let direccion = '';
+          let ciudad = '';
+          let departamento = '';
+          const addressNodes = getElements(supplierNode, 'cac:RegistrationAddress');
+          if (addressNodes.length > 0) {
+            const addrNode = addressNodes[0];
+            const cityNodes = getElements(addrNode, 'cbc:CityName');
+            if (cityNodes.length > 0) ciudad = cityNodes[0]?.textContent || '';
+            const deptoNodes = getElements(addrNode, 'cbc:CountrySubentity');
+            if (deptoNodes.length > 0) departamento = deptoNodes[0]?.textContent || '';
+            const lineNodes = getElements(addrNode, 'cbc:Line');
+            if (lineNodes.length > 0) direccion = lineNodes[0]?.textContent || '';
+          }
+
+          // Extracción de Contacto
+          let telefono = '';
+          let email = '';
+          const contactNodes = getElements(supplierNode, 'cac:Contact');
+          if (contactNodes.length > 0) {
+            const contactNode = contactNodes[0];
+            const telNodes = getElements(contactNode, 'cbc:Telephone');
+            if (telNodes.length > 0) telefono = telNodes[0]?.textContent || '';
+            const mailNodes = getElements(contactNode, 'cbc:ElectronicMail');
+            if (mailNodes.length > 0) email = mailNodes[0]?.textContent || '';
+          }
+          
           if (nit || name) {
-            extractedSupplier = { nit, razon_social: name || 'Proveedor Desconocido' };
+            extractedSupplier = { 
+              nit, 
+              razon_social: name || 'Proveedor Desconocido',
+              direccion,
+              ciudad,
+              departamento,
+              telefono,
+              email
+            };
             setSupplierData(extractedSupplier);
           } else {
             setSupplierData(null);
@@ -724,8 +759,12 @@ export default function DesignSubmodulePage() {
               nit: supplierData.nit,
               razon_social: supplierData.razon_social,
               tipo_proveedor: 'Telas',
-              contacto: '',
-              telefono: ''
+              direccion: supplierData.direccion || '',
+              ciudad: supplierData.ciudad || '',
+              departamento: supplierData.departamento || '',
+              telefono: supplierData.telefono || '',
+              email: supplierData.email || '',
+              contacto: ''
             });
             
           if (supplierInsertError) {

@@ -112,12 +112,16 @@ const MASTER_CONFIG: any = {
     title: 'Maestro de Proveedores',
     table: 'suppliers',
     icon: Truck,
-    listFields: ['nit', 'tipo_proveedor', 'contacto', 'telefono'],
+    listFields: ['nit', 'tipo_proveedor', 'ciudad', 'telefono'],
     fields: [
       { name: 'razon_social', label: 'Razón Social', type: 'text', required: true },
       { name: 'nit', label: 'NIT', type: 'text' },
       { name: 'contacto', label: 'Contacto', type: 'text' },
       { name: 'telefono', label: 'Teléfono', type: 'text' },
+      { name: 'email', label: 'Email', type: 'text' },
+      { name: 'direccion', label: 'Dirección', type: 'text' },
+      { name: 'ciudad', label: 'Ciudad', type: 'text' },
+      { name: 'departamento', label: 'Departamento', type: 'text' },
       { name: 'tipo_proveedor', label: 'Tipo Proveedor', type: 'text' }
     ]
   },
