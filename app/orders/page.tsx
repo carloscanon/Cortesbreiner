@@ -2040,8 +2040,13 @@ export default function OrdersPage() {
                           <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: isOverLimit ? '#ef4444' : '#1e293b' }}>{Math.round(totalLayersSummary)}</p>
                         </div>
                         <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '0.75rem', border: '1px solid #e2e8f0' }}>
-                          <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', margin: '0 0 0.25rem 0' }}>METROS TELA</p>
-                          <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#0369a1' }}>{totalKilos.toFixed(2)}</p>
+                          <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', margin: '0 0 0.25rem 0' }}>TOTAL LONGITUDES</p>
+                          <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#6366f1' }}>
+                            {(
+                              fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0) + 
+                              cortesAdicionales.reduce((acc, c) => acc + c.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0), 0)
+                            ).toFixed(2)}
+                          </p>
                         </div>
                       </div>
                     </div>
