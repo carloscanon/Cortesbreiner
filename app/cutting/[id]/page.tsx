@@ -460,7 +460,7 @@ export default function CutDetailsPage() {
                           <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>{productName}</div>
                         </div>
                       </td>
-                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>
+                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.9rem', color: '#0284c7', fontWeight: '900', letterSpacing: '0.02em' }}>
                         {(() => {
                           const fabric = fabrics.find(f => String(f.id) === String(cut.fabric_id));
                           return fabric ? fabric.nombre_tela : (color?.nombre_color || 'Sin Tela');
