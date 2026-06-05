@@ -713,7 +713,8 @@ export default function OrdersPage() {
             const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fc.fabric_id).single();
             if (fab) {
               const restoredCapas = (Number(fab.capas) || 0) + (Number(fc.layers) || 0);
-              const restoredMetros = (Number(fab.metros) || 0) + longitudNum;
+              const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : longitudNum;
+              const restoredMetros = (Number(fab.metros) || 0) + rowLongitud;
               await supabase.from('fabrics').update({ capas: restoredCapas, metros: restoredMetros }).eq('id', fc.fabric_id);
             }
           }
@@ -787,9 +788,10 @@ export default function OrdersPage() {
         // Registrar consumo para la orden principal (una sola vez por fila de tela)
         const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
         if (fabricKey) {
+          const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : longitudNum;
           if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
           usageByFabric[fabricKey].capas += fcLayers;
-          usageByFabric[fabricKey].metros += longitudNum;
+          usageByFabric[fabricKey].metros += rowLongitud;
         }
 
         for (const col of matrixCols) {
@@ -861,9 +863,10 @@ export default function OrdersPage() {
           // Registrar consumo para el corte adicional (una sola vez por fila de tela del corte adicional)
           const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
           if (fabricKey) {
+            const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : corteLongitudNum;
             if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
             usageByFabric[fabricKey].capas += fcLayers;
-            usageByFabric[fabricKey].metros += corteLongitudNum;
+            usageByFabric[fabricKey].metros += rowLongitud;
           }
 
           for (const col of corte.matrixCols) {
