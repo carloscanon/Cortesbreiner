@@ -315,10 +315,6 @@ export default function CutDetailsPage() {
             Ficha de Corte Físico: OC-{order.internal_code}
           </h1>
         </div>
-        <button onClick={() => setShowOrderDetailsModal(true)} className="btn btn-secondary" style={{ marginLeft: 'auto', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', backgroundColor: '#e2e8f0', color: '#0f172a', fontWeight: '800', border: 'none' }}>
-          <FileText size={18} />
-          Ver Detalle Original de Orden
-        </button>
       </div>
 
       {/* Grid Layout */}
@@ -330,9 +326,15 @@ export default function CutDetailsPage() {
           {/* Main Info Card */}
           <div className="card" style={{ padding: '2rem', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
-              <div>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Especificación del Trazo y Mesa</h3>
-                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Planificación asignada al cortador.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Especificación del Trazo y Mesa</h3>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Planificación asignada al cortador.</p>
+                </div>
+                <button onClick={() => setShowOrderDetailsModal(true)} className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: '900', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#3b82f6', border: 'none', color: 'white', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.5)' }}>
+                  <FileText size={20} />
+                  Ver Detalle Original de Orden
+                </button>
               </div>
               <span style={{ 
                 fontSize: '0.8rem', 

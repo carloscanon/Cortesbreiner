@@ -586,8 +586,8 @@ export default function OrdersPage() {
         // Usamos un Map con clave "catId|size1|size2" (normalizado) para evitar duplicados entre telas
         const colMap = new Map<string, any>();
         cutsData.forEach(cut => {
-          const catId = getCategoryOfProduct(cut.product_id);
-          if (!catId) return;
+          const prodId = cut.product_id;
+          if (!prodId) return;
 
           // Ordenar los size_ids para normalizar (S,M == M,S)
           const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
@@ -595,7 +595,7 @@ export default function OrdersPage() {
 
           const size1 = allSizes[0] || '';
           const size2 = allSizes[1] || '';
-          const colKey = `${catId}|${size1}|${size2}`;
+          const colKey = `${prodId}|${size1}|${size2}`;
 
           if (colMap.has(colKey)) return; // Ya existe esta combinación de tallas, no duplicar
 
@@ -607,7 +607,7 @@ export default function OrdersPage() {
 
           colMap.set(colKey, {
             id: Math.random(),
-            product_id: catId,
+            product_id: prodId,
             size1_id: size1,
             size2_id: size2,
             marker1: String(m1),
@@ -631,12 +631,12 @@ export default function OrdersPage() {
             const fc = fCols.find((f: any) => cut.fabric_id && String(f.fabric_id) === String(cut.fabric_id));
             if (!fc) return;
 
-            const cutCategoryId = getCategoryOfProduct(cut.product_id);
-            if (!cutCategoryId) return;
+            const cutProdId = cut.product_id;
+            if (!cutProdId) return;
 
             const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
             if (allSizes.length === 0) return;
-            const lookupKey = `${cutCategoryId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
+            const lookupKey = `${cutProdId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
             const col = newCols.find((c: any) => c._colKey === lookupKey);
             if (!col) return;
 
@@ -654,12 +654,12 @@ export default function OrdersPage() {
           const fallbackFc = fCols[0];
           if (fallbackFc) {
             cutsData.forEach((cut: any) => {
-              const cutCategoryId = getCategoryOfProduct(cut.product_id);
-              if (!cutCategoryId) return;
+              const cutProdId = cut.product_id;
+              if (!cutProdId) return;
 
               const allSizes = cut.cut_sizes.map((cs: any) => cs.size_id).sort();
               if (allSizes.length === 0) return;
-              const lookupKey = `${cutCategoryId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
+              const lookupKey = `${cutProdId}|${allSizes[0] || ''}|${allSizes[1] || ''}`;
               const col = newCols.find((c: any) => c._colKey === lookupKey);
               if (!col) return;
 
@@ -2142,7 +2142,12 @@ export default function OrdersPage() {
                         ) : (
                           orderItems.map((item, i) => (
                             <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#f8fafc' }}>
-                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>{categories.find(c => String(c.id) === String(item.product_id))?.categoria || '---'}</td>
+                              <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>
+                                {(() => {
+                                  const prod = products.find(p => String(p.id) === String(item.product_id));
+                                  return prod ? (prod.codigo_referencia ? `${prod.codigo_referencia} - ${prod.nombre_producto}` : prod.nombre_producto) : '---';
+                                })()}
+                              </td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{item.nombre_tela || '---'}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{sizes.find(s => String(s.id) === String(item.size_id))?.codigo_talla || '---'}</td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{Math.round(Number(item.layers))}</td>
