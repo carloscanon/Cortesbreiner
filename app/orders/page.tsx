@@ -1439,7 +1439,7 @@ export default function OrdersPage() {
                             <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '0.75rem' }}>
                                 <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
-                                {fc.kilos && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800' }}>{fc.kilos}</div>}
+                                {fc.metros && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800' }}>{fc.metros}</div>}
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'right' }}>
                                 <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#0ea5e9' }}>
@@ -1456,10 +1456,11 @@ export default function OrdersPage() {
                                   type="number"
                                   step="0.01"
                                   min="0.01"
-                                  placeholder={longitud}
+                                  placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : longitud}
                                   value={fc.longitud_row !== undefined ? fc.longitud_row : ''}
                                   onChange={e => updateFabricColor(fc.id, 'longitud_row', e.target.value)}
-                                  style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: '#92400e', backgroundColor: '#fffbeb' }}
+                                  disabled={!fc.metros || Number(fc.metros) <= 0}
+                                  style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
                                 />
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'center' }}>
@@ -1798,17 +1799,18 @@ export default function OrdersPage() {
                                         <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
                                       </td>
                                       <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '800', color: '#0ea5e9' }}>
-                                        {fc.kilos ? Number(fc.kilos).toFixed(2) : '---'}
+                                        {fc.metros ? Number(fc.metros).toFixed(2) : '---'}
                                       </td>
                                       <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '900', color: '#6366f1' }}>
-                                        {fc.kilos && Number(corte.longitud) > 0 ? (Number(fc.kilos) / Number(corte.longitud)).toFixed(2) : '---'}
+                                        {fc.metros && Number(corte.longitud) > 0 ? (Number(fc.metros) / Number(corte.longitud)).toFixed(2) : '---'}
                                       </td>
                                       <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                                         <input
-                                          type="number" step="0.01" min="0.01" placeholder={corte.longitud}
+                                          type="number" step="0.01" min="0.01" placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : corte.longitud}
                                           value={fc.longitud_row !== undefined ? fc.longitud_row : ''}
                                           onChange={e => updateCorteFabric(corte.id, fc.id, 'longitud_row', e.target.value)}
-                                          style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800' }}
+                                          disabled={!fc.metros || Number(fc.metros) <= 0}
+                                          style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
                                         />
                                       </td>
                                       <td style={{ padding: '0.75rem', textAlign: 'center' }}>
