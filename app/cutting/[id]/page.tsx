@@ -36,6 +36,7 @@ export default function CutDetailsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
+  const [fabrics, setFabrics] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +47,7 @@ export default function CutDetailsPage() {
 
   // Partial progress modal states
   const [showProgressModal, setShowProgressModal] = useState(false);
+  const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
   const [progressCutId, setProgressCutId] = useState<string>('');
   const [progressLayers, setProgressLayers] = useState('');
   const [progressNovelties, setProgressNovelties] = useState<{ capa: string; tipo: string }[]>([]);
@@ -90,11 +92,13 @@ export default function CutDetailsPage() {
       const { data: cData } = await supabase.from('colors').select('*');
       const { data: sData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: catData } = await supabase.from('categories').select('*');
+      const { data: fData } = await supabase.from('fabrics').select('*');
       
       setProducts(pData || []);
       setColors(cData || []);
       setSizes(sData || []);
       setCategories(catData || []);
+      setFabrics(fData || []);
 
     } catch (err: any) {
       console.error('Error fetching cut details:', err);
@@ -311,6 +315,10 @@ export default function CutDetailsPage() {
             Ficha de Corte Físico: OC-{order.internal_code}
           </h1>
         </div>
+        <button onClick={() => setShowOrderDetailsModal(true)} className="btn btn-secondary" style={{ marginLeft: 'auto', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', backgroundColor: '#e2e8f0', color: '#0f172a', fontWeight: '800', border: 'none' }}>
+          <FileText size={18} />
+          Ver Detalle Original de Orden
+        </button>
       </div>
 
       {/* Grid Layout */}
@@ -904,6 +912,67 @@ export default function CutDetailsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Order Details Original Modal */}
+      {showOrderDetailsModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '800px', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden', padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>Vista Previa de la Orden Original</h3>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Información desglosada según la planificación.</p>
+              </div>
+              <button onClick={() => setShowOrderDetailsModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24} /></button>
+            </div>
+            
+            <div style={{ padding: '1.5rem', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '2rem' }}>
+                <thead style={{ backgroundColor: '#f8fafc' }}>
+                  <tr>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'left' }}>PRODUCTO</th>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'left' }}>TELA</th>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'center' }}>TALLA</th>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'center' }}>CAPAS</th>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'center' }}>MARC.</th>
+                    <th style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.7rem', textAlign: 'right' }}>TOTAL UND</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cuts.length === 0 ? (
+                    <tr><td colSpan={6} style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No hay datos.</td></tr>
+                  ) : (
+                    cuts.flatMap((cut) => {
+                      const prodName = getProductName(cut.product_id);
+                      const fabricObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+                      const colorObj = getColorData(cut.color_id, cut);
+                      const telaName = fabricObj ? fabricObj.nombre_tela : (colorObj ? colorObj.nombre_color : '---');
+                      
+                      return cut.cut_sizes.filter((cs: any) => Number(cs.quantity) > 0).map((cs: any, i: number) => {
+                        const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
+                        const capas = Number(cut.layers) || 1;
+                        const marc = (Number(cs.quantity) / capas).toFixed(2);
+                        return (
+                          <tr key={`${cut.id}-${cs.size_id}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#f8fafc' }}>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>{prodName}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{telaName}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{sizeObj ? sizeObj.codigo_talla : '---'}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{cut.layers}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{marc.endsWith('.00') ? Math.round(Number(marc)) : marc}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>{cs.quantity}</td>
+                          </tr>
+                        );
+                      });
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowOrderDetailsModal(false)} className="btn btn-secondary" style={{ padding: '0.75rem 1.5rem', fontWeight: '800' }}>Cerrar</button>
+            </div>
           </div>
         </div>
       )}
