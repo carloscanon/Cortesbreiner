@@ -713,7 +713,7 @@ export default function OrdersPage() {
             const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fc.fabric_id).single();
             if (fab) {
               const restoredCapas = (Number(fab.capas) || 0) + (Number(fc.layers) || 0);
-              const restoredMetros = (Number(fab.metros) || 0) + ((Number(fc.layers) || 0) * longitudNum);
+              const restoredMetros = (Number(fab.metros) || 0) + longitudNum;
               await supabase.from('fabrics').update({ capas: restoredCapas, metros: restoredMetros }).eq('id', fc.fabric_id);
             }
           }
@@ -789,7 +789,7 @@ export default function OrdersPage() {
         if (fabricKey) {
           if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
           usageByFabric[fabricKey].capas += fcLayers;
-          usageByFabric[fabricKey].metros += (fcLayers * longitudNum);
+          usageByFabric[fabricKey].metros += longitudNum;
         }
 
         for (const col of matrixCols) {
@@ -863,7 +863,7 @@ export default function OrdersPage() {
           if (fabricKey) {
             if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
             usageByFabric[fabricKey].capas += fcLayers;
-            usageByFabric[fabricKey].metros += (fcLayers * corteLongitudNum);
+            usageByFabric[fabricKey].metros += corteLongitudNum;
           }
 
           for (const col of corte.matrixCols) {
