@@ -2130,7 +2130,7 @@ export default function OrdersPage() {
                         { l: 'Factura Telas', v: formData.factura_relacionada || '---' },
                         { l: 'Telas Programadas', v: fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id).length + cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.filter((fc: any) => fc.nombre_tela || fc.fabric_id).length, 0) },
                         { l: 'Total Capas', v: Math.round(totalLayersSummary) },
-                        { l: 'Total Metros', v: `${totalKilos.toFixed(2)}` },
+                        { l: 'Total Longitudes', v: fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0).toFixed(2) },
                         { l: 'Total Unidades', v: orderItems.reduce((sum, item) => sum + (item.total || 0), 0) }
                       ].map((item, i) => (
                         <div key={i} style={{ border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '8px' }}>
