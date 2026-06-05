@@ -1436,7 +1436,7 @@ export default function OrdersPage() {
                             <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '0.75rem' }}>
                                 <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
-                                {fc.kilos && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800' }}>{fc.kilos} kg</div>}
+                                {fc.kilos && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '800' }}>{fc.kilos}</div>}
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'right' }}>
                                 <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#0ea5e9' }}>
@@ -1491,12 +1491,12 @@ export default function OrdersPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.5rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', marginTop: '1.5rem' }}>
                       <div style={{ textAlign: 'center' }}>
                         <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Metros Tela</p>
-                        <h3 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--primary)' }}>{totalKilos.toFixed(2)} kg</h3>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--primary)' }}>{totalKilos.toFixed(2)}</h3>
                       </div>
                       <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase' }}>Capas Estimadas (Maestro)</p>
+                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase' }}>Total Longitudes</p>
                         <h3 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#6366f1' }}>
-                          {Number(longitud) > 0 ? fabricColors.reduce((sum, fc) => sum + (fc.kilos ? Number(fc.kilos) / Number(longitud) : 0), 0).toFixed(2) : '---'}
+                          {fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0).toFixed(2)}
                         </h3>
                       </div>
                       <div style={{ textAlign: 'center' }}>
@@ -1718,7 +1718,7 @@ export default function OrdersPage() {
                     </div>
                     <div style={{ background: 'linear-gradient(135deg, #0c4a6e, #0369a1)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
                       <p style={{ fontSize: '0.65rem', color: '#7dd3fc', fontWeight: '800', margin: '0 0 0.5rem 0' }}>METROS TELA</p>
-                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#e0f2fe', margin: 0 }}>{totalKilos.toFixed(2)} kg</h3>
+                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#e0f2fe', margin: 0 }}>{totalKilos.toFixed(2)}</h3>
                     </div>
                   </div>
 
@@ -1951,11 +1951,13 @@ export default function OrdersPage() {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                               <div style={{ textAlign: 'center' }}>
                                 <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>TOTAL METROS TELA</p>
-                                <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--primary)' }}>{corteTotalKilos.toFixed(2)} kg</h3>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--primary)' }}>{corteTotalKilos.toFixed(2)}</h3>
                               </div>
                               <div style={{ textAlign: 'center' }}>
-                                <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#6366f1' }}>CAPAS ESTIMADAS (MAESTRO)</p>
-                                <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: '#6366f1' }}>{corteCapasEstimadas.toFixed(2)}</h3>
+                                <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#6366f1' }}>TOTAL LONGITUDES</p>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: '#6366f1' }}>
+                                  {corte.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0).toFixed(2)}
+                                </h3>
                               </div>
                               <div style={{ textAlign: 'center' }}>
                                 <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b' }}>TOTAL CAPAS PROGRAMADAS</p>
@@ -2028,7 +2030,7 @@ export default function OrdersPage() {
                         </div>
                         <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '0.75rem', border: '1px solid #e2e8f0' }}>
                           <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', margin: '0 0 0.25rem 0' }}>METROS TELA</p>
-                          <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#0369a1' }}>{totalKilos.toFixed(2)} kg</p>
+                          <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#0369a1' }}>{totalKilos.toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
@@ -2066,7 +2068,7 @@ export default function OrdersPage() {
                                   <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', fontWeight: '700', border: '1px solid #e2e8f0' }}>{displayName}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#64748b', fontWeight: '700', border: '1px solid #e2e8f0' }}>{capEst || '---'}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', fontWeight: '900', color: over ? '#ef4444' : '#1e293b', border: '1px solid #e2e8f0' }}>{capProg}</td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#0369a1', fontWeight: '700', border: '1px solid #e2e8f0' }}>{Number(fc.kilos || 0).toFixed(2)} m</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#0369a1', fontWeight: '700', border: '1px solid #e2e8f0' }}>{Number(fc.kilos || 0).toFixed(2)}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #e2e8f0' }}>
                                     {over
                                       ? <span style={{ backgroundColor: '#fee2e2', color: '#b91c1c', fontSize: '0.7rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px' }}>⚠ EXCEDE</span>
@@ -2115,7 +2117,7 @@ export default function OrdersPage() {
                         { l: 'Factura Telas', v: formData.factura_relacionada || '---' },
                         { l: 'Telas Programadas', v: fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id).length + cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.filter((fc: any) => fc.nombre_tela || fc.fabric_id).length, 0) },
                         { l: 'Total Capas', v: Math.round(totalLayersSummary) },
-                        { l: 'Total Metros', v: `${totalKilos.toFixed(2)} m` },
+                        { l: 'Total Metros', v: `${totalKilos.toFixed(2)}` },
                         { l: 'Total Unidades', v: orderItems.reduce((sum, item) => sum + (item.total || 0), 0) }
                       ].map((item, i) => (
                         <div key={i} style={{ border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '8px' }}>
