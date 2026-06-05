@@ -406,8 +406,11 @@ export default function CutDetailsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
-                  <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', minWidth: '180px' }}>
-                    Producto
+                  <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+                    Referencia
+                  </th>
+                  <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+                    Tela
                   </th>
                   <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>
                     Capas Programadas
@@ -454,16 +457,14 @@ export default function CutDetailsPage() {
                             border: '1px solid #94a3b8',
                             flexShrink: 0
                           }}></div>
-                          <div>
-                            <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>{productName}</div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                              {(() => {
-                                const fabric = fabrics.find(f => String(f.id) === String(cut.fabric_id));
-                                return fabric ? fabric.nombre_tela : (color?.nombre_color || 'Sin Tela');
-                              })()}
-                            </div>
-                          </div>
+                          <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>{productName}</div>
                         </div>
+                      </td>
+                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', fontWeight: '600' }}>
+                        {(() => {
+                          const fabric = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+                          return fabric ? fabric.nombre_tela : (color?.nombre_color || 'Sin Tela');
+                        })()}
                       </td>
 
                       {/* CAPAS PROGRAMADAS: muestra restantes con barra que se va vaciando */}
