@@ -701,7 +701,7 @@ export default function OrdersPage() {
         priority: formData.priority,
         order_type: formData.order_type,
         capas_proyectadas: totalLayersSummary,
-        total_kilos_proyectados: totalKilos,
+        total_kilos_proyectados: fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0) + cortesAdicionales.reduce((acc, c) => acc + c.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0), 0),
         observaciones: formData.observaciones,
         cortador_name: formData.cortador_name,
         scheduled_date: formData.scheduled_date
