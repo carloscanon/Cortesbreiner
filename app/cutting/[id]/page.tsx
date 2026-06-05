@@ -262,7 +262,10 @@ export default function CutDetailsPage() {
   const getProductName = (pid: string) => {
     const prod = products.find(p => String(p.id) === String(pid));
     if (!prod) return 'Sin Producto';
-    return prod.nombre_producto || 'Sin Producto';
+    if (prod.codigo_referencia && prod.nombre_producto) {
+      return `${prod.codigo_referencia} - ${prod.nombre_producto}`;
+    }
+    return prod.nombre_producto || prod.codigo_referencia || 'Sin Producto';
   };
   const getColorData = (cid: string, cut?: any) => {
     if (cid) {

@@ -744,38 +744,7 @@ export default function OrdersPage() {
       }
       setCurrentOrderId(orderId);
 
-      // ── CACHÉ: resolución de categoría → product_id válido ────────────────
-      const categoryProductCache: Record<string, string> = {};
 
-      const resolveCategoryToProduct = async (categoryId: string): Promise<string> => {
-        if (categoryProductCache[categoryId]) return categoryProductCache[categoryId];
-        const { data: existingProd } = await supabase
-          .from('products')
-          .select('id')
-          .eq('category_id', categoryId)
-          .limit(1);
-        if (existingProd && existingProd.length > 0) {
-          categoryProductCache[categoryId] = existingProd[0].id;
-          return existingProd[0].id;
-        }
-        // Crear producto genérico si no existe ninguno en esa categoría
-        const catName = categories.find((c: any) => c.id === categoryId)?.categoria || 'Producto Generico';
-        const { data: newProd, error: newProdErr } = await supabase
-          .from('products')
-          .insert([{
-            nombre_producto: catName,
-            category_id: categoryId,
-            codigo_referencia: 'REF-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
-            iva: 0,
-            precio: 0,
-            precio_con_iva: 0
-          }])
-          .select()
-          .single();
-        if (newProdErr) throw newProdErr;
-        categoryProductCache[categoryId] = newProd.id;
-        return newProd.id;
-      };
 
       // ── INSERTAR NUEVOS CORTES ────────────────────────────────────────────
       // Rastrear capas y metros a descontar por fabric_id
@@ -801,8 +770,6 @@ export default function OrdersPage() {
           const qty2 = matrixCells[`${fc.id}_${col.id}_2`] || 0;
           if (qty1 === 0 && qty2 === 0) continue;
 
-          const finalProductId = await resolveCategoryToProduct(col.product_id);
-
           // Kilos proporcionales para este corte
           const totalUnitsForFc = (() => {
             let sum = 0;
@@ -819,7 +786,7 @@ export default function OrdersPage() {
             .from('cuts')
             .insert([{
               order_id: orderId,
-              product_id: finalProductId,
+              product_id: col.product_id,
               color_id: fc.color_id || null,
               fabric_id: fc.fabric_id || null,
               kilos: itemKilos,
@@ -875,7 +842,6 @@ export default function OrdersPage() {
             const qty2 = corte.matrixCells[`${fc.id}_${col.id}_2`] || 0;
             if (qty1 === 0 && qty2 === 0) continue;
 
-            const finalProductId = await resolveCategoryToProduct(col.product_id);
             const totalUnitsForFc = (() => {
               let sum = 0;
               corte.matrixCols.forEach((c: any) => {
@@ -891,7 +857,7 @@ export default function OrdersPage() {
               .from('cuts')
               .insert([{
                 order_id: orderId,
-                product_id: finalProductId,
+                product_id: col.product_id,
                 color_id: fc.color_id || null,
                 fabric_id: fc.fabric_id || null,
                 kilos: itemKilos,
@@ -1629,8 +1595,8 @@ export default function OrdersPage() {
                             <th key={col.id} colSpan={2} style={{ padding: '0.5rem', borderLeft: '2px solid #e2e8f0' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateMatrixCol(col.id, 'product_id', e.target.value)}>
-                                  <option value="">Seleccionar Categoría...</option>
-                                  {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.categoria}</option>)}
+                                  <option value="">Seleccionar Referencia...</option>
+                                  {products.map(prod => <option key={prod.id} value={prod.id}>{prod.codigo_referencia ? `${prod.codigo_referencia} - ` : ''}{prod.nombre_producto}</option>)}
                                 </select>
                                 {matrixCols.length > 1 && (
                                   <button onClick={() => removeMatrixCol(col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -1640,7 +1606,7 @@ export default function OrdersPage() {
                           ))}
                           {matrixCols.length < 8 && (
                             <th rowSpan={3} style={{ padding: '1rem', borderLeft: '2px solid #e2e8f0', backgroundColor: '#f1f5f9' }}>
-                              <button className="btn btn-secondary" onClick={addMatrixCol} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Categoría</button>
+                              <button className="btn btn-secondary" onClick={addMatrixCol} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Referencia</button>
                             </th>
                           )}
                         </tr>
@@ -1875,8 +1841,8 @@ export default function OrdersPage() {
                                       <th key={col.id} colSpan={2} style={{ padding: '0.5rem', borderLeft: '2px solid #e2e8f0' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'product_id', e.target.value)}>
-                                            <option value="">Seleccionar Categoría...</option>
-                                            {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.categoria}</option>)}
+                                            <option value="">Seleccionar Referencia...</option>
+                                            {products.map(prod => <option key={prod.id} value={prod.id}>{prod.codigo_referencia ? `${prod.codigo_referencia} - ` : ''}{prod.nombre_producto}</option>)}
                                           </select>
                                           {corte.matrixCols.length > 1 && (
                                             <button onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -1886,7 +1852,7 @@ export default function OrdersPage() {
                                     ))}
                                     {corte.matrixCols.length < 8 && (
                                       <th rowSpan={3} style={{ padding: '1rem', borderLeft: '2px solid #e2e8f0', backgroundColor: '#f1f5f9' }}>
-                                        <button className="btn btn-secondary" onClick={() => addCorteMatrixCol(corte.id)} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Categoría</button>
+                                        <button className="btn btn-secondary" onClick={() => addCorteMatrixCol(corte.id)} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Referencia</button>
                                       </th>
                                     )}
                                   </tr>
