@@ -235,7 +235,8 @@ export default function OrdersPage() {
       const { data, error } = await supabase
         .from('fabrics')
         .select('*')
-        .eq('factura_relacionada', invoiceNo);
+        .eq('factura_relacionada', invoiceNo)
+        .gt('metros', 0);
       if (error) throw error;
       if (data && data.length > 0) {
         const newFcs = data.map(fabric => ({
@@ -331,7 +332,8 @@ export default function OrdersPage() {
       const { data, error } = await supabase
         .from('fabrics')
         .select('*')
-        .eq('factura_relacionada', formData.factura_relacionada);
+        .eq('factura_relacionada', formData.factura_relacionada)
+        .gt('metros', 0);
       
       if (error) throw error;
       
