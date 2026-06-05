@@ -1321,11 +1321,11 @@ export default function OrdersPage() {
 
       {/* WIZARD MODAL */}
       {showModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(12px)' }}>
-          <div className="card" style={{ width: '70vw', maxWidth: 'none', padding: '0', maxHeight: '95vh', overflowY: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(10px)' }}>
+          <div className="card" style={{ width: '72vw', maxWidth: '1400px', padding: '0', maxHeight: '92vh', overflowY: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.6)', borderRadius: '20px' }}>
             
             {/* Wizard Header */}
-            <div style={{ padding: '1.5rem 2.5rem', background: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '1.5rem 2.5rem', background: 'linear-gradient(135deg, #0f172a, #1e3a5f)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '20px 20px 0 0' }}>
               <div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: '950', color: 'white', margin: 0, letterSpacing: '-0.02em' }}>
                   {editingId ? 'Editar Orden de Corte' : 'Nueva Programación de Corte'}

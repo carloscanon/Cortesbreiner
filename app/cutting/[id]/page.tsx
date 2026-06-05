@@ -742,14 +742,14 @@ export default function CutDetailsPage() {
 
       {/* Partial Progress Modal */}
       {showProgressModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden', padding: 0 }}>
-            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', padding: 0, boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.6)' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #0f172a, #1e3a5f)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '20px 20px 0 0' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>Reportar Avance Parcial</h3>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Registra un progreso sin finalizar la orden completa.</p>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '950', color: 'white' }}>Reportar Avance Parcial</h3>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>Registra un progreso sin finalizar la orden completa.</p>
               </div>
-              <button onClick={() => setShowProgressModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24} /></button>
+              <button onClick={() => setShowProgressModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><X size={24} /></button>
             </div>
             
             <form onSubmit={handleSaveProgress} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -923,14 +923,14 @@ export default function CutDetailsPage() {
 
       {/* Order Details Original Modal */}
       {showOrderDetailsModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '800px', backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden', padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '800px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', padding: 0, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.6)' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #0f172a, #1e3a5f)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '20px 20px 0 0' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>Vista Previa de la Orden Original</h3>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Información desglosada según la planificación.</p>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '950', color: 'white' }}>Vista Previa de la Orden Original</h3>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>Información desglosada según la planificación.</p>
               </div>
-              <button onClick={() => setShowOrderDetailsModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24} /></button>
+              <button onClick={() => setShowOrderDetailsModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><X size={24} /></button>
             </div>
             
             <div style={{ padding: '1.5rem', overflowY: 'auto' }}>
