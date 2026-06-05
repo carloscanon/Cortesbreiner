@@ -436,8 +436,8 @@ export default function OrdersPage() {
 
   const totalLayersSummary = step2TotalLayers;
   
-  const totalKilos = fabricColors.reduce((sum, fc) => sum + (Number(fc.metros || fc.kilos) || 0), 0) + 
-    cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.metros || fc.kilos) || 0), 0), 0);
+  const totalKilos = fabricColors.reduce((sum, fc) => sum + (Number(fc.metros) || 0), 0) + 
+    cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.metros) || 0), 0), 0);
   
   const isOverLimit = totalCapasEstimadas > 0 && step2TotalLayers > totalCapasEstimadas;
 
@@ -1727,7 +1727,7 @@ export default function OrdersPage() {
 
                   {/* ── CORTES ADICIONALES ── */}
                   {cortesAdicionales.map((corte, corteIdx) => {
-                    const corteTotalKilos = corte.fabricColors.reduce((sum: number, fc: any) => sum + (Number(fc.metros || fc.kilos) || 0), 0);
+                    const corteTotalKilos = corte.fabricColors.reduce((sum: number, fc: any) => sum + (Number(fc.metros) || 0), 0);
                     const corteCapasEstimadas = Number(corte.longitud) > 0 ? corte.fabricColors.reduce((sum: number, fc: any) => sum + (fc.metros ? Number(fc.metros) / Number(corte.longitud) : 0), 0) : 0;
                     const corteTotalLayers = corte.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.layers) || 0), 0);
 
