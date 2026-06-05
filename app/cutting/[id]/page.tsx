@@ -456,7 +456,12 @@ export default function CutDetailsPage() {
                           }}></div>
                           <div>
                             <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>{productName}</div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{color?.nombre_color || 'Sin Color'}</div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                              {(() => {
+                                const fabric = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+                                return fabric ? fabric.nombre_tela : (color?.nombre_color || 'Sin Tela');
+                              })()}
+                            </div>
                           </div>
                         </div>
                       </td>
