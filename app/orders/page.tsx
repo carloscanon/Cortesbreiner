@@ -1602,7 +1602,7 @@ export default function OrdersPage() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateMatrixCol(col.id, 'product_id', e.target.value)}>
                                   <option value="">Seleccionar Referencia...</option>
-                                  {products.map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.categoria))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
+                                  {products.map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.category_id))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
                                 </select>
                                 {matrixCols.length > 1 && (
                                   <button onClick={() => removeMatrixCol(col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -1849,7 +1849,7 @@ export default function OrdersPage() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'product_id', e.target.value)}>
                                             <option value="">Seleccionar Referencia...</option>
-                                            {products.map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.categoria))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
+                                            {products.map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.category_id))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
                                           </select>
                                           {corte.matrixCols.length > 1 && (
                                             <button onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
