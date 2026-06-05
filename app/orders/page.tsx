@@ -2042,10 +2042,7 @@ export default function OrdersPage() {
                         <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '0.75rem', border: '1px solid #e2e8f0' }}>
                           <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', margin: '0 0 0.25rem 0' }}>TOTAL LONGITUDES</p>
                           <p style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#6366f1' }}>
-                            {(
-                              fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0) + 
-                              cortesAdicionales.reduce((acc, c) => acc + c.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0), 0)
-                            ).toFixed(2)}
+                            {fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0).toFixed(2)}
                           </p>
                         </div>
                       </div>
