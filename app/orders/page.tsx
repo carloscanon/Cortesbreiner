@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Plus, Search, Trash2, X, Loader2, AlertTriangle, 
   Scissors, Layers, Info, ArrowRight, Factory, Droplets, Printer,
-  ChevronRight, Package, Palette, Activity, CheckCircle, Code
+  ChevronRight, Package, Palette, Activity, CheckCircle, Code, RefreshCw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -56,12 +56,21 @@ export default function OrdersPage() {
 
   const addMatrixCol = () => {
     if (matrixCols.length < 8) {
-      setMatrixCols([...matrixCols, { id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
+      const newCol = { id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' };
+      setMatrixCols([...matrixCols, newCol]);
+      setCortesAdicionales(prev => prev.map(c => ({
+        ...c,
+        matrixCols: [...c.matrixCols, { ...newCol }]
+      })));
     }
   };
   
   const removeMatrixCol = (id: number) => {
     setMatrixCols(matrixCols.filter(c => c.id !== id));
+    setCortesAdicionales(prev => prev.map(c => ({
+      ...c,
+      matrixCols: c.matrixCols.filter((col: any) => col.id !== id)
+    })));
   };
   
   const updateMatrixCol = (id: number, field: string, value: string) => {
@@ -81,9 +90,53 @@ export default function OrdersPage() {
         });
         return newCells;
       });
+
+      // Propagate marker changes and recalculate cells for additional cuts automatically
+      setCortesAdicionales(prev => prev.map(corte => {
+        const corteCols = corte.matrixCols.map((col: any) => col.id === id ? { ...col, [field]: value } : col);
+        const corteCells = { ...corte.matrixCells };
+        corte.fabricColors.forEach((fc: any) => {
+          if (Number(fc.layers) > 0) {
+            const key = `${fc.id}_${id}_${sizeIndex}`;
+            corteCells[key] = Math.round((Number(fc.layers) || 0) * markerVal);
+          }
+        });
+        return {
+          ...corte,
+          matrixCols: corteCols,
+          matrixCells: corteCells
+        };
+      }));
+    } else {
+      // General field update propagation for column info like product_id, size1_id, size2_id
+      setCortesAdicionales(prev => prev.map(corte => ({
+        ...corte,
+        matrixCols: corte.matrixCols.map((col: any) => col.id === id ? { ...col, [field]: value } : col)
+      })));
     }
   };
   
+  const syncCorteAdicionalMatrix = (corteId: number) => {
+    setCortesAdicionales(prev => prev.map(c => {
+      if (c.id === corteId) {
+        const clonedCols = matrixCols.map(col => ({ ...col }));
+        const corteCells = { ...c.matrixCells };
+        c.fabricColors.forEach((fc: any) => {
+          clonedCols.forEach(col => {
+            corteCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 0 : Number(col.marker1)));
+            corteCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 0 : Number(col.marker2)));
+          });
+        });
+        return {
+          ...c,
+          matrixCols: clonedCols,
+          matrixCells: corteCells
+        };
+      }
+      return c;
+    }));
+  };
+
   const updateMatrixCell = (fabricColorId: number, colId: number, sizeIndex: number, value: string) => {
     const key = `${fabricColorId}_${colId}_${sizeIndex}`;
     setMatrixCells({ ...matrixCells, [key]: Number(value) || 0 });
@@ -99,10 +152,9 @@ export default function OrdersPage() {
   }, 0);
 
   const totalMarcacionesActivas = matrixCols.reduce((acc, col) => {
-    let count = 0;
-    if ((Number(col.marker1) || 0) >= 1) count++;
-    if ((Number(col.marker2) || 0) >= 1) count++;
-    return acc + count;
+    const m1 = Number(col.marker1) || 0;
+    const m2 = Number(col.marker2) || 0;
+    return acc + m1 + m2;
   }, 0);
 
   const consumoPrenda = totalMarcacionesActivas > 0 ? (longitudNum / totalMarcacionesActivas).toFixed(3) : '0.000';
@@ -131,7 +183,7 @@ export default function OrdersPage() {
       ...col,
       id: Math.random()
     }));
-    
+
     setCortesAdicionales(prev => [...prev, {
       id: newId,
       nombre: `Corte ${prev.length + 2}`,
@@ -142,6 +194,29 @@ export default function OrdersPage() {
       matrixCols: clonedMatrixCols.length > 0 ? clonedMatrixCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }],
       matrixCells: {}
     }]);
+  };
+
+  const syncCorteLayers = (corteId: number) => {
+    const parentFabrics = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
+    setCortesAdicionales(prev => prev.map(c => {
+      if (c.id === corteId) {
+        if (c.fabricColors.length !== parentFabrics.length) {
+          alert(`⚠️ El número de telas de este corte (${c.fabricColors.length}) no coincide con el del primer corte (${parentFabrics.length}).`);
+        }
+        const updatedFabrics = c.fabricColors.map((fc: any, idx: number) => {
+          const parentFc = parentFabrics[idx];
+          const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
+          const corteLongitud = Number(c.longitud) || 1;
+          return {
+            ...fc,
+            layers: parentLayers || '',
+            longitud_row: String(parentLayers * corteLongitud)
+          };
+        });
+        return { ...c, fabricColors: updatedFabrics };
+      }
+      return c;
+    }));
   };
 
   const removeCorteAdicional = (id: number) =>
@@ -202,7 +277,23 @@ export default function OrdersPage() {
   // ------------------------------------------------
 
   const updateCorteField = (corteId: number, field: string, value: any) =>
-    setCortesAdicionales(prev => prev.map(c => c.id === corteId ? { ...c, [field]: value } : c));
+    setCortesAdicionales(prev => prev.map(c => {
+      if (c.id === corteId) {
+        let updated = { ...c, [field]: value };
+        if (field === 'longitud') {
+          const newLng = Number(value) || 0;
+          updated.fabricColors = c.fabricColors.map((fc: any) => {
+            const layersNum = Number(fc.layers) || 0;
+            return {
+              ...fc,
+              longitud_row: layersNum > 0 && newLng > 0 ? String(layersNum * newLng) : fc.longitud_row
+            };
+          });
+        }
+        return updated;
+      }
+      return c;
+    }));
 
   const updateCorteFabric = (corteId: number, fcId: number, field: string, value: any) =>
     setCortesAdicionales(prev => prev.map(c => {
@@ -239,18 +330,27 @@ export default function OrdersPage() {
         .gt('metros', 0);
       if (error) throw error;
       if (data && data.length > 0) {
-        const newFcs = data.map(fabric => ({
-          id: Math.random(),
-          color_id: '',
-          kilos: fabric.kilos || '',
-          metros: fabric.metros || '',
-          layers: '',
-          observation: '',
-          fabric_id: fabric.id,
-          nombre_tela: fabric.nombre_tela,
-          longitud_row: '',
-          capas_definidas: fabric.capas ? Math.round(Number(fabric.capas)) : ''
-        }));
+        const corte = cortesAdicionales.find(c => c.id === corteId);
+        const corteLongitud = corte ? (Number(corte.longitud) || 1) : 1;
+
+        const newFcs = data.map(fabric => {
+          const matchedParent = fabricColors.find(fc => fc.fabric_id && String(fc.fabric_id) === String(fabric.id));
+          const parentLayers = matchedParent ? (Number(matchedParent.layers) || 0) : 0;
+          const initialLongitud = parentLayers * corteLongitud;
+
+          return {
+            id: Math.random(),
+            color_id: matchedParent?.color_id || '',
+            kilos: fabric.kilos || '',
+            metros: fabric.metros || '',
+            layers: parentLayers || '',
+            observation: '',
+            fabric_id: fabric.id,
+            nombre_tela: fabric.nombre_tela,
+            longitud_row: parentLayers > 0 ? String(initialLongitud) : '',
+            capas_definidas: fabric.capas ? Math.round(Number(fabric.capas)) : ''
+          };
+        });
         setCortesAdicionales(prev => prev.map(c =>
           c.id === corteId ? { ...c, fabricColors: newFcs } : c
         ));
@@ -411,11 +511,9 @@ export default function OrdersPage() {
 
 
 
-  const step2TotalLayers = fabricColors.reduce((acc, fc) => acc + (Number(fc.layers) || 0), 0) + 
-    cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.layers) || 0), 0), 0);
+  const step2TotalLayers = fabricColors.reduce((acc, fc) => acc + (Number(fc.layers) || 0), 0);
 
-  const totalCapasEstimadas = fabricColors.reduce((acc, fc) => acc + (Number(fc.capas_definidas) || 0), 0) + 
-    cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.capas_definidas) || 0), 0), 0);
+  const totalCapasEstimadas = fabricColors.reduce((acc, fc) => acc + (Number(fc.capas_definidas) || 0), 0);
 
   const totalUnits = (() => {
     let sum = 0;
@@ -425,21 +523,12 @@ export default function OrdersPage() {
         sum += Number(matrixCells[`${fc.id}_${col.id}_2`]) || 0;
       });
     });
-    cortesAdicionales.forEach(c => {
-      c.fabricColors.forEach((fc: any) => {
-        c.matrixCols.forEach((col: any) => {
-          sum += Number(c.matrixCells[`${fc.id}_${col.id}_1`]) || 0;
-          sum += Number(c.matrixCells[`${fc.id}_${col.id}_2`]) || 0;
-        });
-      });
-    });
     return sum;
   })();
 
   const totalLayersSummary = step2TotalLayers;
   
-  const totalKilos = fabricColors.reduce((sum, fc) => sum + (Number(fc.metros) || 0), 0) + 
-    cortesAdicionales.reduce((sum, c) => sum + c.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.metros) || 0), 0), 0);
+  const totalKilos = fabricColors.reduce((sum, fc) => sum + (fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (Number(fc.metros) || 0)), 0);
   
   const isOverLimit = totalCapasEstimadas > 0 && step2TotalLayers > totalCapasEstimadas;
 
@@ -480,6 +569,9 @@ export default function OrdersPage() {
       const { data: latestProducts } = await supabase.from('products').select('*');
       const currentProducts = latestProducts || products;
       if (latestProducts) setProducts(latestProducts);
+
+      const { data: latestFabrics } = await supabase.from('fabrics').select('*');
+      if (latestFabrics) setFabrics(latestFabrics);
 
       const { data: cutsData } = await supabase
         .from('cuts')
@@ -762,7 +854,7 @@ export default function OrdersPage() {
         // Registrar consumo para la orden principal (una sola vez por fila de tela)
         const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
         if (fabricKey) {
-          const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : longitudNum;
+          const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * longitudNum);
           if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
           usageByFabric[fabricKey].capas += fcLayers;
           usageByFabric[fabricKey].metros += rowLongitud;
@@ -785,7 +877,8 @@ export default function OrdersPage() {
             return sum;
           })();
           const itemUnits = qty1 + qty2;
-          const itemKilos = totalUnitsForFc > 0 ? ((Number(fc.kilos) || 0) * itemUnits / totalUnitsForFc) : 0;
+          const fcKilos = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * longitudNum);
+          const itemKilos = totalUnitsForFc > 0 ? (fcKilos * itemUnits / totalUnitsForFc) : 0;
 
           const { data: newCut, error: cutError } = await supabase
             .from('cuts')
@@ -835,7 +928,7 @@ export default function OrdersPage() {
           // Registrar consumo para el corte adicional (una sola vez por fila de tela del corte adicional)
           const fabricKey = fc.fabric_id ? String(fc.fabric_id) : null;
           if (fabricKey) {
-            const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : corteLongitudNum;
+            const rowLongitud = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * corteLongitudNum);
             if (!usageByFabric[fabricKey]) usageByFabric[fabricKey] = { capas: 0, metros: 0 };
             usageByFabric[fabricKey].capas += fcLayers;
             usageByFabric[fabricKey].metros += rowLongitud;
@@ -856,7 +949,8 @@ export default function OrdersPage() {
               return sum;
             })();
             const itemUnits = qty1 + qty2;
-            const itemKilos = totalUnitsForFc > 0 ? ((Number(fc.kilos) || 0) * itemUnits / totalUnitsForFc) : 0;
+            const fcKilos = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * corteLongitudNum);
+            const itemKilos = totalUnitsForFc > 0 ? (fcKilos * itemUnits / totalUnitsForFc) : 0;
 
             const { data: newCut, error: cutError } = await supabase
               .from('cuts')
@@ -976,6 +1070,7 @@ export default function OrdersPage() {
             <Code size={20} style={{ color: 'var(--primary)' }} /> Diseño (XML)
           </button>
           <button className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '1rem', fontWeight: '700' }} onClick={() => { 
+            fetchMasters();
             const randomCode = `OC-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
             const sortedFabrics = fabrics && fabrics.length > 0 ? [...fabrics].sort((a, b) => b.id - a.id) : [];
             const latestFactura = sortedFabrics.length > 0 ? (sortedFabrics[0].factura_relacionada ?? '') : '';
@@ -1378,7 +1473,7 @@ export default function OrdersPage() {
                           onChange={e => setFormData({...formData, factura_relacionada: e.target.value})} 
                         >
                           <option value="">Seleccionar Factura...</option>
-                          {Array.from(new Set(fabrics.map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
+                          {Array.from(new Set(fabrics.filter(f => (Number(f.metros) || 0) > 0).map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
                             <option key={String(factura)} value={String(factura)}>{String(factura)}</option>
                           ))}
                         </select>
@@ -1512,7 +1607,101 @@ export default function OrdersPage() {
                     </div>
                   </div>
 
-                  <div className="input-group">
+                  {/* --- SECCIÓN DE CORTES ADICIONALES --- */}
+                  <div style={{ marginTop: '2rem', borderTop: '2.5px dashed #cbd5e1', paddingTop: '2rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>Cortes Adicionales</h3>
+                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Seleccione facturas y telas adicionales para otros cortes.</p>
+                      </div>
+                      <button type="button" className="btn btn-secondary" onClick={addCorteAdicional} style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', fontWeight: '800', backgroundColor: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe' }}>
+                        <Plus size={16} /> Adicionar Corte
+                      </button>
+                    </div>
+
+                    {cortesAdicionales.map((corte, corteIdx) => {
+                      return (
+                        <div key={corte.id} style={{ border: '2px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'white', marginBottom: '1.5rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                            <h3 style={{ fontSize: '1.125rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>{corte.nombre}</h3>
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                              <button type="button" onClick={() => syncCorteLayers(corte.id)} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: '800', backgroundColor: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <RefreshCw size={14} /> Sincronizar Capas
+                              </button>
+                              <button type="button" onClick={() => removeCorteAdicional(corte.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <Trash2 size={18} /> Eliminar Corte
+                              </button>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+                              <div className="input-group">
+                                <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Factura de Telas</label>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <select 
+                                    style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontWeight: '700', backgroundColor: 'white' }} 
+                                    value={corte.factura} 
+                                    onChange={e => updateCorteField(corte.id, 'factura', e.target.value)} 
+                                  >
+                                    <option value="">Seleccionar Factura...</option>
+                                    {Array.from(new Set(fabrics.filter(f => (Number(f.metros) || 0) > 0).map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
+                                      <option key={String(factura)} value={String(factura)}>{String(factura)}</option>
+                                    ))}
+                                  </select>
+                                  <button type="button" className="btn btn-primary" onClick={() => fetchCorteAdicionalFabrics(corte.id, corte.factura)} style={{ padding: '0 1rem', fontWeight: '800' }}>
+                                    <Search size={18} /> Cargar Telas
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="input-group">
+                                <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Factor Longitud</label>
+                                <input 
+                                  type="number" 
+                                  step="0.01" 
+                                  min="0.01" 
+                                  value={corte.longitud} 
+                                  onChange={e => updateCorteField(corte.id, 'longitud', e.target.value)} 
+                                  style={{ padding: '0.75rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontWeight: '900', color: 'var(--primary)' }} 
+                                />
+                              </div>
+                            </div>
+
+                            <div style={{ overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                  <tr style={{ textAlign: 'left', borderBottom: '2.5px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                                    <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)' }}>TELA (FACTURA)</th>
+                                    <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'center' }}>N° CAPAS</th>
+                                    <th style={{ padding: '1rem' }}></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {corte.fabricColors.map((fc: any, fcIdx: number) => {
+                                    return (
+                                      <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '0.75rem' }}>
+                                          <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
+                                        </td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                          <div style={{ fontWeight: '900', fontSize: '1rem', display: 'inline-block', color: '#0f172a', backgroundColor: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', minWidth: '60px' }}>{fc.layers || 0}</div>
+                                        </td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                          <button type="button" onClick={() => removeCorteFabric(corte.id, fc.id)} style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}><Trash2 size={20} /></button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="input-group" style={{ marginTop: '1rem' }}>
                     <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Notas Adicionales</label>
                     <textarea style={{ width: '100%', padding: '1rem', borderRadius: '10px', border: '2.5px solid #e2e8f0', minHeight: '80px' }} value={formData.observaciones} onChange={e => setFormData({...formData, observaciones: e.target.value})} placeholder="Instrucciones para el cortador..." />
                   </div>
@@ -1545,6 +1734,28 @@ export default function OrdersPage() {
                         }
                       });
                       setMatrixCells(newCells);
+
+                      // ALSO auto-fill additional cuts matrices (inherited identical matrix columns and symmetric layers x markers)
+                      const updatedCortes = cortesAdicionales.map(corte => {
+                        const corteCells = { ...corte.matrixCells };
+                        corte.fabricColors.forEach((fc: any, fcIdx: number) => {
+                          const parentFc = validColors[fcIdx];
+                          const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
+                          fc.layers = parentLayers;
+                          fc.longitud_row = String(parentLayers * (Number(corte.longitud) || 1));
+
+                          matrixCols.forEach(col => {
+                            corteCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 0 : Number(col.marker1)));
+                            corteCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 0 : Number(col.marker2)));
+                          });
+                        });
+                        return {
+                          ...corte,
+                          matrixCols: matrixCols.map(col => ({ ...col })),
+                          matrixCells: corteCells
+                        };
+                      });
+                      setCortesAdicionales(updatedCortes);
                       
                       setStep(2);
                     }} 
@@ -1557,6 +1768,26 @@ export default function OrdersPage() {
               {/* STEP 2: PROGRAMACIÓN TÉCNICA (ANTES PASO 3) */}
               {step === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  
+                  {/* --- TOTALS DASHBOARD --- */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                    <div style={{ background: 'linear-gradient(135deg, #1e293b, #334155)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '800', margin: '0 0 0.5rem 0' }}>TOTAL CAPAS</p>
+                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: 'white', margin: 0 }}>{Math.round(totalLayersSummary)}</h3>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #064e3b, #065f46)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.65rem', color: '#6ee7b7', fontWeight: '800', margin: '0 0 0.5rem 0' }}>TOTAL PRENDAS</p>
+                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#ecfdf5', margin: 0 }}>{totalUnits} u</h3>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #312e81, #4338ca)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.65rem', color: '#c7d2fe', fontWeight: '800', margin: '0 0 0.5rem 0' }}>REFERENCIAS SELECCIONADAS</p>
+                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: 'white', margin: 0 }}>{matrixCols.filter(c => c.product_id).length}</h3>
+                    </div>
+                    <div style={{ background: 'linear-gradient(135deg, #0c4a6e, #0369a1)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.65rem', color: '#7dd3fc', fontWeight: '800', margin: '0 0 0.5rem 0' }}>METROS TELA</p>
+                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#e0f2fe', margin: 0 }}>{totalKilos.toFixed(2)}</h3>
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '1rem' }}>
                     <div>
                       <h3 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>Matriz de Programación Técnica</h3>
@@ -1711,138 +1942,63 @@ export default function OrdersPage() {
                     </table>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-                    <div style={{ background: 'linear-gradient(135deg, #1e293b, #334155)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
-                      <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '800', margin: '0 0 0.5rem 0' }}>TOTAL CAPAS</p>
-                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: 'white', margin: 0 }}>{Math.round(totalLayersSummary)}</h3>
-                    </div>
-                    <div style={{ background: 'linear-gradient(135deg, #064e3b, #065f46)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
-                      <p style={{ fontSize: '0.65rem', color: '#6ee7b7', fontWeight: '800', margin: '0 0 0.5rem 0' }}>TOTAL PRENDAS</p>
-                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#ecfdf5', margin: 0 }}>{totalUnits} u</h3>
-                    </div>
-                    <div style={{ background: 'linear-gradient(135deg, #312e81, #4338ca)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
-                      <p style={{ fontSize: '0.65rem', color: '#c7d2fe', fontWeight: '800', margin: '0 0 0.5rem 0' }}>REFERENCIAS SELECCIONADAS</p>
-                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: 'white', margin: 0 }}>{matrixCols.filter(c => c.product_id).length}</h3>
-                    </div>
-                    <div style={{ background: 'linear-gradient(135deg, #0c4a6e, #0369a1)', padding: '1.25rem', borderRadius: '16px', textAlign: 'center' }}>
-                      <p style={{ fontSize: '0.65rem', color: '#7dd3fc', fontWeight: '800', margin: '0 0 0.5rem 0' }}>METROS TELA</p>
-                      <h3 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#e0f2fe', margin: 0 }}>{totalKilos.toFixed(2)}</h3>
-                    </div>
-                  </div>
-
-                  {/* ── CORTES ADICIONALES ── */}
+                  {/* ── CORTES ADICIONALES (MATRICES HEREDADAS) ── */}
                   {cortesAdicionales.map((corte, corteIdx) => {
-                    const corteTotalKilos = corte.fabricColors.reduce((sum: number, fc: any) => sum + (Number(fc.metros) || 0), 0);
-                    const corteCapasEstimadas = Number(corte.longitud) > 0 ? corte.fabricColors.reduce((sum: number, fc: any) => sum + (fc.metros ? Number(fc.metros) / Number(corte.longitud) : 0), 0) : 0;
+                    const corteTotalKilos = corte.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (Number(fc.metros) || 0)), 0);
                     const corteTotalLayers = corte.fabricColors.reduce((acc: number, fc: any) => acc + (Number(fc.layers) || 0), 0);
+                    const corteTotalMarcacionesActivas = corte.matrixCols.reduce((acc: number, col: any) => {
+                      const m1 = Number(col.marker1) || 0;
+                      const m2 = Number(col.marker2) || 0;
+                      return acc + m1 + m2;
+                    }, 0);
+                    const corteLongitudNum = Number(corte.longitud) || 0;
+                    const corteConsumoPrenda = corteTotalMarcacionesActivas > 0 ? (corteLongitudNum / corteTotalMarcacionesActivas).toFixed(3) : '0.000';
 
                     return (
-                      <div key={corte.id} style={{ border: '2px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'white' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', backgroundColor: '#f1f5f9', cursor: 'pointer' }} onClick={() => updateCorteField(corte.id, 'collapsed', !corte.collapsed)}>
+                      <div key={corte.id} style={{ border: '2px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'white', marginBottom: '1.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #cbd5e1', cursor: 'pointer' }} onClick={() => updateCorteField(corte.id, 'collapsed', !corte.collapsed)}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <button style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                              <ChevronRight size={20} style={{ transform: corte.collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 0.2s' }} />
-                            </button>
+                            <ChevronRight size={20} style={{ transform: corte.collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 0.2s', color: '#64748b' }} />
                             <h3 style={{ fontSize: '1.125rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>{corte.nombre}</h3>
                           </div>
-                          <button onClick={(e) => { e.stopPropagation(); removeCorteAdicional(corte.id); }} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem' }}>
-                            <Trash2 size={18} /> Eliminar
-                          </button>
+                          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'white', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }} onClick={e => e.stopPropagation()}>
+                              <label style={{ fontSize: '0.7rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>FACTOR LONGITUD (DIVISOR):</label>
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                min="0.01" 
+                                value={corte.longitud} 
+                                onChange={e => updateCorteField(corte.id, 'longitud', e.target.value)} 
+                                style={{ width: '70px', padding: '0.25rem 0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.85rem', color: 'var(--primary)' }} 
+                              />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'white', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }} onClick={e => e.stopPropagation()}>
+                              <label style={{ fontSize: '0.7rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>CONSUMO / PRENDA:</label>
+                              <input 
+                                type="text" 
+                                readOnly 
+                                value={corteConsumoPrenda} 
+                                title={`Fórmula: Longitud (${corte.longitud}) / Divisor (${corteTotalMarcacionesActivas})`}
+                                style={{ width: '70px', padding: '0.25rem 0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.85rem', color: '#10b981', backgroundColor: '#f8fafc', cursor: 'not-allowed' }} 
+                              />
+                            </div>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); syncCorteAdicionalMatrix(corte.id); }} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: '800', backgroundColor: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <RefreshCw size={14} /> Sincronizar con Corte 1
+                            </button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); removeCorteAdicional(corte.id); }} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem', fontWeight: '800' }}>
+                              <Trash2 size={18} /> Eliminar Corte
+                            </button>
+                          </div>
                         </div>
                         
                         {!corte.collapsed && (
                           <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-                              <div className="input-group">
-                                <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Factura de Telas</label>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <select 
-                                    style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontWeight: '700' }} 
-                                    value={corte.factura} 
-                                    onChange={e => updateCorteField(corte.id, 'factura', e.target.value)} 
-                                  >
-                                    <option value="">Seleccionar Factura...</option>
-                                    {Array.from(new Set(fabrics.map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
-                                      <option key={String(factura)} value={String(factura)}>{String(factura)}</option>
-                                    ))}
-                                  </select>
-                                  <button className="btn btn-primary" onClick={() => fetchCorteAdicionalFabrics(corte.id, corte.factura)} style={{ padding: '0 1rem', fontWeight: '800' }}>
-                                    <Search size={18} />
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="input-group">
-                                <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Factor Longitud</label>
-                                <input 
-                                  type="number" 
-                                  step="0.01" 
-                                  min="0.01" 
-                                  value={corte.longitud} 
-                                  onChange={e => updateCorteField(corte.id, 'longitud', e.target.value)} 
-                                  style={{ padding: '0.75rem', borderRadius: '8px', border: '2px solid #e2e8f0', fontWeight: '900', color: 'var(--primary)' }} 
-                                />
-                              </div>
-                            </div>
-
-                            <div style={{ overflowX: 'auto' }}>
-                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead>
-                                  <tr style={{ textAlign: 'left', borderBottom: '2.5px solid #e2e8f0' }}>
-                                    <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)' }}>TELA (FACTURA)</th>
-                                    <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '800', color: '#0ea5e9' }}>METROS</th>
-                                    <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1' }}>CAPAS EST.</th>
-                                    <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '800', color: '#f59e0b' }}>LONGITUD</th>
-                                    <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textAlign: 'center' }}>N° CAPAS</th>
-                                    <th style={{ padding: '1rem' }}></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {corte.fabricColors.map((fc: any) => (
-                                    <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                      <td style={{ padding: '0.75rem' }}>
-                                        <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
-                                      </td>
-                                      <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '800', color: '#0ea5e9' }}>
-                                        {fc.metros ? Number(fc.metros).toFixed(2) : '---'}
-                                      </td>
-                                      <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '900', color: '#6366f1' }}>
-                                        {fc.metros && Number(corte.longitud) > 0 ? (Number(fc.metros) / Number(corte.longitud)).toFixed(2) : '---'}
-                                      </td>
-                                      <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                        <input
-                                          type="number" step="0.01" min="0.01" placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : corte.longitud}
-                                          value={fc.longitud_row !== undefined ? fc.longitud_row : ''}
-                                          onChange={e => updateCorteFabric(corte.id, fc.id, 'longitud_row', e.target.value)}
-                                          disabled={!fc.metros || Number(fc.metros) <= 0}
-                                          style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                        {(() => {
-                                          const lngNum = Number(corte.longitud);
-                                          const rLng = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : null;
-                                          const capasCalc = rLng && lngNum > 0 ? Math.round(rLng / lngNum) : '---';
-                                          const numVal = rLng && lngNum > 0 ? Math.round(rLng / lngNum) : '';
-                                          if (fc.layers !== numVal) {
-                                            setTimeout(() => updateCorteFabric(corte.id, fc.id, 'layers', numVal), 0);
-                                          }
-                                          return <div style={{ fontWeight: '900', fontSize: '1rem', display: 'inline-block' }}>{capasCalc}</div>;
-                                        })()}
-                                      </td>
-                                      <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                        <button onClick={() => removeCorteFabric(corte.id, fc.id)} style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}><Trash2 size={20} /></button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-
                             {/* --- MATRIZ DEL CORTE ADICIONAL --- */}
-                            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                            <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: '12px' }}>
                               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
                                 <thead>
-                                  <tr style={{ borderBottom: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                                  <tr style={{ borderBottom: '2px solid #cbd5e1', backgroundColor: '#f8fafc' }}>
                                     <th rowSpan={3} style={{ padding: '1rem', textAlign: 'left', backgroundColor: '#0f172a', color: 'white', minWidth: '200px', fontSize: '0.75rem' }}>
                                       MATRIZ {corte.nombre.toUpperCase()}
                                     </th>
@@ -1856,28 +2012,28 @@ export default function OrdersPage() {
                                               .map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.category_id))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
                                           </select>
                                           {corte.matrixCols.length > 1 && (
-                                            <button onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
+                                            <button type="button" onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
                                           )}
                                         </div>
                                       </th>
                                     ))}
                                     {corte.matrixCols.length < 8 && (
-                                      <th rowSpan={3} style={{ padding: '1rem', borderLeft: '2px solid #e2e8f0', backgroundColor: '#f1f5f9' }}>
-                                        <button className="btn btn-secondary" onClick={() => addCorteMatrixCol(corte.id)} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Referencia</button>
+                                      <th rowSpan={3} style={{ padding: '1rem', borderLeft: '2px solid #cbd5e1', backgroundColor: '#f8fafc' }}>
+                                        <button type="button" className="btn btn-secondary" onClick={() => addCorteMatrixCol(corte.id)} style={{ padding: '0.5rem', fontSize: '0.75rem' }}><Plus size={16}/> Referencia</button>
                                       </th>
                                     )}
                                   </tr>
-                                  <tr style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                                  <tr style={{ borderBottom: '1px solid #cbd5e1', backgroundColor: '#f8fafc' }}>
                                     {corte.matrixCols.map((col: any) => (
                                       <React.Fragment key={`${col.id}-sizes`}>
                                         <th style={{ padding: '0.5rem', borderLeft: '2px solid #e2e8f0' }}>
-                                          <select style={{ width: '100%', padding: '0.25rem', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700' }} value={col.size1_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'size1_id', e.target.value)}>
+                                          <select style={{ width: '100%', padding: '0.25rem', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', backgroundColor: 'white' }} value={col.size1_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'size1_id', e.target.value)}>
                                             <option value="">Talla 1...</option>
                                             {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
                                           </select>
                                         </th>
                                         <th style={{ padding: '0.5rem', borderLeft: '1px dashed #e2e8f0' }}>
-                                          <select style={{ width: '100%', padding: '0.25rem', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700' }} value={col.size2_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'size2_id', e.target.value)}>
+                                          <select style={{ width: '100%', padding: '0.25rem', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700', backgroundColor: 'white' }} value={col.size2_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'size2_id', e.target.value)}>
                                             <option value="">Talla 2...</option>
                                             {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
                                           </select>
@@ -1885,10 +2041,10 @@ export default function OrdersPage() {
                                       </React.Fragment>
                                     ))}
                                   </tr>
-                                  <tr style={{ borderBottom: '2px solid #e2e8f0', backgroundColor: '#eef2ff' }}>
+                                  <tr style={{ borderBottom: '2px solid #cbd5e1', backgroundColor: '#eef2ff' }}>
                                     {corte.matrixCols.map((col: any) => (
                                       <React.Fragment key={`${col.id}-markers`}>
-                                        <th style={{ padding: '0.25rem 0.5rem', borderLeft: '2px solid #e2e8f0' }}>
+                                        <th style={{ padding: '0.25rem 0.5rem', borderLeft: '2px solid #cbd5e1' }}>
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                             <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                             <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker1} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'marker1', e.target.value)}>
@@ -1896,7 +2052,7 @@ export default function OrdersPage() {
                                             </select>
                                           </div>
                                         </th>
-                                        <th style={{ padding: '0.25rem 0.5rem', borderLeft: '1px dashed #e2e8f0' }}>
+                                        <th style={{ padding: '0.25rem 0.5rem', borderLeft: '1px dashed #cbd5e1' }}>
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                             <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                             <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker2} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'marker2', e.target.value)}>
@@ -1911,14 +2067,14 @@ export default function OrdersPage() {
                                 <tbody>
                                   {corte.fabricColors.map((fc: any, i: number) => {
                                     const colData = colors.find(c => c.id === fc.color_id);
-                                    const fabricName = fc.nombre_tela || colData?.nombre_color || 'Sin Nombre';
+                                    const fabricName = fc.nombre_tela || colData?.nombre_color || 'Tela Base';
                                     return (
                                       <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#f8fafc' }}>
-                                        <td style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '800', borderRight: '2px solid #e2e8f0', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                        <td style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '800', borderRight: '2px solid #cbd5e1', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <div style={{ width: '14px', height: '14px', borderRadius: '50%', backgroundColor: colData?.hex_color || '#94a3b8', flexShrink: 0 }}></div>
                                             <span>{fabricName}</span>
-                                            <span style={{ color: '#64748b', fontWeight: '600' }}>/ {fc.layers || 0}</span>
+                                            <span style={{ color: '#64748b', fontWeight: '600' }}>/ {fc.layers || 0} capas</span>
                                           </div>
                                         </td>
                                         {corte.matrixCols.map((col: any) => {
@@ -1926,16 +2082,15 @@ export default function OrdersPage() {
                                            const val2 = corte.matrixCells[`${fc.id}_${col.id}_2`] || '';
                                            return (
                                              <React.Fragment key={`${col.id}-cells`}>
-                                               <td style={{ padding: '0', borderLeft: '2px solid #e2e8f0', verticalAlign: 'middle' }}>
+                                               <td style={{ padding: '0', borderLeft: '2px solid #cbd5e1', verticalAlign: 'middle' }}>
                                                  <input type="number" style={{ width: '100%', height: '100%', minHeight: '40px', padding: '0.5rem', border: 'none', textAlign: 'center', fontWeight: val1 ? '900' : '500', fontSize: '1rem', outline: 'none', backgroundColor: val1 ? '#ecfdf5' : 'transparent', color: val1 ? '#065f46' : 'inherit' }} value={val1} onChange={e => updateCorteMatrixCell(corte.id, fc.id, col.id, 1, e.target.value)} />
                                                </td>
-                                               <td style={{ padding: '0', borderLeft: '1px dashed #e2e8f0', verticalAlign: 'middle' }}>
+                                               <td style={{ padding: '0', borderLeft: '1px dashed #cbd5e1', verticalAlign: 'middle' }}>
                                                  <input type="number" style={{ width: '100%', height: '100%', minHeight: '40px', padding: '0.5rem', border: 'none', textAlign: 'center', fontWeight: val2 ? '900' : '500', fontSize: '1rem', outline: 'none', backgroundColor: val2 ? '#ecfdf5' : 'transparent', color: val2 ? '#065f46' : 'inherit' }} value={val2} onChange={e => updateCorteMatrixCell(corte.id, fc.id, col.id, 2, e.target.value)} />
                                                </td>
                                              </React.Fragment>
                                            );
                                         })}
-                                        {corte.matrixCols.length < 8 && <td style={{ borderLeft: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}></td>}
                                       </tr>
                                     );
                                   })}
@@ -1954,7 +2109,6 @@ export default function OrdersPage() {
                                         </React.Fragment>
                                       );
                                     })}
-                                    {corte.matrixCols.length < 8 && <td style={{ borderLeft: '2px solid rgba(255,255,255,0.2)' }}></td>}
                                   </tr>
                                 </tbody>
                               </table>
@@ -2062,6 +2216,7 @@ export default function OrdersPage() {
                             <th style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', border: '1px solid #e2e8f0' }}>CAPAS ESTIMADAS</th>
                             <th style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', border: '1px solid #e2e8f0' }}>CAPAS PROGRAMADAS</th>
                             <th style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', border: '1px solid #e2e8f0' }}>METROS</th>
+                            <th style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', border: '1px solid #e2e8f0' }}>KILOS</th>
                             <th style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: 'center', border: '1px solid #e2e8f0' }}>ESTADO</th>
                           </tr>
                         </thead>
@@ -2076,12 +2231,20 @@ export default function OrdersPage() {
                               const capProg = Math.round(Number(fc.layers) || 0);
                               const over = capEst > 0 && capProg > capEst;
                               const displayName = fc.isExtra ? `${fc.corteName} - ${fc.nombre_tela || 'Tela'}` : (fc.nombre_tela || `Tela #${i+1}`);
+                              const estimatedMetros = fc.longitud_row && Number(fc.longitud_row) > 0 
+                                ? Number(fc.longitud_row) 
+                                : (capProg * (fc.isExtra ? (Number(fc.longitud) || 1) : longitudNum));
+                              
+                              const kilosRatio = (Number(fc.kilos) && Number(fc.metros)) ? (Number(fc.kilos) / Number(fc.metros)) : 0;
+                              const estimatedKilos = kilosRatio > 0 ? (estimatedMetros * kilosRatio) : 0;
+
                               return (
                                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: over ? '#fef2f2' : 'white' }}>
                                   <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', fontWeight: '700', border: '1px solid #e2e8f0' }}>{displayName}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#64748b', fontWeight: '700', border: '1px solid #e2e8f0' }}>{capEst || '---'}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', fontWeight: '900', color: over ? '#ef4444' : '#1e293b', border: '1px solid #e2e8f0' }}>{capProg}</td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#0369a1', fontWeight: '700', border: '1px solid #e2e8f0' }}>{Number(fc.kilos || 0).toFixed(2)}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#0369a1', fontWeight: '700', border: '1px solid #e2e8f0' }}>{estimatedMetros.toFixed(2)}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontSize: '0.85rem', color: '#b45309', fontWeight: '700', border: '1px solid #e2e8f0' }}>{estimatedKilos > 0 ? estimatedKilos.toFixed(2) : '---'}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', border: '1px solid #e2e8f0' }}>
                                     {over
                                       ? <span style={{ backgroundColor: '#fee2e2', color: '#b91c1c', fontSize: '0.7rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px' }}>⚠ EXCEDE</span>
