@@ -1298,32 +1298,36 @@ export default function OrdersPage() {
                   ? uniqueFabricIds.map(fid => {
                       const fc = viewCuts.filter((c: any) => String(c.fabric_id) === String(fid));
                       const first = fc[0];
-                      return { fabric_id: fid, layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)), kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), label: first?.fabric_id ? `Tela ID ${fid}` : 'Tela' };
+                      return { fabric_id: fid, layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)), kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), label: first?.fabric_id ? `Tela ID ${fid}` : 'Tela', firstCut: first };
                     })
-                  : [{ fabric_id: null, layers: viewCuts[0]?.layers || 0, kilos: viewCuts.reduce((s, c) => s + (Number(c.kilos) || 0), 0), label: 'Tela programada' }];
+                  : [{ fabric_id: null, layers: viewCuts[0]?.layers || 0, kilos: viewCuts.reduce((s, c) => s + (Number(c.kilos) || 0), 0), label: 'Tela programada', firstCut: viewCuts[0] }];
 
-                // Intentar enricher con fabrics maestro
+                // Intentar enricher con fabrics maestro y categorías
                 const enriched = fabricRows.map(row => {
-                  const master = fabrics.find(f => String(f.id) === String(row.fabric_id));
-                  return { ...row, nombre_tela: master?.nombre_tela || row.label };
+                  const prod = products.find(p => String(p.id) === String(row.firstCut?.product_id));
+                  const cat = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+                  return { 
+                    ...row, 
+                    categoria: cat ? cat.categoria : (prod ? prod.nombre_producto : '---')
+                  };
                 });
 
                 return (
                   <div>
                     <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Telas Programadas ({enriched.length})
+                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Categorías Programadas ({enriched.length})
                     </h3>
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ backgroundColor: '#f1f5f9' }}>
-                            {['Tela', 'Capas', 'Kilos'].map(h => <th key={h} style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: h === 'Tela' ? 'left' : 'center', textTransform: 'uppercase' }}>{h}</th>)}
+                            {['Categoría', 'Capas', 'Kilos'].map(h => <th key={h} style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: h === 'Categoría' ? 'left' : 'center', textTransform: 'uppercase' }}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
                           {enriched.map((row, i) => (
                             <tr key={i} style={{ borderTop: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', fontSize: '0.875rem' }}>{row.nombre_tela}</td>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', fontSize: '0.875rem' }}>{row.categoria}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: '#6366f1' }}>{Math.round(row.layers)}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '700', color: '#0ea5e9' }}>{Number(row.kilos).toFixed(2)} kg</td>
                             </tr>
@@ -1976,23 +1980,6 @@ export default function OrdersPage() {
                             </tr>
                           );
                         })}
-                        <tr style={{ backgroundColor: '#0f172a', color: 'white' }}>
-                          <td style={{ padding: '1rem', textAlign: 'left', fontWeight: '900', fontSize: '0.75rem' }}>TOTALES Y RESUMEN</td>
-                          {matrixCols.map(col => {
-                            let sum1 = 0; let sum2 = 0;
-                            fabricColors.forEach(fc => {
-                              sum1 += matrixCells[`${fc.id}_${col.id}_1`] || 0;
-                              sum2 += matrixCells[`${fc.id}_${col.id}_2`] || 0;
-                            });
-                            return (
-                              <React.Fragment key={`${col.id}-totals`}>
-                                <td style={{ padding: '1rem 0.5rem', fontWeight: '900', borderLeft: '2px solid rgba(255,255,255,0.2)' }}>{sum1}</td>
-                                <td style={{ padding: '1rem 0.5rem', fontWeight: '900', borderLeft: '1px dashed rgba(255,255,255,0.2)' }}>{sum2}</td>
-                              </React.Fragment>
-                            );
-                          })}
-                          {matrixCols.length < 8 && <td style={{ borderLeft: '2px solid rgba(255,255,255,0.2)' }}></td>}
-                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -2149,22 +2136,6 @@ export default function OrdersPage() {
                                       </tr>
                                     );
                                   })}
-                                  <tr style={{ backgroundColor: '#0f172a', color: 'white' }}>
-                                    <td style={{ padding: '1rem', textAlign: 'left', fontWeight: '900', fontSize: '0.75rem' }}>TOTALES Y RESUMEN</td>
-                                    {corte.matrixCols.map((col: any) => {
-                                      let sum1 = 0; let sum2 = 0;
-                                      corte.fabricColors.forEach((fc: any) => {
-                                        sum1 += corte.matrixCells[`${fc.id}_${col.id}_1`] || 0;
-                                        sum2 += corte.matrixCells[`${fc.id}_${col.id}_2`] || 0;
-                                      });
-                                      return (
-                                        <React.Fragment key={`${col.id}-totals`}>
-                                          <td style={{ padding: '1rem 0.5rem', fontWeight: '900', borderLeft: '2px solid rgba(255,255,255,0.2)' }}>{sum1}</td>
-                                          <td style={{ padding: '1rem 0.5rem', fontWeight: '900', borderLeft: '1px dashed rgba(255,255,255,0.2)' }}>{sum2}</td>
-                                        </React.Fragment>
-                                      );
-                                    })}
-                                  </tr>
                                 </tbody>
                               </table>
                             </div>
