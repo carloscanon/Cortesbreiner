@@ -184,13 +184,28 @@ export default function OrdersPage() {
       id: Math.random()
     }));
 
+    const parentFabrics = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
+    const clonedFabricColors = parentFabrics.length > 0 
+      ? parentFabrics.map(fc => ({
+          id: Math.random(),
+          color_id: fc.color_id || '',
+          fabric_id: fc.fabric_id || null,
+          nombre_tela: fc.nombre_tela || '',
+          metros: fc.metros || '',
+          kilos: fc.kilos || '',
+          capas_definidas: fc.capas_definidas || '',
+          layers: fc.layers || '',
+          longitud_row: String((Number(fc.layers) || 0) * 1)
+        }))
+      : [{ id: Math.random(), color_id: '', kilos: '', layers: '', observation: '', nombre_tela: '', longitud_row: '' }];
+
     setCortesAdicionales(prev => [...prev, {
       id: newId,
       nombre: `Corte ${prev.length + 2}`,
       factura: '',
       longitud: '1',
       collapsed: false,
-      fabricColors: [{ id: Math.random(), color_id: '', kilos: '', layers: '', observation: '', nombre_tela: '', longitud_row: '' }],
+      fabricColors: clonedFabricColors,
       matrixCols: clonedMatrixCols.length > 0 ? clonedMatrixCols : [{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }],
       matrixCells: {}
     }]);
@@ -200,15 +215,19 @@ export default function OrdersPage() {
     const parentFabrics = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
     setCortesAdicionales(prev => prev.map(c => {
       if (c.id === corteId) {
-        if (c.fabricColors.length !== parentFabrics.length) {
-          alert(`⚠️ El número de telas de este corte (${c.fabricColors.length}) no coincide con el del primer corte (${parentFabrics.length}).`);
-        }
-        const updatedFabrics = c.fabricColors.map((fc: any, idx: number) => {
-          const parentFc = parentFabrics[idx];
+        const corteLongitud = Number(c.longitud) || 1;
+        const updatedFabrics = parentFabrics.map((parentFc, idx) => {
+          const existingFc = c.fabricColors[idx] || {};
           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
-          const corteLongitud = Number(c.longitud) || 1;
           return {
-            ...fc,
+            ...existingFc,
+            id: existingFc.id || Math.random(),
+            color_id: parentFc.color_id || '',
+            fabric_id: parentFc.fabric_id || null,
+            nombre_tela: parentFc.nombre_tela || '',
+            metros: parentFc.metros || '',
+            kilos: parentFc.kilos || '',
+            capas_definidas: parentFc.capas_definidas || '',
             layers: parentLayers || '',
             longitud_row: String(parentLayers * corteLongitud)
           };
@@ -1738,19 +1757,32 @@ export default function OrdersPage() {
                       // ALSO auto-fill additional cuts matrices (inherited identical matrix columns and symmetric layers x markers)
                       const updatedCortes = cortesAdicionales.map(corte => {
                         const corteCells = { ...corte.matrixCells };
-                        corte.fabricColors.forEach((fc: any, fcIdx: number) => {
-                          const parentFc = validColors[fcIdx];
+                        const updatedFabricColors = validColors.map((parentFc, fcIdx) => {
+                          const existingFc = corte.fabricColors[fcIdx] || {};
                           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
-                          fc.layers = parentLayers;
-                          fc.longitud_row = String(parentLayers * (Number(corte.longitud) || 1));
+                          const fc = {
+                            ...existingFc,
+                            id: existingFc.id || Math.random(),
+                            color_id: parentFc.color_id || '',
+                            fabric_id: parentFc.fabric_id || null,
+                            nombre_tela: parentFc.nombre_tela || '',
+                            metros: parentFc.metros || '',
+                            kilos: parentFc.kilos || '',
+                            capas_definidas: parentFc.capas_definidas || '',
+                            layers: parentLayers,
+                            longitud_row: String(parentLayers * (Number(corte.longitud) || 1))
+                          };
 
                           matrixCols.forEach(col => {
                             corteCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 0 : Number(col.marker1)));
                             corteCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 0 : Number(col.marker2)));
                           });
+
+                          return fc;
                         });
                         return {
                           ...corte,
+                          fabricColors: updatedFabricColors,
                           matrixCols: matrixCols.map(col => ({ ...col })),
                           matrixCells: corteCells
                         };
