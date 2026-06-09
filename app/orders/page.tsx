@@ -117,18 +117,41 @@ export default function OrdersPage() {
   };
   
   const syncCorteAdicionalMatrix = (corteId: number) => {
+    const parentFabrics = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
     setCortesAdicionales(prev => prev.map(c => {
       if (c.id === corteId) {
         const clonedCols = matrixCols.map(col => ({ ...col }));
+        const corteLongitud = Number(c.longitud) || 1;
+
+        // Sync fabric identities first!
+        const updatedFabricColors = parentFabrics.map((parentFc, idx) => {
+          const existingFc = c.fabricColors[idx] || {};
+          const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
+          return {
+            ...existingFc,
+            id: existingFc.id || Math.random(),
+            color_id: parentFc.color_id || '',
+            fabric_id: parentFc.fabric_id || null,
+            nombre_tela: parentFc.nombre_tela || '',
+            metros: parentFc.metros || '',
+            kilos: parentFc.kilos || '',
+            capas_definidas: parentFc.capas_definidas || '',
+            layers: parentLayers || '',
+            longitud_row: String(parentLayers * corteLongitud)
+          };
+        });
+
         const corteCells = { ...c.matrixCells };
-        c.fabricColors.forEach((fc: any) => {
+        updatedFabricColors.forEach((fc: any) => {
           clonedCols.forEach(col => {
             corteCells[`${fc.id}_${col.id}_1`] = Math.round((Number(fc.layers) || 0) * (col.marker1 === '' ? 0 : Number(col.marker1)));
             corteCells[`${fc.id}_${col.id}_2`] = Math.round((Number(fc.layers) || 0) * (col.marker2 === '' ? 0 : Number(col.marker2)));
           });
         });
+
         return {
           ...c,
+          fabricColors: updatedFabricColors,
           matrixCols: clonedCols,
           matrixCells: corteCells
         };
@@ -2355,7 +2378,8 @@ export default function OrdersPage() {
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>
                                 {(() => {
                                   const prod = products.find(p => String(p.id) === String(item.product_id));
-                                  return prod ? (prod.codigo_referencia ? `${prod.codigo_referencia} - ${prod.nombre_producto}` : prod.nombre_producto) : '---';
+                                  const cat = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+                                  return cat ? cat.categoria : (prod ? (prod.codigo_referencia || prod.nombre_producto) : '---');
                                 })()}
                               </td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{item.nombre_tela || '---'}</td>
