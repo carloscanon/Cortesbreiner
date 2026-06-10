@@ -87,7 +87,19 @@ export default function CutDetailsPage() {
       setActualCutsData(initialInputState);
 
       // 4. Fetch Masters to resolve IDs
-      const { data: pData } = await supabase.from('products').select('*');
+      let pData: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error || !data || data.length === 0) break;
+        pData = pData.concat(data);
+        if (data.length < pageSize) break;
+        page++;
+      }
       const { data: cData } = await supabase.from('colors').select('*');
       const { data: sData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: catData } = await supabase.from('categories').select('*');

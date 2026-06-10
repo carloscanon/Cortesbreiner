@@ -414,9 +414,26 @@ export default function OrdersPage() {
     fetchMasters();
   }, [filterType]);
 
+  const fetchAllProducts = async () => {
+    let allProds: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      allProds = allProds.concat(data);
+      if (data.length < pageSize) break;
+      page++;
+    }
+    return allProds;
+  };
+
   const fetchMasters = async () => {
     try {
-      const { data: p } = await supabase.from('products').select('*');
+      const p = await fetchAllProducts();
       const { data: c } = await supabase.from('colors').select('*');
       const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('workshops').select('*');
@@ -608,7 +625,7 @@ export default function OrdersPage() {
     
     try {
       // Recargar maestros en tiempo real para evitar inconsistencias con productos dinámicos
-      const { data: latestProducts } = await supabase.from('products').select('*');
+      const latestProducts = await fetchAllProducts();
       const currentProducts = latestProducts || products;
       if (latestProducts) setProducts(latestProducts);
 
