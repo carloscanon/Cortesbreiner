@@ -799,10 +799,15 @@ export default function DesignSubmodulePage() {
         }
       }
 
-      // INSERT nuevas (sin id, la DB lo autogenera)
+      // INSERT nuevas (guardamos para obtener los IDs autogenerados)
+      let insertedFabrics: any[] = [];
       if (newItems.length > 0) {
-        const { error: insertError } = await supabase.from('fabrics').insert(newItems);
+        const { data: insertedData, error: insertError } = await supabase
+          .from('fabrics')
+          .insert(newItems)
+          .select();
         if (insertError) throw insertError;
+        insertedFabrics = insertedData || [];
       }
 
       // UPDATE existentes (con id)
@@ -812,6 +817,72 @@ export default function DesignSubmodulePage() {
           .update(item)
           .eq('id', item.id);
         if (updateError) throw updateError;
+      }
+
+      // AUTO-ENTRADA AL INVENTARIO DE TELAS
+      // Obtenemos el primer color del maestro y la primera bodega para asignación por defecto
+      const { data: colorsList } = await supabase.from('colors').select('id').limit(1);
+      const { data: warehousesList } = await supabase.from('warehouses').select('nombre_bodega').limit(1);
+      
+      const defaultColorId = colorsList?.[0]?.id || null;
+      const defaultLocation = warehousesList?.[0]?.nombre_bodega || 'Bodega Principal';
+
+      const inventoryRollsToInsert: any[] = [];
+
+      // Procesar telas nuevas insertadas
+      insertedFabrics.forEach((fab, index) => {
+        const sourceItem = newItems[index];
+        const qtyKilos = Number(fab.kilos) || 0;
+        const qtyMeters = Number(fab.metros) || 0;
+
+        if (qtyKilos > 0) {
+          inventoryRollsToInsert.push({
+            fabric_id: fab.id,
+            color_id: defaultColorId,
+            roll_number: `${invoiceNumber || 'FAC'}-${fab.codigo_tela || index}`,
+            kilos: qtyKilos,
+            meters: qtyMeters,
+            location: defaultLocation,
+            status: 'Disponible'
+          });
+        }
+      });
+
+      // Procesar telas existentes actualizadas (solo si aún no tienen rollos registrados para evitar duplicación)
+      for (const item of existingItems) {
+        const { data: existingRolls } = await supabase
+          .from('fabric_inventory')
+          .select('id')
+          .eq('fabric_id', item.id)
+          .limit(1);
+
+        if (!existingRolls || existingRolls.length === 0) {
+          const qtyKilos = Number(item.kilos) || 0;
+          const qtyMeters = Number(item.metros) || 0;
+
+          if (qtyKilos > 0) {
+            inventoryRollsToInsert.push({
+              fabric_id: item.id,
+              color_id: defaultColorId,
+              roll_number: `${invoiceNumber || 'FAC'}-${item.codigo_tela}`,
+              kilos: qtyKilos,
+              meters: qtyMeters,
+              location: defaultLocation,
+              status: 'Disponible'
+            });
+          }
+        }
+      }
+
+      // Insertar rollos generados en fabric_inventory
+      if (inventoryRollsToInsert.length > 0) {
+        const { error: invInsertError } = await supabase
+          .from('fabric_inventory')
+          .insert(inventoryRollsToInsert);
+        
+        if (invInsertError) {
+          console.error("Error al registrar rollos automáticos en el inventario:", invInsertError);
+        }
       }
 
       setSuccess(true);
