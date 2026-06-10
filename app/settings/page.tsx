@@ -305,14 +305,24 @@ export default function SettingsPage() {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `logo-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
-      if (uploadError) throw uploadError;
-      const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
+
+      // Convertir archivo a Base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = (error) => reject(error);
+      });
+      reader.readAsDataURL(file);
+      const fileBase64 = await base64Promise;
       
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'logo_url', value: publicUrl })
+        body: JSON.stringify({ name: 'logo_url', fileBase64, fileName })
       });
       const resData = await res.json();
       if (!res.ok) throw new Error(resData.error || 'Error al guardar el logo');
@@ -552,14 +562,24 @@ export default function SettingsPage() {
                             try {
                               const fileExt = file.name.split('.').pop();
                               const fileName = `mobile-app-${Date.now()}.${fileExt}`;
-                              const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
-                              if (uploadError) throw uploadError;
-                              const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
+                              
+                              // Convertir archivo a Base64
+                              const reader = new FileReader();
+                              const base64Promise = new Promise<string>((resolve, reject) => {
+                                reader.onload = () => {
+                                  const result = reader.result as string;
+                                  const base64Data = result.split(',')[1];
+                                  resolve(base64Data);
+                                };
+                                reader.onerror = (error) => reject(error);
+                              });
+                              reader.readAsDataURL(file);
+                              const fileBase64 = await base64Promise;
                               
                               const res = await fetch('/api/settings', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ name: 'mobile_app_image_url', value: publicUrl })
+                                body: JSON.stringify({ name: 'mobile_app_image_url', fileBase64, fileName })
                               });
                               const resData = await res.json();
                               if (!res.ok) throw new Error(resData.error || 'Error al guardar la imagen de la app');

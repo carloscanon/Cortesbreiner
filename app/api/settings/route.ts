@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Usamos la service role key en el servidor para saltar las políticas de RLS de forma segura
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://plsvbuzcjtztpidsjmua.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -19,23 +18,43 @@ export async function POST(request: Request) {
     });
 
     const body = await request.json();
-    const { name, value } = body;
+    const { name, value, fileBase64, fileName } = body;
 
-    if (!name || value === undefined) {
+    // Si nos pasan un archivo codificado en Base64, lo subimos al Storage mediante el cliente Admin
+    let finalValue = value;
+    if (fileBase64 && fileName) {
+      const buffer = Buffer.from(fileBase64, 'base64');
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        .from('logos')
+        .upload(fileName, buffer, {
+          contentType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg',
+          upsert: true
+        });
+
+      if (uploadError) {
+        return NextResponse.json({ error: `Error subiendo archivo al almacenamiento: ${uploadError.message}` }, { status: 500 });
+      }
+
+      // Obtener la URL pública utilizando el cliente Admin
+      const { data: { publicUrl } } = supabaseAdmin.storage.from('logos').getPublicUrl(fileName);
+      finalValue = publicUrl;
+    }
+
+    if (!name || finalValue === undefined) {
       return NextResponse.json({ error: 'Faltan parámetros: name y value son requeridos' }, { status: 400 });
     }
 
-    // Upsert usando el cliente administrador (bypass RLS)
+    // Upsert en la base de datos (bypass RLS)
     const { data, error } = await supabaseAdmin
       .from('company_params')
-      .upsert({ name, value, description: name === 'theme_primary_color' ? 'Color primario del tema' : undefined }, { onConflict: 'name' })
+      .upsert({ name, value: finalValue, description: name === 'theme_primary_color' ? 'Color primario del tema' : undefined }, { onConflict: 'name' })
       .select();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({ success: true, value: finalValue, data });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
