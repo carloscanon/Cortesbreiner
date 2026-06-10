@@ -4,6 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/hooks/useAuth";
 import AuthGuard from "@/components/AuthGuard";
+import ThemeProvider from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "Breiner | Gestión Textil SaaS",
@@ -19,6 +20,7 @@ export default function RootLayout({
     <html lang="es">
       <body>
         <AuthProvider>
+          <ThemeProvider />
           <AuthGuard>
             <div className="app-container">
               <Sidebar />

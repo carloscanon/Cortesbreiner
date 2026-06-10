@@ -124,7 +124,7 @@ export default function OrdersPage() {
         const corteLongitud = Number(c.longitud) || 1;
 
         // Sync fabric identities first!
-        const updatedFabricColors = c.fabricColors.map((existingFc, idx) => {
+        const updatedFabricColors = c.fabricColors.map((existingFc: any, idx: number) => {
           const parentFc = parentFabrics[idx];
           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
           return {
@@ -232,7 +232,7 @@ export default function OrdersPage() {
     setCortesAdicionales(prev => prev.map(c => {
       if (c.id === corteId) {
         const corteLongitud = Number(c.longitud) || 1;
-        const updatedFabrics = c.fabricColors.map((existingFc, idx) => {
+        const updatedFabrics = c.fabricColors.map((existingFc: any, idx: number) => {
           const parentFc = parentFabrics[idx];
           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
           return {
@@ -1790,7 +1790,7 @@ export default function OrdersPage() {
                       // ALSO auto-fill additional cuts matrices (inherited identical matrix columns and symmetric layers x markers)
                       const updatedCortes = cortesAdicionales.map(corte => {
                         const corteCells = { ...corte.matrixCells };
-                        const updatedFabricColors = corte.fabricColors.map((existingFc, fcIdx) => {
+                        const updatedFabricColors = corte.fabricColors.map((existingFc: any, fcIdx: number) => {
                           const parentFc = validColors[fcIdx];
                           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
                           const fc = {

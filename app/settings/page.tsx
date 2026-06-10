@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { 
@@ -26,7 +26,8 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  User as UserIcon
+  User as UserIcon,
+  Palette
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Data states
   const [roles, setRoles] = useState<any[]>([]);
@@ -546,6 +548,98 @@ export default function SettingsPage() {
                           <Upload size={16} /> Cambiar Imagen App
                         </button>
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrará en la tarjeta de promoción de la app móvil en el menú lateral.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Color de Tema ──────────────────────────────── */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Color Principal del Sistema
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Define el color primario que se aplica en toda la plataforma: botones, barras laterales, íconos y acentos.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      {/* Color Picker */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{
+                          width: '80px', height: '80px', borderRadius: '16px',
+                          backgroundColor: companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433',
+                          boxShadow: '0 4px 15px rgba(0,0,0,0.15)',
+                          border: '3px solid white',
+                          outline: '2px solid var(--border)',
+                          position: 'relative', overflow: 'hidden', cursor: 'pointer'
+                        }}>
+                          <input
+                            type="color"
+                            value={companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'theme_primary_color');
+                                if (exists) return prev.map(p => p.name === 'theme_primary_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'theme_primary_color', value: val, description: 'Color primario del tema' }];
+                              });
+                              // Apply instantly for live preview
+                              document.documentElement.style.setProperty('--primary', val);
+                              // Debounce save to DB (500ms after user stops picking)
+                              if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current);
+                              colorDebounceRef.current = setTimeout(() => {
+                                handleUpdateParam('theme_primary_color', val);
+                              }, 500);
+                            }}
+                            style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                          />
+                        </div>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {(companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433').toUpperCase()}
+                        </span>
+                      </div>
+
+                      {/* Palette presets */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Paletas Rápidas</span>
+                        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          {[
+                            { color: '#104433', label: 'Verde Selva' },
+                            { color: '#1e3a5f', label: 'Azul Marino' },
+                            { color: '#4f46e5', label: 'Índigo' },
+                            { color: '#7c3aed', label: 'Violeta' },
+                            { color: '#b91c1c', label: 'Rojo' },
+                            { color: '#b45309', label: 'Ámbar' },
+                            { color: '#0e7490', label: 'Cian' },
+                            { color: '#0f172a', label: 'Negro Slate' },
+                          ].map(({ color, label }) => (
+                            <button
+                              key={color}
+                              title={label}
+                              onClick={() => {
+                                setCompanyParams(prev => {
+                                  const exists = prev.some(p => p.name === 'theme_primary_color');
+                                  if (exists) return prev.map(p => p.name === 'theme_primary_color' ? { ...p, value: color } : p);
+                                  return [...prev, { name: 'theme_primary_color', value: color, description: 'Color primario del tema' }];
+                                });
+                                document.documentElement.style.setProperty('--primary', color);
+                                handleUpdateParam('theme_primary_color', color);
+                              }}
+                              style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                backgroundColor: color,
+                                border: (companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433') === color
+                                  ? '3px solid white' : '3px solid transparent',
+                                outline: (companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433') === color
+                                  ? `2px solid ${color}` : '2px solid transparent',
+                                cursor: 'pointer',
+                                transition: 'transform 0.15s ease',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.15)')}
+                              onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                            />
+                          ))}
+                        </div>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Haz clic en un color o usa el selector para personalizar. El cambio se aplica en tiempo real.</p>
                       </div>
                     </div>
                   </div>
