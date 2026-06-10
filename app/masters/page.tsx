@@ -325,8 +325,30 @@ export default function MastersPage() {
         const { error } = await supabase.from(config.table).update(payload).eq('id', editingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from(config.table).insert([payload]);
-        if (error) throw error;
+        if (activeTab === 'categories') {
+          const { data: newCat, error: catErr } = await supabase.from(config.table).insert([payload]).select().single();
+          if (catErr) throw catErr;
+          
+          if (newCat) {
+            const { data: allProds } = await supabase.from('products').select('id');
+            const count = (allProds?.length || 0) + 1;
+            const refCode = `REF-${count.toString().padStart(4, '0')}`;
+            
+            await supabase.from('products').insert([{
+              nombre_producto: newCat.categoria,
+              codigo_referencia: refCode,
+              category_id: newCat.id,
+              genero: 'F',
+              iva: iva,
+              precio: 0,
+              precio_con_iva: 0,
+              estado: 'activo'
+            }]);
+          }
+        } else {
+          const { error } = await supabase.from(config.table).insert([payload]);
+          if (error) throw error;
+        }
       }
 
       setShowModal(false);

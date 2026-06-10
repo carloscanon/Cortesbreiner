@@ -417,13 +417,44 @@ export default function OrdersPage() {
   const fetchMasters = async () => {
     try {
       const { data: p } = await supabase.from('products').select('*');
+      const { data: cat } = await supabase.from('categories').select('*').order('categoria');
+      
+      let finalProducts = p || [];
+      if (cat && p) {
+        const missingCategories = cat.filter(c => !p.some(prod => String(prod.category_id) === String(c.id)));
+        if (missingCategories.length > 0) {
+          console.log('Creating default products for missing categories:', missingCategories);
+          const newProductsToInsert = [];
+          for (let i = 0; i < missingCategories.length; i++) {
+            const missingCat = missingCategories[i];
+            const count = p.length + i + 1;
+            const refCode = `REF-${count.toString().padStart(4, '0')}`;
+            newProductsToInsert.push({
+              nombre_producto: missingCat.categoria,
+              codigo_referencia: refCode,
+              category_id: missingCat.id,
+              genero: 'F',
+              iva: 19,
+              precio: 0,
+              precio_con_iva: 0,
+              estado: 'activo'
+            });
+          }
+          const { data: insertedProds, error } = await supabase.from('products').insert(newProductsToInsert).select();
+          if (!error && insertedProds) {
+            finalProducts = [...p, ...insertedProds];
+          } else {
+            console.error('Error creating default products:', error);
+          }
+        }
+      }
+      
       const { data: c } = await supabase.from('colors').select('*');
       const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('workshops').select('*');
       const { data: f } = await supabase.from('fabrics').select('*');
-      const { data: cat } = await supabase.from('categories').select('*').order('categoria');
       
-      if (p) setProducts(p);
+      setProducts(finalProducts);
       if (c) setColors(c);
       if (s) setSizes(s);
       if (w) setWorkshops(w);
@@ -1927,9 +1958,14 @@ export default function OrdersPage() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateMatrixCol(col.id, 'product_id', e.target.value)}>
                                   <option value="">Seleccionar Referencia...</option>
-                                  {products
-                                    .filter((prod, index, self) => prod.category_id ? index === self.findIndex(p => p.category_id === prod.category_id) : true)
-                                    .map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.category_id))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
+                                  {categories.map(cat => {
+                                    const matchingProd = products.find(p => String(p.category_id) === String(cat.id));
+                                    return (
+                                      <option key={cat.id} value={matchingProd ? matchingProd.id : `cat_${cat.id}`} disabled={!matchingProd}>
+                                        {cat.categoria} {!matchingProd ? '(Sin Producto)' : ''}
+                                      </option>
+                                    );
+                                  })}
                                 </select>
                                 {matrixCols.length > 1 && (
                                   <button onClick={() => removeMatrixCol(col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -2084,9 +2120,14 @@ export default function OrdersPage() {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'product_id', e.target.value)}>
                                             <option value="">Seleccionar Referencia...</option>
-                                            {products
-                                              .filter((prod, index, self) => prod.category_id ? index === self.findIndex(p => p.category_id === prod.category_id) : true)
-                                              .map(prod => <option key={prod.id} value={prod.id}>{categories.find(c => String(c.id) === String(prod.category_id))?.categoria || prod.codigo_referencia || prod.nombre_producto}</option>)}
+                                            {categories.map(cat => {
+                                              const matchingProd = products.find(p => String(p.category_id) === String(cat.id));
+                                              return (
+                                                <option key={cat.id} value={matchingProd ? matchingProd.id : `cat_${cat.id}`} disabled={!matchingProd}>
+                                                  {cat.categoria} {!matchingProd ? '(Sin Producto)' : ''}
+                                                </option>
+                                              );
+                                            })}
                                           </select>
                                           {corte.matrixCols.length > 1 && (
                                             <button type="button" onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
