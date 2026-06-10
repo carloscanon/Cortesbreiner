@@ -555,7 +555,15 @@ export default function SettingsPage() {
                               const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
                               if (uploadError) throw uploadError;
                               const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
-                              await handleUpdateParam('mobile_app_image_url', publicUrl);
+                              
+                              const res = await fetch('/api/settings', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name: 'mobile_app_image_url', value: publicUrl })
+                              });
+                              const resData = await res.json();
+                              if (!res.ok) throw new Error(resData.error || 'Error al guardar la imagen de la app');
+
                               await refreshConfig();
                               fetchData();
                             } catch (err: any) { alert(err.message); } finally { setSaving(false); }
