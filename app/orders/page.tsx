@@ -417,44 +417,13 @@ export default function OrdersPage() {
   const fetchMasters = async () => {
     try {
       const { data: p } = await supabase.from('products').select('*');
-      const { data: cat } = await supabase.from('categories').select('*').order('categoria');
-      
-      let finalProducts = p || [];
-      if (cat && p) {
-        const missingCategories = cat.filter(c => !p.some(prod => String(prod.category_id) === String(c.id)));
-        if (missingCategories.length > 0) {
-          console.log('Creating default products for missing categories:', missingCategories);
-          const newProductsToInsert = [];
-          for (let i = 0; i < missingCategories.length; i++) {
-            const missingCat = missingCategories[i];
-            const count = p.length + i + 1;
-            const refCode = `REF-${count.toString().padStart(4, '0')}`;
-            newProductsToInsert.push({
-              nombre_producto: missingCat.categoria,
-              codigo_referencia: refCode,
-              category_id: missingCat.id,
-              genero: 'F',
-              iva: 19,
-              precio: 0,
-              precio_con_iva: 0,
-              estado: 'activo'
-            });
-          }
-          const { data: insertedProds, error } = await supabase.from('products').insert(newProductsToInsert).select();
-          if (!error && insertedProds) {
-            finalProducts = [...p, ...insertedProds];
-          } else {
-            console.error('Error creating default products:', error);
-          }
-        }
-      }
-      
       const { data: c } = await supabase.from('colors').select('*');
       const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('workshops').select('*');
       const { data: f } = await supabase.from('fabrics').select('*');
+      const { data: cat } = await supabase.from('categories').select('*').order('categoria');
       
-      setProducts(finalProducts);
+      if (p) setProducts(p);
       if (c) setColors(c);
       if (s) setSizes(s);
       if (w) setWorkshops(w);
