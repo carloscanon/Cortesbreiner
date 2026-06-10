@@ -308,7 +308,15 @@ export default function SettingsPage() {
       const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
       if (uploadError) throw uploadError;
       const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(fileName);
-      await supabase.from('company_params').upsert({ name: 'logo_url', value: publicUrl, description: 'URL del logo' }, { onConflict: 'name' });
+      
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'logo_url', value: publicUrl })
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al guardar el logo');
+
       fetchData();
       setMessage('Logo actualizado.');
       setTimeout(() => setMessage(''), 3000);
@@ -321,12 +329,21 @@ export default function SettingsPage() {
 
   const handleUpdateParam = async (name: string, value: string) => {
     try {
-      await supabase.from('company_params').upsert({ name, value }, { onConflict: 'name' });
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, value })
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al guardar ajuste');
+
       await refreshConfig();
       setMessage('Ajuste guardado.');
       setTimeout(() => setMessage(''), 3000);
     } catch (err: any) {
       console.error(err);
+      setMessage('Error al guardar ajuste.');
+      setTimeout(() => setMessage(''), 3000);
     }
   };
 
@@ -572,6 +589,7 @@ export default function SettingsPage() {
                           position: 'relative', overflow: 'hidden', cursor: 'pointer'
                         }}>
                           <input
+                            id="themeColorInput"
                             type="color"
                             value={companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433'}
                             onChange={(e) => {
