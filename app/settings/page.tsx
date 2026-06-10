@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { applyTheme } from '@/components/ThemeProvider';
 import { 
   Settings as SettingsIcon, 
   Users, 
@@ -27,7 +28,9 @@ import {
   Eye,
   EyeOff,
   User as UserIcon,
-  Palette
+  Palette,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -37,6 +40,42 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isDark, setIsDark] = useState(false);
+
+  // Sync dark mode state from DOM on mount
+  useEffect(() => {
+    setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+  }, []);
+
+  const handleDarkModeToggle = async () => {
+    const next = !isDark;
+    setIsDark(next);
+    applyTheme(next);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update_param', name: 'dark_mode', value: String(next) })
+    });
+    await refreshConfig();
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar al usuario "${userName}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Error al eliminar usuario.');
+      await fetchData();
+      setMessage('Usuario eliminado correctamente.');
+      setTimeout(() => setMessage(''), 5000);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
 
   // Data states
   const [roles, setRoles] = useState<any[]>([]);
@@ -104,8 +143,14 @@ export default function SettingsPage() {
         setRoles(rolesWithPerms);
         setPermissions(permsData || []);
       } else if (activeTab === 'users') {
-        const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name)');
-        setUsers(profiles || []);
+        const res = await fetch('/api/users/list');
+        if (res.ok) {
+          const result = await res.json();
+          setUsers(result.users || []);
+        } else {
+          const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name)');
+          setUsers(profiles || []);
+        }
         const { data: rolesData } = await supabase.from('roles').select('*');
         setRoles(rolesData || []);
       } else if (activeTab === 'company' || activeTab === 'parametrization') {
@@ -265,29 +310,20 @@ export default function SettingsPage() {
     }
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name,
-            role_id: cleanRoleId
-          }
-        }
+      const res = await fetch('/api/users/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, full_name, role_id: cleanRoleId })
       });
 
-      if (authError) throw authError;
+      const result = await res.json();
 
-      if (!authData.user) {
-        throw new Error('Supabase rechazó la creación silenciosamente. Es muy probable que este correo ya esté registrado o hayas excedido el límite de pruebas por hora.');
+      if (!res.ok) {
+        throw new Error(result.error || 'Error al crear el usuario.');
       }
 
-      // La creación del perfil público será manejada automáticamente 
-      // por un Trigger en Supabase (handle_new_user)
-      await new Promise(resolve => setTimeout(resolve, 800));
-
       setShowCreateUserModal(false);
-      fetchData();
+      await fetchData();
       setMessage('Usuario registrado exitosamente.');
       setTimeout(() => setMessage(''), 5000);
     } catch (err: any) {
@@ -466,7 +502,33 @@ export default function SettingsPage() {
                             <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{u.roles?.name || 'Invitado'}</span>
                           </div>
                         </div>
-                        <button className="btn-icon" onClick={() => { setEditingUser(u); setShowUserModal(true); }}><Edit2 size={16} /></button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <button
+                            className="btn-icon"
+                            onClick={() => { setEditingUser(u); setShowUserModal(true); }}
+                            title="Editar usuario"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.id, u.full_name || u.email)}
+                            title="Eliminar usuario"
+                            style={{
+                              width: '34px', height: '34px',
+                              borderRadius: '8px',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: 'transparent',
+                              border: '1px solid #fca5a5',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fee2e2'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -736,6 +798,73 @@ export default function SettingsPage() {
                         <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>%</span>
                       </div>
                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Porcentaje de IVA aplicado a materias primas y servicios.</p>
+                    </div>
+                  </div>
+
+                  {/* Dark Mode Toggle */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3>Apariencia</h3>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Personaliza la interfaz visual del sistema.</p>
+                    </div>
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <div style={{
+                            width: '48px', height: '48px', borderRadius: '12px',
+                            background: isDark ? 'linear-gradient(135deg, #1e293b, #0f172a)' : 'linear-gradient(135deg, #f8fafc, #e2e8f0)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: '2px solid var(--border)', transition: 'all 0.3s ease'
+                          }}>
+                            {isDark
+                              ? <Moon size={22} style={{ color: '#94a3b8' }} />
+                              : <Sun size={22} style={{ color: '#f59e0b' }} />}
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: '700', fontSize: '0.9375rem', margin: 0 }}>
+                              {isDark ? 'Modo Oscuro' : 'Modo Claro'}
+                            </p>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, marginTop: '0.2rem' }}>
+                              {isDark ? 'Interfaz con fondo oscuro, ideal para ambientes con poca luz.' : 'Interfaz con fondo claro, ideal para ambientes iluminados.'}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Toggle switch */}
+                        <button
+                          type="button"
+                          onClick={handleDarkModeToggle}
+                          aria-label="Toggle dark mode"
+                          style={{
+                            position: 'relative',
+                            width: '60px', height: '32px',
+                            borderRadius: '999px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: isDark
+                              ? 'linear-gradient(135deg, #34d399, #059669)'
+                              : 'linear-gradient(135deg, #cbd5e1, #94a3b8)',
+                            transition: 'background 0.3s ease',
+                            flexShrink: 0,
+                            boxShadow: isDark ? '0 0 12px rgba(52,211,153,0.4)' : 'none'
+                          }}
+                        >
+                          <span style={{
+                            position: 'absolute',
+                            top: '4px',
+                            left: isDark ? '32px' : '4px',
+                            width: '24px', height: '24px',
+                            borderRadius: '50%',
+                            background: 'white',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                            transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}>
+                            {isDark
+                              ? <Moon size={12} style={{ color: '#6366f1' }} />
+                              : <Sun size={12} style={{ color: '#f59e0b' }} />}
+                          </span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

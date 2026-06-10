@@ -8,8 +8,12 @@ import {
   ChevronRight, Package, Palette, Activity, CheckCircle, Code, RefreshCw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function OrdersPage() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
+
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -588,6 +592,16 @@ export default function OrdersPage() {
       });
     });
   });
+
+  const handleDeleteOrder = async (id: number, code: string) => {
+    if (!confirm(`¿Eliminar la orden OC-${code || id}? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+    if (error) {
+      alert('Error al eliminar: ' + error.message);
+    } else {
+      fetchData();
+    }
+  };
 
   const handleEdit = async (order: any) => {
     setEditingId(order.id);
@@ -1208,20 +1222,42 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={async () => {
-                          const { data: cuts } = await supabase
-                            .from('cuts')
-                            .select('*, cut_sizes(*)')
-                            .eq('order_id', order.id);
-                          setViewCuts(cuts || []);
-                          setViewingOrder(order);
-                        }}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                      >
-                        <Info size={14} /> Ver Detalle
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={async () => {
+                            const { data: cuts } = await supabase
+                              .from('cuts')
+                              .select('*, cut_sizes(*)')
+                              .eq('order_id', order.id);
+                            setViewCuts(cuts || []);
+                            setViewingOrder(order);
+                          }}
+                          style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                        >
+                          <Info size={14} /> Ver Detalle
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDeleteOrder(order.id, order.internal_code)}
+                            title="Eliminar orden"
+                            style={{
+                              padding: '0.5rem',
+                              borderRadius: '8px',
+                              border: '1.5px solid #fecaca',
+                              backgroundColor: '#fff5f5',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

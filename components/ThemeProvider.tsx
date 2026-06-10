@@ -15,9 +15,49 @@ function lighten(hex: string, amount: number): string {
   return `#${((lr << 16) | (lg << 8) | lb).toString(16).padStart(6, '0')}`;
 }
 
+export function applyTheme(isDark: boolean) {
+  if (isDark) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+}
+
+export function isDarkMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('theme');
+  if (stored) return stored === 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
 export default function ThemeProvider() {
   const { config } = useAuth();
 
+  // Apply saved theme on mount (before config loads)
+  useEffect(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else if (stored === 'light') {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, []);
+
+  // Apply theme from company_params when config loads
+  useEffect(() => {
+    if (!config) return;
+    const darkMode = config?.dark_mode;
+    if (darkMode === 'true') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('theme', 'dark');
+    } else if (darkMode === 'false') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [config?.dark_mode]);
+
+  // Apply primary color override
   useEffect(() => {
     const primary = config?.theme_primary_color;
     if (!primary || !/^#[0-9a-fA-F]{6}$/.test(primary)) return;
