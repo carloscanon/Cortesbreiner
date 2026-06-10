@@ -21,8 +21,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function CuttingDashboard() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
+
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -443,24 +447,26 @@ export default function CuttingDashboard() {
                     )}
                   </Link>
 
-                  <button
-                    onClick={() => handleDeleteOrder(order.id, order.internal_code)}
-                    title="Eliminar orden"
-                    style={{
-                      padding: '0.75rem',
-                      borderRadius: '10px',
-                      border: '1.5px solid #fecaca',
-                      backgroundColor: '#fff5f5',
-                      color: '#ef4444',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDeleteOrder(order.id, order.internal_code)}
+                      title="Eliminar orden"
+                      style={{
+                        padding: '0.75rem',
+                        borderRadius: '10px',
+                        border: '1.5px solid #fecaca',
+                        backgroundColor: '#fff5f5',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
             );

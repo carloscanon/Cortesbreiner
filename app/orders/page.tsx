@@ -124,18 +124,11 @@ export default function OrdersPage() {
         const corteLongitud = Number(c.longitud) || 1;
 
         // Sync fabric identities first!
-        const updatedFabricColors = parentFabrics.map((parentFc, idx) => {
-          const existingFc = c.fabricColors[idx] || {};
+        const updatedFabricColors = c.fabricColors.map((existingFc, idx) => {
+          const parentFc = parentFabrics[idx];
           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
           return {
             ...existingFc,
-            id: existingFc.id || Math.random(),
-            color_id: parentFc.color_id || '',
-            fabric_id: parentFc.fabric_id || null,
-            nombre_tela: parentFc.nombre_tela || '',
-            metros: parentFc.metros || '',
-            kilos: parentFc.kilos || '',
-            capas_definidas: parentFc.capas_definidas || '',
             layers: parentLayers || '',
             longitud_row: String(parentLayers * corteLongitud)
           };
@@ -217,8 +210,8 @@ export default function OrdersPage() {
           metros: fc.metros || '',
           kilos: fc.kilos || '',
           capas_definidas: fc.capas_definidas || '',
-          layers: fc.layers || '',
-          longitud_row: String((Number(fc.layers) || 0) * 1)
+          layers: '',
+          longitud_row: ''
         }))
       : [{ id: Math.random(), color_id: '', kilos: '', layers: '', observation: '', nombre_tela: '', longitud_row: '' }];
 
@@ -239,18 +232,11 @@ export default function OrdersPage() {
     setCortesAdicionales(prev => prev.map(c => {
       if (c.id === corteId) {
         const corteLongitud = Number(c.longitud) || 1;
-        const updatedFabrics = parentFabrics.map((parentFc, idx) => {
-          const existingFc = c.fabricColors[idx] || {};
+        const updatedFabrics = c.fabricColors.map((existingFc, idx) => {
+          const parentFc = parentFabrics[idx];
           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
           return {
             ...existingFc,
-            id: existingFc.id || Math.random(),
-            color_id: parentFc.color_id || '',
-            fabric_id: parentFc.fabric_id || null,
-            nombre_tela: parentFc.nombre_tela || '',
-            metros: parentFc.metros || '',
-            kilos: parentFc.kilos || '',
-            capas_definidas: parentFc.capas_definidas || '',
             layers: parentLayers || '',
             longitud_row: String(parentLayers * corteLongitud)
           };
@@ -375,8 +361,8 @@ export default function OrdersPage() {
         const corte = cortesAdicionales.find(c => c.id === corteId);
         const corteLongitud = corte ? (Number(corte.longitud) || 1) : 1;
 
-        const newFcs = data.map(fabric => {
-          const matchedParent = fabricColors.find(fc => fc.fabric_id && String(fc.fabric_id) === String(fabric.id));
+        const newFcs = data.map((fabric, idx) => {
+          const matchedParent = fabricColors[idx];
           const parentLayers = matchedParent ? (Number(matchedParent.layers) || 0) : 0;
           const initialLongitud = parentLayers * corteLongitud;
 
@@ -1727,7 +1713,27 @@ export default function OrdersPage() {
                                     return (
                                       <tr key={fc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                         <td style={{ padding: '0.75rem' }}>
-                                          <div style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--primary)' }}>{fc.nombre_tela || 'Manual'}</div>
+                                          <select
+                                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontWeight: '700', backgroundColor: 'white' }}
+                                            value={fc.fabric_id || ''}
+                                            onChange={e => {
+                                              const selectedFabricId = e.target.value;
+                                              const foundFabric = fabrics.find(f => String(f.id) === String(selectedFabricId));
+                                              updateCorteFabric(corte.id, fc.id, 'fabric_id', selectedFabricId || null);
+                                              updateCorteFabric(corte.id, fc.id, 'nombre_tela', foundFabric ? foundFabric.nombre_tela : '');
+                                              updateCorteFabric(corte.id, fc.id, 'metros', foundFabric ? (foundFabric.metros || '') : '');
+                                              updateCorteFabric(corte.id, fc.id, 'kilos', foundFabric ? (foundFabric.kilos || '') : '');
+                                            }}
+                                          >
+                                            <option value="">Seleccionar Tela...</option>
+                                            {fabrics
+                                              .filter(f => !corte.factura || String(f.factura_relacionada) === String(corte.factura))
+                                              .map(f => (
+                                                <option key={f.id} value={f.id}>
+                                                  {f.nombre_tela}
+                                                </option>
+                                              ))}
+                                          </select>
                                         </td>
                                         <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                                           <div style={{ fontWeight: '900', fontSize: '1rem', display: 'inline-block', color: '#0f172a', backgroundColor: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', minWidth: '60px' }}>{fc.layers || 0}</div>
@@ -1784,18 +1790,11 @@ export default function OrdersPage() {
                       // ALSO auto-fill additional cuts matrices (inherited identical matrix columns and symmetric layers x markers)
                       const updatedCortes = cortesAdicionales.map(corte => {
                         const corteCells = { ...corte.matrixCells };
-                        const updatedFabricColors = validColors.map((parentFc, fcIdx) => {
-                          const existingFc = corte.fabricColors[fcIdx] || {};
+                        const updatedFabricColors = corte.fabricColors.map((existingFc, fcIdx) => {
+                          const parentFc = validColors[fcIdx];
                           const parentLayers = parentFc ? (Number(parentFc.layers) || 0) : 0;
                           const fc = {
                             ...existingFc,
-                            id: existingFc.id || Math.random(),
-                            color_id: parentFc.color_id || '',
-                            fabric_id: parentFc.fabric_id || null,
-                            nombre_tela: parentFc.nombre_tela || '',
-                            metros: parentFc.metros || '',
-                            kilos: parentFc.kilos || '',
-                            capas_definidas: parentFc.capas_definidas || '',
                             layers: parentLayers,
                             longitud_row: String(parentLayers * (Number(corte.longitud) || 1))
                           };
