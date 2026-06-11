@@ -611,12 +611,80 @@ export default function OrdersPage() {
   });
 
   const handleDeleteOrder = async (id: number, code: string) => {
-    if (!confirm(`¿Eliminar la orden OC-${code || id}? Esta acción no se puede deshacer.`)) return;
-    const { error } = await supabase.from('orders').delete().eq('id', id);
-    if (error) {
-      alert('Error al eliminar: ' + error.message);
-    } else {
+    if (!confirm(`¿Eliminar la orden OC-${code || id}? Esta acción no se puede deshacer y restaurará las capas y metros de tela al inventario.`)) return;
+    
+    try {
+      // 1. Obtener los cortes de la orden para saber qué telas y cantidades restaurar
+      const { data: orderCuts, error: cutsError } = await supabase
+        .from('cuts')
+        .select('fabric_id, layers, stroke_length')
+        .eq('order_id', id);
+        
+      if (cutsError) throw cutsError;
+
+      if (orderCuts && orderCuts.length > 0) {
+        // Agrupar por fabric_id y stroke_length para evitar duplicar capas si hay múltiples cortes en la misma tendida
+        const layoutGroups: Record<string, { fabric_id: string, layers: number, stroke_length: number }> = {};
+        
+        orderCuts.forEach((cut: any) => {
+          if (!cut.fabric_id) return;
+          const key = `${cut.fabric_id}_${cut.stroke_length}`;
+          if (!layoutGroups[key]) {
+            layoutGroups[key] = {
+              fabric_id: cut.fabric_id,
+              layers: Number(cut.layers || 0),
+              stroke_length: Number(cut.stroke_length || 0)
+            };
+          } else {
+            layoutGroups[key].layers = Math.max(layoutGroups[key].layers, Number(cut.layers || 0));
+          }
+        });
+
+        // Calcular la acumulación de restauración por tela
+        const restoreUsage: Record<string, { capas: number, metros: number }> = {};
+        Object.values(layoutGroups).forEach(group => {
+          if (!restoreUsage[group.fabric_id]) {
+            restoreUsage[group.fabric_id] = { capas: 0, metros: 0 };
+          }
+          restoreUsage[group.fabric_id].capas += group.layers;
+          restoreUsage[group.fabric_id].metros += (group.layers * group.stroke_length);
+        });
+
+        // 2. Ejecutar la restauración de capas y metros en la tabla fabrics
+        for (const [fabricId, usage] of Object.entries(restoreUsage)) {
+          const { data: fab } = await supabase
+            .from('fabrics')
+            .select('capas, metros')
+            .eq('id', fabricId)
+            .single();
+            
+          if (fab) {
+            const restoredCapas = (Number(fab.capas) || 0) + usage.capas;
+            const restoredMetros = (Number(fab.metros) || 0) + usage.metros;
+            await supabase
+              .from('fabrics')
+              .update({ capas: restoredCapas, metros: restoredMetros })
+              .eq('id', fabricId);
+          }
+        }
+
+        // 3. Eliminar los registros relacionados en cut_sizes y cuts
+        const cutIds = orderCuts.map((c: any) => c.id).filter(Boolean);
+        // Volver a consultar todos los cuts para asegurar obtener los IDs para borrar cut_sizes
+        const { data: dbCuts } = await supabase.from('cuts').select('id').eq('order_id', id);
+        if (dbCuts && dbCuts.length > 0) {
+          const allCutIds = dbCuts.map((c: any) => c.id);
+          await supabase.from('cut_sizes').delete().in('cut_id', allCutIds);
+          await supabase.from('cuts').delete().in('id', allCutIds);
+        }
+      }
+      
+      const { error: deleteError } = await supabase.from('orders').delete().eq('id', id);
+      if (deleteError) throw deleteError;
+
       fetchData();
+    } catch (err: any) {
+      alert('Error al eliminar la orden: ' + err.message);
     }
   };
 
