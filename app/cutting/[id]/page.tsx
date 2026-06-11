@@ -144,6 +144,7 @@ export default function CutDetailsPage() {
 
   const handleFinishCut = async () => {
     if (!orderId) return;
+    if (!confirm('¿Estás seguro de que deseas finalizar y registrar este corte? Esta acción cambiará el estado de la orden a "Cortado".')) return;
     setSaving(true);
     try {
       // 1. Update each cut with its actual layers/kilos if modified by the cutter
