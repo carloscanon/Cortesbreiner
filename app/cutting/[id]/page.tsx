@@ -198,8 +198,19 @@ export default function CutDetailsPage() {
 
       // 2. Format observations report
       let finalObservations = order.observaciones || '';
-      if (cutterNotes.trim()) {
-        finalObservations += `\n\n=== REPORTE DE CORTE (${new Date().toLocaleDateString('es-ES')}) ===\n${cutterNotes}`;
+      
+      const noveltiesStr = progressNovelties.length > 0 
+        ? progressNovelties.map(n => `- Capa ${n.capa}: ${n.tipo}`).join('\n')
+        : '';
+        
+      if (noveltiesStr || cutterNotes.trim()) {
+        finalObservations += `\n\n=== REPORTE DE TENDIDO (${new Date().toLocaleDateString('es-ES')}) ===`;
+        if (noveltiesStr) {
+          finalObservations += `\nNovedades de corte por capa:\n${noveltiesStr}`;
+        }
+        if (cutterNotes.trim()) {
+          finalObservations += `\nNotas: ${cutterNotes}`;
+        }
       }
 
       // 3. Update Order status to 'Tendido' and save observations
@@ -757,6 +768,86 @@ export default function CutDetailsPage() {
           {/* Form: Interactive Adjustments (Only active when in corte) */}
           {isActive && (
             <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+              
+              {/* Novedades por Capa on Main Page */}
+              <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '1rem', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', textTransform: 'uppercase' }}>Novedades de Corte (Por Capa)</label>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr auto', gap: '0.5rem', alignItems: 'end', marginBottom: '0.5rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '0.25rem' }}>Nº CAPA</label>
+                    <input 
+                      type="number"
+                      min="1"
+                      value={noveltyCapa}
+                      onChange={e => setNoveltyCapa(e.target.value)}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', textAlign: 'center' }}
+                      placeholder="Ej. 5"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '0.25rem' }}>NOVEDAD</label>
+                    <select
+                      value={noveltyTipo}
+                      onChange={e => setNoveltyTipo(e.target.value)}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
+                    >
+                      <option value="">Selecciona...</option>
+                      {novelties.map((nov: any) => (
+                        <option key={nov.id} value={nov.nombre}>
+                          {nov.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (!noveltyCapa.trim()) {
+                        alert("Por favor ingresa el número de capa.");
+                        return;
+                      }
+                      if (!noveltyTipo) {
+                        alert("Por favor selecciona el tipo de novedad.");
+                        return;
+                      }
+                      setProgressNovelties([...progressNovelties, { capa: noveltyCapa, tipo: noveltyTipo }]);
+                      setNoveltyCapa('');
+                      setNoveltyTipo('');
+                    }}
+                    style={{ 
+                      padding: '0.55rem 1rem', 
+                      borderRadius: '6px', 
+                      backgroundColor: '#3b82f6', 
+                      color: 'white', 
+                      border: 'none', 
+                      fontWeight: '800', 
+                      cursor: 'pointer',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {progressNovelties.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {progressNovelties.map((n, index) => (
+                      <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: '700' }}>
+                        <span>Capa {n.capa}: {n.tipo}</span>
+                        <button 
+                          type="button"
+                          onClick={() => setProgressNovelties(progressNovelties.filter((_, idx) => idx !== index))}
+                          style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>Observaciones del Cortador</label>
                 <textarea 
