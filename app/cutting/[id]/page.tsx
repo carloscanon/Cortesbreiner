@@ -479,7 +479,7 @@ export default function CutDetailsPage() {
                 // ── FILA SEPARADORA / HEADER DEL GRUPO ──
                 rows.push(
                   <tr key={`header-${strokeVal}`}>
-                    <td colSpan={7} style={{ padding: 0 }}>
+                    <td colSpan={6} style={{ padding: 0 }}>
                       <div style={{
                         background: p.headerBg,
                         padding: '0.55rem 1.25rem',
@@ -511,18 +511,42 @@ export default function CutDetailsPage() {
                   </tr>
                 );
 
-                // Filas de telas del grupo
+                // Group cuts within the stroke group by fabric/color
+                const fabricGroupsMap = new Map<string, any>();
                 groupCuts.forEach((cut: any) => {
-                  const color = getColorData(cut.color_id, cut);
-                  const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
+                  const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
+                  const totalPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
+                  
+                  if (!fabricGroupsMap.has(key)) {
+                    fabricGroupsMap.set(key, {
+                      key,
+                      fabric_id: cut.fabric_id,
+                      color_id: cut.color_id,
+                      stroke_length: cut.stroke_length,
+                      kilos: Number(cut.kilos || 0),
+                      layers: Number(cut.layers || 0),
+                      layers_produced: Number(cut.layers_produced || 0),
+                      totalPrendas: totalPrendas
+                    });
+                  } else {
+                    const existing = fabricGroupsMap.get(key);
+                    existing.kilos += Number(cut.kilos || 0);
+                    existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
+                    existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
+                    existing.totalPrendas += totalPrendas;
+                  }
+                });
+
+                // Filas de telas del grupo
+                Array.from(fabricGroupsMap.values()).forEach((groupedCut: any) => {
+                  const color = getColorData(groupedCut.color_id, groupedCut);
+                  const fabricObj = fabrics.find((f: any) => String(f.id) === String(groupedCut.fabric_id));
                   const telaName = fabricObj ? fabricObj.nombre_tela : (color?.nombre_color || 'Sin Tela');
                   const colorHex = color?.hex_color || '#cbd5e1';
-                  const prodObj = products.find((pp: any) => String(pp.id) === String(cut.product_id));
-                  const catObj = prodObj ? categories.find((c: any) => String(c.id) === String(prodObj.category_id)) : null;
-                  const catName = catObj ? (catObj.categoria || 'Sin Categoría') : 'Sin Categoría';
-                  const totalPrendas = cut.cut_sizes.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0);
-                  const capasPlaneadas = cut.layers || 0;
-                  const capasProducidas = cut.layers_produced || 0;
+                  
+                  const totalPrendas = groupedCut.totalPrendas;
+                  const capasPlaneadas = groupedCut.layers;
+                  const capasProducidas = groupedCut.layers_produced;
                   const capasRestantes = Math.max(0, capasPlaneadas - capasProducidas);
                   const porcentajeProd = capasPlaneadas > 0 ? Math.min(100, Math.round((capasProducidas / capasPlaneadas) * 100)) : 0;
                   const porcentajeRestante = 100 - porcentajeProd;
@@ -530,9 +554,9 @@ export default function CutDetailsPage() {
                   globalIdx++;
 
                   rows.push(
-                    <tr key={cut.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: rowBg }}>
+                    <tr key={groupedCut.key} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: rowBg }}>
                       <td style={{ padding: '1rem', textAlign: 'center' }}>
-                        <span style={strokeBadgeStyle(cut.stroke_length)}>{label}</span>
+                        <span style={strokeBadgeStyle(groupedCut.stroke_length)}>{label}</span>
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '700' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -540,8 +564,7 @@ export default function CutDetailsPage() {
                           <div style={{ fontWeight: '800', color: '#1e293b' }}>{telaName}</div>
                         </div>
                       </td>
-                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.9rem', color: '#0284c7', fontWeight: '900' }}>{catName}</td>
-                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#b45309' }}>{Number(cut.kilos || 0).toFixed(2)} kg</td>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#b45309' }}>{Number(groupedCut.kilos || 0).toFixed(2)} kg</td>
                       <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
@@ -579,7 +602,6 @@ export default function CutDetailsPage() {
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
                       <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Corte</th>
                       <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tela</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Categoría</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase' }}>Estimación Kilos</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>Capas Programadas</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#059669', textTransform: 'uppercase', minWidth: '130px' }}>Capas Producidas</th>
@@ -588,7 +610,7 @@ export default function CutDetailsPage() {
                   </thead>
                   <tbody>
                     {cuts.length === 0 ? (
-                      <tr><td colSpan={7} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>
+                      <tr><td colSpan={6} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>
                     ) : rows}
                   </tbody>
                 </table>
