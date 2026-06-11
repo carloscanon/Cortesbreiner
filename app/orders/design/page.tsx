@@ -708,33 +708,29 @@ export default function DesignSubmodulePage() {
     setError(null);
     
     try {
+      // 1. Eliminar telas y rollos previos para esta factura para evitar duplicados al re-cargarla
+      if (invoiceNumber) {
+        const { data: existingFabs } = await supabase
+          .from('fabrics')
+          .select('id')
+          .eq('factura_relacionada', invoiceNumber);
+          
+        if (existingFabs && existingFabs.length > 0) {
+          const ids = existingFabs.map(f => f.id);
+          // Eliminar rollos del inventario asociados a estas telas
+          await supabase.from('fabric_inventory').delete().in('fabric_id', ids);
+          // Eliminar las telas
+          await supabase.from('fabrics').delete().in('id', ids);
+        }
+      }
+
       const newCodes: string[] = [];
 
-      const newItems = parsedItems
-        .filter(item => item.status === 'new')
-        .map(item => {
-          newCodes.push(item.codigo_tela);
-          return {
-            codigo_tela: item.codigo_tela,
-            nombre_tela: item.nombre_tela.substring(0, 100),
-            costo_unitario: item.costo_unitario,
-            costo_con_iva: item.costo_unitario * 1.19,
-            tipo_tela: importMode === 'csv' ? 'Carga Manual CSV' : importMode === 'pdf' ? 'Importada PDF' : 'Importada XML',
-            composicion: globalComposition,
-            ancho: parseFloat(globalWidth) || 1.5,
-            gramaje: parseFloat(globalWeight) || 1,
-            rendimiento_estimado: item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5),
-            kilos: item.cantidad_factura,
-            metros: parseFloat((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))).toFixed(2)),
-            capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
-            factura_relacionada: invoiceNumber
-          };
-        });
-
-      const existingItems = parsedItems
-        .filter(item => item.status === 'existing' && item.db_id)
-        .map(item => ({
-          id: item.db_id,
+      // Dado que acabamos de limpiar la factura anterior si ya existía,
+      // todas las líneas de tela se procesan como inserciones nuevas fresh.
+      const itemsToInsert = parsedItems.map((item, index) => {
+        newCodes.push(item.codigo_tela);
+        return {
           codigo_tela: item.codigo_tela,
           nombre_tela: item.nombre_tela.substring(0, 100),
           costo_unitario: item.costo_unitario,
@@ -748,7 +744,8 @@ export default function DesignSubmodulePage() {
           metros: parseFloat((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))).toFixed(2)),
           capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
           factura_relacionada: invoiceNumber
-        }));
+        };
+      });
 
       // Si hay supplierData (Proveedor de la factura XML), verificar e insertar si no existe
       if (supplierData && supplierData.nit) {
@@ -799,24 +796,15 @@ export default function DesignSubmodulePage() {
         }
       }
 
-      // INSERT nuevas (guardamos para obtener los IDs autogenerados)
+      // INSERT todas fresh
       let insertedFabrics: any[] = [];
-      if (newItems.length > 0) {
+      if (itemsToInsert.length > 0) {
         const { data: insertedData, error: insertError } = await supabase
           .from('fabrics')
-          .insert(newItems)
+          .insert(itemsToInsert)
           .select();
         if (insertError) throw insertError;
         insertedFabrics = insertedData || [];
-      }
-
-      // UPDATE existentes (con id)
-      for (const item of existingItems) {
-        const { error: updateError } = await supabase
-          .from('fabrics')
-          .update(item)
-          .eq('id', item.id);
-        if (updateError) throw updateError;
       }
 
       // AUTO-ENTRADA AL INVENTARIO DE TELAS
@@ -826,12 +814,10 @@ export default function DesignSubmodulePage() {
       
       const defaultColorId = colorsList?.[0]?.id || null;
       const defaultLocation = warehousesList?.[0]?.nombre_bodega || 'Bodega Principal';
-
+ 
       const inventoryRollsToInsert: any[] = [];
 
-      // Procesar telas nuevas insertadas
       insertedFabrics.forEach((fab, index) => {
-        const sourceItem = newItems[index];
         const qtyKilos = Number(fab.kilos) || 0;
         const qtyMeters = Number(fab.metros) || 0;
 
@@ -848,33 +834,6 @@ export default function DesignSubmodulePage() {
         }
       });
 
-      // Procesar telas existentes actualizadas (solo si aún no tienen rollos registrados para evitar duplicación)
-      for (const item of existingItems) {
-        const { data: existingRolls } = await supabase
-          .from('fabric_inventory')
-          .select('id')
-          .eq('fabric_id', item.id)
-          .limit(1);
-
-        if (!existingRolls || existingRolls.length === 0) {
-          const qtyKilos = Number(item.kilos) || 0;
-          const qtyMeters = Number(item.metros) || 0;
-
-          if (qtyKilos > 0) {
-            inventoryRollsToInsert.push({
-              fabric_id: item.id,
-              color_id: defaultColorId,
-              roll_number: `${invoiceNumber || 'FAC'}-${item.codigo_tela}`,
-              kilos: qtyKilos,
-              meters: qtyMeters,
-              location: defaultLocation,
-              status: 'Disponible'
-            });
-          }
-        }
-      }
-
-      // Insertar rollos generados en fabric_inventory
       if (inventoryRollsToInsert.length > 0) {
         const { error: invInsertError } = await supabase
           .from('fabric_inventory')
@@ -889,7 +848,11 @@ export default function DesignSubmodulePage() {
       setNewlyInsertedCodes(newCodes);
       setParsedItems(prev => prev.map(p => ({ ...p, status: 'existing' })));
     } catch (err: any) {
-      setError('Error al guardar en la base de datos: ' + err.message);
+      if (err.message && (err.message.includes('foreign key') || err.code === '23503')) {
+        setError('Error al guardar en la base de datos: La factura no puede reemplazarse porque algunas de sus telas ya están programadas o usadas en órdenes de producción.');
+      } else {
+        setError('Error al guardar en la base de datos: ' + err.message);
+      }
     } finally {
       setIsSaving(false);
     }
