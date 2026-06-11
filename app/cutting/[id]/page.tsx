@@ -37,6 +37,7 @@ export default function CutDetailsPage() {
   const [colors, setColors] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
   const [fabrics, setFabrics] = useState<any[]>([]);
+  const [novelties, setNovelties] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -134,12 +135,14 @@ export default function CutDetailsPage() {
       const { data: sData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: catData } = await supabase.from('categories').select('*');
       const { data: fData } = await supabase.from('fabrics').select('*');
+      const { data: nData } = await supabase.from('novelties').select('*').eq('modulo_relac', 'Tendido');
       
       setProducts(pData || []);
       setColors(cData || []);
       setSizes(sData || []);
       setCategories(catData || []);
       setFabrics(fData || []);
+      setNovelties(nData || []);
 
     } catch (err: any) {
       console.error('Error fetching cut details:', err);
@@ -174,7 +177,7 @@ export default function CutDetailsPage() {
 
   const handleFinishCut = async () => {
     if (!orderId) return;
-    if (!confirm('¿Estás seguro de que deseas finalizar y registrar este corte? Esta acción cambiará el estado de la orden a "Cortado".')) return;
+    if (!confirm('¿Estás seguro de que deseas finalizar y registrar este tendido? Esta acción cambiará el estado de la orden a "Tendido".')) return;
     setSaving(true);
     try {
       // 1. Update each cut with its actual layers/kilos if modified by the cutter
@@ -199,18 +202,18 @@ export default function CutDetailsPage() {
         finalObservations += `\n\n=== REPORTE DE CORTE (${new Date().toLocaleDateString('es-ES')}) ===\n${cutterNotes}`;
       }
 
-      // 3. Update Order status to 'Cortado' and save observations
+      // 3. Update Order status to 'Tendido' and save observations
       const { error: orderErr } = await supabase
         .from('orders')
         .update({ 
-          status: 'Cortado',
+          status: 'Tendido',
           observaciones: finalObservations
         })
         .eq('id', orderId);
 
       if (orderErr) throw orderErr;
 
-      alert('¡Corte completado y registrado con éxito!');
+      alert('¡Tendido completado y registrado con éxito!');
       router.push('/cutting');
     } catch (err: any) {
       alert('Error al guardar el registro de corte: ' + err.message);
@@ -235,7 +238,8 @@ export default function CutDetailsPage() {
       let progressLog = '';
 
       for (const cut of cuts) {
-        const layersToAdd = Number(progressLayers[cut.id]) || 0;
+        const groupKey = `${cut.stroke_length}_${cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`}`;
+        const layersToAdd = Number(progressLayers[groupKey]) || 0;
         if (layersToAdd <= 0) continue;
 
         const newLayersProduced = (cut.layers_produced || 0) + layersToAdd;
@@ -356,7 +360,7 @@ export default function CutDetailsPage() {
   // Group cuts by fabric color & product to display cleanly
   const isPending = order.status === 'Planeada';
   const isActive = order.status === 'En Corte';
-  const isCompleted = order.status === 'Cortado';
+  const isCompleted = order.status === 'Tendido' || order.status === 'Cortado';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '3rem' }}>
@@ -368,10 +372,10 @@ export default function CutDetailsPage() {
         </Link>
         <div>
           <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
-            Mesa de Corte
+            Mesa de Tendido
           </span>
           <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>
-            Ficha de Corte Físico: OC-{order.internal_code}
+            Ficha de Tendido Físico: OC-{order.internal_code}
           </h1>
         </div>
       </div>
@@ -719,7 +723,7 @@ export default function CutDetailsPage() {
                     boxShadow: '0 4px 10px rgba(99, 102, 241, 0.4)'
                   }}
                 >
-                  <Play size={18} style={{ marginRight: '0.5rem' }} /> Iniciar Tendido / Corte
+                  <Play size={18} style={{ marginRight: '0.5rem' }} /> Iniciar Tendido
                 </button>
               </div>
             )}
@@ -727,7 +731,7 @@ export default function CutDetailsPage() {
             {isActive && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <p style={{ fontSize: '0.85rem', opacity: 0.9, lineHeight: '1.4', margin: 0 }}>
-                  El corte está actualmente <strong>En Mesa</strong>. Verifique y complete las cantidades reales cortadas físicamente en el taller.
+                  El tendido está actualmente <strong>En Mesa</strong>. Verifique y complete las cantidades reales extendidas en el taller.
                 </p>
                 
                 <div style={{ backgroundColor: '#1e293b', padding: '1rem', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -743,8 +747,8 @@ export default function CutDetailsPage() {
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', backgroundColor: '#022c22', border: '1px solid #065f46', padding: '1rem', borderRadius: '12px', color: '#6ee7b7' }}>
                 <CheckCircle size={24} style={{ color: '#34d399', flexShrink: 0 }} />
                 <div>
-                  <p style={{ fontSize: '0.8rem', fontWeight: '800', margin: 0 }}>Corte Completado</p>
-                  <p style={{ fontSize: '0.7rem', opacity: 0.8, margin: 0 }}>La información ha sido enviada a confección satélite.</p>
+                  <p style={{ fontSize: '0.8rem', fontWeight: '800', margin: 0 }}>Tendido Completado</p>
+                  <p style={{ fontSize: '0.7rem', opacity: 0.8, margin: 0 }}>La información del tendido ha sido guardada. Pendiente de proceso de corte.</p>
                 </div>
               </div>
             )}
@@ -803,7 +807,7 @@ export default function CutDetailsPage() {
                   border: 'none'
                 }}
               >
-                <CheckCircle size={18} style={{ marginRight: '0.5rem' }} /> Finalizar y Registrar Corte
+                <CheckCircle size={18} style={{ marginRight: '0.5rem' }} /> Finalizar y Registrar Tendido
               </button>
             </div>
           )}
@@ -861,34 +865,87 @@ export default function CutDetailsPage() {
               <div>
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Telas a reportar avance</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                  {[...cuts].sort((a, b) => Number(b.stroke_length ?? 0) - Number(a.stroke_length ?? 0)).map(c => {
-                    const colorDat = getColorData(c.color_id, c);
-                    const fabricObj = fabrics.find((f: any) => String(f.id) === String(c.fabric_id));
-                    const telaName = fabricObj ? fabricObj.nombre_tela : (colorDat?.nombre_color || 'Sin Tela');
-                    const productNam = getProductName(c.product_id);
-                    const producidas = c.layers_produced || 0;
-                    const planeadas = c.layers || 0;
-                    const strokeName = getStrokeLabel(c.stroke_length);
-                    return (
-                      <div key={String(c.id)} style={{ display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#1e293b' }}>
-                            <span style={{ color: '#3b82f6', marginRight: '0.5rem' }}>[{strokeName}]</span>
-                            {telaName} — {productNam}
+                  {(() => {
+                    const uniqueStrokes: number[] = Array.from(
+                      new Set(cuts.map((c: any) => Number(c.stroke_length ?? 0)))
+                    ).sort((a, b) => b - a);
+
+                    const strokeIdx = (s: any): number => {
+                      const idx = uniqueStrokes.indexOf(Number(s ?? 0));
+                      return idx < 0 ? 0 : idx;
+                    };
+                    const strokeLabel = (s: any): string => {
+                      const idx = strokeIdx(s);
+                      return idx === 0 ? 'Corte 1' : `Corte ${idx + 1}`;
+                    };
+
+                    const groupsMap = new Map<number, any[]>();
+                    [...cuts]
+                      .sort((a: any, b: any) => Number(b.stroke_length ?? 0) - Number(a.stroke_length ?? 0))
+                      .forEach((cut: any) => {
+                        const k = Number(cut.stroke_length ?? 0);
+                        if (!groupsMap.has(k)) groupsMap.set(k, []);
+                        groupsMap.get(k)!.push(cut);
+                      });
+
+                    const groupedRows: any[] = [];
+                    groupsMap.forEach((groupCuts, strokeVal) => {
+                      const label = strokeLabel(strokeVal);
+
+                      const fabricGroupsMap = new Map<string, any>();
+                      groupCuts.forEach((cut: any) => {
+                        const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
+                        if (!fabricGroupsMap.has(key)) {
+                          fabricGroupsMap.set(key, {
+                            key: `${strokeVal}_${key}`,
+                            fabric_id: cut.fabric_id,
+                            color_id: cut.color_id,
+                            stroke_length: cut.stroke_length,
+                            layers: Number(cut.layers || 0),
+                            layers_produced: Number(cut.layers_produced || 0),
+                          });
+                        } else {
+                          const existing = fabricGroupsMap.get(key);
+                          existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
+                          existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
+                        }
+                      });
+
+                      Array.from(fabricGroupsMap.values()).forEach((groupedCut: any) => {
+                        groupedRows.push({
+                          ...groupedCut,
+                          strokeLabel: label
+                        });
+                      });
+                    });
+
+                    return groupedRows.map(gc => {
+                      const colorDat = getColorData(gc.color_id, gc);
+                      const fabricObj = fabrics.find((f: any) => String(f.id) === String(gc.fabric_id));
+                      const telaName = fabricObj ? fabricObj.nombre_tela : (colorDat?.nombre_color || 'Sin Tela');
+                      const producidas = gc.layers_produced || 0;
+                      const planeadas = gc.layers || 0;
+                      return (
+                        <div key={gc.key} style={{ display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#1e293b' }}>
+                              <span style={{ color: '#3b82f6', marginRight: '0.5rem' }}>[{gc.strokeLabel}]</span>
+                              {telaName}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{producidas} / {planeadas} capas producidas</div>
                           </div>
-                          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{producidas} / {planeadas} capas producidas</div>
+                          <input
+                            type="number"
+                            min="0"
+                            value={progressLayers[gc.key] || ''}
+                            onChange={e => setProgressLayers({ ...progressLayers, [gc.key]: e.target.value })}
+                            style={{ width: '80px', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', textAlign: 'center' }}
+                            placeholder="Capas"
+                          />
                         </div>
-                        <input
-                          type="number"
-                          min="0"
-                          value={progressLayers[c.id] || ''}
-                          onChange={e => setProgressLayers({ ...progressLayers, [c.id]: e.target.value })}
-                          style={{ width: '80px', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', textAlign: 'center' }}
-                          placeholder="Capas"
-                        />
-                      </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -916,11 +973,11 @@ export default function CutDetailsPage() {
                       style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
                     >
                       <option value="">Selecciona...</option>
-                      <option value="Marra">Marra</option>
-                      <option value="Manchas">Manchas</option>
-                      <option value="Traslape">Traslape</option>
-                      <option value="Anchos de Tela">Anchos de Tela</option>
-                      <option value="Rotos">Rotos</option>
+                      {novelties.map((nov: any) => (
+                        <option key={nov.id} value={nov.nombre}>
+                          {nov.nombre}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <button 

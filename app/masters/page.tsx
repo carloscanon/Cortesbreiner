@@ -193,6 +193,18 @@ const MASTER_CONFIG: any = {
       { name: 'unidad', label: 'Unidad', type: 'text' }
     ]
   },
+  novelties: {
+    title: 'Maestro de Novedades',
+    table: 'novelties',
+    icon: AlertTriangle,
+    listFields: ['modulo_relac', 'criticidad'],
+    fields: [
+      { name: 'cod_novedad', label: 'Código Novedad', type: 'text', required: true },
+      { name: 'nombre', label: 'Nombre Novedad', type: 'text', required: true },
+      { name: 'modulo_relac', label: 'Módulo Relacionado', type: 'text' },
+      { name: 'criticidad', label: 'Criticidad (Alta/Media/Baja)', type: 'text' }
+    ]
+  },
   config: {
     title: 'Configuración General',
     table: 'system_config',
@@ -472,7 +484,7 @@ export default function MastersPage() {
                             {item.nombre_tela || item.nombre_color || item.nombre_talla || item.nombre_producto || item.nombre_taller || item.razon_social || item.nombre_bodega || item.nombre || item.descripcion || item.concepto || item.empresa_nombre || item.nombre_estado || 'Registro'}
                           </p>
                           <span style={{ fontSize: '0.6875rem', padding: '0.2rem 0.5rem', backgroundColor: 'var(--bg-secondary)', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
-                            {item.codigo_tela || item.codigo_color || item.codigo_talla || item.codigo_referencia || item.codigo || item.nit || item.id.slice(0,6)}
+                            {item.cod_novedad || item.codigo_tela || item.codigo_color || item.codigo_talla || item.codigo_referencia || item.codigo || item.nit || item.id.slice(0,6)}
                           </span>
                         </div>
                         

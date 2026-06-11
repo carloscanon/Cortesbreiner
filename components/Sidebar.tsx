@@ -23,7 +23,8 @@ import { useAuth } from '@/hooks/useAuth';
 const allMenuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/', module: 'dashboard' },
   { icon: Scissors, label: 'Órdenes', href: '/orders', module: 'orders' },
-  { icon: Scissors, label: 'Mesa de Corte', href: '/cutting', module: 'cutting' },
+  { icon: Layers, label: 'Mesa de Tendido', href: '/cutting', module: 'cutting' },
+  { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
   { icon: Database, label: 'Maestros', href: '/masters', module: 'masters' },
   { icon: Package, label: 'Inventario', href: '/inventory', module: 'inventory' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },

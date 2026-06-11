@@ -1,11 +1,25 @@
 const { createClient } = require('@supabase/supabase-js');
-const supabase = createClient(
-  'https://plsvbuzcjtztpidsjmua.supabase.co', 
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsc3ZidXpjanR6dHBpZHNqbXVhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODU5ODcyOCwiZXhwIjoyMDk0MTc0NzI4fQ.ULyRBs2AN6YWs7QTzsDXk9QWyO-aLLriXX733UN9qiU'
-);
+
+const supabaseUrl = 'https://plsvbuzcjtztpidsjmua.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseKey) {
+  console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data } = await supabase.from('orders').select('internal_code, cortador_name, brand, status').limit(5);
-  console.log(JSON.stringify(data, null, 2));
+  const { data, error } = await supabase.from('orders').select('id, internal_code, status, observaciones');
+  if (error) {
+    console.error(error);
+    return;
+  }
+  console.log('Orders in DB:');
+  data.forEach(o => {
+    console.log(`ID: ${o.id}, Code: ${o.internal_code}, Status: ${o.status}`);
+  });
 }
-main();
+
+main().catch(console.error);

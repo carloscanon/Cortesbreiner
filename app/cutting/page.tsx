@@ -30,7 +30,7 @@ export default function CuttingDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'Planeada' | 'En Corte' | 'Cortado'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'Planeada' | 'En Corte' | 'Tendido' | 'Cortado'>('all');
   const [showDashboardModal, setShowDashboardModal] = useState(false);
 
   const fetchOrders = async () => {
@@ -104,6 +104,7 @@ export default function CuttingDashboard() {
   const stats = {
     pending: orders.filter(o => o.status === 'Planeada').length,
     active: orders.filter(o => o.status === 'En Corte').length,
+    tendidos: orders.filter(o => o.status === 'Tendido').length,
     completedToday: orders.filter(o => o.status === 'Cortado').length
   };
 
@@ -156,10 +157,10 @@ export default function CuttingDashboard() {
             color: 'white'
           }}>
             <Scissors size={32} style={{ transform: 'rotate(-45deg)', color: 'var(--secondary)' }} />
-            Mesa de Corte Industrial
+            Mesa de Tendido Industrial
           </h1>
           <p style={{ opacity: 0.9, fontSize: '0.9rem', marginTop: '0.5rem', fontWeight: '500' }}>
-            Panel de control para cortadores. Gestiona el extendido, trazo y corte físico en el taller.
+            Panel de control para cortadores. Gestiona el extendido, trazo y reporte de capas físicas.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -168,8 +169,12 @@ export default function CuttingDashboard() {
             <h3 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#93c5fd' }}>{stats.pending}</h3>
           </div>
           <div style={{ textAlign: 'center', backgroundColor: 'white', padding: '0.75rem 1.25rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-            <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>En Mesa</span>
+            <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>En Tendido</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#fde047' }}>{stats.active}</h3>
+          </div>
+          <div style={{ textAlign: 'center', backgroundColor: 'white', padding: '0.75rem 1.25rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+            <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>Tendidas</span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: '900', margin: 0, color: '#60a5fa' }}>{stats.tendidos}</h3>
           </div>
           <div style={{ textAlign: 'center', backgroundColor: 'white', padding: '0.75rem 1.25rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
             <span style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: '700', textTransform: 'uppercase' }}>Cortadas</span>
@@ -240,8 +245,9 @@ export default function CuttingDashboard() {
           {[
             { id: 'all', label: 'Todos los Estados' },
             { id: 'Planeada', label: 'Pendientes' },
-            { id: 'En Corte', label: 'En Mesa' },
-            { id: 'Cortado', label: 'Completados' }
+            { id: 'En Corte', label: 'En Tendido' },
+            { id: 'Tendido', label: 'Tendidos' },
+            { id: 'Cortado', label: 'Cortados' }
           ].map(opt => (
             <button 
               key={opt.id}
