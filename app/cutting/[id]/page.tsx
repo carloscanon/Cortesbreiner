@@ -48,7 +48,37 @@ export default function CutDetailsPage() {
   // Partial progress modal states
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
   const [progressLayers, setProgressLayers] = useState<Record<string, string>>({});
+
+  const parseObservations = (obs: string) => {
+    if (!obs) return [];
+    const blocks: { title: string; content: string }[] = [];
+    const firstSepIdx = obs.indexOf('===');
+    if (firstSepIdx === -1) {
+      blocks.push({
+        title: 'Nota de Creación / Orden',
+        content: obs.trim()
+      });
+      return blocks;
+    }
+    const initialNote = obs.substring(0, firstSepIdx).trim();
+    if (initialNote) {
+      blocks.push({
+        title: 'Nota de Creación / Orden',
+        content: initialNote
+      });
+    }
+    const regex = /===\s*([^=]+?)\s*===\n([\s\S]*?)(?=(===\s*[^=]+?\s*===|$))/g;
+    let match;
+    while ((match = regex.exec(obs)) !== null) {
+      blocks.push({
+        title: match[1].trim(),
+        content: match[2].trim()
+      });
+    }
+    return blocks;
+  };
   const [progressNovelties, setProgressNovelties] = useState<{ capa: string; tipo: string }[]>([]);
   const [noveltyCapa, setNoveltyCapa] = useState('');
   const [noveltyTipo, setNoveltyTipo] = useState('');
@@ -405,28 +435,7 @@ export default function CutDetailsPage() {
               </div>
             </div>
 
-            {/* Observations Card */}
-            {order.observaciones && (
-              <div style={{ 
-                marginTop: '1.5rem',
-                backgroundColor: '#fffbeb', 
-                border: '1.5px solid #fef08a', 
-                padding: '1.25rem', 
-                borderRadius: '12px',
-                display: 'flex',
-                gap: '1rem'
-              }}>
-                <BookOpen size={24} style={{ color: '#b45309', flexShrink: 0 }} />
-                <div>
-                  <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.85rem', fontWeight: '900', color: '#78350f', textTransform: 'uppercase' }}>
-                    Notas y Observaciones de Corte
-                  </h4>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#92400e', whiteSpace: 'pre-wrap', lineHeight: '1.5', fontWeight: '600' }}>
-                    {order.observaciones}
-                  </p>
-                </div>
-              </div>
-            )}
+
           </div>
 
           {/* Technical Cut Sheet Matrix */}
@@ -623,6 +632,61 @@ export default function CutDetailsPage() {
         {/* Right Side: Cutter Workshop Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           
+          {/* Notes and Observations Box */}
+          <div 
+            onClick={() => setShowNotesModal(true)}
+            className="card" 
+            style={{ 
+              backgroundColor: '#fffbeb', 
+              border: '1.5px solid #fef08a', 
+              borderRadius: '16px',
+              padding: '1.5rem',
+              cursor: 'pointer',
+              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+              transition: 'transform 0.2s, box-shadow 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <BookOpen size={18} style={{ color: '#b45309' }} />
+              <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#78350f', margin: 0, textTransform: 'uppercase' }}>
+                Última Nota de Corte
+              </h3>
+            </div>
+            
+            {(() => {
+              const blocks = parseObservations(order?.observaciones);
+              if (blocks.length === 0) {
+                return <p style={{ fontSize: '0.8rem', color: '#92400e', margin: 0, fontWeight: '600', fontStyle: 'italic' }}>Sin observaciones registradas.</p>;
+              }
+              const lastBlock = blocks[blocks.length - 1];
+              const preview = lastBlock.content.length > 100 
+                ? lastBlock.content.substring(0, 100) + '...'
+                : lastBlock.content;
+                
+              return (
+                <div>
+                  <div style={{ fontSize: '0.68rem', color: '#b45309', fontWeight: '800', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                    {lastBlock.title}
+                  </div>
+                  <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.825rem', color: '#92400e', whiteSpace: 'pre-wrap', lineHeight: '1.4', fontWeight: '600' }}>
+                    {preview}
+                  </p>
+                  <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: '800', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    Ver historial completo ({blocks.length} nota{blocks.length !== 1 ? 's' : ''}) →
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* Status Box */}
           <div className="card" style={{ 
             backgroundColor: '#0f172a', 
@@ -1018,6 +1082,59 @@ export default function CutDetailsPage() {
             </div>
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowOrderDetailsModal(false)} className="btn btn-secondary" style={{ padding: '0.75rem 1.5rem', fontWeight: '800' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Historial de Notas y Observaciones Modal */}
+      {showNotesModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '650px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', padding: 0, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px -10px rgba(0, 0, 0, 0.6)' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #0f172a, #1e3a5f)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '20px 20px 0 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <BookOpen size={20} style={{ color: 'white' }} />
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '950', color: 'white' }}>Historial de Notas y Observaciones</h3>
+              </div>
+              <button onClick={() => setShowNotesModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><X size={24} /></button>
+            </div>
+            
+            <div style={{ padding: '2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {(() => {
+                const blocks = parseObservations(order?.observaciones);
+                if (blocks.length === 0) {
+                  return <p style={{ fontSize: '0.9rem', color: '#64748b', textAlign: 'center', fontStyle: 'italic', margin: '2rem 0' }}>No hay notas registradas para esta orden.</p>;
+                }
+                
+                return blocks.map((block, i) => (
+                  <div 
+                    key={i} 
+                    style={{ 
+                      backgroundColor: '#fffbeb', 
+                      border: '1.5px solid #fef08a', 
+                      borderRadius: '12px',
+                      padding: '1.25rem',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed #fde047', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {block.title}
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: '700' }}>
+                        Nota #{i + 1}
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.875rem', color: '#92400e', whiteSpace: 'pre-wrap', lineHeight: '1.5', fontWeight: '600' }}>
+                      {block.content}
+                    </p>
+                  </div>
+                ));
+              })()}
+            </div>
+            
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowNotesModal(false)} className="btn btn-secondary" style={{ padding: '0.75rem 1.5rem', fontWeight: '800' }}>Cerrar</button>
             </div>
           </div>
         </div>
