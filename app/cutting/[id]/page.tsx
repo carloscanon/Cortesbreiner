@@ -51,6 +51,8 @@ export default function CutDetailsPage() {
   const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [progressLayers, setProgressLayers] = useState<Record<string, string>>({});
+  const [selectedGroupKey, setSelectedGroupKey] = useState('');
+  const [selectedGroupLayers, setSelectedGroupLayers] = useState('');
 
   const parseObservations = (obs: string) => {
     if (!obs) return [];
@@ -237,21 +239,30 @@ export default function CutDetailsPage() {
     e.preventDefault();
     if (!orderId) return;
 
-    const hasProgress = Object.values(progressLayers).some(val => Number(val) > 0);
-    if (!hasProgress) {
-        alert("Debes ingresar al menos una capa en alguna de las telas.");
-        return;
+    if (!selectedGroupKey) {
+      alert("Por favor selecciona la tela tendida.");
+      return;
+    }
+    const layersToAdd = Number(selectedGroupLayers) || 0;
+    if (layersToAdd <= 0) {
+      alert("Por favor ingresa una cantidad de capas tendidas válida.");
+      return;
     }
 
     setProgressSaving(true);
     
     try {
       let progressLog = '';
+      const [strokeValStr, fabOrColPrefix, subId] = selectedGroupKey.split('_');
+      const strokeVal = Number(strokeValStr);
 
       for (const cut of cuts) {
-        const groupKey = `${cut.stroke_length}_${cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`}`;
-        const layersToAdd = Number(progressLayers[groupKey]) || 0;
-        if (layersToAdd <= 0) continue;
+        const matchesGroup = Number(cut.stroke_length ?? 0) === strokeVal && (
+          (fabOrColPrefix === 'fab' && String(cut.fabric_id) === subId) ||
+          (fabOrColPrefix === 'col' && String(cut.color_id) === subId)
+        );
+
+        if (!matchesGroup) continue;
 
         const newLayersProduced = (cut.layers_produced || 0) + layersToAdd;
 
@@ -262,21 +273,22 @@ export default function CutDetailsPage() {
           .eq('id', cut.id);
         
         if (cutErr) throw cutErr;
-
-        const colorData = getColorData(cut.color_id, cut);
-        const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
-        const colorName = fabricObj ? fabricObj.nombre_tela : (colorData?.nombre_color || 'Tela');
-        const productName = getProductName(cut.product_id);
-        const strokeName = getStrokeLabel(cut.stroke_length);
-
-        progressLog += `\n- [${strokeName}] Producto: ${productName} [${colorName}]: ${layersToAdd} capas (Acumulado: ${newLayersProduced} / ${cut.layers || 0} planeadas)`;
       }
+
+      // Resolve fabric name and stroke label
+      const isFab = fabOrColPrefix === 'fab';
+      const fabricObj = fabrics.find((f: any) => String(f.id) === subId);
+      const colorData = isFab ? null : colors.find((c: any) => String(c.id) === subId);
+      const telaName = fabricObj ? fabricObj.nombre_tela : (colorData?.nombre_color || 'Tela');
+      const strokeName = getStrokeLabel(strokeVal);
+
+      progressLog += `\n- [${strokeName}] Tela: ${telaName} | ${layersToAdd} capas tendidas`;
       
       const timeStamp = new Date().toLocaleString('es-ES');
       
-      // Formatear novedades de corte por capa
+      // Formatear novedades de corte por capa con asociación de tela
       const noveltiesStr = progressNovelties.length > 0 
-        ? progressNovelties.map(n => `- Capa ${n.capa}: ${n.tipo}`).join('\n')
+        ? progressNovelties.map(n => `- Capa ${n.capa} - Novedad: ${n.tipo} | Tela: ${telaName}`).join('\n')
         : 'Ninguna novedad reportada.';
 
       const finalLog = `\n\n=== AVANCE PARCIAL (${timeStamp}) ===${progressLog}\nNovedades de corte por capa:\n${noveltiesStr}\nNotas: ${progressNotes || 'Sin observaciones adicionales.'}`;
@@ -292,7 +304,8 @@ export default function CutDetailsPage() {
 
       alert('Avance parcial registrado con éxito.');
       setShowProgressModal(false);
-      setProgressLayers({});
+      setSelectedGroupKey('');
+      setSelectedGroupLayers('');
       setProgressNovelties([]);
       setNoveltyCapa('');
       setNoveltyTipo('');
@@ -953,96 +966,102 @@ export default function CutDetailsPage() {
             </div>
             
             <form onSubmit={handleSaveProgress} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Selector de Tela Tendida */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Telas a reportar avance</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                  {(() => {
-                    const uniqueStrokes: number[] = Array.from(
-                      new Set(cuts.map((c: any) => Number(c.stroke_length ?? 0)))
-                    ).sort((a, b) => b - a);
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>Selecciona Tela Tendida</label>
+                {(() => {
+                  const uniqueStrokes: number[] = Array.from(
+                    new Set(cuts.map((c: any) => Number(c.stroke_length ?? 0)))
+                  ).sort((a, b) => b - a);
 
-                    const strokeIdx = (s: any): number => {
-                      const idx = uniqueStrokes.indexOf(Number(s ?? 0));
-                      return idx < 0 ? 0 : idx;
-                    };
-                    const strokeLabel = (s: any): string => {
-                      const idx = strokeIdx(s);
-                      return idx === 0 ? 'Corte 1' : `Corte ${idx + 1}`;
-                    };
+                  const strokeIdx = (s: any): number => {
+                    const idx = uniqueStrokes.indexOf(Number(s ?? 0));
+                    return idx < 0 ? 0 : idx;
+                  };
+                  const strokeLabel = (s: any): string => {
+                    const idx = strokeIdx(s);
+                    return idx === 0 ? 'Corte 1' : `Corte ${idx + 1}`;
+                  };
 
-                    const groupsMap = new Map<number, any[]>();
-                    [...cuts]
-                      .sort((a: any, b: any) => Number(b.stroke_length ?? 0) - Number(a.stroke_length ?? 0))
-                      .forEach((cut: any) => {
-                        const k = Number(cut.stroke_length ?? 0);
-                        if (!groupsMap.has(k)) groupsMap.set(k, []);
-                        groupsMap.get(k)!.push(cut);
-                      });
+                  const groupsMap = new Map<number, any[]>();
+                  [...cuts]
+                    .sort((a: any, b: any) => Number(b.stroke_length ?? 0) - Number(a.stroke_length ?? 0))
+                    .forEach((cut: any) => {
+                      const k = Number(cut.stroke_length ?? 0);
+                      if (!groupsMap.has(k)) groupsMap.set(k, []);
+                      groupsMap.get(k)!.push(cut);
+                    });
 
-                    const groupedRows: any[] = [];
-                    groupsMap.forEach((groupCuts, strokeVal) => {
-                      const label = strokeLabel(strokeVal);
+                  const groupedRows: any[] = [];
+                  groupsMap.forEach((groupCuts, strokeVal) => {
+                    const label = strokeLabel(strokeVal);
 
-                      const fabricGroupsMap = new Map<string, any>();
-                      groupCuts.forEach((cut: any) => {
-                        const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
-                        if (!fabricGroupsMap.has(key)) {
-                          fabricGroupsMap.set(key, {
-                            key: `${strokeVal}_${key}`,
-                            fabric_id: cut.fabric_id,
-                            color_id: cut.color_id,
-                            stroke_length: cut.stroke_length,
-                            layers: Number(cut.layers || 0),
-                            layers_produced: Number(cut.layers_produced || 0),
-                          });
-                        } else {
-                          const existing = fabricGroupsMap.get(key);
-                          existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
-                          existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
-                        }
-                      });
-
-                      Array.from(fabricGroupsMap.values()).forEach((groupedCut: any) => {
-                        groupedRows.push({
-                          ...groupedCut,
-                          strokeLabel: label
+                    const fabricGroupsMap = new Map<string, any>();
+                    groupCuts.forEach((cut: any) => {
+                      const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
+                      if (!fabricGroupsMap.has(key)) {
+                        fabricGroupsMap.set(key, {
+                          key: `${strokeVal}_${key}`,
+                          fabric_id: cut.fabric_id,
+                          color_id: cut.color_id,
+                          stroke_length: cut.stroke_length,
+                          layers: Number(cut.layers || 0),
+                          layers_produced: Number(cut.layers_produced || 0),
                         });
-                      });
+                      } else {
+                        const existing = fabricGroupsMap.get(key);
+                        existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
+                        existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
+                      }
                     });
 
-                    return groupedRows.map(gc => {
-                      const colorDat = getColorData(gc.color_id, gc);
-                      const fabricObj = fabrics.find((f: any) => String(f.id) === String(gc.fabric_id));
-                      const telaName = fabricObj ? fabricObj.nombre_tela : (colorDat?.nombre_color || 'Sin Tela');
-                      const producidas = gc.layers_produced || 0;
-                      const planeadas = gc.layers || 0;
-                      return (
-                        <div key={gc.key} style={{ display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#1e293b' }}>
-                              <span style={{ color: '#3b82f6', marginRight: '0.5rem' }}>[{gc.strokeLabel}]</span>
-                              {telaName}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{producidas} / {planeadas} capas producidas</div>
-                          </div>
-                          <input
-                            type="number"
-                            min="0"
-                            value={progressLayers[gc.key] || ''}
-                            onChange={e => setProgressLayers({ ...progressLayers, [gc.key]: e.target.value })}
-                            style={{ width: '80px', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', textAlign: 'center' }}
-                            placeholder="Capas"
-                          />
-                        </div>
-                      );
+                    Array.from(fabricGroupsMap.values()).forEach((groupedCut: any) => {
+                      groupedRows.push({
+                        ...groupedCut,
+                        strokeLabel: label
+                      });
                     });
-                  })()}
-                </div>
+                  });
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <select
+                        value={selectedGroupKey}
+                        onChange={e => setSelectedGroupKey(e.target.value)}
+                        style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600', color: '#1e293b' }}
+                      >
+                        <option value="">Selecciona la tela...</option>
+                        {groupedRows.map(gr => {
+                          const colorDat = getColorData(gr.color_id, gr);
+                          const fabricObj = fabrics.find((f: any) => String(f.id) === String(gr.fabric_id));
+                          const telaName = fabricObj ? fabricObj.nombre_tela : (colorDat?.nombre_color || 'Sin Tela');
+                          return (
+                            <option key={gr.key} value={gr.key}>
+                              [{gr.strokeLabel}] {telaName} ({gr.layers_produced} / {gr.layers} capas)
+                            </option>
+                          );
+                        })}
+                      </select>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: '#64748b', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Capas a reportar</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={selectedGroupLayers}
+                          onChange={e => setSelectedGroupLayers(e.target.value)}
+                          style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750' }}
+                          placeholder="Ingresa la cantidad de capas tendidas..."
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Novedades de Corte Section */}
-              <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '1rem', backgroundColor: '#f8fafc' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Novedades de Corte (Por Capa)</label>
+              <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '1rem', backgroundColor: '#f8fafc' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.75rem', textTransform: 'uppercase' }}>Novedades de Corte (Por Capa)</label>
                 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr auto', gap: '0.5rem', alignItems: 'end', marginBottom: '1rem' }}>
                   <div>

@@ -87,23 +87,41 @@ export default function CorteDashboard() {
   const parseNovelties = (obs: string) => {
     if (!obs) return [];
     const lines = obs.split('\n');
-    const list: { capa: string; tipo: string; criticidad: string }[] = [];
-    const regex = /-\s*Capa\s+(\d+):\s*(.+)/i;
+    const list: { capa: string; tipo: string; criticidad: string; tela?: string }[] = [];
 
     lines.forEach(line => {
-      const match = line.match(regex);
+      // Try new format first: - Capa 5 - Novedad: Marra | Tela: JABON/CAFE
+      const newRegex = /-\s*Capa\s+(\d+)\s*-\s*Novedad:\s*([^|]+?)(?:\s*\|\s*Tela:\s*(.+))?$/i;
+      let match = line.match(newRegex);
       if (match) {
         const capa = match[1];
         const tipo = match[2].trim();
-        // Look up criticality
+        const tela = match[3] ? match[3].trim() : 'General';
+        
         const master = noveltiesMaster.find(
           n => n.nombre.toLowerCase().trim() === tipo.toLowerCase().trim()
         );
         const criticidad = master ? master.criticidad || 'Baja' : 'Baja';
         
-        // Avoid duplicates in the visual checklist
-        if (!list.some(item => item.capa === capa && item.tipo === tipo)) {
-          list.push({ capa, tipo, criticidad });
+        if (!list.some(item => item.capa === capa && item.tipo === tipo && item.tela === tela)) {
+          list.push({ capa, tipo, criticidad, tela });
+        }
+      } else {
+        // Fallback to old format: - Capa 5: Marra
+        const oldRegex = /-\s*Capa\s+(\d+):\s*(.+)/i;
+        match = line.match(oldRegex);
+        if (match) {
+          const capa = match[1];
+          const tipo = match[2].trim();
+          
+          const master = noveltiesMaster.find(
+            n => n.nombre.toLowerCase().trim() === tipo.toLowerCase().trim()
+          );
+          const criticidad = master ? master.criticidad || 'Baja' : 'Baja';
+          
+          if (!list.some(item => item.capa === capa && item.tipo === tipo)) {
+            list.push({ capa, tipo, criticidad, tela: 'General' });
+          }
         }
       }
     });
@@ -402,8 +420,13 @@ export default function CorteDashboard() {
                         alignItems: 'center'
                       }}
                     >
-                      <span style={{ fontSize: '0.8rem', fontWeight: '800' }}>
-                        Capa {n.capa}: {n.tipo}
+                      <span style={{ fontSize: '0.8rem', fontWeight: '800', display: 'flex', flexDirection: 'column' }}>
+                        <span>Capa {n.capa}: {n.tipo}</span>
+                        {n.tela && n.tela !== 'General' && (
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'normal', marginTop: '0.15rem' }}>
+                            Tela: {n.tela}
+                          </span>
+                        )}
                       </span>
                       <span style={{ 
                         fontSize: '0.65rem', 
