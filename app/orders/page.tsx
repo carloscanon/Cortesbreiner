@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { 
   Plus, Search, Trash2, X, Loader2, AlertTriangle, 
   Scissors, Layers, Info, ArrowRight, Factory, Droplets, Printer,
-  ChevronRight, Package, Palette, Activity, CheckCircle, Code, RefreshCw
+  ChevronRight, Package, Palette, Activity, CheckCircle, Code, RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -688,6 +689,44 @@ export default function OrdersPage() {
     }
   };
 
+  const handleRevertOrder = async (id: number, code: string) => {
+    if (!confirm(`¿Estás seguro de revertir la orden OC-${code || id} al estado 'En Corte'? Esto eliminará el reporte de corte de las observaciones.`)) return;
+    
+    try {
+      // 1. Obtener las observaciones actuales de la orden
+      const { data: order, error: fetchError } = await supabase
+        .from('orders')
+        .select('observaciones')
+        .eq('id', id)
+        .single();
+        
+      if (fetchError) throw fetchError;
+
+      // 2. Limpiar las observaciones eliminando el bloque del reporte de corte
+      let cleanedObservations = order?.observaciones || '';
+      const idx = cleanedObservations.indexOf('=== REPORTE DE CORTE');
+      if (idx !== -1) {
+        cleanedObservations = cleanedObservations.substring(0, idx).trim();
+      }
+
+      // 3. Actualizar estado a 'En Corte'
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          status: 'En Corte',
+          observaciones: cleanedObservations
+        })
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+
+      alert('La orden ha sido revertida al estado "En Corte" exitosamente.');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al revertir la orden: ' + err.message);
+    }
+  };
+
   const handleEdit = async (order: any) => {
     setEditingId(order.id);
     
@@ -1340,6 +1379,28 @@ export default function OrdersPage() {
                             }}
                           >
                             <Trash2 size={14} />
+                          </button>
+                        )}
+                        {isAdmin && (order.status === 'Cortado' || order.status === 'Completada') && (
+                          <button
+                            onClick={() => handleRevertOrder(order.id, order.internal_code)}
+                            title="Revertir a En Corte"
+                            style={{
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '8px',
+                              border: '1.5px solid #fed7aa',
+                              backgroundColor: '#fffbeb',
+                              color: '#d97706',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '700',
+                              flexShrink: 0
+                            }}
+                          >
+                            <RotateCcw size={14} /> Revertir
                           </button>
                         )}
                       </div>
