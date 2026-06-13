@@ -25,12 +25,12 @@ const allMenuItems = [
   { icon: Scissors, label: 'Órdenes', href: '/orders', module: 'orders' },
   { icon: Layers, label: 'Mesa de Tendido', href: '/cutting', module: 'cutting' },
   { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
+  { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: Database, label: 'Maestros', href: '/masters', module: 'masters' },
   { icon: Package, label: 'Inventario', href: '/inventory', module: 'inventory' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: Factory, label: 'Talleres', href: '/workshops', module: 'workshops' },
-  { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
 ];
 

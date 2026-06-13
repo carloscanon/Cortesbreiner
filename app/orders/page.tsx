@@ -20,6 +20,7 @@ export default function OrdersPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [filterType, setFilterType] = useState('all'); 
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [viewingOrder, setViewingOrder] = useState<any | null>(null);
@@ -1193,6 +1194,16 @@ export default function OrdersPage() {
     }
   };
 
+  const filteredOrders = data.filter(order => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      (order.internal_code && order.internal_code.toLowerCase().includes(query)) ||
+      (order.client_name && order.client_name.toLowerCase().includes(query)) ||
+      (order.brand && order.brand.toLowerCase().includes(query))
+    );
+  });
+
   const stats = {
     total: data.length,
     planeada: data.filter(o => o.status === 'Planeada').length,
@@ -1298,7 +1309,13 @@ export default function OrdersPage() {
         <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)', backgroundColor: '#fcfcfc' }}>
           <div style={{ position: 'relative', width: '400px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input type="text" placeholder="Buscar por código, cliente o referencia..." style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }} />
+            <input 
+              type="text" 
+              placeholder="Buscar por código, cliente o referencia..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }} 
+            />
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -1318,7 +1335,7 @@ export default function OrdersPage() {
               {loading ? (
                 <tr><td colSpan={7} style={{ padding: '5rem', textAlign: 'center' }}><Loader2 className="animate-spin" size={48} style={{ color: 'var(--primary)', opacity: 0.5 }} /></td></tr>
               ) : (
-                data.map(order => (
+                filteredOrders.map(order => (
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover-row">
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '900', color: 'var(--primary)' }}>{order.internal_code}</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
@@ -1944,10 +1961,10 @@ export default function OrdersPage() {
                     onClick={() => {
                       const validColors = fabricColors.filter(fc => fc.nombre_tela || fc.fabric_id || fc.color_id);
 
-                      // Validar límite de 125 capas
+                      // Validar límite de 200 capas
                       const totalCapasProgramadas = validColors.reduce((sum, fc) => sum + (Number(fc.layers) || 0), 0);
-                      if (totalCapasProgramadas > 125) {
-                        alert(`⚠️ El total de capas programadas es ${totalCapasProgramadas}, lo que supera el límite máximo permitido de 125 capas por orden. Por favor ajusta las capas antes de continuar.`);
+                      if (totalCapasProgramadas > 200) {
+                        alert(`⚠️ El total de capas programadas es ${totalCapasProgramadas}, lo que supera el límite máximo permitido de 200 capas por orden. Por favor ajusta las capas antes de continuar.`);
                         return;
                       }
 

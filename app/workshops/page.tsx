@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Plus, MapPin, Phone, Star, Users, Search,
-  Trash2, X, Loader2, Edit2, Factory, Save
+  Trash2, X, Loader2, Edit2, Factory, Save, BarChart3
 } from 'lucide-react';
 
 const EMPTY_FORM = {
@@ -46,27 +46,165 @@ export default function WorkshopsPage() {
   };
 
   const fetchOrderCounts = async () => {
-    const { data } = await supabase
-      .from('orders')
-      .select('workshop_id')
-      .not('workshop_id', 'is', null);
-    const counts: Record<string, number> = {};
-    (data || []).forEach((o: any) => {
-      counts[o.workshop_id] = (counts[o.workshop_id] || 0) + 1;
-    });
-    setOrderCounts(counts);
+    try {
+      const { data: assignments } = await supabase
+        .from('sewing_assignments')
+        .select('order_id, workshop_id')
+        .not('workshop_id', 'is', null);
+
+      const { data: legacyOrders } = await supabase
+        .from('orders')
+        .select('id, workshop_id')
+        .not('workshop_id', 'is', null);
+
+      const counts: Record<string, number> = {};
+      const workshopToOrders: Record<string, Set<string>> = {};
+
+      (assignments || []).forEach((asg: any) => {
+        if (!workshopToOrders[asg.workshop_id]) {
+          workshopToOrders[asg.workshop_id] = new Set();
+        }
+        workshopToOrders[asg.workshop_id].add(asg.order_id);
+      });
+
+      (legacyOrders || []).forEach((o: any) => {
+        if (!workshopToOrders[o.workshop_id]) {
+          workshopToOrders[o.workshop_id] = new Set();
+        }
+        workshopToOrders[o.workshop_id].add(o.id);
+      });
+
+      Object.entries(workshopToOrders).forEach(([wId, orderSet]) => {
+        counts[wId] = orderSet.size;
+      });
+
+      setOrderCounts(counts);
+    } catch (err: any) {
+      console.error("Error fetching order counts:", err.message);
+    }
   };
 
   const handleViewOrders = async (w: any) => {
     setSelectedWorkshopForOrders(w);
     setLoadingOrders(true);
-    const { data } = await supabase
-      .from('orders')
-      .select('id, internal_code, brand, status, scheduled_date')
-      .eq('workshop_id', w.id)
-      .order('created_at', { ascending: false });
-    setWorkshopOrders(data || []);
-    setLoadingOrders(false);
+    try {
+      // 1. Fetch assignments for this workshop
+      const { data: assignments } = await supabase
+        .from('sewing_assignments')
+        .select('order_id, quantity')
+        .eq('workshop_id', w.id);
+
+      // 2. Fetch orders where workshop_id is this workshop directly
+      const { data: legacyOrders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('workshop_id', w.id);
+
+      const uniqueOrderIds = Array.from(new Set([
+        ...(assignments || []).map(a => a.order_id),
+        ...(legacyOrders || []).map(o => o.id)
+      ]));
+
+      if (uniqueOrderIds.length === 0) {
+        setWorkshopOrders([]);
+        setLoadingOrders(false);
+        return;
+      }
+
+      // 3. Fetch full order details including cuts, cut_sizes, fabrics
+      const { data: fullOrders } = await supabase
+        .from('orders')
+        .select('*, fabrics(nombre_tela), cuts(*, cut_sizes(*))')
+        .in('id', uniqueOrderIds)
+        .order('created_at', { ascending: false });
+
+      // 4. Fetch catalog lists to compute calculations
+      const { data: sizesList } = await supabase.from('sizes').select('*');
+      const { data: productsList } = await supabase.from('products').select('*');
+      const { data: categoriesList } = await supabase.from('categories').select('*');
+      const { data: dbAssignments } = await supabase
+        .from('sewing_assignments')
+        .select('*')
+        .in('order_id', uniqueOrderIds);
+
+      // 5. Build rich order information with calculated garments and kilos
+      const richOrders = (fullOrders || []).map(order => {
+        // Find sewing assignments for this order
+        const orderAss = (dbAssignments || []).filter(a => a.order_id === order.id);
+
+        let rowWorkshops: Record<string, string> = {};
+        let isSplit = orderAss.length > 0;
+
+        if (isSplit) {
+          orderAss.forEach(asg => {
+            const cellKey = `${asg.category_id}_${asg.size_code}`;
+            rowWorkshops[cellKey] = asg.workshop_id;
+          });
+        }
+
+        // Calculate total garments and kilos for this workshop
+        let workshopGarments = 0;
+        let workshopKilos = 0;
+
+        (order.cuts || []).forEach((cut: any) => {
+          const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
+          const cat = prod ? categoriesList?.find(c => String(c.id) === String(prod.category_id)) : null;
+          const catId = cat ? String(cat.id) : 'sin_cat';
+
+          const layersProyec = cut.layers || 1;
+          const layersProduced = cut.layers_produced || 0;
+
+          // Calculate total items in this cut
+          let cutTotalQty = 0;
+          let cutWorkshopQty = 0;
+
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            const sizeObj = sizesList?.find(s => String(s.id) === String(cs.size_id));
+            const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+            const proyecQty = Number(cs.quantity) || 0;
+            const ppc = proyecQty / layersProyec;
+            const realQty = Math.round(ppc * layersProduced);
+
+            cutTotalQty += realQty;
+
+            // If not split, everything goes to the main workshop_id
+            const cellKey = `${catId}_${sz}`;
+            const assignedWorkshopId = isSplit ? rowWorkshops[cellKey] : String(order.workshop_id);
+
+            if (String(assignedWorkshopId) === String(w.id)) {
+              cutWorkshopQty += realQty;
+            }
+          });
+
+          workshopGarments += cutWorkshopQty;
+
+          if (cutTotalQty > 0 && cutWorkshopQty > 0) {
+            const propKilos = (Number(cut.kilos) || 0) * (cutWorkshopQty / cutTotalQty);
+            workshopKilos += propKilos;
+          } else if (!isSplit && String(order.workshop_id) === String(w.id)) {
+            workshopKilos += Number(cut.kilos) || 0;
+          }
+        });
+
+        const isPending = !['Terminada', 'Cerrada', 'Enviada'].includes(order.status);
+        const pendingGarments = isPending ? workshopGarments : 0;
+
+        return {
+          ...order,
+          workshopGarments,
+          workshopKilos,
+          pendingGarments,
+          isPending
+        };
+      });
+
+      setWorkshopOrders(richOrders);
+    } catch (err: any) {
+      console.error("Error fetching workshop details:", err.message);
+    } finally {
+      setLoadingOrders(false);
+    }
   };
 
   const openCreate = () => {
@@ -182,6 +320,13 @@ export default function WorkshopsPage() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <button
+                    onClick={() => handleViewOrders(w)}
+                    style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f5f3ff', cursor: 'pointer', color: '#7c3aed' }}
+                    title="Ver Reporte de Carga"
+                  >
+                    <BarChart3 size={15} />
+                  </button>
                   <button
                     onClick={() => openEdit(w)}
                     style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'white', cursor: 'pointer', color: 'var(--primary)' }}
@@ -348,50 +493,113 @@ export default function WorkshopsPage() {
         </div>
       )}
 
-      {/* Orders Modal */}
+      {/* Orders Modal / Report */}
       {selectedWorkshopForOrders && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(6px)' }}>
-          <div className="card" style={{ width: '95%', maxWidth: '600px', padding: '0', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '1.25rem 1.75rem', background: 'white', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '750px', padding: '0', maxHeight: '90vh', display: 'flex', flexDirection: 'column', borderRadius: '20px', overflow: 'hidden', backgroundColor: 'white' }}>
+            <div style={{ padding: '1.25rem 2rem', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h2 style={{ fontSize: '1.125rem', margin: 0, color: 'var(--text)' }}>Órdenes Asignadas</h2>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: '600' }}>Taller: {selectedWorkshopForOrders.nombre_taller}</p>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', color: 'white', margin: 0 }}>Reporte de Carga de Taller</h2>
+                <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.85)', margin: '0.15rem 0 0', fontWeight: '600' }}>Taller: {selectedWorkshopForOrders.nombre_taller}</p>
               </div>
-              <button onClick={() => setSelectedWorkshopForOrders(null)} style={{ color: 'var(--text-muted)', background: '#f1f5f9', border: 'none', padding: '0.4rem', cursor: 'pointer', borderRadius: '50%', display: 'flex' }}>
+              <button onClick={() => setSelectedWorkshopForOrders(null)} style={{ color: 'white', background: 'rgba(255,255,255,0.15)', border: 'none', padding: '0.5rem', cursor: 'pointer', borderRadius: '50%', display: 'flex' }}>
                 <X size={18} />
               </button>
             </div>
             
-            <div style={{ padding: '1.75rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
+            <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {loadingOrders ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}><Loader2 className="animate-spin" style={{ margin: 'auto' }} /></div>
+                <div style={{ textAlign: 'center', padding: '4rem' }}><Loader2 className="animate-spin" size={32} style={{ margin: 'auto', color: '#7c3aed' }} /></div>
               ) : workshopOrders.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem 2rem', color: 'var(--text-muted)', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed var(--border)' }}>
-                  <Search size={32} style={{ opacity: 0.2, margin: '0 auto 1rem' }} />
-                  <p style={{ margin: 0, fontWeight: '600' }}>No hay órdenes asignadas a este taller.</p>
+                <div style={{ textAlign: 'center', padding: '4rem 2rem', color: '#64748b', backgroundColor: 'white', borderRadius: '16px', border: '2px dashed #cbd5e1' }}>
+                  <Search size={40} style={{ opacity: 0.15, margin: '0 auto 1rem' }} />
+                  <p style={{ margin: 0, fontWeight: '850', fontSize: '1rem', color: '#0f172a' }}>No hay órdenes asignadas a este taller.</p>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>Las asignaciones se realizan en el Wizard de Confección.</p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {workshopOrders.map(order => (
-                    <div key={order.id} style={{ padding: '1.25rem', background: 'white', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-                      <div>
-                        <h4 style={{ margin: '0 0 0.35rem 0', fontWeight: '800', color: 'var(--primary)', fontSize: '1rem' }}>OC-{order.internal_code}</h4>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: '600' }}>{order.brand || 'Sin marca'} • {order.scheduled_date || 'Sin fecha'}</span>
+                <>
+                  {/* KPI Row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                    {[
+                      {
+                        label: 'Órdenes Pendientes',
+                        value: workshopOrders.filter(o => o.isPending).length,
+                        color: '#3b82f6',
+                        desc: 'En producción'
+                      },
+                      {
+                        label: 'Prendas Pendientes',
+                        value: workshopOrders.reduce((sum, o) => sum + o.pendingGarments, 0),
+                        color: '#eab308',
+                        desc: 'Unidades en costura'
+                      },
+                      {
+                        label: 'Kilos de Tela Enviados',
+                        value: `${workshopOrders.reduce((sum, o) => sum + o.workshopKilos, 0).toFixed(1)} kg`,
+                        color: '#10b981',
+                        desc: 'Peso total enviado'
+                      }
+                    ].map((kpi, idx) => (
+                      <div key={idx} style={{ backgroundColor: 'white', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+                        <p style={{ fontSize: '0.625rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{kpi.label}</p>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: '950', margin: '0.2rem 0', color: kpi.color }}>{kpi.value}</h3>
+                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>{kpi.desc}</p>
                       </div>
-                      <span style={{ 
-                        padding: '0.35rem 0.75rem',
-                        borderRadius: '8px',
-                        fontSize: '0.75rem',
-                        fontWeight: '800',
-                        textTransform: 'uppercase',
-                        backgroundColor: order.status === 'Completado' || order.status === 'Terminado' ? '#dcfce7' : order.status === 'En Proceso' ? '#fef3c7' : '#f1f5f9',
-                        color: order.status === 'Completado' || order.status === 'Terminado' ? '#166534' : order.status === 'En Proceso' ? '#b45309' : '#475569'
-                      }}>
-                        {order.status}
-                      </span>
+                    ))}
+                  </div>
+
+                  {/* Orders Detail Table */}
+                  <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.02)' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '850', color: '#475569' }}>Orden</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '850', color: '#475569' }}>Cliente / Tela</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Prendas Totales</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Prendas Pendientes</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Kilos</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '850', color: '#475569' }}>Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {workshopOrders.map(order => {
+                            const isPending = order.isPending;
+                            const statusColor = order.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
+                              : order.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
+                              : { bg: '#f1f5f9', color: '#475569' };
+
+                            return (
+                              <tr key={order.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#7c3aed' }}>
+                                  OC-{order.internal_code}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  <div style={{ fontWeight: '700', color: '#0f172a' }}>{order.client_name}</div>
+                                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{order.fabrics?.nombre_tela || 'Tela Externa'}</div>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700' }}>
+                                  {order.workshopGarments}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '800', color: isPending ? '#eab308' : '#94a3b8' }}>
+                                  {order.pendingGarments}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700' }}>
+                                  {Number(order.workshopKilos || 0).toFixed(2)} kg
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                  <span style={{ padding: '0.2rem 0.5rem', borderRadius: '999px', fontSize: '0.625rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color, whiteSpace: 'nowrap' }}>
+                                    {order.status.toUpperCase()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           </div>

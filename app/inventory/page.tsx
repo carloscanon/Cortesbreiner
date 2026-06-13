@@ -21,6 +21,7 @@ export default function InventoryPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<any>({});
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Masters for selection
   const [fabrics, setFabrics] = useState<any[]>([]);
@@ -109,6 +110,17 @@ export default function InventoryPage() {
     setShowModal(true);
   };
 
+  const filteredData = data.filter(item => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      (item.roll_number && item.roll_number.toLowerCase().includes(query)) ||
+      (item.fabrics?.nombre_tela && item.fabrics.nombre_tela.toLowerCase().includes(query)) ||
+      (item.colors?.nombre_color && item.colors.nombre_color.toLowerCase().includes(query)) ||
+      (item.location && item.location.toLowerCase().includes(query))
+    );
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -151,7 +163,9 @@ export default function InventoryPage() {
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input 
               type="text" 
-              placeholder="Buscar por rollo..." 
+              placeholder="Buscar por rollo o tela..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
               style={{ width: '100%', padding: '0.625rem 1rem 0.625rem 3rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
             />
           </div>
@@ -175,7 +189,7 @@ export default function InventoryPage() {
               ) : data.length === 0 ? (
                 <tr><td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>No hay rollos en inventario.</td></tr>
               ) : (
-                data.map((item) => (
+                filteredData.map((item) => (
                   <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '1rem 1.5rem', fontSize: '0.875rem', fontWeight: '700' }}>{item.roll_number}</td>
                     <td style={{ padding: '1rem 1.5rem' }}>

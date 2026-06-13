@@ -229,6 +229,7 @@ export default function MastersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [iva, setIva] = useState(19);
+  const [search, setSearch] = useState('');
  
   useEffect(() => {
     const fetchIva = async () => {
@@ -241,6 +242,7 @@ export default function MastersPage() {
   const config = MASTER_CONFIG[activeTab];
 
   useEffect(() => {
+    setSearch('');
     fetchData();
     const fetchMasters = async () => {
       try {
@@ -436,20 +438,46 @@ export default function MastersPage() {
           <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
              <div style={{ position: 'relative', width: '300px' }}>
                 <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input type="text" placeholder="Buscar..." style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2.5rem', borderRadius: '8px', border: '1px solid var(--border)' }} />
+                <input 
+                  type="text" 
+                  placeholder="Buscar..." 
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2.5rem', borderRadius: '8px', border: '1px solid var(--border)' }} 
+                />
              </div>
           </div>
 
           <div style={{ minHeight: '400px' }}>
-            {loading ? (
-              <div style={{ display: 'flex', padding: '5rem', justifyContent: 'center' }}><Loader2 className="animate-spin" /></div>
-            ) : data.length === 0 ? (
-              <div style={{ padding: '5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No hay datos disponibles.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {data.map((item) => (
-                  <div key={item.id} style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background 0.2s' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flex: 1 }}>
+            {(() => {
+              const filteredData = data.filter(item => {
+                if (!search) return true;
+                const s = search.toLowerCase();
+                const fieldsToSearch = [
+                  item.nombre_tela, item.nombre_color, item.nombre_talla, item.nombre_producto,
+                  item.nombre_taller, item.razon_social, item.nombre_bodega, item.nombre,
+                  item.descripcion, item.concepto, item.empresa_nombre, item.nombre_estado,
+                  item.cod_novedad, item.codigo_tela, item.codigo_color, item.codigo_talla,
+                  item.codigo_referencia, item.codigo, item.nit, item.factura_relacionada,
+                  item.responsable
+                ];
+                return fieldsToSearch.some(field => 
+                  field && String(field).toLowerCase().includes(s)
+                );
+              });
+
+              if (loading) {
+                return <div style={{ display: 'flex', padding: '5rem', justifyContent: 'center' }}><Loader2 className="animate-spin" /></div>;
+              }
+              if (filteredData.length === 0) {
+                return <div style={{ padding: '5rem', textAlign: 'center', color: 'var(--text-muted)' }}>No se encontraron registros.</div>;
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {filteredData.map((item) => (
+                    <div key={item.id} style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background 0.2s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flex: 1 }}>
                       {/* Visual Indicator (Color or Icon) */}
                       {(activeTab === 'colors' || activeTab === 'states') ? (
                         <div style={{ 
@@ -573,9 +601,10 @@ export default function MastersPage() {
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

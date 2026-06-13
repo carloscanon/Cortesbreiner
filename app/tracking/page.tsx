@@ -70,12 +70,14 @@ export default function TrackingPage() {
     }
   };
 
-  const phases = ['Planeada', 'En Corte', 'Cortado', 'En Confección', 'Terminada', 'Cerrada'];
+  const phases = ['Planeada', 'En Corte', 'Tendido', 'Cortando', 'Cortado', 'En Confección', 'Terminada', 'Enviada', 'Cerrada'];
 
   const getStatusStyle = (status: string) => {
     switch(status) {
       case 'Planeada': return { border: '#bfdbfe', bg: '#eff6ff', color: '#2563eb', icon: <Clock size={16} /> };
       case 'En Corte': return { border: '#fef08a', bg: '#fefce8', color: '#a16207', icon: <Scissors size={16} /> };
+      case 'Tendido': return { border: '#ddd6fe', bg: '#f5f3ff', color: '#8b5cf6', icon: <Layers size={16} /> };
+      case 'Cortando': return { border: '#fde68a', bg: '#fffbeb', color: '#d97706', icon: <Scissors size={16} /> };
       case 'Cortado': return { border: '#fed7aa', bg: '#fff7ed', color: '#ea580c', icon: <CheckCircle size={16} /> };
       case 'En Confección': return { border: '#ddd6fe', bg: '#f5f3ff', color: '#7c3aed', icon: <Factory size={16} /> };
       case 'Terminada': return { border: '#bbf7d0', bg: '#f0fdf4', color: '#16a34a', icon: <CheckCircle size={16} /> };
@@ -91,6 +93,7 @@ export default function TrackingPage() {
     const matchesSearch = 
       order.client_name?.toLowerCase().includes(search.toLowerCase()) ||
       order.fabrics?.nombre_tela?.toLowerCase().includes(search.toLowerCase()) ||
+      order.internal_code?.toLowerCase().includes(search.toLowerCase()) ||
       `oc-${order.consecutive?.toString().padStart(4, '0')}`.includes(search.toLowerCase());
     
     const matchesFilter = activeFilter === 'all' || order.status === activeFilter;
@@ -119,8 +122,8 @@ export default function TrackingPage() {
               style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }}
             />
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {['all', 'En Corte', 'Cortado', 'En Confección', 'Terminada'].map(f => (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {['all', 'En Corte', 'Tendido', 'Cortando', 'Cortado', 'En Confección', 'Terminada'].map(f => (
               <button 
                 key={f}
                 onClick={() => setActiveFilter(f)}
@@ -202,6 +205,8 @@ export default function TrackingPage() {
                         >
                           <option value="Planeada">⏳ Planeada</option>
                           <option value="En Corte">✂️ En Corte</option>
+                          <option value="Tendido">📐 Tendido</option>
+                          <option value="Cortando">🔪 Cortando</option>
                           <option value="Cortado">📏 Cortado</option>
                           <option value="En Confección">🧵 En Confección</option>
                           <option value="Terminada">✅ Terminada</option>
