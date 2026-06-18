@@ -9,7 +9,7 @@ import {
   Scissors, Layers, ShirtIcon, Clipboard, Tag, Printer
 } from 'lucide-react';
 
-type Stage = 'preparacion' | 'taller';
+type Stage = 'matriz_corte' | 'accesorios' | 'talleres';
 
 export default function SewingPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -26,7 +26,7 @@ export default function SewingPage() {
 
   // Wizard state
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [currentStage, setCurrentStage] = useState<Stage>('preparacion');
+  const [currentStage, setCurrentStage] = useState<Stage>('matriz_corte');
   const [saving, setSaving] = useState(false);
 
   // Form data
@@ -85,7 +85,7 @@ export default function SewingPage() {
 
   const openWizard = (order: any) => {
     setSelectedOrder(order);
-    setCurrentStage('preparacion');
+    setCurrentStage('matriz_corte');
     setPrepNotes('');
     setDeliveryDate(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
     setWorkshopNotes('');
@@ -591,8 +591,9 @@ export default function SewingPage() {
   const terminadas = filtered.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
 
   const stageConfig: { id: Stage; label: string; icon: any }[] = [
-    { id: 'preparacion', label: 'Preparación y Tallas', icon: Clipboard },
-    { id: 'taller', label: 'Fecha y Despacho', icon: Factory },
+    { id: 'matriz_corte', label: 'Matriz de Corte', icon: Clipboard },
+    { id: 'accesorios', label: 'Accesorios', icon: Tag },
+    { id: 'talleres', label: 'Asignación de Talleres', icon: Factory },
   ];
   const stageIndex = stageConfig.findIndex(s => s.id === currentStage);
 
@@ -793,7 +794,7 @@ export default function SewingPage() {
                 const done = i < stageIndex;
                 const active = i === stageIndex;
                 return (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: i < 1 ? 1 : 'none' }}>
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: i < 2 ? 1 : 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <div style={{
                         width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -808,7 +809,7 @@ export default function SewingPage() {
                         {s.label}
                       </span>
                     </div>
-                    {i < 1 && <div style={{ flex: 1, height: '2px', backgroundColor: done ? '#10b981' : '#e2e8f0', borderRadius: '2px', minWidth: '20px' }} />}
+                    {i < 2 && <div style={{ flex: 1, height: '2px', backgroundColor: done ? '#10b981' : '#e2e8f0', borderRadius: '2px', minWidth: '20px' }} />}
                   </div>
                 );
               })}
@@ -817,11 +818,9 @@ export default function SewingPage() {
             {/* Stage content */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
 
-              {/* ── STAGE 1: Preparación y Asignación de Taller ── */}
-              {currentStage === 'preparacion' && (
+              {/* ── STAGE 1: Matriz de Corte Final (Transpuesta & Informativo) ── */}
+              {currentStage === 'matriz_corte' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  
-                  {/* Final Cut Matrix */}
                   <div style={{ padding: '1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe' }}>
                     <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#4c1d95', margin: '0 0 0.5rem' }}>Matriz de Corte Final</h3>
                     <p style={{ fontSize: '0.75rem', color: '#6d28d9', margin: '0 0 1rem' }}>
@@ -833,45 +832,44 @@ export default function SewingPage() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                           <thead>
                             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
-                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
-                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
-                              {uniqueSizes.map(sz => (
-                                <th key={sz} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>{sz}</th>
+                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Talla</th>
+                              {matrixRowEntries.map(([rowKey, row]) => (
+                                <th key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
+                                  <div style={{ fontWeight: '900', color: '#0f172a' }}>{row.productName}</div>
+                                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>{row.fabricName}</div>
+                                </th>
                               ))}
-                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', backgroundColor: '#f1f5f9' }}>Total</th>
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', backgroundColor: '#f1f5f9' }}>Total Talla</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {matrixRowEntries.map(([rowKey, row]) => (
-                              <tr key={rowKey} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '0.6rem', fontWeight: '700', color: '#0f172a' }}>{row.productName}</td>
-                                <td style={{ padding: '0.6rem', color: '#475569' }}>{row.fabricName}</td>
-                                <td style={{ padding: '0.6rem', color: '#475569' }}>{row.categoryName}</td>
-                                {uniqueSizes.map(sz => {
-                                  const qty = row.sizes[sz] || 0;
-                                  return (
-                                    <td key={sz} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '700', color: qty > 0 ? '#7c3aed' : '#94a3b8' }}>
-                                      {qty || '—'}
-                                    </td>
-                                  );
-                                })}
-                                <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f8fafc' }}>
-                                  {row.total}
-                                </td>
-                              </tr>
-                            ))}
-                            {/* Totals row */}
-                            <tr style={{ backgroundColor: '#f1f5f9', fontWeight: '900', borderTop: '2px solid #cbd5e1' }}>
-                              <td style={{ padding: '0.6rem' }} colSpan={3}>TOTALES</td>
-                              {uniqueSizes.map(sz => {
-                                const totalForSize = Object.values(matrixRows).reduce((sum, r) => sum + (r.sizes[sz] || 0), 0);
-                                return (
-                                  <td key={sz} style={{ padding: '0.6rem', textAlign: 'center', color: '#0f172a' }}>
+                            {uniqueSizes.map(sz => {
+                              const totalForSize = Object.values(matrixRows).reduce((sum, r) => sum + (r.sizes[sz] || 0), 0);
+                              return (
+                                <tr key={sz} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.6rem', fontWeight: '900', color: '#7c3aed' }}>{sz}</td>
+                                  {matrixRowEntries.map(([rowKey, row]) => {
+                                    const qty = row.sizes[sz] || 0;
+                                    return (
+                                      <td key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '700', color: qty > 0 ? '#1e293b' : '#cbd5e1' }}>
+                                        {qty || '—'}
+                                      </td>
+                                    );
+                                  })}
+                                  <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f8fafc' }}>
                                     {totalForSize}
                                   </td>
-                                );
-                              })}
+                                </tr>
+                              );
+                            })}
+                            {/* Totals row */}
+                            <tr style={{ backgroundColor: '#f1f5f9', fontWeight: '900', borderTop: '2px solid #cbd5e1' }}>
+                              <td style={{ padding: '0.6rem' }}>TOTALES</td>
+                              {matrixRowEntries.map(([rowKey, row]) => (
+                                <td key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950' }}>
+                                  {row.total}
+                                </td>
+                              ))}
                               <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950', backgroundColor: '#e2e8f0' }}>
                                 {Object.values(matrixRows).reduce((sum, r) => sum + r.total, 0)}
                               </td>
@@ -883,8 +881,12 @@ export default function SewingPage() {
                       <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>No hay información de corte.</p>
                     )}
                   </div>
+                </div>
+              )}
 
-                  {/* Accessories by Reference and Color */}
+              {/* ── STAGE 2: Asignación de Accesorios por Referencia y Color ── */}
+              {currentStage === 'accesorios' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   <div style={{ padding: '1.25rem', backgroundColor: '#faf5ff', borderRadius: '12px', border: '1.5px solid #e8d5c4' }}>
                     <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#7c2d12', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                       <Tag size={16} /> Accesorios por Referencia y Color
@@ -972,81 +974,77 @@ export default function SewingPage() {
                       })}
                     </div>
                   </div>
+                </div>
+              )}
 
-                  {/* Workshop lists grouped strictly by Category */}
+              {/* ── STAGE 3: Asignación de Talleres por Categoría y Talla + Despacho ── */}
+              {currentStage === 'talleres' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  
+                  {/* Transposed workshop assignment grid */}
                   {categoryAssignmentEntries.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.2rem' }}>
                         Asignación de Talleres por Categoría y Talla
                       </label>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                        {categoryAssignmentEntries.map(([catId, cat]) => {
-                          const sizeEntries = Object.entries(cat.sizes).filter(([_, qty]) => qty > 0);
-                          if (sizeEntries.length === 0) return null;
-
-                          // Sort size entries according to sizesMaster visual order
-                          sizeEntries.sort((a, b) => {
-                            const idxA = sizesMaster.findIndex(s => s.codigo_talla === a[0]);
-                            const idxB = sizesMaster.findIndex(s => s.codigo_talla === b[0]);
-                            if (idxA === -1) return 1;
-                            if (idxB === -1) return -1;
-                            return idxA - idxB;
-                          });
-
-                          return (
-                            <div key={catId} style={{
-                              backgroundColor: '#f8fafc', borderRadius: '12px',
-                              border: '1.5px solid #e2e8f0', overflow: 'hidden'
-                            }}>
-                              {/* Header for Category */}
-                              <div style={{
-                                padding: '0.75rem 1rem', backgroundColor: '#f1f5f9',
-                                borderBottom: '1px solid #e2e8f0', display: 'flex',
-                                justifyContent: 'space-between', alignItems: 'center'
-                              }}>
-                                <span style={{ fontWeight: '850', fontSize: '0.85rem', color: '#0f172a' }}>
-                                  📦 Categoría: {cat.categoryName}
-                                </span>
-                                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
-                                  Total: {cat.total} uds
-                                </span>
-                              </div>
-
-                              {/* Nested Tallas for selection */}
-                              <div style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                                {sizeEntries.map(([sz, qty]) => {
+                      <div style={{ overflowX: 'auto', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '0.5rem' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', minWidth: '100px' }}>Talla</th>
+                              {categoryAssignmentEntries.map(([catId, cat]) => (
+                                <th key={catId} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
+                                  📦 {cat.categoryName}
+                                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Total: {cat.total} uds</div>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {uniqueSizes.map(sz => (
+                              <tr key={sz} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '0.6rem', fontWeight: '900', color: '#7c3aed' }}>
+                                  Talla {sz}
+                                </td>
+                                {categoryAssignmentEntries.map(([catId, cat]) => {
+                                  const qty = cat.sizes[sz] || 0;
                                   const cellKey = `${catId}_${sz}`;
+                                  if (qty === 0) {
+                                    return (
+                                      <td key={cellKey} style={{ padding: '0.6rem', textAlign: 'center', color: '#cbd5e1', backgroundColor: '#f8fafc' }}>
+                                        —
+                                      </td>
+                                    );
+                                  }
                                   return (
-                                    <div key={cellKey} style={{
-                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                      padding: '0.5rem 0.75rem', backgroundColor: 'white', borderRadius: '8px',
-                                      border: `1px solid ${rowWorkshops[cellKey] ? '#bbf7d0' : '#e2e8f0'}`
-                                    }}>
-                                      <div>
-                                        <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#334155' }}>
-                                          Talla <strong style={{ color: '#7c3aed', fontSize: '0.85rem' }}>{sz}</strong>
+                                    <td key={cellKey} style={{ padding: '0.6rem', border: `1px solid ${rowWorkshops[cellKey] ? '#bbf7d0' : '#f1f5f9'}` }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>
+                                          {qty} uds
                                         </span>
-                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginLeft: '0.5rem' }}>
-                                          ({qty} uds)
-                                        </span>
+                                        <select
+                                          value={rowWorkshops[cellKey] || ''}
+                                          onChange={e => setRowWorkshops(prev => ({ ...prev, [cellKey]: e.target.value }))}
+                                          style={{
+                                            padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1',
+                                            fontSize: '0.72rem', backgroundColor: 'white', width: '100%', minWidth: '130px',
+                                            borderColor: rowWorkshops[cellKey] ? '#22c55e' : '#cbd5e1',
+                                            boxShadow: rowWorkshops[cellKey] ? '0 0 0 1px #22c55e' : 'none'
+                                          }}
+                                        >
+                                          <option value="">Seleccionar Taller...</option>
+                                          {workshops.map(w => (
+                                            <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                                          ))}
+                                        </select>
                                       </div>
-                                      <select
-                                        value={rowWorkshops[cellKey] || ''}
-                                        onChange={e => setRowWorkshops(prev => ({ ...prev, [cellKey]: e.target.value }))}
-                                        style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white', minWidth: '200px' }}
-                                      >
-                                        <option value="">Seleccionar Taller Satélite...</option>
-                                        {workshops.map(w => (
-                                          <option key={w.id} value={w.id}>{w.nombre_taller} ({w.responsable})</option>
-                                        ))}
-                                      </select>
-                                    </div>
+                                    </td>
                                   );
                                 })}
-                              </div>
-                            </div>
-                          );
-                        })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   )}
@@ -1059,15 +1057,10 @@ export default function SewingPage() {
                       placeholder="Ej. Piezas verificadas, sin faltantes, listas para empaque..."
                       value={prepNotes}
                       onChange={e => setPrepNotes(e.target.value)}
-                      style={{ width: '100%', padding: '0.875rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', minHeight: '80px', resize: 'vertical' }}
+                      style={{ width: '100%', padding: '0.875rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', minHeight: '60px', resize: 'vertical' }}
                     />
                   </div>
-                </div>
-              )}
 
-              {/* ── STAGE 2: Fecha y Despacho ── */}
-              {currentStage === 'taller' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                       Fecha Compromiso de Entrega General
@@ -1088,7 +1081,7 @@ export default function SewingPage() {
                       placeholder="Instrucciones especiales, referencias de costuras, acabados..."
                       value={workshopNotes}
                       onChange={e => setWorkshopNotes(e.target.value)}
-                      style={{ width: '100%', padding: '0.875rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', minHeight: '90px', resize: 'vertical' }}
+                      style={{ width: '100%', padding: '0.875rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', minHeight: '60px', resize: 'vertical' }}
                     />
                   </div>
 
@@ -1150,23 +1143,6 @@ export default function SewingPage() {
                 <button
                   className="btn btn-primary"
                   onClick={() => {
-                    if (stageIndex === 0) {
-                      // Validate workshop assignment for each non-zero cell key in categoryAssignments
-                      let missing = false;
-                      Object.entries(categoryAssignments).forEach(([catId, cat]) => {
-                        Object.entries(cat.sizes).forEach(([sz, qty]) => {
-                          if (qty > 0) {
-                            const cellKey = `${catId}_${sz}`;
-                            if (!rowWorkshops[cellKey]) {
-                              missing = true;
-                            }
-                          }
-                        });
-                      });
-                      if (missing) {
-                        return alert('Por favor, asigne un taller a todas las categorías y tallas antes de continuar.');
-                      }
-                    }
                     setCurrentStage(stageConfig[stageIndex + 1].id);
                   }}
                   style={{ padding: '0.75rem 2rem', fontWeight: '800', backgroundColor: '#7c3aed', border: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
