@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import {
   Truck, Factory, CheckCircle, Clock, Search,
   Loader2, Package, ArrowRight, ArrowLeft, Plus, X,
@@ -368,6 +369,9 @@ export default function SewingPage() {
           const { error: accDbErr } = await supabase.from('sewing_accessories').insert(accessoriesToInsert);
           if (accDbErr) console.warn("DB accessories insert failed:", accDbErr.message);
         }
+
+        // ── MOVIMIENTOS DE INVENTARIO → estado: 'confeccion' ────────────────────────────
+        await syncOrderMovements(selectedOrder.id, 'En Confección');
       } catch (dbErr: any) {
         console.warn("DB operations failed (check schema):", dbErr.message);
       }

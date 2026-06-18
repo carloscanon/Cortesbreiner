@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Plus, Search, Trash2, X, Loader2, AlertTriangle, 
   Scissors, Layers, Info, ArrowRight, Factory, Droplets, Printer,
@@ -50,10 +51,17 @@ export default function OrdersPage() {
   const [longitud, setLongitud] = useState<string>('1');
 
   const handleLongitudChange = (valStr: string) => {
-    // Permite tipear decimales libremente (e.g. '1.', '1.5', '0.')
-    // Solo acepta números y un punto decimal
     if (valStr === '' || /^\d*\.?\d*$/.test(valStr)) {
       setLongitud(valStr);
+      const valNum = parseFloat(valStr) || 0;
+      setFabricColors(prev => prev.map(fc => {
+        const rowLng = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : 0;
+        const layers = rowLng > 0 && valNum > 0 ? Math.round(rowLng / valNum) : '';
+        return {
+          ...fc,
+          layers: layers ? String(layers) : ''
+        };
+      }));
     }
   };
 
@@ -193,7 +201,19 @@ export default function OrdersPage() {
     setFabricColors(prev => prev.filter(fc => fc.id !== id));
 
   const updateFabricColor = (id: number, field: string, value: any) =>
-    setFabricColors(prev => prev.map(fc => fc.id === id ? { ...fc, [field]: value } : fc));
+    setFabricColors(prev => prev.map(fc => {
+      if (fc.id === id) {
+        const updated = { ...fc, [field]: value };
+        if (field === 'longitud_row') {
+          const rowLng = Number(value) || 0;
+          const valNum = parseFloat(longitud) || 0;
+          const layers = rowLng > 0 && valNum > 0 ? Math.round(rowLng / valNum) : '';
+          updated.layers = layers ? String(layers) : '';
+        }
+        return updated;
+      }
+      return fc;
+    }));
 
   // ── CORTES ADICIONALES ────────────────────────────────────────────────────
   const [cortesAdicionales, setCortesAdicionales] = useState<any[]>([]);
@@ -489,17 +509,21 @@ export default function OrdersPage() {
       if (error) throw error;
       
       if (data && data.length > 0) {
-        const newFabricColors = data.map(fabric => ({
-          id: Math.random(),
-          color_id: '', 
-          kilos: fabric.kilos || '',
-          metros: fabric.metros || '',
-          layers: fabric.capas ? Math.round(Number(fabric.capas)) : '',
-          observation: '',
-          fabric_id: fabric.id,
-          nombre_tela: fabric.nombre_tela,
-          capas_definidas: fabric.capas ? Math.round(Number(fabric.capas)) : ''
-        }));
+        const newFabricColors = data.map(fabric => {
+          const cap = fabric.capas ? Math.round(Number(fabric.capas)) : 0;
+          return {
+            id: Math.random(),
+            color_id: '', 
+            kilos: fabric.kilos || '',
+            metros: fabric.metros || '',
+            layers: cap ? String(cap) : '',
+            longitud_row: cap > 0 ? String(cap * longitudNum) : '',
+            observation: '',
+            fabric_id: fabric.id,
+            nombre_tela: fabric.nombre_tela,
+            capas_definidas: cap ? String(cap) : ''
+          };
+        });
         setFabricColors(newFabricColors);
       } else {
         alert('No se encontraron telas asociadas a este número de factura.');
@@ -526,17 +550,21 @@ export default function OrdersPage() {
       if (error) throw error;
       
       if (data && data.length > 0) {
-        const newFabricColors = data.map(fabric => ({
-          id: Math.random(),
-          color_id: '', 
-          kilos: fabric.kilos || '',
-          metros: fabric.metros || '',
-          layers: fabric.capas ? Math.round(Number(fabric.capas)) : '',
-          observation: '',
-          fabric_id: fabric.id,
-          nombre_tela: fabric.nombre_tela,
-          capas_definidas: fabric.capas ? Math.round(Number(fabric.capas)) : ''
-        }));
+        const newFabricColors = data.map(fabric => {
+          const cap = fabric.capas ? Math.round(Number(fabric.capas)) : 0;
+          return {
+            id: Math.random(),
+            color_id: '', 
+            kilos: fabric.kilos || '',
+            metros: fabric.metros || '',
+            layers: cap ? String(cap) : '',
+            longitud_row: cap > 0 ? String(cap * longitudNum) : '',
+            observation: '',
+            fabric_id: fabric.id,
+            nombre_tela: fabric.nombre_tela,
+            capas_definidas: cap ? String(cap) : ''
+          };
+        });
         
         setFabricColors(prev => {
           const filteredPrev = prev.filter(fc => fc.nombre_tela || fc.fabric_id);
@@ -749,7 +777,7 @@ export default function OrdersPage() {
 
       const firstProductId = cutsData?.[0]?.product_id || '';
       const orderStrokeLength = cutsData?.[0]?.stroke_length || 1;
-      setLongitud(String(orderStrokeLength));
+      setLongitud(order.largo_trazo ? String(order.largo_trazo) : String(orderStrokeLength));
 
       let fetchedFabrics: any[] = [];
       if (order.brand) {
@@ -809,6 +837,7 @@ export default function OrdersPage() {
               kilos: totalKilos || f.kilos || '',
               metros: f.metros || '',
               layers: maxLayers || '',
+              longitud_row: Number(maxLayers) > 0 ? String(Number(maxLayers) * orderStrokeLength) : '',
               observation: '',
               fabric_id: f.id,
               nombre_tela: f.nombre_tela || 'Tela Cargada',
@@ -820,7 +849,7 @@ export default function OrdersPage() {
           const uniqueKeys = Array.from(new Set(cutsData.map((c: any) =>
             c.fabric_id ? `fab_${c.fabric_id}` : `col_${c.color_id || 'null'}`
           )));
-          fCols = uniqueKeys.map((key: string) => {
+           fCols = uniqueKeys.map((key: string) => {
             const isFabric = key.startsWith('fab_');
             const refId = key.substring(4);
             const colorCuts = cutsData.filter((c: any) =>
@@ -829,16 +858,23 @@ export default function OrdersPage() {
             const firstCut = colorCuts[0];
             const totalKilosForColor = colorCuts.reduce((sum: number, c: any) => sum + (Number(c.kilos) || 0), 0);
             const maxLayersForColor = Math.max(...colorCuts.map((c: any) => Number(c.layers) || 0));
+            const fabricObj = fabrics.find(f => String(f.id) === String(firstCut.fabric_id));
+            const rend = fabricObj ? (Number(fabricObj.rendimiento_estimado) || 3.5) : 3.5;
+            const strokeLng = Number(firstCut.stroke_length) || 1;
+            const longRow = String(maxLayersForColor * strokeLng);
+
             return {
               id: Math.random(),
               color_id: firstCut.color_id || '',
               kilos: totalKilosForColor || '',
-              metros: firstCut.metros || '',
+              metros: fabricObj ? fabricObj.metros : (firstCut.metros || ''),
               layers: maxLayersForColor || '',
               observation: '',
               fabric_id: firstCut.fabric_id || '',
-              nombre_tela: 'Tela Manual',
-              capas_definidas: ''
+              nombre_tela: fabricObj ? fabricObj.nombre_tela : 'Tela Manual',
+              capas_definidas: fabricObj ? String(fabricObj.capas || '') : '',
+              longitud_row: longRow,
+              rendimiento_estimado: rend
             };
           });
         }
@@ -960,7 +996,19 @@ export default function OrdersPage() {
         priority: formData.priority,
         order_type: formData.order_type,
         capas_proyectadas: totalLayersSummary,
-        total_kilos_proyectados: fabricColors.reduce((sum, fc) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0) + cortesAdicionales.reduce((acc, c) => acc + c.fabricColors.reduce((sum: number, fc: any) => sum + (fc.longitud_row ? Number(fc.longitud_row) : 0), 0), 0),
+        largo_trazo: longitudNum,
+        total_kilos_proyectados: (
+          fabricColors.reduce((sum, fc) => {
+            const metros = fc.longitud_row ? Number(fc.longitud_row) : 0;
+            const rendimiento = Number(fc.rendimiento_estimado) > 0 ? Number(fc.rendimiento_estimado) : 3.5;
+            return sum + (metros / rendimiento);
+          }, 0)
+          + cortesAdicionales.reduce((acc, c) => acc + c.fabricColors.reduce((sum: number, fc: any) => {
+            const metros = fc.longitud_row ? Number(fc.longitud_row) : 0;
+            const rendimiento = Number(fc.rendimiento_estimado) > 0 ? Number(fc.rendimiento_estimado) : 3.5;
+            return sum + (metros / rendimiento);
+          }, 0), 0)
+        ),
         observaciones: formData.observaciones,
         cortador_name: formData.cortador_name,
         scheduled_date: formData.scheduled_date
@@ -1044,7 +1092,9 @@ export default function OrdersPage() {
             return sum;
           })();
           const itemUnits = qty1 + qty2;
-          const fcKilos = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * longitudNum);
+          const fcMetros = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * longitudNum);
+          const fcRendimiento = Number(fc.rendimiento_estimado) > 0 ? Number(fc.rendimiento_estimado) : 3.5;
+          const fcKilos = fcMetros / fcRendimiento;
           const itemKilos = totalUnitsForFc > 0 ? (fcKilos * itemUnits / totalUnitsForFc) : 0;
 
           const { data: newCut, error: cutError } = await supabase
@@ -1057,7 +1107,8 @@ export default function OrdersPage() {
               kilos: itemKilos,
               layers: fcLayers,
               consumption: Number(consumoPrenda) || 0,
-              stroke_length: longitudNum
+              // stroke_length = longitud_row / layers para que stroke_length × layers = longitud_row exactamente
+              stroke_length: fcLayers > 0 ? (fcMetros / fcLayers) : longitudNum
             }])
             .select()
             .single();
@@ -1116,7 +1167,9 @@ export default function OrdersPage() {
               return sum;
             })();
             const itemUnits = qty1 + qty2;
-            const fcKilos = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * corteLongitudNum);
+            const fcMetros = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (fcLayers * corteLongitudNum);
+            const fcRendimiento = Number(fc.rendimiento_estimado) > 0 ? Number(fc.rendimiento_estimado) : 3.5;
+            const fcKilos = fcMetros / fcRendimiento;
             const itemKilos = totalUnitsForFc > 0 ? (fcKilos * itemUnits / totalUnitsForFc) : 0;
 
             const { data: newCut, error: cutError } = await supabase
@@ -1129,7 +1182,8 @@ export default function OrdersPage() {
                 kilos: itemKilos,
                 layers: fcLayers,
                 consumption: Number(consumoPrenda) || 0,
-                stroke_length: corteLongitudNum
+                // stroke_length = fcMetros / layers para que stroke_length × layers = longitud_row exactamente
+                stroke_length: fcLayers > 0 ? (fcMetros / fcLayers) : corteLongitudNum
               }])
               .select()
               .single();
@@ -1159,6 +1213,12 @@ export default function OrdersPage() {
         }
       }
 
+      // ── REGISTRAR MOVIMIENTO DE INVENTARIO INICIAL ───────────────────────
+      // Crea/actualiza los movimientos en inventory_movements con metros_planeados reales
+      if (orderId) {
+        await syncOrderMovements(String(orderId), formData.status || 'Planeada');
+      }
+
       setStep(3); 
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -1182,6 +1242,11 @@ export default function OrdersPage() {
         .eq('id', currentOrderId || editingId);
       
       if (error) throw error;
+      
+      const updatedId = currentOrderId || editingId;
+      if (updatedId) {
+        await syncOrderMovements(String(updatedId), 'En Corte');
+      }
       
       setShowModal(false);
       setStep(1);
@@ -1478,42 +1543,76 @@ export default function OrdersPage() {
 
               {/* Telas programadas */}
               {(() => {
-                const uniqueFabricIds = Array.from(new Set(viewCuts.map((c: any) => c.fabric_id).filter(Boolean)));
-                const fabricRows = uniqueFabricIds.length > 0
-                  ? uniqueFabricIds.map(fid => {
-                      const fc = viewCuts.filter((c: any) => String(c.fabric_id) === String(fid));
-                      const first = fc[0];
-                      return { fabric_id: fid, layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)), kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), label: first?.fabric_id ? `Tela ID ${fid}` : 'Tela', firstCut: first };
-                    })
-                  : [{ fabric_id: null, layers: viewCuts[0]?.layers || 0, kilos: viewCuts.reduce((s, c) => s + (Number(c.kilos) || 0), 0), label: 'Tela programada', firstCut: viewCuts[0] }];
+                // Helper: deduplicar tendidas por stroke_length para no multiplicar metros por nº de tallas
+                const calcMetrosByTendida = (cutsList: any[]) => {
+                  const tendidaMap: Record<string, number> = {};
+                  cutsList.forEach((c: any) => {
+                    const key = String(Number(c.stroke_length) || 0);
+                    const layers = Number(c.layers) || 0;
+                    tendidaMap[key] = Math.max(tendidaMap[key] || 0, layers);
+                  });
+                  return Object.entries(tendidaMap).reduce((sum, [stroke, layers]) => sum + Number(stroke) * layers, 0);
+                };
 
-                // Intentar enricher con fabrics maestro y categorías
-                const enriched = fabricRows.map(row => {
-                  const prod = products.find(p => String(p.id) === String(row.firstCut?.product_id));
-                  const cat = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
-                  return { 
-                    ...row, 
-                    categoria: cat ? cat.categoria : (prod ? prod.nombre_producto : '---')
-                  };
-                });
+                const uniqueFabricColorKeys = Array.from(new Set(
+                  viewCuts
+                    .filter((c: any) => c.fabric_id)
+                    .map((c: any) => `${c.fabric_id}___${c.color_id || 'none'}`)
+                ));
+
+                const fabricRows = uniqueFabricColorKeys.length > 0
+                  ? uniqueFabricColorKeys.map((key: string) => {
+                      const [fid, colorKey] = key.split('___');
+                      const colorId = colorKey === 'none' ? null : colorKey;
+                      const fc = viewCuts.filter((c: any) =>
+                        String(c.fabric_id) === fid &&
+                        String(c.color_id || 'none') === (colorId || 'none')
+                      );
+                      const first = fc[0];
+                      const fabricObj = fabrics.find((f: any) => String(f.id) === fid);
+                      const colorObj = colors.find((c: any) => String(c.id) === String(first?.color_id));
+                      const totalMetros = calcMetrosByTendida(fc);
+                      return { 
+                        fabric_id: fid,
+                        color_id: colorId,
+                        nombre_tela: fabricObj ? fabricObj.nombre_tela : 'Tela Manual',
+                        nombre_color: colorObj ? colorObj.nombre_color : '',
+                        layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)), 
+                        metros: totalMetros,
+                        kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), 
+                        firstCut: first 
+                      };
+                    })
+                  : [{ 
+                      fabric_id: null,
+                      color_id: null,
+                      nombre_tela: 'Tela Programada',
+                      nombre_color: '',
+                      layers: viewCuts[0]?.layers || 0, 
+                      metros: calcMetrosByTendida(viewCuts),
+                      kilos: viewCuts.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0), 
+                      firstCut: viewCuts[0] 
+                    }];
 
                 return (
                   <div>
                     <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Categorías Programadas ({enriched.length})
+                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Telas Programadas ({fabricRows.length})
                     </h3>
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ backgroundColor: '#f1f5f9' }}>
-                            {['Categoría', 'Capas', 'Kilos'].map(h => <th key={h} style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: h === 'Categoría' ? 'left' : 'center', textTransform: 'uppercase' }}>{h}</th>)}
+                            {['Tela', 'Color', 'Capas', 'Metros', 'Kilos'].map(h => <th key={h} style={{ padding: '0.65rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textAlign: h === 'Tela' || h === 'Color' ? 'left' : 'center', textTransform: 'uppercase' }}>{h}</th>)}
                           </tr>
                         </thead>
                         <tbody>
-                          {enriched.map((row, i) => (
+                          {fabricRows.map((row, i) => (
                             <tr key={i} style={{ borderTop: '1px solid #f1f5f9', backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', fontSize: '0.875rem' }}>{row.categoria}</td>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', fontSize: '0.875rem' }}>{row.nombre_tela}</td>
+                              <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#475569' }}>{row.nombre_color || '---'}</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: '#6366f1' }}>{Math.round(row.layers)}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '700', color: '#10b981' }}>{Number(row.metros).toFixed(2)} m</td>
                               <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '700', color: '#0ea5e9' }}>{Number(row.kilos).toFixed(2)} kg</td>
                             </tr>
                           ))}
@@ -1786,28 +1885,21 @@ export default function OrdersPage() {
                                   min="0.01"
                                   placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : longitud}
                                   value={fc.longitud_row !== undefined ? fc.longitud_row : ''}
-                                  onChange={e => updateFabricColor(fc.id, 'longitud_row', e.target.value)}
+                                  onChange={e => {
+                                      updateFabricColor(fc.id, 'longitud_row', e.target.value);
+                                      const rowLngVal = Number(e.target.value);
+                                      const newLayers = rowLngVal && longitudNum > 0 ? Math.round(rowLngVal / longitudNum) : '';
+                                      updateFabricColor(fc.id, 'layers', newLayers);
+                                  }}
                                   disabled={!fc.metros || Number(fc.metros) <= 0}
                                   style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
                                 />
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                 {(() => {
-                                   const longitudNum = Number(longitud);
-                                   const rowLng = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : null;
-                                   const capasCalc = rowLng && longitudNum > 0 ? Math.round(rowLng / longitudNum) : '---';
-                                   // sync layers state
-                                   const numVal = rowLng && longitudNum > 0 ? Math.round(rowLng / longitudNum) : '';
-                                   if (fc.layers !== numVal) {
-                                     setTimeout(() => updateFabricColor(fc.id, 'layers', numVal), 0);
-                                   }
-                                   return (
-                                     <div style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a', backgroundColor: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', display: 'inline-block', minWidth: '80px' }}>
-                                       {capasCalc}
-                                     </div>
-                                   );
-                                 })()}
-                               </td>
+                                <div style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a', backgroundColor: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', display: 'inline-block', minWidth: '80px' }}>
+                                  {fc.layers || '---'}
+                                </div>
+                              </td>
                               <td style={{ padding: '0.75rem' }}>
                                 <input type="text" placeholder="Ej: Lote X" style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0' }} value={fc.observation} onChange={e => updateFabricColor(fc.id, 'observation', e.target.value)} />
                               </td>
@@ -2469,8 +2561,8 @@ export default function OrdersPage() {
                                 ? Number(fc.longitud_row) 
                                 : (capProg * (fc.isExtra ? (Number(fc.longitud) || 1) : longitudNum));
                               
-                              const kilosRatio = (Number(fc.kilos) && Number(fc.metros)) ? (Number(fc.kilos) / Number(fc.metros)) : 0;
-                              const estimatedKilos = kilosRatio > 0 ? (estimatedMetros * kilosRatio) : 0;
+                              const rendimiento = Number(fc.rendimiento_estimado) > 0 ? Number(fc.rendimiento_estimado) : 3.5;
+                              const estimatedKilos = estimatedMetros / rendimiento;
 
                               return (
                                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: over ? '#fef2f2' : 'white' }}>

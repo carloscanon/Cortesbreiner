@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Scissors, 
   ArrowLeft, 
@@ -168,6 +169,7 @@ export default function CutDetailsPage() {
         .eq('id', orderId);
 
       if (error) throw error;
+      await syncOrderMovements(String(orderId), 'En Corte');
       
       setOrder({ ...order, status: 'En Corte' });
     } catch (err: any) {
@@ -225,6 +227,8 @@ export default function CutDetailsPage() {
         .eq('id', orderId);
 
       if (orderErr) throw orderErr;
+
+      await syncOrderMovements(String(orderId), 'Tendido');
 
       alert('¡Tendido completado y registrado con éxito!');
       router.push('/cutting');
@@ -301,6 +305,8 @@ export default function CutDetailsPage() {
         .eq('id', orderId);
 
       if (orderErr) throw orderErr;
+
+      await syncOrderMovements(String(orderId), order.status || 'En Corte');
 
       alert('Avance parcial registrado con éxito.');
       setShowProgressModal(false);
@@ -458,7 +464,9 @@ export default function CutDetailsPage() {
                 <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', margin: '0 0 0.5rem 0' }}>Largo del Trazo (Mts)</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Scissors size={16} style={{ color: 'var(--primary)' }} />
-                  <span style={{ fontSize: '0.9rem', fontWeight: '800', color: '#1e293b' }}>{cuts[0]?.stroke_length ? `${cuts[0].stroke_length} mts` : '1.00 mt'}</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: '800', color: '#1e293b' }}>
+                    {order?.largo_trazo ? `${Number(order.largo_trazo).toFixed(2)} mts` : cuts[0]?.stroke_length ? `${Number(cuts[0].stroke_length).toFixed(2)} mts` : '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -517,7 +525,7 @@ export default function CutDetailsPage() {
                 // ── FILA SEPARADORA / HEADER DEL GRUPO ──
                 rows.push(
                   <tr key={`header-${strokeVal}`}>
-                    <td colSpan={6} style={{ padding: 0 }}>
+                    <td colSpan={7} style={{ padding: 0 }}>
                       <div style={{
                         background: p.headerBg,
                         padding: '0.55rem 1.25rem',
@@ -531,7 +539,13 @@ export default function CutDetailsPage() {
                           {label}
                         </span>
                         <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', fontWeight: '600' }}>
-                          — Longitud del corte: {strokeVal} cm
+                          — Largo de Trazo: {Number(strokeVal).toFixed(2)} m
+                        </span>
+                        <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', fontWeight: '600', marginLeft: '1rem' }}>
+                          — Metros Totales: {(() => {
+                            const groupLayers = groupCuts[0]?.layers ? Math.max(...groupCuts.map((c: any) => Number(c.layers) || 0)) : 0;
+                            return (strokeVal * groupLayers).toFixed(2);
+                          })()} m
                         </span>
                         <span style={{
                           marginLeft: 'auto',
@@ -602,6 +616,9 @@ export default function CutDetailsPage() {
                           <div style={{ fontWeight: '800', color: '#1e293b' }}>{telaName}</div>
                         </div>
                       </td>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#10b981' }}>
+                        {(Number(groupedCut.stroke_length) * Number(groupedCut.layers)).toFixed(2)} m
+                      </td>
                       <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#b45309' }}>{Number(groupedCut.kilos || 0).toFixed(2)} kg</td>
                       <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
@@ -640,6 +657,7 @@ export default function CutDetailsPage() {
                     <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
                       <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Corte</th>
                       <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tela</th>
+                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Metros Planificados</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase' }}>Estimación Kilos</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>Capas Programadas</th>
                       <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#059669', textTransform: 'uppercase', minWidth: '130px' }}>Capas Producidas</th>
@@ -648,7 +666,7 @@ export default function CutDetailsPage() {
                   </thead>
                   <tbody>
                     {cuts.length === 0 ? (
-                      <tr><td colSpan={6} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>
+                      <tr><td colSpan={7} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>
                     ) : rows}
                   </tbody>
                 </table>

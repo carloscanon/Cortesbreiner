@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Scissors, 
   Clock, 
@@ -54,6 +55,8 @@ export default function CuttingDashboard() {
     fetchOrders();
   }, []);
 
+
+
   const handleStartCut = async (id: number) => {
     try {
       const { error } = await supabase
@@ -62,6 +65,7 @@ export default function CuttingDashboard() {
         .eq('id', id);
 
       if (error) throw error;
+      await syncOrderMovements(String(id), 'En Corte');
       fetchOrders();
     } catch (err: any) {
       alert('Error al iniciar el corte: ' + err.message);

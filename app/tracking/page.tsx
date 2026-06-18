@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Package, Truck, CheckCircle, Clock, Search, Filter, 
   MessageSquare, Loader2, Save, Calendar, Scissors,
@@ -49,6 +50,9 @@ export default function TrackingPage() {
         .eq('id', id);
       
       if (error) throw error;
+
+      await syncOrderMovements(id, status);
+
       fetchData();
     } catch (err: any) {
       alert('Error al actualizar estado: ' + err.message);

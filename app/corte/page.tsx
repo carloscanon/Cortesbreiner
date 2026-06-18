@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Scissors, 
   Clock, 
@@ -204,6 +205,8 @@ export default function CorteDashboard() {
 
       if (error) throw error;
 
+      await syncOrderMovements(selectedOrder.id, 'Cortado');
+
       alert('¡Corte finalizado y registrado con éxito!');
       setSelectedOrder(null);
       fetchOrders();
@@ -223,6 +226,8 @@ export default function CorteDashboard() {
         .eq('id', orderId);
 
       if (error) throw error;
+
+      await syncOrderMovements(orderId, 'Cortando');
       
       setSelectedOrder((prev: any) => ({ ...prev, status: 'Cortando' }));
       fetchOrders();
@@ -500,7 +505,7 @@ export default function CorteDashboard() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                        {['Trazo', 'Tela / Color', 'Largo (cm)', 'Capas Proy.', 'Capas Reales', 'Δ Capas', 'Prendas Proy.', 'Prendas Reales', 'Δ Prendas', 'Kilos', 'Eficiencia'].map(h => (
+                        {['Trazo', 'Tela / Color', 'Largo (Mts)', 'Capas Proy.', 'Capas Reales', 'Δ Capas', 'Prendas Proy.', 'Prendas Reales', 'Δ Prendas', 'Kilos', 'Eficiencia'].map(h => (
                           <th key={h} style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -526,7 +531,7 @@ export default function CorteDashboard() {
                             <td style={{ padding: '1rem', fontSize: '0.85rem' }}>
                               <span style={{ fontWeight: '700' }}>{telaName}</span>
                             </td>
-                            <td style={{ padding: '1rem', fontSize: '0.85rem' }}>{cut.stroke_length} cm</td>
+                            <td style={{ padding: '1rem', fontSize: '0.85rem' }}>{Number(cut.stroke_length).toFixed(2)} mts</td>
                             <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '700', color: '#6366f1' }}>{capasProyec}</td>
                             <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '700', color: '#10b981' }}>{capasReal}</td>
                             <td style={{ padding: '1rem' }}>
