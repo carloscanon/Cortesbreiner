@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
@@ -19,7 +19,10 @@ import {
   X,
   FileText,
   Plus,
-  Trash2
+  Trash2,
+  Bell,
+  ChevronRight,
+  Package
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
@@ -54,6 +57,49 @@ export default function CutDetailsPage() {
   const [progressLayers, setProgressLayers] = useState<Record<string, string>>({});
   const [selectedGroupKey, setSelectedGroupKey] = useState('');
   const [selectedGroupLayers, setSelectedGroupLayers] = useState('');
+
+  // ── New orders notification system ────────────────────────────────────────
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+  const [showNewOrdersModal, setShowNewOrdersModal] = useState(false);
+  const [newArrivals, setNewArrivals] = useState<any[]>([]);
+  const knownOrderIdsRef = useRef<Set<string>>(new Set());
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchPendingOrders = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('orders')
+        .select('id, internal_code, status, created_at, cortador_name, scheduled_date')
+        .in('status', ['Planeada', 'En Corte'])
+        .order('created_at', { ascending: false });
+
+      const filtered = (data || []).filter((o: any) => String(o.id) !== String(orderId));
+      setPendingOrders(filtered);
+
+      // Detect truly NEW orders (not seen before)
+      if (knownOrderIdsRef.current.size > 0) {
+        const arrivals = filtered.filter((o: any) => !knownOrderIdsRef.current.has(String(o.id)));
+        if (arrivals.length > 0) {
+          setNewArrivals(arrivals);
+          setShowNewOrdersModal(true);
+        }
+      }
+      // Update known set
+      knownOrderIdsRef.current = new Set(filtered.map((o: any) => String(o.id)));
+    } catch (err) {
+      console.error('Error polling pending orders:', err);
+    }
+  }, [orderId]);
+
+  // Start polling on mount, stop on unmount
+  useEffect(() => {
+    fetchPendingOrders();
+    pollIntervalRef.current = setInterval(fetchPendingOrders, 30000);
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [fetchPendingOrders]);
+  // ──────────────────────────────────────────────────────────────────────────
 
   const parseObservations = (obs: string) => {
     if (!obs) return [];
@@ -409,6 +455,49 @@ export default function CutDetailsPage() {
           </h1>
         </div>
       </div>
+
+      {/* ── BANNER: Órdenes pendientes de tendido ─────────────────────────── */}
+      {pendingOrders.length > 0 && (
+        <div
+          onClick={() => setShowNewOrdersModal(true)}
+          style={{
+            background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+            borderRadius: '14px',
+            padding: '0.875rem 1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            cursor: 'pointer',
+            boxShadow: '0 4px 20px rgba(124,58,237,0.35)',
+            transition: 'transform 0.15s',
+            userSelect: 'none'
+          }}
+          onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.01)')}
+          onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+        >
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <Bell size={22} style={{ color: 'white' }} />
+            <span style={{
+              position: 'absolute', top: '-4px', right: '-4px',
+              width: '10px', height: '10px', borderRadius: '50%',
+              backgroundColor: '#fbbf24',
+              border: '2px solid white'
+            }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontWeight: '900', fontSize: '0.9rem', color: 'white' }}>
+              {pendingOrders.length === 1
+                ? '1 orden nueva lista para tender'
+                : `${pendingOrders.length} órdenes nuevas listas para tender`}
+            </p>
+            <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
+              {pendingOrders.slice(0, 4).map((o: any) => `OC-${o.internal_code}`).join(' · ')}
+              {pendingOrders.length > 4 ? ` y ${pendingOrders.length - 4} más` : ''} — Haz clic para ver detalle
+            </p>
+          </div>
+          <ChevronRight size={20} style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0 }} />
+        </div>
+      )}
 
       {/* Grid Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
@@ -1320,6 +1409,152 @@ export default function CutDetailsPage() {
             
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowNotesModal(false)} className="btn btn-secondary" style={{ padding: '0.75rem 1.5rem', fontWeight: '800' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Nuevas órdenes para tender ─────────────────────────────── */}
+      {showNewOrdersModal && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          backgroundColor: 'rgba(15,23,42,0.7)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 2000, padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '560px',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.3)'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+              padding: '1.5rem 2rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '14px',
+                  backgroundColor: 'rgba(255,255,255,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Bell size={24} style={{ color: 'white' }} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '950', color: 'white' }}>
+                    {newArrivals.length > 0
+                      ? `🆕 ${newArrivals.length === 1 ? 'Nueva orden' : `${newArrivals.length} nuevas órdenes`} para tender`
+                      : 'Órdenes pendientes de tendido'}
+                  </h2>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)', marginTop: '2px' }}>
+                    {pendingOrders.length} orden{pendingOrders.length !== 1 ? 'es' : ''} esperando en mesa
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowNewOrdersModal(false); setNewArrivals([]); }}
+                style={{
+                  background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                  borderRadius: '10px', width: '36px', height: '36px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', fontSize: '1rem', fontWeight: '900'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Orders list */}
+            <div style={{ maxHeight: '380px', overflowY: 'auto', padding: '1.25rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {pendingOrders.map((o: any) => {
+                  const isNew = newArrivals.some((a: any) => a.id === o.id);
+                  return (
+                    <a
+                      key={o.id}
+                      href={`/cutting/${o.id}`}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '1rem',
+                        padding: '1rem 1.25rem',
+                        borderRadius: '12px',
+                        border: isNew ? '2px solid #7c3aed' : '1.5px solid #e2e8f0',
+                        backgroundColor: isNew ? '#faf5ff' : '#f8fafc',
+                        textDecoration: 'none',
+                        transition: 'all 0.15s',
+                        cursor: 'pointer',
+                        position: 'relative'
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isNew ? '#f3e8ff' : '#f1f5f9'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isNew ? '#faf5ff' : '#f8fafc'; }}
+                    >
+                      {isNew && (
+                        <span style={{
+                          position: 'absolute', top: '-8px', right: '12px',
+                          background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                          color: 'white', fontSize: '0.65rem', fontWeight: '900',
+                          padding: '2px 8px', borderRadius: '999px',
+                          letterSpacing: '0.05em'
+                        }}>NUEVA</span>
+                      )}
+                      {/* Icon */}
+                      <div style={{
+                        width: '42px', height: '42px', borderRadius: '10px', flexShrink: 0,
+                        backgroundColor: isNew ? '#ede9fe' : '#e2e8f0',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        <Scissors size={18} style={{ color: isNew ? '#7c3aed' : '#64748b' }} />
+                      </div>
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>
+                            OC-{o.internal_code}
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: '700', padding: '2px 8px',
+                            borderRadius: '999px',
+                            backgroundColor: o.status === 'En Corte' ? '#dbeafe' : '#fef3c7',
+                            color: o.status === 'En Corte' ? '#1d4ed8' : '#92400e'
+                          }}>{o.status}</span>
+                        </div>
+                        <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                          {o.cortador_name ? `Cortador: ${o.cortador_name}` : 'Sin cortador asignado'}
+                          {o.scheduled_date ? ` · ${new Date(o.scheduled_date).toLocaleDateString('es-ES')}` : ''}
+                        </p>
+                      </div>
+                      <ChevronRight size={18} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '1rem 1.25rem',
+              borderTop: '1px solid #f1f5f9',
+              backgroundColor: '#fafafa',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem'
+            }}>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+                Se actualiza cada 30 segundos automáticamente
+              </p>
+              <button
+                onClick={() => { setShowNewOrdersModal(false); setNewArrivals([]); }}
+                style={{
+                  padding: '0.625rem 1.5rem', borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                  color: 'white', border: 'none', fontWeight: '800',
+                  fontSize: '0.875rem', cursor: 'pointer'
+                }}
+              >
+                Continuar aquí
+              </button>
             </div>
           </div>
         </div>
