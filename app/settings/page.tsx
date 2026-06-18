@@ -164,7 +164,8 @@ export default function SettingsPage() {
             { name: 'logo_width', value: '150', description: 'Ancho del logo (px)' },
             { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' },
             { name: 'min_wage', value: '1300000', description: 'Salario Mínimo' },
-            { name: 'iva_percent', value: '19', description: 'IVA (%)' }
+            { name: 'iva_percent', value: '19', description: 'IVA (%)' },
+            { name: 'max_marcaciones', value: '7', description: 'Máximo número de marcación' }
           ];
           setCompanyParams(defaults);
         }
@@ -799,6 +800,31 @@ export default function SettingsPage() {
                       </div>
                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Porcentaje de IVA aplicado a materias primas y servicios.</p>
                     </div>
+
+                    <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)' }}>
+                       <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>🔢 Máximo de Marcaciones</label>
+                       <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla hasta qué número de marcación estarán disponibles en la orden de corte (Marc. 0 … N).</p>
+                       <div style={{ position: 'relative' }}>
+                         <input 
+                           type="number" 
+                           min="1"
+                           max="50"
+                           className="input" 
+                           style={{ width: '100%', fontWeight: '800', fontSize: '1.1rem', color: '#4338ca', border: '2px solid #a5b4fc' }} 
+                           value={companyParams.find(p => p.name === 'max_marcaciones')?.value || '7'}
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             setCompanyParams(prev => {
+                               const exists = prev.some(p => p.name === 'max_marcaciones');
+                               if (exists) return prev.map(p => p.name === 'max_marcaciones' ? { ...p, value: val } : p);
+                               return [...prev, { name: 'max_marcaciones', value: val, description: 'Máximo número de marcación' }];
+                             });
+                           }}
+                           onBlur={(e) => handleUpdateParam('max_marcaciones', e.target.value)}
+                         />
+                       </div>
+                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Ej: Si colocas <strong>12</strong>, en la orden aparecerán las marcaciones del 0 al 12.</p>
+                     </div>
                   </div>
 
                   {/* Dark Mode Toggle */}

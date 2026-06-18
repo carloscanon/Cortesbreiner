@@ -28,6 +28,9 @@ export default function OrdersPage() {
   const [viewCuts, setViewCuts] = useState<any[]>([]);
   const router = useRouter();
   
+  // Parametrización: máximo de marcaciones
+  const [maxMarcaciones, setMaxMarcaciones] = useState<number>(7);
+
   // Form State
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<any>({
@@ -434,6 +437,14 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchData();
     fetchMasters();
+    supabase
+      .from('company_params')
+      .select('value')
+      .eq('name', 'max_marcaciones')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) setMaxMarcaciones(Math.max(1, parseInt(data.value) || 7));
+      });
   }, [filterType]);
 
   const fetchAllProducts = async () => {
@@ -2228,7 +2239,7 @@ export default function OrdersPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                   <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                   <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker1} onChange={e => updateMatrixCol(col.id, 'marker1', e.target.value)}>
-                                    {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
+                                    {Array.from({ length: maxMarcaciones + 1 }, (_, v) => v).map(v => <option key={v} value={v}>{v}</option>)}
                                   </select>
                                 </div>
                               </th>
@@ -2236,7 +2247,7 @@ export default function OrdersPage() {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                   <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                   <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker2} onChange={e => updateMatrixCol(col.id, 'marker2', e.target.value)}>
-                                    {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
+                                    {Array.from({ length: maxMarcaciones + 1 }, (_, v) => v).map(v => <option key={v} value={v}>{v}</option>)}
                                   </select>
                                 </div>
                               </th>
@@ -2390,7 +2401,7 @@ export default function OrdersPage() {
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                             <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                             <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker1} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'marker1', e.target.value)}>
-                                              {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
+                                              {Array.from({ length: maxMarcaciones + 1 }, (_, v) => v).map(v => <option key={v} value={v}>{v}</option>)}
                                             </select>
                                           </div>
                                         </th>
@@ -2398,7 +2409,7 @@ export default function OrdersPage() {
                                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
                                             <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#6366f1' }}>Marc.</span>
                                             <select style={{ padding: '0.15rem 0.25rem', border: '1px solid #a5b4fc', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#e0e7ff', color: '#3730a3', width: '40px' }} value={col.marker2} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'marker2', e.target.value)}>
-                                              {[0,1,2,3,4,5,6,7].map(v => <option key={v} value={v}>{v}</option>)}
+                                              {Array.from({ length: maxMarcaciones + 1 }, (_, v) => v).map(v => <option key={v} value={v}>{v}</option>)}
                                             </select>
                                           </div>
                                         </th>
