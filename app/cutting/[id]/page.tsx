@@ -184,7 +184,7 @@ export default function CutDetailsPage() {
       const { data: sData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: catData } = await supabase.from('categories').select('*');
       const { data: fData } = await supabase.from('fabrics').select('*');
-      const { data: nData } = await supabase.from('novelties').select('*').eq('modulo_relac', 'Tendido');
+      const { data: nData } = await supabase.from('novelties').select('*').order('nombre', { ascending: true });
       
       setProducts(pData || []);
       setColors(cData || []);
@@ -1189,12 +1189,21 @@ export default function CutDetailsPage() {
                       onChange={e => setNoveltyTipo(e.target.value)}
                       style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
                     >
-                      <option value="">Selecciona...</option>
-                      {novelties.map((nov: any) => (
-                        <option key={nov.id} value={nov.nombre}>
-                          {nov.nombre}
-                        </option>
-                      ))}
+                      <option value="">Selecciona novedad...</option>
+                      {(() => {
+                        const modules: string[] = Array.from(new Set(novelties.map((n: any) => n.modulo_relac || 'General'))) as string[];
+                        return modules.map((mod: string) => (
+                          <optgroup key={mod} label={`── ${mod} ──`}>
+                            {novelties
+                              .filter((n: any) => (n.modulo_relac || 'General') === mod)
+                              .map((nov: any) => (
+                                <option key={nov.id} value={nov.nombre}>
+                                  {nov.cod_novedad ? `[${nov.cod_novedad}] ` : ''}{nov.nombre}{nov.criticidad ? ` · ${nov.criticidad}` : ''}
+                                </option>
+                              ))}
+                          </optgroup>
+                        ));
+                      })()}
                     </select>
                   </div>
                   <button 
