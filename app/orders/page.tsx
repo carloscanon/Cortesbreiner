@@ -655,6 +655,9 @@ export default function OrdersPage() {
     if (!confirm(`¿Eliminar la orden OC-${code || id}? Esta acción no se puede deshacer y restaurará las capas y metros de tela al inventario.`)) return;
     
     try {
+      const { data: orderData } = await supabase.from('orders').select('status').eq('id', id).single();
+      const isPlaneada = orderData?.status === 'Planeada';
+
       // 1. Obtener los cortes de la orden para saber qué telas y cantidades restaurar
       const { data: orderCuts, error: cutsError } = await supabase
         .from('cuts')
@@ -663,7 +666,7 @@ export default function OrdersPage() {
         
       if (cutsError) throw cutsError;
 
-      if (orderCuts && orderCuts.length > 0) {
+      if (orderCuts && orderCuts.length > 0 && !isPlaneada) {
         // Agrupar por fabric_id y stroke_length para evitar duplicar capas si hay múltiples cortes en la misma tendida
         const layoutGroups: Record<string, { fabric_id: string, layers: number, stroke_length: number }> = {};
         
@@ -1030,7 +1033,7 @@ export default function OrdersPage() {
       // ── REVERSIÓN DE CAPAS Y METROS ANTERIORES (solo si es edición) ───────────────
       // Usamos fabricColors (cargados desde la factura al editar) para saber
       // cuántas capas y metros restaurar.
-      if (editingId) {
+      if (editingId && formData.status !== 'Planeada') {
         for (const fc of fabricColors) {
           if (fc.fabric_id && Number(fc.layers) > 0) {
             const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fc.fabric_id).single();
@@ -1213,23 +1216,6 @@ export default function OrdersPage() {
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // ── DESCUENTO DE CAPAS Y METROS EN TABLA FABRICS ─────────────────────
-      // Restar las capas y metros usados en esta orden del inventario de telas
-      for (const [fabricId, usage] of Object.entries(usageByFabric)) {
-        const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fabricId).single();
-        if (fab) {
-          const newCapas = Math.max(0, (Number(fab.capas) || 0) - usage.capas);
-          const newMetros = Math.max(0, (Number(fab.metros) || 0) - usage.metros);
-          await supabase.from('fabrics').update({ capas: newCapas, metros: newMetros }).eq('id', fabricId);
-        }
-      }
-
-      // ── REGISTRAR MOVIMIENTO DE INVENTARIO INICIAL ───────────────────────
-      // Crea/actualiza los movimientos en inventory_movements con metros_planeados reales
-      if (orderId) {
-        await syncOrderMovements(String(orderId), formData.status || 'Planeada');
-      }
-
       setStep(3); 
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -1256,6 +1242,49 @@ export default function OrdersPage() {
       
       const updatedId = currentOrderId || editingId;
       if (updatedId) {
+        // Descontar las capas y metros usados de la orden en la tabla fabrics al confirmar y enviar
+        const { data: orderCuts } = await supabase
+          .from('cuts')
+          .select('fabric_id, layers, stroke_length')
+          .eq('order_id', updatedId);
+
+        if (orderCuts && orderCuts.length > 0) {
+          const layoutGroups: Record<string, { fabric_id: string, layers: number, stroke_length: number }> = {};
+          
+          orderCuts.forEach((cut: any) => {
+            if (!cut.fabric_id) return;
+            const key = `${cut.fabric_id}_${cut.stroke_length}`;
+            if (!layoutGroups[key]) {
+              layoutGroups[key] = {
+                fabric_id: cut.fabric_id,
+                layers: Number(cut.layers || 0),
+                stroke_length: Number(cut.stroke_length || 0)
+              };
+            } else {
+              layoutGroups[key].layers = Math.max(layoutGroups[key].layers, Number(cut.layers || 0));
+            }
+          });
+
+          const usageByFabric: Record<string, { capas: number, metros: number }> = {};
+          Object.values(layoutGroups).forEach(group => {
+            if (!usageByFabric[group.fabric_id]) {
+              usageByFabric[group.fabric_id] = { capas: 0, metros: 0 };
+            }
+            usageByFabric[group.fabric_id].capas += group.layers;
+            usageByFabric[group.fabric_id].metros += (group.layers * group.stroke_length);
+          });
+
+          for (const [fabricId, usage] of Object.entries(usageByFabric)) {
+            const { data: fab } = await supabase.from('fabrics').select('capas, metros').eq('id', fabricId).single();
+            if (fab) {
+              const newCapas = Math.max(0, (Number(fab.capas) || 0) - usage.capas);
+              const newMetros = Math.max(0, (Number(fab.metros) || 0) - usage.metros);
+              await supabase.from('fabrics').update({ capas: newCapas, metros: newMetros }).eq('id', fabricId);
+            }
+          }
+        }
+
+        // Crear/actualizar los movimientos en inventory_movements
         await syncOrderMovements(String(updatedId), 'En Corte');
       }
       
