@@ -568,199 +568,105 @@ export default function CutDetailsPage() {
             <h3 style={{ fontSize: '1.125rem', fontWeight: '950', color: '#0f172a', margin: '0 0 1.5rem 0' }}>
               Programación Capas a Tender
             </h3>
-            {(() => {
-              // Ordenar stroke_lengths NUMÉRICAMENTE (no como string) para que el corte de mayor longitud = Corte 1 (corte principal)
-              const uniqueStrokes: number[] = Array.from(
-                new Set(cuts.map((c: any) => Number(c.stroke_length ?? 0)))
-              ).sort((a, b) => b - a); // Descendente: mayor longitud = Corte 1 (orden principal)
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
+                  <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tela</th>
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Metros Planificados</th>
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase' }}>Estimación Kilos</th>
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>Capas Programadas</th>
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#059669', textTransform: 'uppercase', minWidth: '130px' }}>Capas Producidas</th>
+                  <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Prendas Totales</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const uniqueFabricMap = new Map<string, any>();
+                  cuts.forEach((cut: any) => {
+                    const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
+                    const totalPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
+                    if (!uniqueFabricMap.has(key)) {
+                      uniqueFabricMap.set(key, {
+                        ...cut,
+                        kilos: Number(cut.kilos || 0),
+                        layers: Number(cut.layers || 0),
+                        layers_produced: Number(cut.layers_produced || 0),
+                        totalPrendas: totalPrendas,
+                      });
+                    } else {
+                      const existing = uniqueFabricMap.get(key);
+                      existing.kilos += Number(cut.kilos || 0);
+                      existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
+                      existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
+                      existing.totalPrendas += totalPrendas;
+                    }
+                  });
 
-              const strokeIdx = (s: any): number => {
-                const idx = uniqueStrokes.indexOf(Number(s ?? 0));
-                return idx < 0 ? 0 : idx;
-              };
-              const strokeLabel = (s: any): string => {
-                const idx = strokeIdx(s);
-                return idx === 0 ? 'Corte 1' : `Corte ${idx + 1}`;
-              };
-              const palette = [
-                { bg: '#eef2ff', color: '#4f46e5', border: '#c7d2fe', headerBg: 'linear-gradient(90deg, #4f46e5 0%, #6366f1 100%)', icon: '✂️' },
-                { bg: '#dcfce7', color: '#16a34a', border: '#86efac', headerBg: 'linear-gradient(90deg, #16a34a 0%, #22c55e 100%)', icon: '✂️' },
-                { bg: '#fef3c7', color: '#d97706', border: '#fcd34d', headerBg: 'linear-gradient(90deg, #d97706 0%, #f59e0b 100%)', icon: '✂️' },
-                { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', headerBg: 'linear-gradient(90deg, #dc2626 0%, #ef4444 100%)', icon: '✂️' },
-              ];
-              const strokeBadgeStyle = (s: any): React.CSSProperties => {
-                const p = palette[strokeIdx(s) % palette.length];
-                return { backgroundColor: p.bg, color: p.color, border: `1.5px solid ${p.border}`, borderRadius: '999px', padding: '0.2rem 0.75rem', fontSize: '0.7rem', fontWeight: '900', whiteSpace: 'nowrap' as const };
-              };
+                  const uniqueCutsArray = Array.from(uniqueFabricMap.values());
 
-              // Agrupar cuts por stroke_length, manteniendo orden de grupos
-              const groupsMap = new Map<number, any[]>();
-              [...cuts]
-                .sort((a: any, b: any) => Number(b.stroke_length ?? 0) - Number(a.stroke_length ?? 0))
-                .forEach((cut: any) => {
-                  const k = Number(cut.stroke_length ?? 0);
-                  if (!groupsMap.has(k)) groupsMap.set(k, []);
-                  groupsMap.get(k)!.push(cut);
-                });
-
-              const rows: React.ReactNode[] = [];
-              let globalIdx = 0;
-
-              groupsMap.forEach((groupCuts, strokeVal) => {
-                const corteIdx = strokeIdx(strokeVal);
-                const p = palette[corteIdx % palette.length];
-                const label = strokeLabel(strokeVal);
-
-                // ── FILA SEPARADORA / HEADER DEL GRUPO ──
-                rows.push(
-                  <tr key={`header-${strokeVal}`}>
-                    <td colSpan={7} style={{ padding: 0 }}>
-                      <div style={{
-                        background: p.headerBg,
-                        padding: '0.55rem 1.25rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        marginTop: corteIdx === 0 ? 0 : '0.25rem',
-                      }}>
-                        <span style={{ fontSize: '0.95rem' }}>✂️</span>
-                        <span style={{ color: 'white', fontWeight: '900', fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                          {label}
-                        </span>
-                        <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', fontWeight: '600' }}>
-                          — Largo de Trazo: {Number(strokeVal).toFixed(2)} m
-                        </span>
-                        <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem', fontWeight: '600', marginLeft: '1rem' }}>
-                          — Metros Totales: {(() => {
-                            const groupLayers = groupCuts[0]?.layers ? Math.max(...groupCuts.map((c: any) => Number(c.layers) || 0)) : 0;
-                            return (strokeVal * groupLayers).toFixed(2);
-                          })()} m
-                        </span>
-                        <span style={{
-                          marginLeft: 'auto',
-                          backgroundColor: 'rgba(255,255,255,0.2)',
-                          color: 'white',
-                          borderRadius: '999px',
-                          padding: '0.15rem 0.6rem',
-                          fontSize: '0.68rem',
-                          fontWeight: '800'
-                        }}>
-                          {groupCuts.length} tela{groupCuts.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-
-                // Group cuts within the stroke group by fabric/color
-                const fabricGroupsMap = new Map<string, any>();
-                groupCuts.forEach((cut: any) => {
-                  const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
-                  const totalPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
-                  
-                  if (!fabricGroupsMap.has(key)) {
-                    fabricGroupsMap.set(key, {
-                      key,
-                      fabric_id: cut.fabric_id,
-                      color_id: cut.color_id,
-                      stroke_length: cut.stroke_length,
-                      kilos: Number(cut.kilos || 0),
-                      layers: Number(cut.layers || 0),
-                      layers_produced: Number(cut.layers_produced || 0),
-                      totalPrendas: totalPrendas
-                    });
-                  } else {
-                    const existing = fabricGroupsMap.get(key);
-                    existing.kilos += Number(cut.kilos || 0);
-                    existing.layers = Math.max(existing.layers, Number(cut.layers || 0));
-                    existing.layers_produced = Math.max(existing.layers_produced, Number(cut.layers_produced || 0));
-                    existing.totalPrendas += totalPrendas;
+                  if (uniqueCutsArray.length === 0) {
+                    return <tr><td colSpan={6} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>;
                   }
-                });
 
-                // Filas de telas del grupo
-                Array.from(fabricGroupsMap.values()).forEach((groupedCut: any) => {
-                  const color = getColorData(groupedCut.color_id, groupedCut);
-                  const fabricObj = fabrics.find((f: any) => String(f.id) === String(groupedCut.fabric_id));
-                  const telaName = fabricObj ? fabricObj.nombre_tela : (color?.nombre_color || 'Sin Tela');
-                  const colorHex = color?.hex_color || '#cbd5e1';
-                  
-                  const totalPrendas = groupedCut.totalPrendas;
-                  const capasPlaneadas = groupedCut.layers;
-                  const capasProducidas = groupedCut.layers_produced;
-                  const capasRestantes = Math.max(0, capasPlaneadas - capasProducidas);
-                  const porcentajeProd = capasPlaneadas > 0 ? Math.min(100, Math.round((capasProducidas / capasPlaneadas) * 100)) : 0;
-                  const porcentajeRestante = 100 - porcentajeProd;
-                  const rowBg = globalIdx % 2 === 0 ? 'white' : `${p.bg}88`;
-                  globalIdx++;
+                  return uniqueCutsArray.map((cut: any, idx: number) => {
+                    const color = getColorData(cut.color_id, cut);
+                    const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
+                    const telaName = fabricObj ? fabricObj.nombre_tela : (color?.nombre_color || 'Sin Tela');
+                    const colorHex = color?.hex_color || '#cbd5e1';
+                    
+                    const capasPlaneadas = Number(cut.layers || 0);
+                    const capasProducidas = Number(cut.layers_produced || 0);
+                    const capasRestantes = Math.max(0, capasPlaneadas - capasProducidas);
+                    const porcentajeProd = capasPlaneadas > 0 ? Math.min(100, Math.round((capasProducidas / capasPlaneadas) * 100)) : 0;
+                    const porcentajeRestante = 100 - porcentajeProd;
+                    const rowBg = idx % 2 === 0 ? 'white' : '#f8fafc';
 
-                  rows.push(
-                    <tr key={groupedCut.key} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: rowBg }}>
-                      <td style={{ padding: '1rem', textAlign: 'center' }}>
-                        <span style={strokeBadgeStyle(groupedCut.stroke_length)}>{label}</span>
-                      </td>
-                      <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '700' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: colorHex, border: '1px solid #94a3b8', flexShrink: 0 }}></div>
-                          <div style={{ fontWeight: '800', color: '#1e293b' }}>{telaName}</div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#10b981' }}>
-                        {(Number(groupedCut.stroke_length) * Number(groupedCut.layers)).toFixed(2)} m
-                      </td>
-                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#b45309' }}>{Number(groupedCut.kilos || 0).toFixed(2)} kg</td>
-                      <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
-                            <span style={{ fontSize: '1rem', fontWeight: '900', color: capasRestantes === 0 ? '#059669' : p.color }}>{capasRestantes}</span>
-                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '600' }}>/ {capasPlaneadas}</span>
+                    return (
+                      <tr key={cut.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: rowBg }}>
+                        <td style={{ padding: '1rem', textAlign: 'left', fontSize: '0.85rem', fontWeight: '700' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: colorHex, border: '1px solid #94a3b8', flexShrink: 0 }}></div>
+                            <div style={{ fontWeight: '800', color: '#1e293b' }}>{telaName}</div>
                           </div>
-                          {capasPlaneadas > 0 && (
-                            <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${porcentajeRestante}%`, backgroundColor: porcentajeRestante <= 0 ? '#059669' : p.color, borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#10b981' }}>
+                          {(Number(cut.stroke_length || 0) * capasPlaneadas).toFixed(2)} m
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '800', color: '#b45309' }}>
+                          {Number(cut.kilos || 0).toFixed(2)} kg
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
+                              <span style={{ fontSize: '1rem', fontWeight: '900', color: capasRestantes === 0 ? '#059669' : '#4f46e5' }}>{capasRestantes}</span>
+                              <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '600' }}>/ {capasPlaneadas}</span>
                             </div>
-                          )}
-                          <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeRestante}% restante</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
-                          <span style={{ fontSize: '1rem', fontWeight: '900', color: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : capasProducidas > 0 ? '#3b82f6' : '#94a3b8' }}>{capasProducidas}</span>
-                          {capasPlaneadas > 0 && (
-                            <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${porcentajeProd}%`, backgroundColor: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : '#3b82f6', borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
-                            </div>
-                          )}
-                          <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeProd}% completado</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '900', color: 'var(--primary)' }}>{totalPrendas} unds</td>
-                    </tr>
-                  );
-                });
-              });
-
-              return (
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
-                      <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Corte</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tela</th>
-                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Metros Planificados</th>
-                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase' }}>Estimación Kilos</th>
-                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', minWidth: '130px' }}>Capas Programadas</th>
-                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#059669', textTransform: 'uppercase', minWidth: '130px' }}>Capas Producidas</th>
-                      <th style={{ padding: '1rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Prendas Totales</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cuts.length === 0 ? (
-                      <tr><td colSpan={7} style={{ padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>No hay programaciones cargadas.</td></tr>
-                    ) : rows}
-                  </tbody>
-                </table>
-              );
-            })()}
+                            {capasPlaneadas > 0 && (
+                              <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${porcentajeRestante}%`, backgroundColor: porcentajeRestante <= 0 ? '#059669' : '#4f46e5', borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
+                              </div>
+                            )}
+                            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeRestante}% restante</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '1rem', fontWeight: '900', color: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : capasProducidas > 0 ? '#3b82f6' : '#94a3b8' }}>{capasProducidas}</span>
+                            {capasPlaneadas > 0 && (
+                              <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${porcentajeProd}%`, backgroundColor: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : '#3b82f6', borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
+                              </div>
+                            )}
+                            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeProd}% completado</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '900', color: 'var(--primary)' }}>{cut.totalPrendas} unds</td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
           </div>
         </div>
 

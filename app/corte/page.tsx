@@ -784,12 +784,19 @@ export default function CorteDashboard() {
                       <th style={{ padding: '0.75rem 1rem' }}>Tela / Color</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Capas</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Kilos Reales</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Prendas (Real / Proy.)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {cuts.map(cut => {
                       const fabricObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
                       const telaName = fabricObj ? fabricObj.nombre_tela : 'Tela Externa';
+                      
+                      const totalProyec = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
+                      const layersProyec = Number(cut.layers) || 1;
+                      const layersProd = Number(cut.layers_produced) || 0;
+                      const prendasCortadas = Math.round((totalProyec / layersProyec) * layersProd);
+
                       return (
                         <tr key={cut.id} style={{ borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem' }}>
                           <td style={{ padding: '1rem', fontWeight: '700' }}>Corte ({cut.stroke_length} cm)</td>
@@ -798,6 +805,9 @@ export default function CorteDashboard() {
                             {cut.layers_produced} / {cut.layers}
                           </td>
                           <td style={{ padding: '1rem', fontWeight: '700' }}>{cut.kilos} kg</td>
+                          <td style={{ padding: '1rem', fontWeight: '800', color: '#059669' }}>
+                            {prendasCortadas} / {totalProyec}
+                          </td>
                         </tr>
                       );
                     })}

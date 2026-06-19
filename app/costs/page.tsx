@@ -187,28 +187,69 @@ export default function CostsPage() {
     let totalCutMeters = 0;
 
     if (order.cuts) {
-      order.cuts.forEach((cut: any) => {
-        const fabric = fabricsMaster.find(f => f.id === cut.fabric_id) || order.fabrics;
-        const fabricCost = fabric ? (Number(fabric.costo_con_iva) || Number(fabric.costo_unitario) || 0) : 0;
-        
-        // Meters calculations (stroke_length is already in meters)
-        const stroke = Number(cut.stroke_length) || 0;
-        const projectedMeters = (Number(cut.layers) || 0) * stroke;
-        const cutMeters = (Number(cut.layers_produced) || 0) * stroke;
-        totalProjectedMeters += projectedMeters;
-        totalCutMeters += cutMeters;
+      // Group cuts by fabric_id + color_id
+      const fabricColorKeys = new Set<string>();
+      order.cuts.forEach((c: any) => {
+        if (!c.fabric_id) return;
+        fabricColorKeys.add(`${c.fabric_id}_${c.color_id || 'none'}`);
+      });
 
-        // Fabric cost is per meter in inventory
-        const costPerMeter = fabricCost;
+      fabricColorKeys.forEach(key => {
+        const [fabricId, colorIdStr] = key.split('_');
+        const colorId = colorIdStr === 'none' ? null : colorIdStr;
 
-        // Cost calculation by meters
-        realFabricCost += cutMeters * costPerMeter;
-        estFabricCost += projectedMeters * costPerMeter;
+        const matchingCuts = order.cuts.filter((c: any) => 
+          String(c.fabric_id) === fabricId && 
+          String(c.color_id || 'none') === (colorId || 'none')
+        );
+
+        const fabric = fabricsMaster.find(f => String(f.id) === fabricId) || order.fabrics;
+        const fabricKiloCost = fabric ? (Number(fabric.costo_con_iva) || Number(fabric.costo_unitario) || 0) : 0;
         
-        // Merma/Remaining kilos cost
-        if (Number(cut.remaining_kilos) > 0) {
-          mermaCost += Number(cut.remaining_kilos) * fabricCost;
-        }
+        // Convert price per kilo to price per meter: Costo_Metro = Costo_Kilo / Rendimiento_Estimado
+        const rendimiento = fabric && Number(fabric.rendimiento_estimado) > 0 ? Number(fabric.rendimiento_estimado) : 3.5;
+        const costPerMeter = fabricKiloCost / rendimiento;
+
+        // Group by stroke_length to deduplicate layers (as one stroke group = one tendida)
+        const tendidaMap: Record<string, { layers: number; layersProduced: number }> = {};
+        matchingCuts.forEach((c: any) => {
+          const sKey = String(Number(c.stroke_length) || 0);
+          const prev = tendidaMap[sKey];
+          const layers = Number(c.layers) || 0;
+          const layersProduced = Number(c.layers_produced) || 0;
+          if (!prev) {
+            tendidaMap[sKey] = { layers, layersProduced };
+          } else {
+            tendidaMap[sKey] = {
+              layers: Math.max(prev.layers, layers),
+              layersProduced: Math.max(prev.layersProduced, layersProduced)
+            };
+          }
+        });
+
+        let planeados = 0;
+        let reales = 0;
+        const hasAnyProgress = matchingCuts.some((c: any) => (Number(c.layers_produced) || 0) > 0);
+
+        Object.entries(tendidaMap).forEach(([strokeKey, { layers, layersProduced }]) => {
+          const stroke = Number(strokeKey);
+          planeados += stroke * layers;
+          const realLayers = hasAnyProgress ? layersProduced : layers;
+          reales += stroke * realLayers;
+        });
+
+        totalProjectedMeters += planeados;
+        totalCutMeters += reales;
+
+        realFabricCost += reales * costPerMeter;
+        estFabricCost += planeados * costPerMeter;
+
+        // Add merma cost from any cuts in this group
+        matchingCuts.forEach((c: any) => {
+          if (Number(c.remaining_kilos) > 0) {
+            mermaCost += Number(c.remaining_kilos) * fabricKiloCost;
+          }
+        });
       });
     }
 
