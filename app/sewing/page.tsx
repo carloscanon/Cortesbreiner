@@ -409,7 +409,7 @@ export default function SewingPage() {
     
     // Check workshop assignment for every category_size combo with qty > 0
     const missingKeys: string[] = [];
-    const assignments: { categoryName: string; size: string; qty: number; wId: string }[] = [];
+    const assignments: { categoryId: string; categoryName: string; size: string; qty: number; wId: string }[] = [];
     
     Object.entries(categoryAssignments).forEach(([catId, cat]) => {
       Object.entries(cat.sizes).forEach(([sz, qty]) => {
@@ -420,6 +420,7 @@ export default function SewingPage() {
             missingKeys.push(cellKey);
           } else {
             assignments.push({
+              categoryId: catId,
               categoryName: cat.categoryName,
               size: sz,
               qty,
@@ -1152,7 +1153,11 @@ export default function SewingPage() {
                               ))}
                               <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950', backgroundColor: '#f1f5f9' }}>
                                 {colorRows.reduce((sum: number, r: any) => {
-                                  return sum + Object.values(r.quantities).reduce((a: any, b: any) => a + b, 0);
+                                  let rowSum = 0;
+                                  Object.values(r.quantities || {}).forEach((val: any) => {
+                                    rowSum += Number(val) || 0;
+                                  });
+                                  return sum + rowSum;
                                 }, 0)}
                               </td>
                             </tr>
