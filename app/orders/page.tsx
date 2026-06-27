@@ -12,8 +12,24 @@ import {
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
+function getRelativeTime(dateString: string) {
+  if (!dateString) return '---';
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Hace un momento';
+  if (diffMins < 60) return `Hace ${diffMins} min`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `Hace ${diffHours} h`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'Ayer';
+  if (diffDays < 7) return `Hace ${diffDays} días`;
+  return date.toLocaleDateString('es-ES');
+}
+
 export default function OrdersPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
 
   const [data, setData] = useState<any[]>([]);
@@ -1001,7 +1017,7 @@ export default function OrdersPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const orderPayload = {
+      const orderPayload: any = {
         internal_code: formData.internal_code,
         client_name: formData.factura_relacionada || formData.internal_code,
         brand: formData.factura_relacionada || formData.internal_code,
@@ -1028,7 +1044,12 @@ export default function OrdersPage() {
         scheduled_date: formData.scheduled_date
       };
 
-      let orderId = editingId;
+      // Only add created_by if it's a completely new order that hasn't been saved to database yet
+      if (!editingId && !currentOrderId) {
+        orderPayload.created_by = profile?.full_name || profile?.email || user?.email || 'Sistema';
+      }
+
+      let orderId = editingId || currentOrderId;
 
       // ── REVERSIÓN DE CAPAS Y METROS ANTERIORES (solo si es edición) ───────────────
       // Usamos fabricColors (cargados desde la factura al editar) para saber
@@ -1060,13 +1081,31 @@ export default function OrdersPage() {
           await supabase.from('cuts').delete().in('id', cutIds);
         }
       } else {
-        const { data: newOrder, error: orderError } = await supabase
-          .from('orders')
-          .insert([orderPayload])
-          .select()
-          .single();
-        if (orderError) throw orderError;
-        orderId = newOrder.id;
+        // Si ya tenemos un currentOrderId, actualizamos en lugar de insertar de nuevo para no duplicarla
+        if (currentOrderId) {
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update(orderPayload)
+            .eq('id', currentOrderId);
+          if (updateError) throw updateError;
+          orderId = currentOrderId;
+
+          // Borrar cortes anteriores de este borrador para volver a crearlos
+          const { data: oldCuts } = await supabase.from('cuts').select('id').eq('order_id', currentOrderId);
+          if (oldCuts && oldCuts.length > 0) {
+            const cutIds = oldCuts.map((c: any) => c.id);
+            await supabase.from('cut_sizes').delete().in('cut_id', cutIds);
+            await supabase.from('cuts').delete().in('id', cutIds);
+          }
+        } else {
+          const { data: newOrder, error: orderError } = await supabase
+            .from('orders')
+            .insert([orderPayload])
+            .select()
+            .single();
+          if (orderError) throw orderError;
+          orderId = newOrder.id;
+        }
       }
       setCurrentOrderId(orderId);
 
@@ -1291,6 +1330,7 @@ export default function OrdersPage() {
       setShowModal(false);
       setStep(1);
       setEditingId(null);
+      setCurrentOrderId(null);
       fetchData();
     } catch (err: any) {
       alert('Error al enviar a cortador: ' + err.message);
@@ -1371,6 +1411,7 @@ export default function OrdersPage() {
               scheduled_date: new Date().toISOString().split('T')[0] 
             });
             setEditingId(null);
+            setCurrentOrderId(null);
             setStep(1); 
             setFabricColors([{ id: Date.now(), color_id: '', kilos: '', layers: '', observation: '', capas_definidas: '' }]);
             setMatrixCols([{ id: Date.now(), product_id: '', size1_id: '', size2_id: '', marker1: '0', marker2: '0' }]);
@@ -1444,9 +1485,15 @@ export default function OrdersPage() {
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover-row">
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '900', color: 'var(--primary)' }}>{order.internal_code}</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
-                      <span style={{ fontWeight: '700', color: '#475569' }}>
-                        {order.created_at ? new Date(order.created_at).toLocaleDateString('es-ES') : '---'}
-                      </span>
+                      <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>
+                        {order.created_by || 'Sistema'}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.25rem', alignItems: 'center', marginTop: '0.15rem' }}>
+                        <span>🕒</span>
+                        <span>{order.created_at ? new Date(order.created_at).toLocaleDateString('es-ES') : '---'}</span>
+                        <span style={{ color: '#cbd5e1' }}>•</span>
+                        <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{getRelativeTime(order.created_at)}</span>
+                      </div>
                     </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ fontWeight: '700' }}>{order.client_name}</div>

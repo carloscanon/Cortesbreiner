@@ -9,7 +9,7 @@ import {
   Scissors, Layers, ShirtIcon, Clipboard, Tag, Printer
 } from 'lucide-react';
 
-type Stage = 'matriz_corte' | 'accesorios' | 'talleres';
+type Stage = 'matriz_corte' | 'talleres';
 
 export default function SewingPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -20,6 +20,7 @@ export default function SewingPage() {
   const [fabricsMaster, setFabricsMaster] = useState<any[]>([]);
   const [sizesMaster, setSizesMaster] = useState<any[]>([]);
   const [colorsMaster, setColorsMaster] = useState<any[]>([]);
+  const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -44,6 +45,7 @@ export default function SewingPage() {
   const [printOrder, setPrintOrder] = useState<any>(null);
   const [printWorkshop, setPrintWorkshop] = useState<any>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [customGafetes, setCustomGafetes] = useState<Record<string, string>>({});
 
   useEffect(() => { fetchData(); }, []);
 
@@ -62,20 +64,52 @@ export default function SewingPage() {
       const { data: accData } = await supabase
         .from('accessories').select('*').order('nombre');
 
-      const { data: prodData } = await supabase.from('products').select('*');
+      // Fetch products referenced in cuts, plus all duplicate/matching products by name
+      const uniqueProductIds = new Set<string>();
+      (ordersData || []).forEach((o: any) => {
+        (o.cuts || []).forEach((c: any) => {
+          if (c.product_id) uniqueProductIds.add(String(c.product_id));
+        });
+      });
+
+      let productsList: any[] = [];
+      if (uniqueProductIds.size > 0) {
+        const { data: directProds } = await supabase
+          .from('products')
+          .select('*')
+          .in('id', Array.from(uniqueProductIds));
+        
+        const productNames = new Set<string>();
+        (directProds || []).forEach((p: any) => {
+          if (p.nombre_producto) productNames.add(p.nombre_producto);
+        });
+
+        if (productNames.size > 0) {
+          const { data: matchedProds } = await supabase
+            .from('products')
+            .select('*')
+            .in('nombre_producto', Array.from(productNames));
+          productsList = matchedProds || [];
+        } else {
+          productsList = directProds || [];
+        }
+      }
+
       const { data: catData } = await supabase.from('categories').select('*');
       const { data: fabData } = await supabase.from('fabrics').select('*');
       const { data: sizesData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: colorsData } = await supabase.from('colors').select('*');
+      const { data: allProductAccs } = await supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida)');
 
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
       setAccessories(accData || []);
-      setProducts(prodData || []);
+      setProducts(productsList);
       setCategoriesMaster(catData || []);
       setFabricsMaster(fabData || []);
       setSizesMaster(sizesData || []);
       setColorsMaster(colorsData || []);
+      setProductAccessoriesList(allProductAccs || []);
     } catch (err: any) {
       console.error('Error:', err.message);
     } finally {
@@ -137,6 +171,8 @@ export default function SewingPage() {
       productName: string;
       categoryId: string;
       categoryName: string;
+      colorId: string;
+      colorName: string;
       sizes: Record<string, number>;
       total: number;
     }> = {};
@@ -152,7 +188,10 @@ export default function SewingPage() {
       const catId = cat ? String(cat.id) : 'sin_cat';
       const catName = cat ? (cat.categoria || 'Sin Categoría') : 'Sin Categoría';
 
-      const rowKey = `${fabricId}_${cut.product_id}`;
+      const colorObj = colorsMaster.find((c: any) => String(c.id) === String(cut.color_id));
+      const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+
+      const rowKey = `${fabricId}_${cut.product_id}_${cut.color_id || 'no_color'}`;
       if (!matrixRows[rowKey]) {
         matrixRows[rowKey] = {
           fabricId,
@@ -161,6 +200,8 @@ export default function SewingPage() {
           productName: prodName,
           categoryId: catId,
           categoryName: catName,
+          colorId: String(cut.color_id || ''),
+          colorName: colorName,
           sizes: {},
           total: 0
         };
@@ -176,9 +217,15 @@ export default function SewingPage() {
         if (!uniqueSizes.includes(sz)) {
           uniqueSizes.push(sz);
         }
-        const proyecQty = Number(cs.quantity) || 0;
-        const ppc = proyecQty / layersProyec;
-        const realQty = Math.round(ppc * layersProduced);
+
+        let realQty = 0;
+        if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+          realQty = Number(cs.quantity_produced);
+        } else {
+          const proyecQty = Number(cs.quantity) || 0;
+          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+          realQty = Math.round(ppc * layersProduced);
+        }
 
         matrixRows[rowKey].sizes[sz] = (matrixRows[rowKey].sizes[sz] || 0) + realQty;
         matrixRows[rowKey].total += realQty;
@@ -196,7 +243,119 @@ export default function SewingPage() {
     return { uniqueSizes, matrixRows };
   };
 
-  // Helper to build assignments grouped STRICTLY by Category and Size
+  const getSpreadsheetMatrixData = (order: any) => {
+    if (!order || !order.cuts) return { orderCategories: [], categorySizes: {}, colorRows: [], categoryRatios: {} };
+
+    const orderCategories: any[] = [];
+    order.cuts.forEach((cut: any) => {
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+      if (prod && !orderCategories.some(oc => oc.id === prod.id)) {
+        orderCategories.push({
+          id: prod.id,
+          categoria: prod.nombre_producto
+        });
+      }
+    });
+
+    const categorySizes: Record<string, string[]> = {};
+    orderCategories.forEach(cat => {
+      const sizesSet = new Set<string>();
+      order.cuts.forEach((cut: any) => {
+        const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+        if (prod && String(prod.id) === String(cat.id)) {
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
+            if (sizeObj) {
+              sizesSet.add(sizeObj.codigo_talla);
+            }
+          });
+        }
+      });
+      const sortedSizes = Array.from(sizesSet).sort((a, b) => {
+        const idxA = sizesMaster.findIndex(s => s.codigo_talla === a);
+        const idxB = sizesMaster.findIndex(s => s.codigo_talla === b);
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+      categorySizes[cat.id] = sortedSizes;
+    });
+
+    const fabricRowsMap: Record<string, {
+      fabricId: string;
+      fabricName: string;
+      kilos: number;
+      layers: number;
+      quantities: Record<string, number>;
+    }> = {};
+
+    order.cuts.forEach((cut: any) => {
+      const fabricId = String(cut.fabric_id);
+      const fabricObj = fabricsMaster.find((f: any) => String(f.id) === fabricId);
+      const fName = fabricObj ? fabricObj.nombre_tela : (order.fabrics?.nombre_tela || 'Tela Externa');
+
+      const rowKey = fabricId;
+
+      if (!fabricRowsMap[rowKey]) {
+        fabricRowsMap[rowKey] = {
+          fabricId,
+          fabricName: fName,
+          kilos: 0,
+          layers: 0,
+          quantities: {}
+        };
+      }
+
+      fabricRowsMap[rowKey].kilos += Number(cut.kilos) || 0;
+      fabricRowsMap[rowKey].layers += Number(cut.layers_produced || cut.layers || 0);
+
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+      const catId = prod ? String(prod.id) : 'sin_prod';
+
+      const layersProyec = cut.layers || 1;
+      const layersProduced = cut.layers_produced || 0;
+
+      (cut.cut_sizes || []).forEach((cs: any) => {
+        const sizeObj = sizesMaster.find((s: any) => String(s.id) === String(cs.size_id));
+        const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+        let realQty = 0;
+        if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+          realQty = Number(cs.quantity_produced);
+        } else {
+          const proyecQty = Number(cs.quantity) || 0;
+          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+          realQty = Math.round(ppc * layersProduced);
+        }
+
+        const key = `${catId}_${sz}`;
+        fabricRowsMap[rowKey].quantities[key] = (fabricRowsMap[rowKey].quantities[key] || 0) + realQty;
+      });
+    });
+
+    const colorRows = Object.values(fabricRowsMap);
+
+    const categoryRatios: Record<string, number> = {};
+    order.cuts.forEach((cut: any) => {
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+      const catId = prod ? String(prod.id) : 'sin_prod';
+      const layersProyec = cut.layers || 1;
+
+      (cut.cut_sizes || []).forEach((cs: any) => {
+        const sizeObj = sizesMaster.find((s: any) => String(s.id) === String(cs.size_id));
+        if (sizeObj) {
+          const sz = sizeObj.codigo_talla;
+          const key = `${catId}_${sz}`;
+          const ratio = Math.round((Number(cs.quantity) || 0) / layersProyec);
+          categoryRatios[key] = Math.max(categoryRatios[key] || 0, ratio);
+        }
+      });
+    });
+
+    return { orderCategories, categorySizes, colorRows, categoryRatios };
+  };
+
+  // Helper to build assignments grouped STRICTLY by Product and Size
   const getCategoryAssignmentsData = (order: any) => {
     const categoryAssignments: Record<string, {
       categoryId: string;
@@ -209,9 +368,8 @@ export default function SewingPage() {
 
     order.cuts.forEach((cut: any) => {
       const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
-      const cat = prod ? categoriesMaster.find((c: any) => String(c.id) === String(prod.category_id)) : null;
-      const catId = cat ? String(cat.id) : 'sin_cat';
-      const catName = cat ? (cat.categoria || 'Sin Categoría') : 'Sin Categoría';
+      const catId = prod ? String(prod.id) : 'sin_prod';
+      const catName = prod ? (prod.nombre_producto || 'Sin Referencia') : 'Sin Referencia';
 
       if (!categoryAssignments[catId]) {
         categoryAssignments[catId] = {
@@ -229,9 +387,14 @@ export default function SewingPage() {
         const sizeObj = sizesMaster.find((s: any) => String(s.id) === String(cs.size_id));
         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
 
-        const proyecQty = Number(cs.quantity) || 0;
-        const ppc = proyecQty / layersProyec;
-        const realQty = Math.round(ppc * layersProduced);
+        let realQty = 0;
+        if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+          realQty = Number(cs.quantity_produced);
+        } else {
+          const proyecQty = Number(cs.quantity) || 0;
+          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+          realQty = Math.round(ppc * layersProduced);
+        }
 
         categoryAssignments[catId].sizes[sz] = (categoryAssignments[catId].sizes[sz] || 0) + realQty;
         categoryAssignments[catId].total += realQty;
@@ -333,10 +496,9 @@ export default function SewingPage() {
 
       // Prepare database records
       const assignmentsToInsert = assignments.map(asg => {
-        const catObj = categoriesMaster.find(c => c.categoria === asg.categoryName);
         return {
           order_id: selectedOrder.id,
-          category_id: catObj ? String(catObj.id) : 'sin_cat',
+          category_id: asg.categoryId,
           size_code: asg.size,
           workshop_id: asg.wId,
           quantity: asg.qty
@@ -344,16 +506,48 @@ export default function SewingPage() {
       });
 
       const accessoriesToInsert: any[] = [];
-      Object.entries(cutAccessories).forEach(([cutId, accs]) => {
-        accs.forEach(ca => {
-          accessoriesToInsert.push({
-            order_id: selectedOrder.id,
-            cut_id: cutId,
-            accessory_id: ca.accId,
-            quantity: Number(ca.qty) || 0
+      if (selectedOrder && selectedOrder.cuts) {
+        selectedOrder.cuts.forEach((cut: any) => {
+          let totalCutQty = 0;
+          const layersProyec = cut.layers || 1;
+          const layersProduced = cut.layers_produced || 0;
+          
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            let realQty = 0;
+            if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+              realQty = Number(cs.quantity_produced);
+            } else {
+              const proyecQty = Number(cs.quantity) || 0;
+              const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+              realQty = Math.round(ppc * layersProduced);
+            }
+            totalCutQty += realQty;
+          });
+
+          if (totalCutQty <= 0) return;
+
+          const prodObj = products.find(p => String(p.id) === String(cut.product_id));
+          const prodName = prodObj?.nombre_producto;
+          const prodAccs = productAccessoriesList.filter(pa => {
+            const mappingProdObj = products.find(p => String(p.id) === String(pa.product_id));
+            return mappingProdObj && prodName && mappingProdObj.nombre_producto?.toLowerCase().trim() === prodName.toLowerCase().trim();
+          });
+
+          prodAccs.forEach(pa => {
+            const qtyPerProduct = Number(pa.cantidad) || 0;
+            const totalRequired = totalCutQty * qtyPerProduct;
+            
+            if (totalRequired > 0) {
+              accessoriesToInsert.push({
+                order_id: selectedOrder.id,
+                cut_id: cut.id,
+                accessory_id: pa.accessory_id,
+                quantity: Math.round(totalRequired)
+              });
+            }
           });
         });
-      });
+      }
 
       // Try database insertion
       try {
@@ -419,6 +613,12 @@ export default function SewingPage() {
       assignmentsData.forEach((asg: any) => {
         const cellKey = `${asg.category_id}_${asg.size_code}`;
         rowWorkshops[cellKey] = asg.workshop_id;
+        
+        // Map to product ID if saved as category ID
+        const matchingProducts = products.filter(p => String(p.category_id) === String(asg.category_id));
+        matchingProducts.forEach(p => {
+          rowWorkshops[`${p.id}_${asg.size_code}`] = asg.workshop_id;
+        });
       });
 
       // Reconstruct cutAccessories
@@ -456,17 +656,43 @@ export default function SewingPage() {
 
   const getAssignmentsData = (order: any) => {
     if (!order) return { rowWorkshops: {}, cutAccessories: {}, prepNotes: '', workshopNotes: '', deliveryDate: '' };
-    if (order.dbAssignments) return order.dbAssignments;
-    const json = getAssignmentsFromJson(order);
-    if (json) return json;
+    
+    let rawAss: any = null;
+    if (order.dbAssignments) {
+      rawAss = order.dbAssignments;
+    } else {
+      rawAss = getAssignmentsFromJson(order);
+    }
+
+    if (rawAss) {
+      const rowWorkshops: Record<string, string> = {};
+      if (rawAss.rowWorkshops) {
+        Object.entries(rawAss.rowWorkshops).forEach(([key, wId]) => {
+          rowWorkshops[key] = String(wId);
+          const parts = key.split('_');
+          if (parts.length >= 2) {
+            const idPart = parts[0];
+            const sizePart = parts.slice(1).join('_');
+            
+            const matchingProducts = products.filter(p => String(p.category_id) === String(idPart));
+            matchingProducts.forEach(p => {
+              rowWorkshops[`${p.id}_${sizePart}`] = String(wId);
+            });
+          }
+        });
+      }
+      return {
+        ...rawAss,
+        rowWorkshops
+      };
+    }
 
     // Fallback: assign everything to order.workshop_id
     const rowWorkshops: Record<string, string> = {};
     if (order && order.cuts) {
       order.cuts.forEach((cut: any) => {
         const prod = products.find(p => String(p.id) === String(cut.product_id));
-        const cat = prod ? categoriesMaster.find(c => String(c.id) === String(prod.category_id)) : null;
-        const catId = cat ? String(cat.id) : 'sin_cat';
+        const catId = prod ? String(prod.id) : 'sin_prod';
         
         (cut.cut_sizes || []).forEach((cs: any) => {
           const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
@@ -517,9 +743,8 @@ export default function SewingPage() {
 
     order.cuts.forEach((cut: any) => {
       const prod = products.find(p => String(p.id) === String(cut.product_id));
-      const cat = prod ? categoriesMaster.find(c => String(c.id) === String(prod.category_id)) : null;
-      const catId = cat ? String(cat.id) : 'sin_cat';
-      const categoryName = cat ? (cat.categoria || 'Sin Categoría') : 'Sin Categoría';
+      const catId = prod ? String(prod.id) : 'sin_prod';
+      const categoryName = prod ? (prod.nombre_producto || 'Sin Referencia') : 'Sin Referencia';
       
       const colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
       const colorName = colorObj ? colorObj.nombre_color : 'Color';
@@ -592,13 +817,13 @@ export default function SewingPage() {
 
   const stageConfig: { id: Stage; label: string; icon: any }[] = [
     { id: 'matriz_corte', label: 'Matriz de Corte', icon: Clipboard },
-    { id: 'accesorios', label: 'Accesorios', icon: Tag },
     { id: 'talleres', label: 'Asignación de Talleres', icon: Factory },
   ];
   const stageIndex = stageConfig.findIndex(s => s.id === currentStage);
 
   const { uniqueSizes, matrixRows } = getMatrixData(selectedOrder);
   const matrixRowEntries = Object.entries(matrixRows);
+  const { orderCategories, categorySizes, colorRows, categoryRatios } = getSpreadsheetMatrixData(selectedOrder);
   const categoryAssignments = getCategoryAssignmentsData(selectedOrder);
   const categoryAssignmentEntries = Object.entries(categoryAssignments);
 
@@ -827,51 +1052,108 @@ export default function SewingPage() {
                       Unidades reales obtenidas del corte (no proyectado).
                     </p>
 
-                    {matrixRowEntries.length > 0 ? (
+                    {colorRows.length > 0 ? (
                       <div style={{ overflowX: 'auto', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #ddd6fe', padding: '0.5rem' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                           <thead>
-                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Talla</th>
-                              {matrixRowEntries.map(([rowKey, row]) => (
-                                <th key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
-                                  <div style={{ fontWeight: '900', color: '#0f172a' }}>{row.productName}</div>
-                                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>{row.fabricName}</div>
-                                </th>
+                            {/* Fila 1: Nombres de Categorías (llamados Productos en la interfaz) */}
+                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Tela</th>
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Kilos</th>
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Capas</th>
+                              {orderCategories.map((cat: any) => {
+                                const colSpan = categorySizes[cat.id]?.length || 1;
+                                return (
+                                  <th key={cat.id} colSpan={colSpan} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#1e1b4b', borderLeft: '2px solid #cbd5e1', borderBottom: '2px solid #7c3aed', backgroundColor: '#faf5ff' }}>
+                                    {cat.categoria}
+                                  </th>
+                                );
+                              })}
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#475569', backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Total Color</th>
+                            </tr>
+                            {/* Fila 2: Tallas correspondientes */}
+                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                              {orderCategories.map((cat: any) => (
+                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => (
+                                  <th key={`${cat.id}_${sz}`} style={{ padding: '0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #e2e8f0', fontSize: '0.72rem' }}>
+                                    {sz}
+                                  </th>
+                                ))
                               ))}
-                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', backgroundColor: '#f1f5f9' }}>Total Talla</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {uniqueSizes.map(sz => {
-                              const totalForSize = Object.values(matrixRows).reduce((sum, r) => sum + (r.sizes[sz] || 0), 0);
+                            {/* Fila de Ratios / Marcación de Trazos */}
+                            <tr style={{ backgroundColor: '#fdf4ff', fontWeight: '700', borderBottom: '2px solid #ddd6fe' }}>
+                              <td style={{ padding: '0.6rem', fontWeight: '900', color: '#701a75' }}>Marcación (Molds)</td>
+                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#a21caf' }}>—</td>
+                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#a21caf' }}>—</td>
+                              {orderCategories.map((cat: any) => (
+                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
+                                  const ratio = categoryRatios[`${cat.id}_${sz}`] || 0;
+                                  return (
+                                    <td key={`ratio_${cat.id}_${sz}`} style={{ padding: '0.5rem', textAlign: 'center', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #f5d0fe', color: '#701a75', fontWeight: '900' }}>
+                                      {ratio}
+                                    </td>
+                                  );
+                                })
+                              ))}
+                              <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', backgroundColor: '#f5d0fe', color: '#701a75' }}>
+                                {orderCategories.reduce((accTotal, cat) => {
+                                  return accTotal + (categorySizes[cat.id] || []).reduce((subSum, sz) => subSum + (categoryRatios[`${cat.id}_${sz}`] || 0), 0);
+                                }, 0)}
+                              </td>
+                            </tr>
+
+                            {/* Filas de Datos por Color */}
+                            {colorRows.map((colorRow: any) => {
+                              let rowTotal = 0;
                               return (
-                                <tr key={sz} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                  <td style={{ padding: '0.6rem', fontWeight: '900', color: '#7c3aed' }}>{sz}</td>
-                                  {matrixRowEntries.map(([rowKey, row]) => {
-                                    const qty = row.sizes[sz] || 0;
-                                    return (
-                                      <td key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '700', color: qty > 0 ? '#1e293b' : '#cbd5e1' }}>
-                                        {qty || '—'}
-                                      </td>
-                                    );
-                                  })}
+                                <tr key={colorRow.fabricId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.6rem', fontWeight: '700', color: '#475569' }}>{colorRow.fabricName}</td>
+                                  <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '600', color: '#475569' }}>{colorRow.kilos.toFixed(2)} kg</td>
+                                  <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>{colorRow.layers}</td>
+                                  {orderCategories.map((cat: any) => (
+                                    (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
+                                      const qty = colorRow.quantities[`${cat.id}_${sz}`] || 0;
+                                      rowTotal += qty;
+                                      return (
+                                        <td key={`qty_${colorRow.fabricId}_${cat.id}_${sz}`} style={{ padding: '0.6rem', textAlign: 'center', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #f1f5f9', fontWeight: '700', color: qty > 0 ? '#1e293b' : '#cbd5e1' }}>
+                                          {qty || 0}
+                                        </td>
+                                      );
+                                    })
+                                  ))}
                                   <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f8fafc' }}>
-                                    {totalForSize}
+                                    {rowTotal}
                                   </td>
                                 </tr>
                               );
                             })}
-                            {/* Totals row */}
-                            <tr style={{ backgroundColor: '#f1f5f9', fontWeight: '900', borderTop: '2px solid #cbd5e1' }}>
-                              <td style={{ padding: '0.6rem' }}>TOTALES</td>
-                              {matrixRowEntries.map(([rowKey, row]) => (
-                                <td key={rowKey} style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950' }}>
-                                  {row.total}
-                                </td>
+
+                            {/* Totales de Columnas */}
+                            <tr style={{ backgroundColor: '#f8fafc', fontWeight: '950', borderTop: '2px solid #cbd5e1' }}>
+                              <td style={{ padding: '0.6rem', color: '#1e293b' }}>TOTALES</td>
+                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed' }}>
+                                {colorRows.reduce((sum: number, r: any) => sum + r.kilos, 0).toFixed(2)} kg
+                              </td>
+                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed' }}>
+                                {colorRows.reduce((sum: number, r: any) => sum + r.layers, 0)}
+                              </td>
+                              {orderCategories.map((cat: any) => (
+                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
+                                  const colSum = colorRows.reduce((sum: number, r: any) => sum + (r.quantities[`${cat.id}_${sz}`] || 0), 0);
+                                  return (
+                                    <td key={`tot_${cat.id}_${sz}`} style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '900', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #e2e8f0' }}>
+                                      {colSum}
+                                    </td>
+                                  );
+                                })
                               ))}
-                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950', backgroundColor: '#e2e8f0' }}>
-                                {Object.values(matrixRows).reduce((sum, r) => sum + r.total, 0)}
+                              <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950', backgroundColor: '#f1f5f9' }}>
+                                {colorRows.reduce((sum: number, r: any) => {
+                                  return sum + Object.values(r.quantities).reduce((a: any, b: any) => a + b, 0);
+                                }, 0)}
                               </td>
                             </tr>
                           </tbody>
@@ -884,100 +1166,7 @@ export default function SewingPage() {
                 </div>
               )}
 
-              {/* ── STAGE 2: Asignación de Accesorios por Referencia y Color ── */}
-              {currentStage === 'accesorios' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <div style={{ padding: '1.25rem', backgroundColor: '#faf5ff', borderRadius: '12px', border: '1.5px solid #e8d5c4' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#7c2d12', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Tag size={16} /> Accesorios por Referencia y Color
-                    </h3>
-                    <p style={{ fontSize: '0.72rem', color: '#9a3412', margin: '0 0 1rem' }}>
-                      Relaciona los accesorios e insumos necesarios para cada color de referencia.
-                    </p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      {selectedOrder.cuts?.map((cut: any) => {
-                        const prod = products.find(p => String(p.id) === String(cut.product_id));
-                        const colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
-                        const currentAccs = cutAccessories[cut.id] || [];
-
-                        return (
-                          <div key={cut.id} style={{
-                            backgroundColor: 'white', border: '1px solid #fed7aa', borderRadius: '10px',
-                            padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                              <span style={{ fontWeight: '800', fontSize: '0.8rem', color: '#120c08' }}>
-                                👕 {prod?.nombre_producto || 'Ref'} - <span style={{ color: '#c2410c' }}>{colorObj?.nombre_color || 'Color'}</span>
-                              </span>
-                              <span style={{ fontSize: '0.68rem', color: '#9a3412' }}>
-                                Capas: {cut.layers_produced || 0}
-                              </span>
-                            </div>
-
-                            {/* Added list */}
-                            {currentAccs.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                                {currentAccs.map((ca, idx) => {
-                                  const accObj = accessories.find(a => String(a.id) === String(ca.accId));
-                                  return (
-                                    <div key={idx} style={{
-                                      display: 'flex', alignItems: 'center', gap: '0.3rem',
-                                      padding: '0.25rem 0.5rem', backgroundColor: '#ffedd5',
-                                      border: '1px solid #ffdec0', borderRadius: '6px', fontSize: '0.72rem'
-                                    }}>
-                                      <span><strong>{accObj?.nombre}</strong>: {ca.qty} {accObj?.unidad_medida}</span>
-                                      <button onClick={() => removeAccessoryFromCut(cut.id, idx)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#c2410c', display: 'flex', alignItems: 'center' }}>
-                                        <X size={12} />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* Add inline form */}
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                              <select
-                                value={inlineAccId[cut.id] || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  setInlineAccId(prev => ({ ...prev, [cut.id]: val }));
-                                  if (val) {
-                                    setInlineAccQty(prev => ({ ...prev, [cut.id]: String(cut.layers_produced || 0) }));
-                                  }
-                                }}
-                                style={{ flex: 2, padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white' }}
-                              >
-                                <option value="">Seleccionar Insumo...</option>
-                                {accessories.map(a => <option key={a.id} value={a.id}>{a.nombre} ({a.unidad_medida})</option>)}
-                              </select>
-                              <input
-                                type="number"
-                                placeholder={String(cut.layers_produced || 0)}
-                                value={inlineAccQty[cut.id] || ''}
-                                onChange={e => setInlineAccQty(prev => ({ ...prev, [cut.id]: e.target.value }))}
-                                style={{ width: '70px', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
-                              />
-                              <button
-                                onClick={() => addAccessoryToCut(cut.id)}
-                                style={{
-                                  padding: '0.4rem 0.6rem', backgroundColor: '#c2410c', color: 'white',
-                                  border: 'none', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer'
-                                }}
-                              >
-                                +
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ── STAGE 3: Asignación de Talleres por Categoría y Talla + Despacho ── */}
+              {/* ── STAGE 2: Asignación de Talleres por Categoría y Talla + Despacho ── */}
               {currentStage === 'talleres' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   
@@ -992,12 +1181,29 @@ export default function SewingPage() {
                           <thead>
                             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                               <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', minWidth: '100px' }}>Talla</th>
-                              {categoryAssignmentEntries.map(([catId, cat]) => (
-                                <th key={catId} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
-                                  📦 {cat.categoryName}
-                                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Total: {cat.total} uds</div>
-                                </th>
-                              ))}
+                              {categoryAssignmentEntries.map(([catId, cat]) => {
+                                const prodAccs = productAccessoriesList.filter(pa => {
+                                  const paProd = products.find(p => p.id === pa.product_id);
+                                  return paProd && cat.categoryName && paProd.nombre_producto?.toLowerCase().trim() === cat.categoryName.toLowerCase().trim();
+                                });
+                                return (
+                                  <th key={catId} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
+                                    📦 {cat.categoryName}
+                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Total: {cat.total} uds</div>
+                                    {prodAccs.length > 0 ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', marginTop: '0.35rem', alignItems: 'center' }}>
+                                        {prodAccs.map(pa => (
+                                          <span key={pa.id} style={{ display: 'inline-block', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '0.05rem 0.3rem', borderRadius: '4px', fontSize: '0.6rem', fontWeight: '700', border: '1px solid #bae6fd', maxWidth: '180px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                            {pa.accessories?.nombre || 'Accesorio'} ({Number(pa.cantidad).toFixed(2)} {pa.accessories?.unidad_medida || 'Unidad'})
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '0.2rem' }}>Sin accesorios</div>
+                                    )}
+                                  </th>
+                                );
+                              })}
                             </tr>
                           </thead>
                           <tbody>
@@ -1205,6 +1411,9 @@ export default function SewingPage() {
                           {workshopObj ? workshopObj.nombre_taller : `Taller ID: ${wId}`}
                         </h4>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
+                          Código Seguimiento: <strong style={{ color: '#7c3aed' }}>{((printOrder.internal_code || '').replace(/^OC-?/i, '') || printOrder.consecutive)}-{assignedWorkshopIds.indexOf(wId) + 1}</strong>
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
                           Responsable: {workshopObj?.responsable || '—'} · <strong>{totalUds} prendas</strong>
                         </p>
                       </div>
@@ -1274,50 +1483,45 @@ export default function SewingPage() {
                 const dataAss = getAssignmentsData(printOrder);
                 const workshopItems = getWorkshopItems(printOrder, String(printWorkshop.id), dataAss.rowWorkshops);
                 
-                // Group cutIds and calculate proportional accessories
-                const cutIds = Array.from(new Set(workshopItems.map(item => item.cutId)));
+                // Calculate accessories required based on product definitions
                 const workshopAccs: { name: string; unit: string; qty: number }[] = [];
                 
-                cutIds.forEach(cId => {
-                  const cut = printOrder.cuts?.find((c: any) => String(c.id) === String(cId));
-                  if (!cut) return;
-                  
-                  const accsForCut = (dataAss.cutAccessories || {})[cId] || [];
-                  if (accsForCut.length === 0) return;
-                  
-                  const totalCutQty = (cut.cut_sizes || []).reduce((sum: number, cs: any) => {
-                    const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
-                    const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                    const proyecQty = Number(cs.quantity) || 0;
-                    const layersProyec = cut.layers || 1;
-                    const layersProduced = cut.layers_produced || 0;
-                    const ppc = proyecQty / layersProyec;
-                    return sum + Math.round(ppc * layersProduced);
-                  }, 0);
+                workshopItems.forEach(item => {
+                  const cut = printOrder.cuts?.find((c: any) => String(c.id) === String(item.cutId));
+                  if (!cut || !cut.product_id) return;
 
-                  const workshopCutQty = workshopItems.filter(item => item.cutId === cId).reduce((sum, item) => sum + item.quantity, 0);
-
-                  if (totalCutQty > 0 && workshopCutQty > 0) {
-                    accsForCut.forEach((ca: any) => {
-                      const accObj = accessories.find(a => String(a.id) === String(ca.accId));
-                      if (accObj) {
-                        const accQty = Number(ca.qty) || 0;
-                        const propQty = Math.round(accQty * (workshopCutQty / totalCutQty));
-                        if (propQty > 0) {
-                          const existing = workshopAccs.find(wa => wa.name === accObj.nombre);
-                          if (existing) {
-                            existing.qty += propQty;
-                          } else {
-                            workshopAccs.push({
-                              name: accObj.nombre,
-                              unit: accObj.unidad_medida || 'uds',
-                              qty: propQty
-                            });
-                          }
-                        }
+                  // Find accessories for this product matching by product name (to handle duplicates/references gracefully)
+                  const prodObj = products.find(p => String(p.id) === String(cut.product_id));
+                  const prodName = prodObj?.nombre_producto;
+                  const prodAccs = productAccessoriesList.filter(pa => {
+                    const mappingProdObj = products.find(p => String(p.id) === String(pa.product_id));
+                    return mappingProdObj && prodName && mappingProdObj.nombre_producto?.toLowerCase().trim() === prodName.toLowerCase().trim();
+                  });
+                  prodAccs.forEach(pa => {
+                    let accName = pa.accessories?.nombre || 'Accesorio';
+                    const accUnit = pa.accessories?.unidad_medida || 'uds';
+                    const qtyPerProduct = Number(pa.cantidad) || 0;
+                    const totalRequired = item.quantity * qtyPerProduct;
+                    
+                    // If it is a gafe/gafete, check for custom selection
+                    const isGafete = accName.toLowerCase().includes('gafe') || accName.toLowerCase().includes('gafete');
+                    if (isGafete && customGafetes[accName]) {
+                      accName = customGafetes[accName];
+                    }
+                    
+                    if (totalRequired > 0) {
+                      const existing = workshopAccs.find(wa => wa.name === accName);
+                      if (existing) {
+                        existing.qty += totalRequired;
+                      } else {
+                        workshopAccs.push({
+                          name: accName,
+                          unit: accUnit,
+                          qty: totalRequired
+                        });
                       }
-                    });
-                  }
+                    }
+                  });
                 });
 
                 return (
@@ -1338,7 +1542,17 @@ export default function SewingPage() {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <p style={{ fontSize: '0.8rem', margin: 0, fontWeight: '750' }}>Orden de Confección</p>
-                        <p style={{ fontSize: '0.95rem', fontWeight: '950', color: '#7c3aed', margin: 0 }}>OC-{printOrder.internal_code}</p>
+                        {(() => {
+                          const cleanCode = (printOrder.internal_code || '').replace(/^OC-?/i, '') || printOrder.consecutive;
+                          const uniqueWIds = Array.from(new Set(Object.values(dataAss.rowWorkshops).filter(Boolean))) as string[];
+                          const wIdx = uniqueWIds.indexOf(String(printWorkshop.id)) + 1;
+                          const displayIdx = wIdx > 0 ? wIdx : 1;
+                          return (
+                            <p style={{ fontSize: '0.95rem', fontWeight: '950', color: '#7c3aed', margin: 0 }}>
+                              {cleanCode}-{displayIdx}
+                            </p>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -1408,13 +1622,44 @@ export default function SewingPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {workshopAccs.map((wa, idx) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                <td style={{ padding: '0.5rem', fontWeight: '700' }}>{wa.name}</td>
-                                <td style={{ padding: '0.5rem', color: '#475569' }}>{wa.unit}</td>
-                                <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{wa.qty} {wa.unit}</td>
-                              </tr>
-                            ))}
+                            {workshopAccs.map((wa, idx) => {
+                              const isGafete = wa.name.toLowerCase().includes('gafe') || wa.name.toLowerCase().includes('gafete') || accessories.some(a => a.nombre === wa.name && (a.nombre.toLowerCase().includes('gafe') || a.nombre.toLowerCase().includes('gafete')));
+                              const gafeteOptions = accessories.filter(a => 
+                                a.nombre?.toLowerCase().includes('gafe') || a.nombre?.toLowerCase().includes('gafete')
+                              );
+
+                              return (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '0.5rem', fontWeight: '700' }}>
+                                    {isGafete ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <span className="print-only">{wa.name}</span>
+                                        <select
+                                          className="no-print"
+                                          value={wa.name}
+                                          onChange={e => {
+                                            const newName = e.target.value;
+                                            setCustomGafetes(prev => ({
+                                              ...prev,
+                                              [wa.name]: newName
+                                            }));
+                                          }}
+                                          style={{ padding: '0.2rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid #cbd5e1', cursor: 'pointer', backgroundColor: 'white' }}
+                                        >
+                                          {gafeteOptions.map(opt => (
+                                            <option key={opt.id} value={opt.nombre}>{opt.nombre}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ) : (
+                                      wa.name
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '0.5rem', color: '#475569' }}>{wa.unit}</td>
+                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{wa.qty} {wa.unit}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       ) : (
@@ -1456,6 +1701,9 @@ export default function SewingPage() {
       )}
 
       <style dangerouslySetInnerHTML={{ __html: `
+        .print-only {
+          display: none;
+        }
         @media print {
           body * {
             visibility: hidden !important;
@@ -1477,6 +1725,9 @@ export default function SewingPage() {
           }
           .no-print {
             display: none !important;
+          }
+          .print-only {
+            display: inline !important;
           }
         }
       `}} />

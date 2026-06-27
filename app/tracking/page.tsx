@@ -15,6 +15,18 @@ export default function TrackingPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
+  const [workshops, setWorkshops] = useState<any[]>([]);
+
+  const getAssignmentsFromJson = (order: any) => {
+    if (!order || !order.observaciones) return null;
+    const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:(.*?)-->/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[1]);
+    } catch (e) {
+      return null;
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -33,7 +45,12 @@ export default function TrackingPage() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      
+      const { data: workshopsData } = await supabase
+        .from('workshops').select('*').order('nombre_taller');
+
       setData(result || []);
+      setWorkshops(workshopsData || []);
     } catch (err: any) {
       console.error('Error fetching tracking orders:', err);
     } finally {
@@ -169,14 +186,46 @@ export default function TrackingPage() {
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.8rem' }}>
                         <span style={{ fontSize: '0.8125rem', fontWeight: '800', backgroundColor: 'var(--primary)', color: 'white', padding: '0.3rem 0.75rem', borderRadius: '6px' }}>
-                          OC-{order.consecutive?.toString().padStart(4, '0')}
+                          {order.internal_code || `OC-${order.consecutive?.toString().padStart(4, '0')}`}
                         </span>
                         <h3 style={{ fontSize: '1.25rem', fontWeight: '700' }}>{order.client_name}</h3>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <Factory size={16} /> Taller: <strong style={{ color: 'var(--text)' }}>{order.workshops?.nombre_taller || 'Pendiente de Asignación'}</strong>
-                        </p>
+                        {(() => {
+                          const json = getAssignmentsFromJson(order);
+                          if (json && json.rowWorkshops) {
+                            const uniqueWIds = Array.from(new Set(Object.values(json.rowWorkshops))) as string[];
+                            if (uniqueWIds.length > 0) {
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                  {uniqueWIds.map(wId => {
+                                    const workshopObj = workshops.find(w => String(w.id) === String(wId));
+                                    const wName = workshopObj ? workshopObj.nombre_taller : 'Taller Satélite';
+                                    const cleanCode = (order.internal_code || '').replace(/^OC-?/i, '') || order.consecutive;
+                                    const wIdx = uniqueWIds.indexOf(wId) + 1;
+                                    const subCode = `${cleanCode}-${wIdx}`;
+                                    return (
+                                      <div key={wId} style={{ display: 'flex', flexDirection: 'column', padding: '0.4rem 0.6rem', border: '1px dashed var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-secondary)', fontSize: '0.78rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text)' }}>
+                                          <Factory size={13} style={{ color: 'var(--primary)' }} />
+                                          <strong>{wName}</strong>
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                                          Sub-Orden: <span style={{ color: 'var(--primary)', fontWeight: '750' }}>{subCode}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            }
+                          }
+                          return (
+                            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <Factory size={16} /> Taller: <strong style={{ color: 'var(--text)' }}>{order.workshops?.nombre_taller || 'Pendiente de Asignación'}</strong>
+                            </p>
+                          );
+                        })()}
                         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <Scissors size={16} /> Tela: <strong style={{ color: 'var(--text)' }}>{order.fabrics?.nombre_tela}</strong>
                         </p>

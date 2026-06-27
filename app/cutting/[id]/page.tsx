@@ -26,11 +26,15 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function CutDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const orderId = params?.id;
+  const { profile, config } = useAuth();
+  const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
+  const isRevertObsEnabled = String(config.admin_revert_obs) === 'true';
 
   const [order, setOrder] = useState<any>(null);
   const [cuts, setCuts] = useState<any[]>([]);
@@ -160,7 +164,7 @@ export default function CutDetailsPage() {
       const initialInputState: Record<number, { actualLayers: number; actualKilos: number }> = {};
       cutsData?.forEach(cut => {
         initialInputState[cut.id] = {
-          actualLayers: cut.layers || 0,
+          actualLayers: cut.layers_produced > 0 ? cut.layers_produced : (cut.layers || 0),
           actualKilos: Math.round((cut.kilos || 0) * 100) / 100
         };
       });
@@ -230,19 +234,38 @@ export default function CutDetailsPage() {
     if (!confirm('¿Estás seguro de que deseas finalizar y registrar este tendido? Esta acción cambiará el estado de la orden a "Tendido".')) return;
     setSaving(true);
     try {
-      // 1. Update each cut with its actual layers/kilos if modified by the cutter
+      // 1. Update each cut with its actual layers/kilos and update its cut_sizes quantities
       for (const cut of cuts) {
         const input = actualCutsData[cut.id];
         if (input) {
+          const plannedLayers = Number(cut.layers) || 1;
+          const actualLayers = input.actualLayers;
+
           const { error: cutUpdateErr } = await supabase
             .from('cuts')
             .update({
-              layers: input.actualLayers,
+              layers_produced: actualLayers,
               kilos: input.actualKilos
             })
             .eq('id', cut.id);
           
           if (cutUpdateErr) throw cutUpdateErr;
+
+          // Recalculate and update the quantity of each size for this cut in the database
+          if (cut.cut_sizes && cut.cut_sizes.length > 0) {
+            for (const cs of cut.cut_sizes) {
+              const marcRatio = Number(cs.quantity) / plannedLayers;
+              const newQuantity = Math.round(marcRatio * actualLayers);
+
+              const { error: sizeUpdateErr } = await supabase
+                .from('cut_sizes')
+                .update({ quantity_produced: newQuantity })
+                .eq('cut_id', cut.id)
+                .eq('size_id', cs.size_id);
+
+              if (sizeUpdateErr) throw sizeUpdateErr;
+            }
+          }
         }
       }
 
@@ -285,6 +308,78 @@ export default function CutDetailsPage() {
     }
   };
 
+  const handleRevertProgress = async (blockIndex: number) => {
+    if (!orderId) return;
+    if (!confirm('¿Estás seguro de que deseas reversar este avance parcial? Se restarán las capas tendidas de las telas correspondientes.')) return;
+
+    try {
+      const blocks = parseObservations(order?.observaciones);
+      const blockToRevert = blocks[blockIndex];
+      if (!blockToRevert) return;
+
+      // Parse lines like: - [Corte 1] Tela: Algodón Azul | 5 capas tendidas
+      const lines = blockToRevert.content.split('\n');
+      const cutsUpdates: { cutId: number; newLayersProduced: number }[] = [];
+
+      for (const line of lines) {
+        const match = line.match(/-\s*\[([^\]]+)\]\s*Tela:\s*([^\s|]+.*?)\s*\|\s*(\d+)\s*capas tendidas/);
+        if (match) {
+          const strokeLabel = match[1].trim();
+          const telaName = match[2].trim();
+          const layersToDeduct = parseInt(match[3]);
+
+          // Find cuts matching strokeLabel and telaName
+          for (const cut of cuts) {
+            const cutStrokeLabel = getStrokeLabel(cut.stroke_length);
+            const color = colors.find((c: any) => String(c.id) === String(cut.color_id));
+            const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
+            const cutTelaName = fabricObj ? fabricObj.nombre_tela : (color?.nombre_color || 'Sin Tela');
+
+            if (cutStrokeLabel === strokeLabel && cutTelaName === telaName) {
+              const currentProduced = cut.layers_produced || 0;
+              const newProduced = Math.max(0, currentProduced - layersToDeduct);
+              cutsUpdates.push({ cutId: cut.id, newLayersProduced: newProduced });
+            }
+          }
+        }
+      }
+
+      // Update cuts
+      for (const update of cutsUpdates) {
+        const { error: cutErr } = await supabase
+          .from('cuts')
+          .update({ layers_produced: update.newLayersProduced })
+          .eq('id', update.cutId);
+        if (cutErr) throw cutErr;
+      }
+
+      // Reconstruct observations
+      const remainingBlocks = blocks.filter((_, idx) => idx !== blockIndex);
+      let newObs = '';
+      remainingBlocks.forEach((b) => {
+        if (b.title === 'Nota de Creación / Orden') {
+          newObs += b.content;
+        } else {
+          newObs += `\n\n=== ${b.title} ===\n${b.content}`;
+        }
+      });
+      newObs = newObs.trim();
+
+      // Update order observations
+      const { error: orderErr } = await supabase
+        .from('orders')
+        .update({ observaciones: newObs })
+        .eq('id', orderId);
+      if (orderErr) throw orderErr;
+
+      alert('Avance parcial reversado con éxito.');
+      fetchData();
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al reversar el avance: ' + err.message);
+    }
+  };
+
   const handleSaveProgress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orderId) return;
@@ -305,6 +400,25 @@ export default function CutDetailsPage() {
       let progressLog = '';
       const [strokeValStr, fabOrColPrefix, subId] = selectedGroupKey.split('_');
       const strokeVal = Number(strokeValStr);
+
+      // Pre-validate layers limit (max planned + 2 layers)
+      for (const cut of cuts) {
+        const matchesGroup = Number(cut.stroke_length ?? 0) === strokeVal && (
+          (fabOrColPrefix === 'fab' && String(cut.fabric_id) === subId) ||
+          (fabOrColPrefix === 'col' && String(cut.color_id) === subId)
+        );
+
+        if (!matchesGroup) continue;
+
+        const plannedLayers = Number(cut.layers || 0);
+        const newLayersProduced = (cut.layers_produced || 0) + layersToAdd;
+
+        if (newLayersProduced > plannedLayers + 2) {
+          alert(`Restricción: No se puede reportar un avance que supere el límite de holgura de 2 capas. Límite máximo permitido: ${plannedLayers + 2} capas (Planificado: ${plannedLayers} capas).`);
+          setProgressSaving(false);
+          return;
+        }
+      }
 
       for (const cut of cuts) {
         const matchesGroup = Number(cut.stroke_length ?? 0) === strokeVal && (
@@ -584,7 +698,10 @@ export default function CutDetailsPage() {
                   const uniqueFabricMap = new Map<string, any>();
                   cuts.forEach((cut: any) => {
                     const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
-                    const totalPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
+                    const plannedLayers = Number(cut.layers) || 1;
+                    const capas = cut.layers_produced > 0 ? cut.layers_produced : plannedLayers;
+                    const plannedPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
+                    const totalPrendas = Math.round((plannedPrendas / plannedLayers) * capas);
                     if (!uniqueFabricMap.has(key)) {
                       uniqueFabricMap.set(key, {
                         ...cut,
@@ -619,6 +736,7 @@ export default function CutDetailsPage() {
                     const capasRestantes = Math.max(0, capasPlaneadas - capasProducidas);
                     const porcentajeProd = capasPlaneadas > 0 ? Math.min(100, Math.round((capasProducidas / capasPlaneadas) * 100)) : 0;
                     const porcentajeRestante = 100 - porcentajeProd;
+                    const isOverProduced = capasProducidas > capasPlaneadas;
                     const rowBg = idx % 2 === 0 ? 'white' : '#f8fafc';
 
                     return (
@@ -651,13 +769,48 @@ export default function CutDetailsPage() {
                         </td>
                         <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
-                            <span style={{ fontSize: '1rem', fontWeight: '900', color: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : capasProducidas > 0 ? '#3b82f6' : '#94a3b8' }}>{capasProducidas}</span>
+                            {isAdmin && isRevertObsEnabled ? (
+                              <input 
+                                type="number"
+                                min="0"
+                                key={`${cut.id}-main-capas-${capasProducidas}`}
+                                defaultValue={capasProducidas}
+                                onBlur={async (e) => {
+                                  const val = Number(e.target.value);
+                                  if (isNaN(val) || val < 0) return;
+                                  
+                                  const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
+                                  const [fabOrColPrefix, subId] = key.split('_');
+                                  
+                                  for (const c of cuts) {
+                                    const matchesGroup = (
+                                      (fabOrColPrefix === 'fab' && String(c.fabric_id) === subId) ||
+                                      (fabOrColPrefix === 'col' && String(c.color_id) === subId)
+                                    );
+                                    if (matchesGroup) {
+                                      const { error } = await supabase
+                                        .from('cuts')
+                                        .update({ layers_produced: val })
+                                        .eq('id', c.id);
+                                      if (error) {
+                                        alert('Error al actualizar capas: ' + error.message);
+                                        return;
+                                      }
+                                    }
+                                  }
+                                  fetchData();
+                                }}
+                                style={{ width: '70px', padding: '0.25rem', borderRadius: '4px', border: '1.5px solid #cbd5e1', fontWeight: '800', textAlign: 'center', color: '#2563eb' }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: '1rem', fontWeight: '900', color: isOverProduced ? '#ef4444' : porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : capasProducidas > 0 ? '#3b82f6' : '#94a3b8' }}>{capasProducidas}</span>
+                            )}
                             {capasPlaneadas > 0 && (
                               <div style={{ width: '70px', height: '5px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${porcentajeProd}%`, backgroundColor: porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : '#3b82f6', borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
+                                <div style={{ height: '100%', width: `${porcentajeProd}%`, backgroundColor: isOverProduced ? '#ef4444' : porcentajeProd >= 100 ? '#059669' : porcentajeProd > 50 ? '#d97706' : '#3b82f6', borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
                               </div>
                             )}
-                            <span style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{porcentajeProd}% completado</span>
+                            <span style={{ fontSize: '0.6rem', color: isOverProduced ? '#ef4444' : '#94a3b8', fontWeight: isOverProduced ? '800' : 'normal' }}>{capasPlaneadas > 0 ? Math.round((capasProducidas / capasPlaneadas) * 100) : 0}% completado</span>
                           </div>
                         </td>
                         <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '900', color: 'var(--primary)' }}>{cut.totalPrendas} unds</td>
@@ -1242,16 +1395,44 @@ export default function CutDetailsPage() {
                       
                       return cut.cut_sizes.filter((cs: any) => Number(cs.quantity) > 0).map((cs: any, i: number) => {
                         const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
-                        const capas = Number(cut.layers) || 1;
-                        const marc = (Number(cs.quantity) / capas).toFixed(2);
+                        const plannedLayers = Number(cut.layers) || 1;
+                        const capas = cut.layers_produced > 0 ? cut.layers_produced : plannedLayers;
+                        const marcRatio = Number(cs.quantity) / plannedLayers;
+                        const marcLabel = marcRatio.toFixed(2);
+                        const actualQuantity = Math.round(marcRatio * capas);
                         return (
                           <tr key={`${cut.id}-${cs.size_id}`} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#f8fafc' }}>
                             <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>{telaName}</td>
                             <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{catName}</td>
                             <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{sizeObj ? sizeObj.codigo_talla : '---'}</td>
-                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{cut.layers}</td>
-                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{marc.endsWith('.00') ? Math.round(Number(marc)) : marc}</td>
-                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>{cs.quantity}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.25rem', fontSize: '0.8rem', textAlign: 'center' }}>
+                              {isAdmin && isRevertObsEnabled ? (
+                                <input 
+                                  type="number"
+                                  min="0"
+                                  key={`${cut.id}-capas-${cut.layers_produced}`}
+                                  defaultValue={cut.layers_produced ?? 0}
+                                  onBlur={async (e) => {
+                                    const val = Number(e.target.value);
+                                    if (isNaN(val) || val < 0) return;
+                                    const { error } = await supabase
+                                      .from('cuts')
+                                      .update({ layers_produced: val })
+                                      .eq('id', cut.id);
+                                    if (error) {
+                                      alert('Error al actualizar capas: ' + error.message);
+                                    } else {
+                                      fetchData();
+                                    }
+                                  }}
+                                  style={{ width: '70px', padding: '0.25rem', borderRadius: '4px', border: '1.5px solid #cbd5e1', fontWeight: '800', textAlign: 'center', color: '#2563eb' }}
+                                />
+                              ) : (
+                                capas
+                              )}
+                            </td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', textAlign: 'center' }}>{marcLabel.endsWith('.00') ? Math.round(Number(marcLabel)) : marcLabel}</td>
+                            <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right', fontWeight: '900', color: 'var(--primary)' }}>{actualQuantity}</td>
                           </tr>
                         );
                       });
@@ -1301,9 +1482,32 @@ export default function CutDetailsPage() {
                       <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {block.title}
                       </span>
-                      <span style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: '700' }}>
-                        Nota #{i + 1}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        {isAdmin && isRevertObsEnabled && block.title.toUpperCase().includes('AVANCE PARCIAL') && (
+                          <button
+                            onClick={() => handleRevertProgress(i)}
+                            style={{
+                              backgroundColor: '#ef4444',
+                              color: 'white',
+                              border: 'none',
+                              padding: '0.2rem 0.5rem',
+                              borderRadius: '4px',
+                              fontSize: '0.7rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                            }}
+                          >
+                            <Trash2 size={12} /> Reversar Avance
+                          </button>
+                        )}
+                        <span style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: '700' }}>
+                          Nota #{i + 1}
+                        </span>
+                      </div>
                     </div>
                     <p style={{ margin: 0, fontSize: '0.875rem', color: '#92400e', whiteSpace: 'pre-wrap', lineHeight: '1.5', fontWeight: '600' }}>
                       {block.content}

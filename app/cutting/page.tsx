@@ -31,7 +31,7 @@ export default function CuttingDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'Planeada' | 'En Corte' | 'Tendido' | 'Cortado'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'Planeada' | 'En Corte' | 'Tendido' | 'Cortado'>('Planeada');
   const [showDashboardModal, setShowDashboardModal] = useState(false);
 
   const fetchOrders = async () => {
@@ -247,8 +247,8 @@ export default function CuttingDashboard() {
 
         <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#f1f5f9', padding: '0.25rem', borderRadius: '10px' }}>
           {[
-            { id: 'all', label: 'Todos los Estados' },
             { id: 'Planeada', label: 'Pendientes' },
+            { id: 'all', label: 'Todos los Estados' },
             { id: 'En Corte', label: 'En Tendido' },
             { id: 'Tendido', label: 'Tendidos' },
             { id: 'Cortado', label: 'Cortados' }

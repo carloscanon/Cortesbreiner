@@ -1,23 +1,17 @@
 const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
 
-const supabaseUrl = 'https://plsvbuzcjtztpidsjmua.supabase.co';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const envContent = fs.readFileSync('.env.local', 'utf8');
+const supabaseUrl = envContent.match(/NEXT_PUBLIC_SUPABASE_URL="(.*)"/)[1].trim();
+const supabaseKey = envContent.match(/SUPABASE_SERVICE_ROLE_KEY="(.*)"/)[1].trim();
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('id, internal_code, status, observaciones')
-    .eq('id', '51239b39-c80b-4385-a8cd-48d75e704767')
-    .single();
-
-  if (error) {
-    console.error(error);
-    return;
+  const { data: cuts } = await supabase.from('cuts').select('*').limit(1);
+  if (cuts && cuts.length > 0) {
+    console.log('Cuts table columns:', Object.keys(cuts[0]));
   }
-  console.log('Observations for OC-6WIZZ:');
-  console.log(data.observaciones);
 }
 
-main().catch(console.error);
+main();

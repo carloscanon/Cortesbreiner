@@ -165,7 +165,8 @@ export default function SettingsPage() {
             { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' },
             { name: 'min_wage', value: '1300000', description: 'Salario Mínimo' },
             { name: 'iva_percent', value: '19', description: 'IVA (%)' },
-            { name: 'max_marcaciones', value: '7', description: 'Máximo número de marcación' }
+            { name: 'max_marcaciones', value: '7', description: 'Máximo número de marcación' },
+            { name: 'admin_revert_obs', value: 'false', description: 'Permitir al administrador reversar avances de tendido' }
           ];
           setCompanyParams(defaults);
         }
@@ -825,7 +826,34 @@ export default function SettingsPage() {
                        </div>
                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Ej: Si colocas <strong>12</strong>, en la orden aparecerán las marcaciones del 0 al 12.</p>
                      </div>
-                  </div>
+
+                      <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>🔄 Reversar Avance en Tendido (Admin)</label>
+                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla si un administrador puede deshacer/reversar un avance de tendido reportado.</p>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <select 
+                            className="select" 
+                            style={{ width: '100%', fontWeight: '800', fontSize: '0.9rem', color: '#4338ca', border: '2px solid #a5b4fc', padding: '0.5rem', borderRadius: '8px', backgroundColor: 'white' }} 
+                            value={companyParams.find(p => p.name === 'admin_revert_obs')?.value || 'false'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'admin_revert_obs');
+                                if (exists) return prev.map(p => p.name === 'admin_revert_obs' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'admin_revert_obs', value: val, description: 'Permitir al administrador reversar avances de tendido' }];
+                              });
+                              handleUpdateParam('admin_revert_obs', val);
+                            }}
+                          >
+                            <option value="false">Desactivado (No permitir)</option>
+                            <option value="true">Activado (Permitir reversar)</option>
+                          </select>
+                        </div>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Si se activa, los administradores tendrán la opción en el historial de notas.</p>
+                      </div>
+                    </div>
 
                   {/* Dark Mode Toggle */}
                   <div>

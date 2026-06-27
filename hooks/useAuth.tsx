@@ -32,14 +32,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     fetchConfig();
 
     // Check active sessions
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.warn('Session retrieval error, clearing session:', error.message);
+        // Clear session if refresh token is invalid
+        if (error.message.includes('Refresh Token') || error.status === 400) {
+          supabase.auth.signOut().catch(() => {});
+        }
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else setLoading(false);
+    }).catch((err) => {
+      console.error('Error fetching session:', err);
+      setLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('Token refreshed successfully');
+      }
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else {

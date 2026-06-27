@@ -34,6 +34,17 @@ export default function CorteDashboard() {
   const [reconciliationLoading, setReconciliationLoading] = useState(false);
   const [reconciliationProducts, setReconciliationProducts] = useState<any[]>([]);
   const [reconciliationCategories, setReconciliationCategories] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'list' | 'analytics' | 'detail'>('list');
+  const [productsMaster, setProductsMaster] = useState<any[]>([]);
+  const [allCuts, setAllCuts] = useState<any[]>([]);
+  const [activeKpiModal, setActiveKpiModal] = useState<string | null>(null);
+  const [colorsMaster, setColorsMaster] = useState<any[]>([]);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterFabric, setFilterFabric] = useState('all');
+  const [filterColor, setFilterColor] = useState('all');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Resolution inputs for critical/medium novelties
   // Key format: "capa_tipo"
@@ -55,6 +66,17 @@ export default function CorteDashboard() {
 
       if (error) throw error;
       setOrders(data || []);
+
+      if (data && data.length > 0) {
+        const orderIds = data.map(o => o.id);
+        const { data: cutsData } = await supabase
+          .from('cuts')
+          .select('*, cut_sizes(*)')
+          .in('order_id', orderIds);
+        setAllCuts(cutsData || []);
+      } else {
+        setAllCuts([]);
+      }
     } catch (err) {
       console.error('Error fetching orders for cutting stage:', err);
     } finally {
@@ -66,8 +88,12 @@ export default function CorteDashboard() {
     try {
       const { data: fData } = await supabase.from('fabrics').select('*');
       const { data: nData } = await supabase.from('novelties').select('*');
+      const { data: pData } = await supabase.from('products').select('*');
+      const { data: cData } = await supabase.from('colors').select('*').order('nombre');
       setFabrics(fData || []);
       setNoveltiesMaster(nData || []);
+      setProductsMaster(pData || []);
+      setColorsMaster(cData || []);
     } catch (err) {
       console.error('Error fetching masters:', err);
     }
@@ -304,8 +330,68 @@ export default function CorteDashboard() {
         </div>
       )}
 
-      {/* Dashboard Grid */}
+      {/* Tab Switcher */}
       {!loading && !selectedOrder && !reconciliationOrder && (
+        <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+          <button
+            onClick={() => setActiveTab('list')}
+            style={{
+              padding: '0.5rem 1.25rem',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'list' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: activeTab === 'list' ? '2.5px solid var(--primary)' : 'none',
+              fontWeight: activeTab === 'list' ? '850' : '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.875rem'
+            }}
+          >
+            <FileText size={16} /> Órdenes Activas ({orders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            style={{
+              padding: '0.5rem 1.25rem',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'analytics' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: activeTab === 'analytics' ? '2px solid var(--primary)' : 'none',
+              fontWeight: activeTab === 'analytics' ? '850' : '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.875rem'
+            }}
+          >
+            <BarChart3 size={16} /> Indicadores y Gráficos
+          </button>
+          <button
+            onClick={() => setActiveTab('detail')}
+            style={{
+              padding: '0.5rem 1.25rem',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: activeTab === 'detail' ? 'var(--primary)' : 'var(--text-muted)',
+              borderBottom: activeTab === 'detail' ? '2px solid var(--primary)' : 'none',
+              fontWeight: activeTab === 'detail' ? '850' : '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.875rem'
+            }}
+          >
+            <Layers size={16} /> Detalle de Procesos
+          </button>
+        </div>
+      )}
+
+      {/* Dashboard Grid */}
+      {!loading && !selectedOrder && !reconciliationOrder && activeTab === 'list' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
           <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden' }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
@@ -332,32 +418,35 @@ export default function CorteDashboard() {
                         display: 'flex', 
                         justifyContent: 'space-between', 
                         alignItems: 'center',
-                        backgroundColor: isFinished ? '#f8fafc' : isCutting ? '#eff6ff' : 'white',
+                        backgroundColor: isFinished ? '#f0fdf4' : 'transparent',
                         transition: 'background 0.2s'
                       }}
                     >
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-                          <span style={{ fontWeight: '800', fontSize: '0.95rem', color: '#1e293b' }}>
-                            OC-{order.internal_code || order.id}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#475569' }}>
+                            {order.internal_code || `OC-${order.consecutive?.toString().padStart(4, '0')}`}
                           </span>
                           <span style={{ 
-                            fontSize: '0.6875rem', 
-                            padding: '0.2rem 0.5rem', 
-                            borderRadius: '4px', 
-                            fontWeight: '700',
-                            backgroundColor: isFinished ? '#dcfce7' : isCutting ? '#dbeafe' : '#fef3c7',
-                            color: isFinished ? '#15803d' : isCutting ? '#1d4ed8' : '#b45309'
+                            fontSize: '0.625rem', 
+                            fontWeight: '900', 
+                            padding: '0.15rem 0.5rem', 
+                            borderRadius: '4px',
+                            backgroundColor: isFinished ? '#d1fae5' : isCutting ? '#dbeafe' : '#fef3c7',
+                            color: isFinished ? '#065f46' : isCutting ? '#1e40af' : '#92400e',
+                            textTransform: 'uppercase'
                           }}>
-                            {isFinished ? 'Cortado' : isCutting ? 'En Corte' : 'Listo para Corte'}
+                            {order.status}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem', color: '#64748b' }}>
-                          <span><strong>Cliente:</strong> {order.client_name || 'General'}</span>
-                          <span><strong>Largo Trazo:</strong> {order.largo_trazo} cm</span>
-                        </div>
+                        <h4 style={{ fontSize: '1rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>
+                          {order.client_name}
+                        </h4>
+                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                          Creado el {new Date(order.created_at).toLocaleDateString('es-ES')} · Comprometido para: {order.fecha_entrega || '—'}
+                        </p>
                       </div>
-                      
+
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         {isFinished && (
                           <button
@@ -373,7 +462,8 @@ export default function CorteDashboard() {
                               alignItems: 'center',
                               gap: '0.4rem',
                               fontSize: '0.8rem',
-                              fontWeight: '700'
+                              fontWeight: '700',
+                              cursor: 'pointer'
                             }}
                           >
                             <BarChart3 size={14} />
@@ -400,6 +490,660 @@ export default function CorteDashboard() {
           </div>
         </div>
       )}
+
+      {/* Analytics Dashboard View */}
+      {!loading && !selectedOrder && !reconciliationOrder && activeTab === 'analytics' && (() => {
+        const totalKilos = allCuts.reduce((sum, cut) => sum + (Number(cut.kilos) || 0), 0);
+        const totalLayers = allCuts.reduce((sum, cut) => sum + (Number(cut.layers_produced || cut.layers || 0)), 0);
+        
+        let totalGarments = 0;
+        allCuts.forEach(cut => {
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            const layersProyec = cut.layers || 1;
+            const layersProduced = cut.layers_produced || 0;
+            let realQty = 0;
+            if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+              realQty = Number(cs.quantity_produced);
+            } else {
+              const proyecQty = Number(cs.quantity) || 0;
+              const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+              realQty = Math.round(ppc * layersProduced);
+            }
+            totalGarments += realQty;
+          });
+        });
+
+        const uniqueProdIds = Array.from(new Set(allCuts.map(c => String(c.product_id)).filter(Boolean)));
+        const totalRefs = uniqueProdIds.length;
+
+        const statusCounts = orders.reduce((acc, o) => {
+          acc[o.status] = (acc[o.status] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+
+        const fabricKilos: Record<string, number> = {};
+        allCuts.forEach(cut => {
+          const fabObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+          const fabName = fabObj ? fabObj.nombre_tela : 'Tela Externa';
+          fabricKilos[fabName] = (fabricKilos[fabName] || 0) + (Number(cut.kilos) || 0);
+        });
+
+        const productGarments: Record<string, number> = {};
+        allCuts.forEach(cut => {
+          const prodObj = productsMaster.find(p => String(p.id) === String(cut.product_id));
+          const prodName = prodObj ? prodObj.nombre_producto : 'Sin Referencia';
+          
+          let cutQty = 0;
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            const layersProyec = cut.layers || 1;
+            const layersProduced = cut.layers_produced || 0;
+            let realQty = 0;
+            if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+              realQty = Number(cs.quantity_produced);
+            } else {
+              const proyecQty = Number(cs.quantity) || 0;
+              const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+              realQty = Math.round(ppc * layersProduced);
+            }
+            cutQty += realQty;
+          });
+          productGarments[prodName] = (productGarments[prodName] || 0) + cutQty;
+        });
+
+        const topProducts = Object.entries(productGarments).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        const topFabrics = Object.entries(fabricKilos).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* KPI Cards Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+              <div className="card" onClick={() => setActiveKpiModal('orders')} style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, #4f46e5, #3b82f6)', color: 'white', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(59,130,246,0.3)', cursor: 'pointer', transition: 'transform 0.2s' }}>
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
+                  <FileText size={24} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Órdenes Pendientes</p>
+                  <h3 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '950' }}>{orders.length}</h3>
+                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>En tendido y corte (Clic detalle)</span>
+                </div>
+              </div>
+
+              <div className="card" onClick={() => setActiveKpiModal('kilos')} style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(16,185,129,0.3)', cursor: 'pointer', transition: 'transform 0.2s' }}>
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
+                  <Layers size={24} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Tela Cortada (Kilos)</p>
+                  <h3 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '950' }}>{totalKilos.toFixed(1)} kg</h3>
+                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>{totalLayers} capas (Clic detalle)</span>
+                </div>
+              </div>
+
+              <div className="card" onClick={() => setActiveKpiModal('garments')} style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, #8b5cf6, #ec4899)', color: 'white', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(139,92,246,0.3)', cursor: 'pointer', transition: 'transform 0.2s' }}>
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
+                  <Scissors size={24} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Prendas Producidas</p>
+                  <h3 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '950' }}>{totalGarments} uds</h3>
+                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>Proyección real (Clic detalle)</span>
+                </div>
+              </div>
+
+              <div className="card" onClick={() => setActiveKpiModal('references')} style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: 'white', borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(245,158,11,0.3)', cursor: 'pointer', transition: 'transform 0.2s' }}>
+                <div style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
+                  <Info size={24} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Referencias</p>
+                  <h3 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '950' }}>{totalRefs} refs</h3>
+                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>Modelos en corte (Clic detalle)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Visual Charts Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
+              {/* Left Column: Fabrics */}
+              <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', borderRadius: '16px' }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, textTransform: 'uppercase', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  Distribución de Consumo de Tela
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {topFabrics.map(([name, kilos], idx) => {
+                    const pct = totalKilos > 0 ? (kilos / totalKilos) * 100 : 0;
+                    return (
+                      <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: '750', color: '#334155' }}>
+                          <span>{name}</span>
+                          <span style={{ color: 'var(--primary)', fontWeight: '800' }}>{kilos.toFixed(1)} kg ({pct.toFixed(0)}%)</span>
+                        </div>
+                        <div style={{ width: '100%', height: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', backgroundColor: idx === 0 ? '#4f46e5' : idx === 1 ? '#10b981' : idx === 2 ? '#f59e0b' : '#8b5cf6', borderRadius: '4px' }}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {topFabrics.length === 0 && <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '0.78rem', margin: 0 }}>Sin registros de telas.</p>}
+                </div>
+              </div>
+
+              {/* Right Column: Top Products */}
+              <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', borderRadius: '16px' }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, textTransform: 'uppercase', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  Top 5 Referencias Más Producidas
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {topProducts.map(([name, qty], idx) => {
+                    const maxQty = Math.max(...Object.values(productGarments), 1);
+                    const pct = (qty / maxQty) * 100;
+                    return (
+                      <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: '750', color: '#334155' }}>
+                          <span>{name}</span>
+                          <span style={{ color: '#059669', fontWeight: '800' }}>{qty} uds</span>
+                        </div>
+                        <div style={{ width: '100%', height: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', backgroundColor: idx === 0 ? '#10b981' : idx === 1 ? '#8b5cf6' : idx === 2 ? '#ec4899' : '#3b82f6', borderRadius: '4px' }}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {topProducts.length === 0 && <p style={{ fontStyle: 'italic', color: '#94a3b8', fontSize: '0.78rem', margin: 0 }}>Sin registros de productos.</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* Status Breakdown Bar */}
+            <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderRadius: '16px' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, textTransform: 'uppercase' }}>
+                Fases de Órdenes en Corte
+              </h3>
+              <div style={{ display: 'flex', width: '100%', height: '24px', backgroundColor: '#f1f5f9', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                {['Tendido', 'Cortando', 'Cortado'].map((status) => {
+                  const count = statusCounts[status] || 0;
+                  const pct = orders.length > 0 ? (count / orders.length) * 100 : 0;
+                  if (pct === 0) return null;
+                  return (
+                    <div
+                      key={status}
+                      style={{
+                        width: `${pct}%`,
+                        height: '100%',
+                        backgroundColor: status === 'Tendido' ? '#f59e0b' : status === 'Cortando' ? '#3b82f6' : '#10b981',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '0.6875rem',
+                        fontWeight: '900'
+                      }}
+                    >
+                      {status}: {count} ({pct.toFixed(0)}%)
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#f59e0b' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#f59e0b', borderRadius: '50%' }}></span>Tendido ({statusCounts['Tendido'] || 0})</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#3b82f6' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#3b82f6', borderRadius: '50%' }}></span>Cortando ({statusCounts['Cortando'] || 0})</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#10b981' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></span>Cortado ({statusCounts['Cortado'] || 0})</span>
+              </div>
+            </div>
+
+          </div>
+        );
+      })()}
+
+      {/* Detailed Report View (New Tab) */}
+      {!loading && !selectedOrder && !reconciliationOrder && activeTab === 'detail' && (() => {
+        // Apply filters
+        const filteredCuts = allCuts.filter(cut => {
+          const orderObj = orders.find(o => String(o.id) === String(cut.order_id));
+          const prodObj = productsMaster.find(p => String(p.id) === String(cut.product_id));
+          
+          // 1. Status Filter
+          const status = orderObj ? orderObj.status : 'Desconocido';
+          if (filterStatus !== 'all' && status !== filterStatus) return false;
+          
+          // 2. Fabric Filter
+          if (filterFabric !== 'all' && String(cut.fabric_id) !== filterFabric) return false;
+          
+          // 3. Color Filter
+          if (filterColor !== 'all') {
+            const hasColor = (cut.cut_sizes || []).some((cs: any) => String(cs.color_id) === filterColor);
+            if (!hasColor) return false;
+          }
+          
+          // 4. Date Filter
+          if (orderObj?.created_at) {
+            const orderDate = new Date(orderObj.created_at);
+            if (filterStartDate) {
+              const start = new Date(filterStartDate);
+              if (orderDate < start) return false;
+            }
+            if (filterEndDate) {
+              const end = new Date(filterEndDate);
+              end.setHours(23, 59, 59, 999);
+              if (orderDate > end) return false;
+            }
+          }
+          
+          // 5. Search Query
+          if (searchQuery) {
+            const query = searchQuery.toLowerCase().trim();
+            const matchesCode = String(orderObj?.internal_code || '').toLowerCase().includes(query);
+            const matchesClient = String(orderObj?.client_name || '').toLowerCase().includes(query);
+            const matchesProd = String(prodObj?.nombre_producto || '').toLowerCase().includes(query);
+            if (!matchesCode && !matchesClient && !matchesProd) return false;
+          }
+          
+          return true;
+        });
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
+            {/* Filters Bar Card */}
+            <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: '850', color: '#0f172a', textTransform: 'uppercase', margin: 0 }}>Filtros de Búsqueda</h4>
+                {(filterStatus !== 'all' || filterFabric !== 'all' || filterColor !== 'all' || filterStartDate || filterEndDate || searchQuery) && (
+                  <button
+                    onClick={() => {
+                      setFilterStatus('all');
+                      setFilterFabric('all');
+                      setFilterColor('all');
+                      setFilterStartDate('');
+                      setFilterEndDate('');
+                      setSearchQuery('');
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--primary)', fontWeight: '750', fontSize: '0.75rem', cursor: 'pointer' }}
+                  >
+                    Limpiar Filtros
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                {/* Search query */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Búsqueda General</label>
+                  <input
+                    type="text"
+                    placeholder="Orden, cliente o referencia..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', backgroundColor: 'var(--bg-card)' }}
+                  />
+                </div>
+
+                {/* Status selector */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Estado de Orden</label>
+                  <select
+                    value={filterStatus}
+                    onChange={e => setFilterStatus(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', cursor: 'pointer', backgroundColor: 'var(--bg-card)' }}
+                  >
+                    <option value="all">Todos los estados</option>
+                    <option value="Tendido">Tendido</option>
+                    <option value="Cortando">Cortando</option>
+                    <option value="Cortado">Cortado</option>
+                  </select>
+                </div>
+
+                {/* Fabric Selector */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Tela Utilizada</label>
+                  <select
+                    value={filterFabric}
+                    onChange={e => setFilterFabric(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', cursor: 'pointer', backgroundColor: 'var(--bg-card)' }}
+                  >
+                    <option value="all">Todas las telas</option>
+                    {fabrics.map(f => (
+                      <option key={f.id} value={f.id}>{f.nombre_tela}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Color Selector */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Color Prenda</label>
+                  <select
+                    value={filterColor}
+                    onChange={e => setFilterColor(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', cursor: 'pointer', backgroundColor: 'var(--bg-card)' }}
+                  >
+                    <option value="all">Todos los colores</option>
+                    {colorsMaster.map(c => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Start Date */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Fecha Desde</label>
+                  <input
+                    type="date"
+                    value={filterStartDate}
+                    onChange={e => setFilterStartDate(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', backgroundColor: 'var(--bg-card)' }}
+                  />
+                </div>
+
+                {/* End Date */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase' }}>Fecha Hasta</label>
+                  <input
+                    type="date"
+                    value={filterEndDate}
+                    onChange={e => setFilterEndDate(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem', backgroundColor: 'var(--bg-card)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Detailed Process Table */}
+            {(() => {
+              const sumKilos = filteredCuts.reduce((sum, cut) => sum + (Number(cut.kilos) || 0), 0);
+              const sumLayers = filteredCuts.reduce((sum, cut) => sum + (Number(cut.layers_produced || cut.layers || 0)), 0);
+              
+              let sumGarments = 0;
+              filteredCuts.forEach(cut => {
+                (cut.cut_sizes || []).forEach((cs: any) => {
+                  const layersProyec = cut.layers || 1;
+                  const layersProduced = cut.layers_produced || 0;
+                  let realQty = 0;
+                  if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                    realQty = Number(cs.quantity_produced);
+                  } else {
+                    const proyecQty = Number(cs.quantity) || 0;
+                    const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                    realQty = Math.round(ppc * layersProduced);
+                  }
+                  sumGarments += realQty;
+                });
+              });
+
+              return (
+                <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderRadius: '16px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, textTransform: 'uppercase' }}>
+                      📋 Detalle de Tendido y Corte por Lote ({filteredCuts.length})
+                    </h3>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', minWidth: '700px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1.5px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800' }}>Orden</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800' }}>Cliente</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800' }}>Referencia / Producto</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800' }}>Tela</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800', textAlign: 'right' }}>Kilos</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800', textAlign: 'center' }}>Capas</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800', textAlign: 'right' }}>Prendas Est.</th>
+                          <th style={{ padding: '0.6rem 0.5rem', fontWeight: '800', textAlign: 'center' }}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCuts.map((cut, idx) => {
+                          const orderObj = orders.find(o => String(o.id) === String(cut.order_id));
+                          const prodObj = productsMaster.find(p => String(p.id) === String(cut.product_id));
+                          const fabObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+                          
+                          let cutQty = 0;
+                          (cut.cut_sizes || []).forEach((cs: any) => {
+                            const layersProyec = cut.layers || 1;
+                            const layersProduced = cut.layers_produced || 0;
+                            let realQty = 0;
+                            if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                              realQty = Number(cs.quantity_produced);
+                            } else {
+                              const proyecQty = Number(cs.quantity) || 0;
+                              const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                              realQty = Math.round(ppc * layersProduced);
+                            }
+                            cutQty += realQty;
+                          });
+
+                          const status = orderObj ? orderObj.status : 'Desconocido';
+
+                          return (
+                            <tr key={cut.id || idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '0.6rem 0.5rem', fontWeight: '750' }}>{orderObj?.internal_code || `OC-${orderObj?.consecutive}`}</td>
+                              <td style={{ padding: '0.6rem 0.5rem' }}>{orderObj?.client_name}</td>
+                              <td style={{ padding: '0.6rem 0.5rem', fontWeight: '700' }}>{prodObj ? prodObj.nombre_producto : '—'}</td>
+                              <td style={{ padding: '0.6rem 0.5rem' }}>{fabObj ? fabObj.nombre_tela : '—'}</td>
+                              <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: '800' }}>{Number(cut.kilos || 0).toFixed(1)} kg</td>
+                              <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>{cut.layers_produced || cut.layers || 0}</td>
+                              <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', fontWeight: '850', color: 'var(--primary)' }}>{cutQty} uds</td>
+                              <td style={{ padding: '0.6rem 0.5rem', textAlign: 'center' }}>
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: '900',
+                                  padding: '0.15rem 0.4rem',
+                                  borderRadius: '4px',
+                                  backgroundColor: status === 'Cortado' ? '#d1fae5' : status === 'Cortando' ? '#dbeafe' : '#fef3c7',
+                                  color: status === 'Cortado' ? '#065f46' : status === 'Cortando' ? '#1e40af' : '#92400e',
+                                  textTransform: 'uppercase'
+                                }}>
+                                  {status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredCuts.length === 0 && (
+                          <tr>
+                            <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                              No se encontraron registros de cortes con los filtros seleccionados.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                      {filteredCuts.length > 0 && (
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid #0f172a', borderBottom: '2px solid #0f172a', backgroundColor: '#f8fafc', fontWeight: '900', color: '#0f172a' }}>
+                            <td colSpan={4} style={{ padding: '0.75rem 0.5rem', textTransform: 'uppercase', fontSize: '0.78rem' }}>
+                              Totales Filtrados ({filteredCuts.length} registros)
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', fontSize: '0.825rem', color: '#059669', borderLeft: '1px solid var(--border)' }}>
+                              {sumKilos.toFixed(1)} kg
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'center', fontSize: '0.825rem', borderLeft: '1px solid var(--border)' }}>
+                              {sumLayers}
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', fontSize: '0.825rem', color: 'var(--primary)', borderLeft: '1px solid var(--border)', fontWeight: '950' }}>
+                              {sumGarments} uds
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', borderLeft: '1px solid var(--border)' }}></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
+      {/* ── KPI DETAILS MODALS ── */}
+      {activeKpiModal && (() => {
+        let title = '';
+        let modalBg = '';
+        let analysisText = '';
+        let content: React.ReactNode = null;
+
+        if (activeKpiModal === 'orders') {
+          title = 'Detalle de Órdenes Pendientes';
+          modalBg = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
+          
+          const tendidoCount = orders.filter(o => o.status === 'Tendido').length;
+          const cortandoCount = orders.filter(o => o.status === 'Cortando').length;
+          const cortadoCount = orders.filter(o => o.status === 'Cortado').length;
+          
+          analysisText = `Actualmente se registran ${orders.length} órdenes en flujo de corte. De ellas, ${tendidoCount} están en tendido inicial, ${cortandoCount} están en proceso activo de corte físico y ${cortadoCount} han finalizado el corte y están listas para envío. El flujo promedio muestra una buena distribución, con un enfoque en finalizar los cortes de lotes pendientes.`;
+          
+          content = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              {orders.map(o => (
+                <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                  <div>
+                    <strong style={{ color: 'var(--text)' }}>OC-{o.internal_code || o.consecutive}</strong>
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cliente: {o.client_name} · Tela: {fabrics.find(f => String(f.id) === String(o.fabric_id))?.nombre_tela || 'Externa'}</p>
+                  </div>
+                  <span style={{
+                    fontSize: '0.625rem',
+                    fontWeight: '900',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: '4px',
+                    backgroundColor: o.status === 'Cortado' ? '#d1fae5' : o.status === 'Cortando' ? '#dbeafe' : '#fef3c7',
+                    color: o.status === 'Cortado' ? '#065f46' : o.status === 'Cortando' ? '#1e40af' : '#92400e',
+                    alignSelf: 'center',
+                    textTransform: 'uppercase'
+                  }}>{o.status}</span>
+                </div>
+              ))}
+            </div>
+          );
+        } else if (activeKpiModal === 'kilos') {
+          title = 'Detalle de Tela Cortada (Kilos)';
+          modalBg = 'linear-gradient(135deg, #10b981, #059669)';
+          
+          const totalKilos = allCuts.reduce((sum, cut) => sum + (Number(cut.kilos) || 0), 0);
+          const avgKilos = orders.length > 0 ? totalKilos / orders.length : 0;
+          analysisText = `Se han consumido un total de ${totalKilos.toFixed(1)} kg de tela en los cortes actuales, con un promedio de ${avgKilos.toFixed(1)} kg por orden de producción. Las telas de mayor densidad representan el mayor volumen de peso. Monitorear los kilos cortados es fundamental para mantener el control de inventario de materia prima contra la producción real.`;
+          
+          const fabricKilos: Record<string, number> = {};
+          allCuts.forEach(cut => {
+            const fabObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+            const fabName = fabObj ? fabObj.nombre_tela : 'Tela Externa';
+            fabricKilos[fabName] = (fabricKilos[fabName] || 0) + (Number(cut.kilos) || 0);
+          });
+          
+          content = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              {Object.entries(fabricKilos).map(([name, kilos]) => (
+                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                  <span>{name}</span>
+                  <strong style={{ color: 'var(--primary)' }}>{kilos.toFixed(1)} kg</strong>
+                </div>
+              ))}
+            </div>
+          );
+        } else if (activeKpiModal === 'garments') {
+          title = 'Detalle de Prendas Producidas';
+          modalBg = 'linear-gradient(135deg, #8b5cf6, #ec4899)';
+          
+          let totalGarments = 0;
+          const details: { code: string; client: string; qty: number }[] = [];
+          
+          allCuts.forEach(cut => {
+            const orderObj = orders.find(o => String(o.id) === String(cut.order_id));
+            let cutQty = 0;
+            (cut.cut_sizes || []).forEach((cs: any) => {
+              const layersProyec = cut.layers || 1;
+              const layersProduced = cut.layers_produced || 0;
+              let realQty = 0;
+              if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                realQty = Number(cs.quantity_produced);
+              } else {
+                const proyecQty = Number(cs.quantity) || 0;
+                const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                realQty = Math.round(ppc * layersProduced);
+              }
+              cutQty += realQty;
+            });
+            
+            if (cutQty > 0 && orderObj) {
+              totalGarments += cutQty;
+              const code = orderObj.internal_code || orderObj.consecutive;
+              const existing = details.find(d => d.code === code);
+              if (existing) {
+                existing.qty += cutQty;
+              } else {
+                details.push({ code, client: orderObj.client_name, qty: cutQty });
+              }
+            }
+          });
+          
+          analysisText = `La proyección total de prendas reales obtenidas en la mesa de corte es de ${totalGarments} unidades. Esto representa la base real de carga de trabajo que ingresará al taller de costura/confección. Un conteo preciso garantiza que no haya diferencias entre las piezas entregadas a satélites y los productos finales facturados.`;
+          
+          content = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              {details.map(d => (
+                <div key={d.code} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                  <div>
+                    <strong style={{ color: 'var(--text)' }}>OC-{d.code}</strong>
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cliente: {d.client}</p>
+                  </div>
+                  <strong style={{ color: 'var(--primary)', alignSelf: 'center' }}>{d.qty} prendas</strong>
+                </div>
+              ))}
+            </div>
+          );
+        } else if (activeKpiModal === 'references') {
+          title = 'Detalle de Referencias y Modelos';
+          modalBg = 'linear-gradient(135deg, #f59e0b, #d97706)';
+          
+          const refCounts: Record<string, number> = {};
+          allCuts.forEach(cut => {
+            const prodObj = productsMaster.find(p => String(p.id) === String(cut.product_id));
+            const prodName = prodObj ? prodObj.nombre_producto : 'Sin Referencia';
+            refCounts[prodName] = (refCounts[prodName] || 0) + 1;
+          });
+          
+          analysisText = `Actualmente se están procesando ${Object.keys(refCounts).length} referencias de producto diferentes. Diversificar referencias requiere mayor precisión en el trazo y tendido para evitar confusiones de moldes y optimizar el rendimiento del trazo.`;
+          
+          content = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              {Object.entries(refCounts).map(([name, count]) => (
+                <div key={name} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                  <span>{name}</span>
+                  <strong style={{ color: 'var(--primary)' }}>{count} lote(s)</strong>
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(8px)', padding: '1.5rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: '600px', borderRadius: '20px', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+              <div style={{ background: modalBg, color: 'white', padding: '1.5rem 2rem', position: 'relative' }}>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0 }}>{title}</h3>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', opacity: 0.9, textTransform: 'uppercase', fontWeight: '750' }}>Panel de Información e Indicadores</p>
+              </div>
+              <div style={{ padding: '2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div style={{ padding: '1rem', borderRadius: '12px', borderLeft: '4px solid var(--primary)', backgroundColor: 'var(--bg-secondary)', fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                  <p style={{ fontWeight: '850', color: 'var(--text)', margin: '0 0 0.4rem', textTransform: 'uppercase', fontSize: '0.65rem' }}>Análisis del Ejercicio</p>
+                  {analysisText}
+                </div>
+                <div>
+                  <h4 style={{ fontWeight: '850', fontSize: '0.75rem', color: 'var(--text)', textTransform: 'uppercase', marginBottom: '0.75rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.25rem' }}>Datos Específicos</h4>
+                  {content}
+                </div>
+              </div>
+              <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', backgroundColor: 'var(--bg-secondary)' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setActiveKpiModal(null)}
+                  style={{ padding: '0.5rem 1.5rem', fontWeight: '700', borderRadius: '8px' }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Reconciliation Report View */}
       {reconciliationOrder && (
@@ -431,27 +1175,116 @@ export default function CorteDashboard() {
           ) : (
             <>
               {/* Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-                {(() => {
-                  const totalCapasProyectadas = reconciliationCuts.reduce((sum, c) => sum + (c.layers || 0), 0);
-                  const totalCapasReales = reconciliationCuts.reduce((sum, c) => sum + (c.layers_produced || 0), 0);
-                  const totalKilos = reconciliationCuts.reduce((sum, c) => sum + (parseFloat(c.kilos) || 0), 0);
-                  const difCapas = totalCapasReales - totalCapasProyectadas;
-                  // sz.quantity is already total pieces (per-layer-pieces × projected-layers)
-                  const totalPrendasProyec = reconciliationCuts.reduce((sum, c) => {
-                    return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+              {/* Summary Cards */}
+              {(() => {
+                const totalCapasProyectadas = reconciliationCuts.reduce((sum, c) => sum + (c.layers || 0), 0);
+                const totalCapasReales = reconciliationCuts.reduce((sum, c) => sum + (c.layers_produced || 0), 0);
+                const totalKilos = reconciliationCuts.reduce((sum, c) => sum + (parseFloat(c.kilos) || 0), 0);
+                const difCapas = totalCapasReales - totalCapasProyectadas;
+                const totalPrendasProyec = reconciliationCuts.reduce((sum, c) => {
+                  return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+                }, 0);
+                const totalPrendasReales = reconciliationCuts.reduce((sum, c) => {
+                  const layers = c.layers || 1;
+                  const layersReal = c.layers_produced || 0;
+                  return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
+                    if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                      return s + Number(cs.quantity_produced);
+                    }
+                    const piezasPorCapa = (Number(cs.quantity) || 0) / layers;
+                    return s + Math.round(piezasPorCapa * layersReal);
                   }, 0);
-                  const totalPrendasReales = reconciliationCuts.reduce((sum, c) => {
-                    const layers = c.layers || 1;
-                    const layersReal = c.layers_produced || 0;
-                    return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
-                      const piezasPorCapa = (Number(cs.quantity) || 0) / layers;
-                      return s + Math.round(piezasPorCapa * layersReal);
-                    }, 0);
-                  }, 0);
-                  const difPrendas = totalPrendasReales - totalPrendasProyec;
-                  return (
-                    <>
+                }, 0);
+                const difPrendas = totalPrendasReales - totalPrendasProyec;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    {/* Hero Card for Units Reconciliation */}
+                    <div className="card" style={{
+                      padding: '2rem',
+                      borderRadius: '20px',
+                      background: 'linear-gradient(135deg, #1e1b4b 0%, #311042 100%)',
+                      color: '#ffffff',
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '1.5rem',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        position: 'absolute',
+                        top: '-20%',
+                        right: '-10%',
+                        width: '300px',
+                        height: '300px',
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0) 70%)',
+                        pointerEvents: 'none'
+                      }} />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1, flexWrap: 'wrap', gap: '1rem' }}>
+                        <div>
+                          <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, letterSpacing: '-0.025em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span>🎯</span> BALANCE DE UNIDADES (PLANEADO VS. REAL)
+                          </h2>
+                          <p style={{ fontSize: '0.85rem', color: '#cbd5e1', margin: '0.25rem 0 0 0' }}>
+                            Relación entre las prendas planificadas en la orden y las cortadas finalmente en el tendido físico.
+                          </p>
+                        </div>
+                        <div style={{
+                          backgroundColor: difPrendas < 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                          border: `1px solid ${difPrendas < 0 ? '#f87171' : '#34d399'}`,
+                          borderRadius: '30px',
+                          padding: '0.5rem 1.25rem',
+                          fontSize: '0.9rem',
+                          fontWeight: '900',
+                          color: difPrendas < 0 ? '#f87171' : '#34d399'
+                        }}>
+                          {difPrendas === 0 ? 'Exacto' : `${difPrendas > 0 ? '+' : ''}${difPrendas.toLocaleString()} unidades`}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', zIndex: 1, backgroundColor: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', margin: '0 0 0.5rem 0' }}>Planeado</p>
+                          <p style={{ fontSize: '2.25rem', fontWeight: '950', color: '#cbd5e1', margin: 0, fontFamily: 'monospace' }}>
+                            {totalPrendasProyec.toLocaleString()} <span style={{ fontSize: '0.85rem', fontWeight: '500', color: '#64748b' }}>uds</span>
+                          </p>
+                        </div>
+                        <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.1)', borderRight: '1px solid rgba(255,255,255,0.1)' }}>
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', margin: '0 0 0.5rem 0' }}>Corte Real</p>
+                          <p style={{ fontSize: '2.25rem', fontWeight: '950', color: difPrendas < 0 ? '#f87171' : '#34d399', margin: 0, fontFamily: 'monospace' }}>
+                            {totalPrendasReales.toLocaleString()} <span style={{ fontSize: '0.85rem', fontWeight: '500', color: difPrendas < 0 ? '#f87171' : '#34d399' }}>uds</span>
+                          </p>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', margin: '0 0 0.5rem 0' }}>Cumplimiento</p>
+                          <p style={{ fontSize: '2.25rem', fontWeight: '950', color: '#a5b4fc', margin: 0, fontFamily: 'monospace' }}>
+                            {totalPrendasProyec > 0 ? ((totalPrendasReales / totalPrendasProyec) * 100).toFixed(1) : '—'}%
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {totalPrendasProyec > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', zIndex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8' }}>
+                            <span>Progreso de unidades</span>
+                            <span>{totalPrendasReales.toLocaleString()} / {totalPrendasProyec.toLocaleString()} uds</span>
+                          </div>
+                          <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ 
+                              width: `${Math.min((totalPrendasReales / totalPrendasProyec) * 100, 100)}%`, 
+                              height: '100%', 
+                              backgroundColor: difPrendas < 0 ? '#ef4444' : '#10b981', 
+                              borderRadius: '4px',
+                              transition: 'width 0.5s ease-out'
+                            }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
                       <div className="card" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '4px solid #6366f1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Capas</p>
@@ -460,16 +1293,6 @@ export default function CorteDashboard() {
                         <div style={{ textAlign: 'right' }}>
                           <p style={{ fontSize: '1.75rem', fontWeight: '900', color: '#6366f1', margin: 0, lineHeight: 1 }}>{totalCapasProyectadas}</p>
                           <p style={{ fontSize: '1.25rem', fontWeight: '800', color: '#10b981', margin: 0 }}>{totalCapasReales} <span style={{ fontSize: '0.7rem', color: difCapas < 0 ? '#dc2626' : '#10b981' }}>({difCapas > 0 ? '+' : ''}{difCapas})</span></p>
-                        </div>
-                      </div>
-                      <div className="card" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '4px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <p style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Prendas</p>
-                          <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>Estimadas vs. Confeccionadas</p>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <p style={{ fontSize: '1.75rem', fontWeight: '900', color: '#f59e0b', margin: 0, lineHeight: 1 }}>{totalPrendasProyec}</p>
-                          <p style={{ fontSize: '1.25rem', fontWeight: '800', color: '#10b981', margin: 0 }}>{totalPrendasReales} <span style={{ fontSize: '0.7rem', color: difPrendas < 0 ? '#dc2626' : '#10b981' }}>({difPrendas > 0 ? '+' : ''}{difPrendas})</span></p>
                         </div>
                       </div>
                       <div className="card" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '4px solid #0ea5e9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -488,10 +1311,10 @@ export default function CorteDashboard() {
                           {totalPrendasProyec > 0 ? ((totalPrendasReales / totalPrendasProyec) * 100).toFixed(1) : '—'}%
                         </p>
                       </div>
-                    </>
-                  );
-                })()}
-              </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Per-cut table */}
               <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden' }}>
@@ -520,6 +1343,9 @@ export default function CorteDashboard() {
                         // sz.quantity = total prendas ya multiplicadas por capas proyectadas
                         const prendasProyec = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
                         const prendasReales = (cut.cut_sizes || []).reduce((s: number, cs: any) => {
+                          if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                            return s + Number(cs.quantity_produced);
+                          }
                           const piezasPorCapa = capasProyec > 0 ? (Number(cs.quantity) || 0) / capasProyec : 0;
                           return s + Math.round(piezasPorCapa * capasReal);
                         }, 0);
@@ -562,6 +1388,68 @@ export default function CorteDashboard() {
                         );
                       })}
                     </tbody>
+                    {(() => {
+                      const totalCapasProy = reconciliationCuts.reduce((sum, c) => sum + (c.layers || 0), 0);
+                      const totalCapasReal = reconciliationCuts.reduce((sum, c) => sum + (c.layers_produced || 0), 0);
+                      const totalDiffCapas = totalCapasReal - totalCapasProy;
+
+                      const totalPrendasProy = reconciliationCuts.reduce((sum, c) => {
+                        return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+                      }, 0);
+
+                      const totalPrendasReal = reconciliationCuts.reduce((sum, c) => {
+                        const layers = c.layers || 1;
+                        const layersReal = c.layers_produced || 0;
+                        return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
+                          if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                            return s + Number(cs.quantity_produced);
+                          }
+                          const piezasPorCapa = (Number(cs.quantity) || 0) / layers;
+                          return s + Math.round(piezasPorCapa * layersReal);
+                        }, 0);
+                      }, 0);
+
+                      const totalDiffPrendas = totalPrendasReal - totalPrendasProy;
+                      const totalKilosSum = reconciliationCuts.reduce((sum, c) => sum + (parseFloat(c.kilos) || 0), 0);
+                      const totalEficiencia = totalCapasProy > 0 ? ((totalCapasReal / totalCapasProy) * 100).toFixed(1) : '—';
+
+                      return (
+                        <tfoot style={{ borderTop: '2.5px solid #cbd5e1', backgroundColor: '#f8fafc', fontWeight: '900' }}>
+                          <tr>
+                            <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>TOTALES</td>
+                            <td style={{ padding: '1rem' }}></td>
+                            <td style={{ padding: '1rem' }}></td>
+                            <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '900', color: '#6366f1' }}>{totalCapasProy}</td>
+                            <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '900', color: '#10b981' }}>{totalCapasReal}</td>
+                            <td style={{ padding: '1rem' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '5px',
+                                backgroundColor: totalDiffCapas < 0 ? '#fef2f2' : totalDiffCapas > 0 ? '#fffbeb' : '#f0fdf4',
+                                color: totalDiffCapas < 0 ? '#dc2626' : totalDiffCapas > 0 ? '#d97706' : '#16a34a' }}>
+                                {totalDiffCapas > 0 ? '+' : ''}{totalDiffCapas}
+                              </span>
+                            </td>
+                            {/* Prominently highlighted unit totals */}
+                            <td style={{ padding: '1rem', fontSize: '0.95rem', fontWeight: '950', color: '#4f46e5', backgroundColor: '#e0e7ff' }}>{totalPrendasProy.toLocaleString()}</td>
+                            <td style={{ padding: '1rem', fontSize: '0.95rem', fontWeight: '950', color: '#059669', backgroundColor: '#d1fae5' }}>{totalPrendasReal.toLocaleString()}</td>
+                            <td style={{ padding: '1rem', backgroundColor: totalDiffPrendas < 0 ? '#fef2f2' : '#f0fdf4' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '5px',
+                                backgroundColor: totalDiffPrendas < 0 ? '#dc2626' : totalDiffPrendas > 0 ? '#fffbeb' : '#16a34a',
+                                color: totalDiffPrendas < 0 ? '#ffffff' : totalDiffPrendas > 0 ? '#d97706' : '#ffffff' }}>
+                                {totalDiffPrendas > 0 ? '+' : ''}{totalDiffPrendas.toLocaleString()}
+                              </span>
+                            </td>
+                            <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>{totalKilosSum.toFixed(2)} kg</td>
+                            <td style={{ padding: '1rem' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '5px',
+                                backgroundColor: parseFloat(totalEficiencia) >= 100 ? '#f0fdf4' : parseFloat(totalEficiencia) >= 80 ? '#fffbeb' : '#fef2f2',
+                                color: parseFloat(totalEficiencia) >= 100 ? '#16a34a' : parseFloat(totalEficiencia) >= 80 ? '#d97706' : '#dc2626' }}>
+                                {totalEficiencia}%
+                              </span>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
                   </table>
                 </div>
               </div>
