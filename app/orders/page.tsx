@@ -1068,10 +1068,18 @@ export default function OrdersPage() {
         }
 
         // Actualizar la orden y borrar cortes viejos
-        const { error: updateError } = await supabase
+        let { error: updateError } = await supabase
           .from('orders')
           .update(orderPayload)
           .eq('id', editingId);
+        if (updateError && updateError.message?.includes('created_by')) {
+          const { created_by, ...payloadWithoutCreatedBy } = orderPayload;
+          const { error: retryError } = await supabase
+            .from('orders')
+            .update(payloadWithoutCreatedBy)
+            .eq('id', editingId);
+          updateError = retryError;
+        }
         if (updateError) throw updateError;
 
         const { data: oldCuts } = await supabase.from('cuts').select('id').eq('order_id', editingId);
@@ -1083,10 +1091,18 @@ export default function OrdersPage() {
       } else {
         // Si ya tenemos un currentOrderId, actualizamos en lugar de insertar de nuevo para no duplicarla
         if (currentOrderId) {
-          const { error: updateError } = await supabase
+          let { error: updateError } = await supabase
             .from('orders')
             .update(orderPayload)
             .eq('id', currentOrderId);
+          if (updateError && updateError.message?.includes('created_by')) {
+            const { created_by, ...payloadWithoutCreatedBy } = orderPayload;
+            const { error: retryError } = await supabase
+              .from('orders')
+              .update(payloadWithoutCreatedBy)
+              .eq('id', currentOrderId);
+            updateError = retryError;
+          }
           if (updateError) throw updateError;
           orderId = currentOrderId;
 
@@ -1098,11 +1114,21 @@ export default function OrdersPage() {
             await supabase.from('cuts').delete().in('id', cutIds);
           }
         } else {
-          const { data: newOrder, error: orderError } = await supabase
+          let { data: newOrder, error: orderError } = await supabase
             .from('orders')
             .insert([orderPayload])
             .select()
             .single();
+          if (orderError && orderError.message?.includes('created_by')) {
+            const { created_by, ...payloadWithoutCreatedBy } = orderPayload;
+            const { data: retryOrder, error: retryError } = await supabase
+              .from('orders')
+              .insert([payloadWithoutCreatedBy])
+              .select()
+              .single();
+            newOrder = retryOrder;
+            orderError = retryError;
+          }
           if (orderError) throw orderError;
           orderId = newOrder.id;
         }
