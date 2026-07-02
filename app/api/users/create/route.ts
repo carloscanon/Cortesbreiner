@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: Request) {
   try {
-    const { email, password, full_name, role_id } = await request.json();
+    const { email, password, full_name, role_id, workshop_id } = await request.json();
 
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'Email, contraseña y nombre son obligatorios.' }, { status: 400 });
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Confirmar email automáticamente sin requerir link
-      user_metadata: { full_name, role_id: role_id || null }
+      email_confirm: true,
+      user_metadata: { full_name, role_id: role_id || null, workshop_id: workshop_id || null }
     });
 
     if (authError) {
@@ -44,18 +44,35 @@ export async function POST(request: Request) {
     // Esperar brevemente para que el trigger handle_new_user cree el perfil
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Actualizar el perfil con el nombre completo y rol (en caso de que el trigger no lo haya hecho)
+    // Build profile payload — workshop_id is optional (column may not exist yet)
+    const profilePayload: any = {
+      id: userId,
+      full_name,
+      role_id: role_id || null,
+    };
+    if (workshop_id) {
+      profilePayload.workshop_id = workshop_id;
+    }
+
+    // Actualizar el perfil con el nombre completo, rol y taller asignado
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .upsert({
-        id: userId,
-        full_name,
-        role_id: role_id || null
-      }, { onConflict: 'id' });
+      .upsert(profilePayload, { onConflict: 'id' });
 
     if (profileError) {
-      console.error('Error updating profile:', profileError);
-      // No lanzamos error aquí ya que el usuario fue creado en auth
+      // If error is about missing workshop_id column, retry without it
+      if (profileError.message?.includes('workshop_id') && workshop_id) {
+        const { error: retryError } = await supabaseAdmin
+          .from('profiles')
+          .upsert({ id: userId, full_name, role_id: role_id || null }, { onConflict: 'id' });
+        if (retryError) {
+          console.error('Error updating profile (retry):', retryError.message);
+        } else {
+          console.info('Profile saved without workshop_id — column not yet in schema.');
+        }
+      } else {
+        console.error('Error updating profile:', profileError.message);
+      }
     }
 
     return NextResponse.json({ success: true, userId });

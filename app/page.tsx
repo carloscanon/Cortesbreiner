@@ -308,7 +308,9 @@ export default function Dashboard() {
 
   // ─── WORKSHOP USER SPECIFIC LOGIC ──────────────────────────────────────────
   if (isTaller) {
+    // Match by workshop_id from profile (direct FK) or fallback to name matching
     const userWorkshop = workshops.find(w =>
+      (profile?.workshop_id && w.id === profile.workshop_id) ||
       (w.nombre_taller || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim() ||
       (w.responsable || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim()
     );

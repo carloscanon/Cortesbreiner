@@ -30,7 +30,8 @@ import {
   User as UserIcon,
   Palette,
   Moon,
-  Sun
+  Sun,
+  Factory
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -82,6 +83,7 @@ export default function SettingsPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<any[]>([]);
   const [companyParams, setCompanyParams] = useState<any[]>([]);
+  const [workshopsList, setWorkshopsList] = useState<any[]>([]);
 
   // Modal states
   const [showRoleModal, setShowRoleModal] = useState(false);
@@ -148,11 +150,13 @@ export default function SettingsPage() {
           const result = await res.json();
           setUsers(result.users || []);
         } else {
-          const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name)');
+          const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name), workshops(id, nombre_taller)');
           setUsers(profiles || []);
         }
         const { data: rolesData } = await supabase.from('roles').select('*');
         setRoles(rolesData || []);
+        const { data: wData } = await supabase.from('workshops').select('id, nombre_taller').eq('activo', true).order('nombre_taller', { ascending: true });
+        setWorkshopsList(wData || []);
       } else if (activeTab === 'company' || activeTab === 'parametrization') {
         const { data } = await supabase.from('company_params').select('*');
         if (data && data.length > 0) {
@@ -258,9 +262,11 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     const formData = new FormData(e.target as HTMLFormElement);
-    const userData = {
+    const workshopVal = formData.get('workshop_id') as string;
+    const userData: any = {
       full_name: formData.get('full_name'),
       role_id: formData.get('role_id') || null,
+      workshop_id: workshopVal && workshopVal !== '' ? workshopVal : null,
     };
     const newPassword = formData.get('new_password') as string;
 
@@ -303,7 +309,9 @@ export default function SettingsPage() {
     const password = formData.get('password') as string;
     const full_name = formData.get('full_name') as string;
     const role_id = formData.get('role_id') as string;
+    const workshop_id_val = formData.get('workshop_id') as string;
     const cleanRoleId = role_id && role_id !== '' ? role_id : null;
+    const cleanWorkshopId = workshop_id_val && workshop_id_val !== '' ? workshop_id_val : null;
 
     if (password.length < 6) {
       alert('La contraseña debe tener al menos 6 caracteres.');
@@ -315,7 +323,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/users/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, full_name, role_id: cleanRoleId })
+        body: JSON.stringify({ email, password, full_name, role_id: cleanRoleId, workshop_id: cleanWorkshopId })
       });
 
       const result = await res.json();
@@ -1056,6 +1064,20 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {workshopsList.length > 0 && (
+                <div className="input-group">
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLER ASIGNADO <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ position: 'relative' }}>
+                    <Factory size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <select name="workshop_id" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                      <option value="">Sin taller asignado...</option>
+                      {workshopsList.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
+                    </select>
+                  </div>
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Solo necesario si el rol es "Taller". Vincula este usuario con el taller que gestionará.</p>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                 <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setShowCreateUserModal(false)}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontWeight: '800', borderRadius: '10px', backgroundColor: '#7c3aed', border: 'none' }} disabled={saving}>
@@ -1099,6 +1121,20 @@ export default function SettingsPage() {
                   </select>
                 </div>
               </div>
+
+              {workshopsList.length > 0 && (
+                <div className="input-group">
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLER ASIGNADO <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ position: 'relative' }}>
+                    <Factory size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <select name="workshop_id" defaultValue={editingUser?.workshop_id || ''} style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                      <option value="">Sin taller asignado...</option>
+                      {workshopsList.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
+                    </select>
+                  </div>
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Solo necesario si el rol es "Taller". Vincula este usuario con el taller que gestionará.</p>
+                </div>
+              )}
 
               <div className="input-group">
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NUEVA CONTRASEÑA (OPCIONAL)</label>
