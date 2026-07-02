@@ -35,6 +35,7 @@ export default function QualityPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchInspections();
@@ -74,19 +75,29 @@ export default function QualityPage() {
     const selectedOrder = orders.find(o => o.id === form.order_id);
     const payload = {
       order_id: form.order_id,
-      workshop_name: selectedOrder?.workshops?.nombre_taller || '',
+      workshop_name: selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
       items_inspected: Number(form.items_inspected) || 0,
       items_approved: Number(form.items_approved) || 0,
       items_rejected: Number(form.items_rejected) || 0,
       status: form.status,
       notes: form.notes,
     };
-    const { error } = await supabase.from('quality_inspections').insert([payload]);
+
+    let error = null;
+    if (editingId) {
+      const res = await supabase.from('quality_inspections').update(payload).eq('id', editingId);
+      error = res.error;
+    } else {
+      const res = await supabase.from('quality_inspections').insert([payload]);
+      error = res.error;
+    }
+
     if (error) {
       alert('Error al guardar: ' + error.message);
     } else {
       setShowModal(false);
       setForm(EMPTY_FORM);
+      setEditingId(null);
       fetchInspections();
     }
     setSaving(false);
@@ -252,20 +263,48 @@ export default function QualityPage() {
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                <ChevronRight size={16} color="var(--text-muted)" />
+                <button
+                  className="btn"
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    fontSize: '0.72rem',
+                    fontWeight: '700',
+                    backgroundColor: '#7c3aed',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onClick={() => {
+                    setEditingId(item.id);
+                    setForm({
+                      order_id: item.order_id,
+                      workshop_name: item.workshop_name || '',
+                      items_inspected: (item.items_inspected || 0).toString(),
+                      items_approved: (item.items_approved || 0).toString(),
+                      items_rejected: (item.items_rejected || 0).toString(),
+                      status: item.status,
+                      notes: item.notes || '',
+                    });
+                    setShowModal(true);
+                  }}
+                >
+                  Revisar
+                </button>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Modal: Nueva Inspección */}
+      {/* Modal: Nueva / Revisar Inspección */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(6px)' }}>
           <div className="card" style={{ width: '95%', maxWidth: '580px', padding: '0', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ padding: '1.25rem 1.75rem', background: 'var(--primary)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.125rem', color: 'white' }}>Nueva Inspección de Calidad</h2>
-              <button onClick={() => setShowModal(false)} style={{ color: 'white', background: 'rgba(255,255,255,0.1)', border: 'none', padding: '0.4rem', borderRadius: '50%', cursor: 'pointer' }}>
+              <h2 style={{ fontSize: '1.125rem', color: 'white' }}>{editingId ? 'Revisar Inspección de Calidad' : 'Nueva Inspección de Calidad'}</h2>
+              <button onClick={() => { setShowModal(false); setEditingId(null); setForm(EMPTY_FORM); }} style={{ color: 'white', background: 'rgba(255,255,255,0.1)', border: 'none', padding: '0.4rem', borderRadius: '50%', cursor: 'pointer' }}>
                 <X size={18} />
               </button>
             </div>
@@ -275,9 +314,10 @@ export default function QualityPage() {
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem' }}>Orden de Corte *</label>
                 <select
-                  style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                  style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', backgroundColor: editingId ? '#f1f5f9' : 'white' }}
                   value={form.order_id}
                   onChange={e => setForm({ ...form, order_id: e.target.value })}
+                  disabled={!!editingId}
                 >
                   <option value="">Seleccionar Orden...</option>
                   {orders.map(o => (
@@ -349,7 +389,7 @@ export default function QualityPage() {
                 disabled={saving || !form.order_id}
                 onClick={handleSave}
               >
-                {saving ? <Loader2 className="animate-spin" size={18} /> : <><Save size={18} /> Registrar Inspección</>}
+                {saving ? <Loader2 className="animate-spin" size={18} /> : <><Save size={18} /> {editingId ? 'Actualizar Inspección' : 'Registrar Inspección'}</>}
               </button>
             </div>
           </div>

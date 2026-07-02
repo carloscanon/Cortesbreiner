@@ -70,31 +70,44 @@ export default function SewingPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: ordersData } = await supabase
-        .from('orders')
-        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
-        .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
-        .order('created_at', { ascending: false });
+      const [
+        { data: ordersData, error: ordersError },
+        { data: workshopsData, error: workshopsError },
+        { data: accData, error: accError },
+        { data: catData, error: catError },
+        { data: fabData, error: fabError },
+        { data: sizesData, error: sizesError },
+        { data: colorsData, error: colorsError },
+        productsList,
+        allProductAccs
+      ] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
+          .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
+          .order('created_at', { ascending: false }),
+        supabase.from('workshops').select('*').order('nombre_taller'),
+        supabase.from('accessories').select('*').order('nombre'),
+        supabase.from('categories').select('*'),
+        supabase.from('fabrics').select('*'),
+        supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
+        supabase.from('colors').select('*'),
+        fetchAll(() => supabase.from('products').select('*')),
+        fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'))
+      ]);
 
-      const { data: workshopsData } = await supabase
-        .from('workshops').select('*').order('nombre_taller');
-
-      const { data: accData } = await supabase
-        .from('accessories').select('*').order('nombre');
-
-      // Load ALL products so cuts can always resolve product details
-      const productsList = await fetchAll(() => supabase.from('products').select('*'));
-
-      const { data: catData } = await supabase.from('categories').select('*');
-      const { data: fabData } = await supabase.from('fabrics').select('*');
-      const { data: sizesData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
-      const { data: colorsData } = await supabase.from('colors').select('*');
-      const allProductAccs = await fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'));
+      if (ordersError) throw ordersError;
+      if (workshopsError) throw workshopsError;
+      if (accError) throw accError;
+      if (catError) throw catError;
+      if (fabError) throw fabError;
+      if (sizesError) throw sizesError;
+      if (colorsError) throw colorsError;
 
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
       setAccessories(accData || []);
-      setProducts(productsList);
+      setProducts(productsList || []);
       setCategoriesMaster(catData || []);
       setFabricsMaster(fabData || []);
       setSizesMaster(sizesData || []);
@@ -775,13 +788,90 @@ export default function SewingPage() {
 
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
-      const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+      const { data: currentOrder } = await supabase
+        .from('orders')
+        .select('observaciones')
+        .eq('id', id)
+        .single();
+
+      const timestamp = new Date().toLocaleString('es-ES');
+      let observaciones = currentOrder?.observaciones || '';
+      
+      if (status === 'Enviada' && !observaciones.includes('=== ENVIADA')) {
+        observaciones += `\n\n=== ENVIADA (${timestamp}) ===\n`;
+      } else if (status === 'En Confección' && !observaciones.includes('=== ENTRADA A CONFECCIÓN')) {
+        observaciones += `\n\n=== ENTRADA A CONFECCIÓN (${timestamp}) ===\n`;
+      } else if (status === 'Terminada' && !observaciones.includes('=== RECIBIDO DE CONFECCIÓN')) {
+        observaciones += `\n\n=== RECIBIDO DE CONFECCIÓN (${timestamp}) ===\n`;
+      }
+
+      const { error } = await supabase.from('orders').update({ status, observaciones }).eq('id', id);
       if (error) throw error;
+
+      // Automatically create a quality inspection if the order is completed/received in sewing ('Terminada')
+      if (status === 'Terminada') {
+        const { data: fullOrder } = await supabase
+          .from('orders')
+          .select('*, workshops(nombre_taller), cuts(*, cut_sizes(*))')
+          .eq('id', id)
+          .single();
+
+        const totalQty = fullOrder ? getTotalPrendas(fullOrder) : 0;
+        const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
+
+        const { data: existingInspections } = await supabase
+          .from('quality_inspections')
+          .select('id')
+          .eq('order_id', id);
+
+        if (!existingInspections || existingInspections.length === 0) {
+          await supabase
+            .from('quality_inspections')
+            .insert([{
+              order_id: id,
+              workshop_name: workshopName,
+              items_inspected: totalQty,
+              items_approved: 0,
+              items_rejected: 0,
+              status: 'Pendiente',
+              notes: 'Creado automáticamente al recibir de confección.'
+            }]);
+        }
+      }
+
       fetchData();
     } catch (err: any) {
       alert('Error: ' + err.message);
     }
   };
+
+  const getConfectionDates = (order: any) => {
+    let fechaGenerada = '—';
+    let fechaEnviada = '—';
+
+    if (order.observaciones) {
+      const matchGen = order.observaciones.match(/=== ENTRADA A CONFECCIÓN \((.*?)\) ===/);
+      if (matchGen && matchGen[1]) {
+        fechaGenerada = matchGen[1].split(' ')[0] || matchGen[1];
+      } else {
+        if (order.status !== 'Cortado' && order.created_at) {
+          fechaGenerada = new Date(order.created_at).toLocaleDateString('es-ES');
+        }
+      }
+
+      const matchEnv = order.observaciones.match(/=== ENVIADA \((.*?)\) ===/);
+      if (matchEnv && matchEnv[1]) {
+        fechaEnviada = matchEnv[1].split(' ')[0] || matchEnv[1];
+      }
+    } else {
+      if (order.status !== 'Cortado' && order.created_at) {
+        fechaGenerada = new Date(order.created_at).toLocaleDateString('es-ES');
+      }
+    }
+
+    return { fechaGenerada, fechaEnviada };
+  };
+
 
   const getTotalPrendas = (order: any) => {
     if (!order.cuts) return order.capas_proyectadas || 0;
@@ -925,16 +1015,16 @@ export default function SewingPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid var(--border)' }}>
-                {['Orden', 'Cliente / Tela', 'Prendas', 'Taller', 'Estado', 'Acción'].map(h => (
+                {['Orden', 'Cliente / Tela', 'Prendas', 'Taller', 'Fechas', 'Estado', 'Acción'].map(h => (
                   <th key={h} style={{ padding: '0.875rem 1.25rem', fontSize: '0.68rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', textAlign: h === 'Acción' ? 'right' : 'left' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ padding: '4rem', textAlign: 'center' }}><Loader2 className="animate-spin" size={28} style={{ margin: 'auto', color: '#7c3aed' }} /></td></tr>
+                <tr><td colSpan={7} style={{ padding: '4rem', textAlign: 'center' }}><Loader2 className="animate-spin" size={28} style={{ margin: 'auto', color: '#7c3aed' }} /></td></tr>
               ) : filtered.filter(o => o.status !== 'Cortado').length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.875rem' }}>No hay órdenes en este estado.</td></tr>
+                <tr><td colSpan={7} style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.875rem' }}>No hay órdenes en este estado.</td></tr>
               ) : filtered.filter(o => o.status !== 'Cortado').map(order => {
                 const statusColor = order.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
                   : order.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
@@ -955,6 +1045,23 @@ export default function SewingPage() {
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <div style={{ fontWeight: '700', fontSize: '0.82rem' }}>{order.workshops?.nombre_taller || '—'}</div>
                       <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{order.workshops?.responsable}</div>
+                    </td>
+                    <td style={{ padding: '1rem 1.25rem' }}>
+                      {(() => {
+                        const { fechaGenerada, fechaEnviada } = getConfectionDates(order);
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#475569' }}>
+                              <span style={{ fontWeight: '600', color: '#94a3b8' }}>Generada:</span>
+                              <span style={{ fontWeight: '700' }}>{fechaGenerada}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#475569' }}>
+                              <span style={{ fontWeight: '600', color: '#94a3b8' }}>Enviada:</span>
+                              <span style={{ fontWeight: '700', color: fechaEnviada !== '—' ? '#7c3aed' : '#475569' }}>{fechaEnviada}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <span style={{ padding: '0.3rem 0.75rem', borderRadius: '999px', fontSize: '0.65rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color }}>
@@ -1497,7 +1604,9 @@ export default function SewingPage() {
                   });
                   prodAccs.forEach(pa => {
                     let accName = pa.accessories?.nombre || 'Accesorio';
-                    const accUnit = pa.accessories?.unidad_medida || 'uds';
+                    const rawUnit = pa.accessories?.unidad_medida || '';
+                    // If unidad_medida is blank or purely numeric (e.g. "1"), use "Unidad" instead
+                    const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
                     const qtyPerProduct = Number(pa.cantidad) || 0;
                     const totalRequired = item.quantity * qtyPerProduct;
                     
@@ -1654,7 +1763,7 @@ export default function SewingPage() {
                                     )}
                                   </td>
                                   <td style={{ padding: '0.5rem', color: '#475569' }}>{wa.unit}</td>
-                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{wa.qty} {wa.unit}</td>
+                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{Math.round(wa.qty)}</td>
                                 </tr>
                               );
                             })}

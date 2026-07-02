@@ -61,12 +61,69 @@ export default function TrackingPage() {
   const handleUpdateStatus = async (id: string, status: string) => {
     setUpdatingId(id);
     try {
+      const { data: currentOrder } = await supabase
+        .from('orders')
+        .select('observaciones')
+        .eq('id', id)
+        .single();
+
+      const timestamp = new Date().toLocaleString('es-ES');
+      let observaciones = currentOrder?.observaciones || '';
+      
+      if (status === 'Enviada' && !observaciones.includes('=== ENVIADA')) {
+        observaciones += `\n\n=== ENVIADA (${timestamp}) ===\n`;
+      } else if (status === 'En Confección' && !observaciones.includes('=== ENTRADA A CONFECCIÓN')) {
+        observaciones += `\n\n=== ENTRADA A CONFECCIÓN (${timestamp}) ===\n`;
+      } else if (status === 'Terminada' && !observaciones.includes('=== RECIBIDO DE CONFECCIÓN')) {
+        observaciones += `\n\n=== RECIBIDO DE CONFECCIÓN (${timestamp}) ===\n`;
+      }
+
       const { error } = await supabase
         .from('orders')
-        .update({ status })
+        .update({ status, observaciones })
         .eq('id', id);
       
       if (error) throw error;
+
+      // Automatically create a quality inspection if the order is completed/received in sewing ('Terminada')
+      if (status === 'Terminada') {
+        const { data: fullOrder } = await supabase
+          .from('orders')
+          .select('*, workshops(nombre_taller), cuts(*, cut_sizes(*))')
+          .eq('id', id)
+          .single();
+
+        const totalQty = fullOrder?.cuts ? fullOrder.cuts.reduce((sum: number, c: any) => {
+          const layersProyec = c.layers || 1;
+          const layersProduced = c.layers_produced || 0;
+          return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
+            const qty = Number(cs.quantity) || 0;
+            const ppc = qty / layersProyec;
+            return s + Math.round(ppc * layersProduced);
+          }, 0);
+        }, 0) : 0;
+
+        const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
+
+        const { data: existingInspections } = await supabase
+          .from('quality_inspections')
+          .select('id')
+          .eq('order_id', id);
+
+        if (!existingInspections || existingInspections.length === 0) {
+          await supabase
+            .from('quality_inspections')
+            .insert([{
+              order_id: id,
+              workshop_name: workshopName,
+              items_inspected: totalQty,
+              items_approved: 0,
+              items_rejected: 0,
+              status: 'Pendiente',
+              notes: 'Creado automáticamente al recibir de confección.'
+            }]);
+        }
+      }
 
       await syncOrderMovements(id, status);
 
