@@ -6,7 +6,7 @@ import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -17,7 +17,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!loading && user && pathname === '/login') {
       router.push('/');
     }
-  }, [user, loading, pathname, router]);
+    // Restrict Taller users to dashboard (/) and help (/help)
+    if (!loading && user && profile?.roles?.name === 'Taller' && pathname !== '/' && pathname !== '/help') {
+      router.push('/');
+    }
+  }, [user, profile, loading, pathname, router]);
 
   if (loading) {
     return (

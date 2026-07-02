@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import {
   ArrowUpRight,
   Plus,
@@ -16,6 +17,9 @@ import {
   Layers,
   ChevronRight,
   BarChart2,
+  Factory,
+  DollarSign,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   BarChart,
@@ -47,6 +51,11 @@ type Order = {
   scheduled_date: string | null;
   created_at: string;
   observaciones: string | null;
+  workshop_id: string | null;
+  client_name: string | null;
+  workshops: { nombre_taller: string; responsable: string } | null;
+  cuts: any[] | null;
+  fabrics: { nombre_tela: string } | null;
 };
 
 type ModalType = 'total' | 'cortadas' | 'en_proceso' | 'pendientes' | null;
@@ -56,7 +65,7 @@ function StatCard({
   label, value, sub, icon, primary, onClick,
 }: {
   label: string; value: number | string; sub: string;
-  icon: React.ReactNode; primary?: boolean; onClick: () => void;
+  icon: React.ReactNode; primary?: boolean; onClick?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -68,9 +77,9 @@ function StatCard({
       style={{
         backgroundColor: primary ? 'var(--primary)' : 'white',
         color: primary ? 'white' : 'inherit',
-        cursor: 'pointer',
-        transform: hovered ? 'translateY(-3px)' : 'translateY(0)',
-        boxShadow: hovered
+        cursor: onClick ? 'pointer' : 'default',
+        transform: hovered && onClick ? 'translateY(-3px)' : 'translateY(0)',
+        boxShadow: hovered && onClick
           ? primary
             ? '0 20px 40px -10px rgba(99,102,241,0.45)'
             : '0 12px 28px -6px rgba(0,0,0,0.12)'
@@ -84,7 +93,7 @@ function StatCard({
           <span style={{ fontSize: '0.8rem', opacity: primary ? 0.85 : 1, fontWeight: '700', color: primary ? 'rgba(255,255,255,0.85)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {label}
           </span>
-          <div style={{ fontSize: '2.5rem', fontWeight: '950', lineHeight: 1.1, margin: '0.4rem 0 0.5rem' }}>
+          <div style={{ fontSize: '2.2rem', fontWeight: '950', lineHeight: 1.1, margin: '0.4rem 0 0.5rem' }}>
             {value}
           </div>
           <div style={{ fontSize: '0.75rem', opacity: 0.75, fontWeight: '600' }}>{sub}</div>
@@ -98,10 +107,12 @@ function StatCard({
           {icon}
         </div>
       </div>
-      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', opacity: 0.8, fontWeight: '700' }}>
-        <ChevronRight size={13} />
-        <span>Ver detalle</span>
-      </div>
+      {onClick && (
+        <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', opacity: 0.8, fontWeight: '700' }}>
+          <ChevronRight size={13} />
+          <span>Ver detalle</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -253,23 +264,222 @@ function DetailModal({
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const { profile, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [workshops, setWorkshops] = useState<any[]>([]);
+  const [inspections, setInspections] = useState<any[]>([]);
+  const [baseCosts, setBaseCosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
   useEffect(() => {
-    const fetchOrders = async () => {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id, internal_code, status, cortador_name, scheduled_date, created_at, observaciones')
-        .order('created_at', { ascending: false });
-      if (!error && data) setOrders(data);
-      setLoading(false);
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [
+          { data: ordersData },
+          { data: workshopsData },
+          { data: inspectionsData },
+          { data: baseCostsData }
+        ] = await Promise.all([
+          supabase
+            .from('orders')
+            .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
+            .order('created_at', { ascending: false }),
+          supabase.from('workshops').select('*'),
+          supabase.from('quality_inspections').select('*'),
+          supabase.from('base_costs').select('*')
+        ]);
+
+        if (ordersData) setOrders(ordersData);
+        if (workshopsData) setWorkshops(workshopsData);
+        if (inspectionsData) setInspections(inspectionsData);
+        if (baseCostsData) setBaseCosts(baseCostsData);
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchOrders();
+    fetchData();
   }, []);
 
-  // ── Derived counts ──────────────────────────────────────────────────────────
+  const isTaller = profile?.roles?.name === 'Taller';
+
+  // ─── WORKSHOP USER SPECIFIC LOGIC ──────────────────────────────────────────
+  if (isTaller) {
+    const userWorkshop = workshops.find(w =>
+      (w.nombre_taller || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim() ||
+      (w.responsable || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim()
+    );
+
+    // Filter orders assigned to this workshop
+    const assignedOrders = orders.filter(o => {
+      if (!userWorkshop) return false;
+      return o.workshop_id === userWorkshop.id ||
+        (o.workshops?.nombre_taller || '').toLowerCase().trim() === (userWorkshop.nombre_taller || '').toLowerCase().trim();
+    });
+
+    const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección');
+    const completedOrders = assignedOrders.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
+
+    // Quality stats for payment matching
+    const workshopInspections = inspections.filter(i =>
+      userWorkshop && (i.workshop_name || '').toLowerCase().trim() === (userWorkshop.nombre_taller || '').toLowerCase().trim()
+    );
+
+    const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
+    const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (i.items_rejected || 0), 0);
+
+    // Sewing cost rate config
+    const costuraConfig = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura');
+    const rate = costuraConfig && Number(costuraConfig.unidad) > 0
+      ? (Number(costuraConfig.valor) / Number(costuraConfig.unidad))
+      : 500; // default 500 per unit if 25000/50
+
+    const totalEarnings = totalApprovedGarments * rate;
+
+    const getTotalPrendas = (order: any) => {
+      if (!order.cuts) return 0;
+      return order.cuts.reduce((sum: number, c: any) => {
+        const layersProyec = c.layers || 1;
+        const layersProduced = c.layers_produced || 0;
+        return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
+          const qty = Number(cs.quantity) || 0;
+          const ppc = qty / layersProyec;
+          return s + Math.round(ppc * layersProduced);
+        }, 0);
+      }, 0);
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>
+              Portal de Taller Satélite
+            </span>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>
+              ¡Hola, {profile?.full_name || 'Taller'}!
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
+              Taller Asignado: <strong style={{ color: '#7c3aed' }}>{userWorkshop?.nombre_taller || 'Cargando taller asociado...'}</strong>
+            </p>
+          </div>
+        </div>
+
+        {/* Workshop KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+          <StatCard
+            label="Órdenes Pendientes"
+            value={loading ? '…' : pendingOrders.length}
+            sub="En confección actualmente"
+            icon={<Clock size={20} />}
+          />
+          <StatCard
+            label="Órdenes Terminadas"
+            value={loading ? '…' : completedOrders.length}
+            sub="Entregadas a central"
+            icon={<CheckCircle2 size={20} />}
+          />
+          <StatCard
+            label="Prendas Aprobadas"
+            value={loading ? '…' : `${totalApprovedGarments} uds`}
+            sub={`${totalRejectedGarments} prendas rechazadas`}
+            icon={<ClipboardCheck size={20} />}
+          />
+          <StatCard
+            label="Aprobado para Pago"
+            value={loading ? '…' : `$${totalEarnings.toLocaleString('es-CO')} COP`}
+            sub={`Tarifa base: $${rate.toLocaleString('es-CO')} / prenda`}
+            icon={<DollarSign size={20} />}
+            primary
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+          {/* Active assignments table */}
+          <div className="card" style={{ padding: '1.5rem' }}>
+            <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '1rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Factory size={18} style={{ color: '#7c3aed' }} /> Órdenes Asignadas Activas ({pendingOrders.length})
+            </h3>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
+                    {['Orden', 'Cliente', 'Tela', 'Prendas', 'Estado'].map(h => (
+                      <th key={h} style={{ padding: '0.75rem 1rem', fontWeight: '800' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
+                  ) : pendingOrders.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No tienes órdenes en confección actualmente.</td></tr>
+                  ) : pendingOrders.map(o => (
+                    <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#7c3aed' }}>OC-{o.internal_code}</td>
+                      <td style={{ padding: '0.85rem 1rem', fontWeight: '600' }}>{o.client_name}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{o.fabrics?.nombre_tela || '—'}</td>
+                      <td style={{ padding: '0.85rem 1rem', fontWeight: '700' }}>{getTotalPrendas(o)} uds</td>
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#eff6ff', color: '#1e4ed8', fontWeight: '800' }}>
+                          EN CONFECCIÓN
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* History and Payments */}
+          <div className="card" style={{ padding: '1.5rem' }}>
+            <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '1rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <ClipboardCheck size={18} style={{ color: '#10b981' }} /> Historial de Entregas y Pagos ({workshopInspections.length})
+            </h3>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
+                    {['Orden', 'Fecha Revisión', 'Inspeccionadas', 'Aprobadas', 'Rechazadas', 'Pago Estimado'].map(h => (
+                      <th key={h} style={{ padding: '0.75rem 1rem', fontWeight: '800' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Cargando historial…</td></tr>
+                  ) : workshopInspections.length === 0 ? (
+                    <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Aún no se registran inspecciones de calidad para este taller.</td></tr>
+                  ) : workshopInspections.map(i => {
+                    const orderObj = orders.find(o => o.id === i.order_id);
+                    const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
+                    const payment = (i.items_approved || 0) * rate;
+                    return (
+                      <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#7c3aed' }}>{orderCode}</td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '600' }}>{i.items_inspected} uds</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700', color: '#16a34a' }}>{i.items_approved} uds</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700', color: '#ef4444' }}>{i.items_rejected} uds</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#10b981' }}>${payment.toLocaleString('es-CO')} COP</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── ADMIN / GENERAL USER DASHBOARD LOGIC ────────────────────────────────────
   const total      = orders.length;
   const cortadas   = orders.filter(o => o.status === 'Cortado');
   const enProceso  = orders.filter(o => o.status === 'En Corte');
@@ -458,7 +668,7 @@ export default function Dashboard() {
                     (e.currentTarget as HTMLElement).style.backgroundColor = '#fafafa';
                   }}
                   >
-                    <div style={{ width: '36px', height: '36px', borderRadius: '9px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '999px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Scissors size={16} color="#6366f1" />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -475,7 +685,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', fontWeight: '600', marginTop: '0.15rem' }}>
-                        {order.cortador_name ? `✂ ${order.cortador_name}` : 'Sin cortador asignado'}
+                        {order.cortador_name ? `✂ {order.cortador_name}` : 'Sin cortador asignado'}
                         {order.scheduled_date && ` · 📅 ${order.scheduled_date}`}
                       </p>
                     </div>

@@ -66,12 +66,18 @@ export default function Sidebar() {
     fetchPermissions();
   }, [profile]);
 
+  const isTaller = profile?.roles?.name === 'Taller';
+
   const filteredMenuItems = allMenuItems.filter(item => 
-    allowedModules.includes(item.module) || item.module === 'dashboard'
+    isTaller 
+      ? item.module === 'dashboard'
+      : allowedModules.includes(item.module) || item.module === 'dashboard'
   );
 
   const filteredBottomItems = allBottomItems.filter(item => 
-    allowedModules.includes(item.module) || item.module === 'help'
+    isTaller
+      ? item.module === 'help'
+      : allowedModules.includes(item.module) || item.module === 'help'
   );
 
   const logoUrl = config?.logo_url || '';
