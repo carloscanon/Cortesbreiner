@@ -238,7 +238,7 @@ const fetchAll = async (queryFn: () => any) => {
 };
 
 export default function MastersPage() {
-  const [activeTab, setActiveTab] = useState<MasterTab>('categories');
+  const [activeTab, setActiveTab] = useState<string>('categories');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
