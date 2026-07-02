@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Plus, Search, Tag, Briefcase, Palette, Droplets, MoreVertical, X, Loader2, 
@@ -219,8 +219,26 @@ const MASTER_CONFIG: any = {
   }
 };
 
+const fetchAll = async (queryFn: () => any) => {
+  let allData: any[] = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    const { data, error } = await queryFn().range(from, from + step - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allData = [...allData, ...data];
+      from += step;
+      if (data.length < step) break;
+    } else {
+      break;
+    }
+  }
+  return allData;
+};
+
 export default function MastersPage() {
-  const [activeTab, setActiveTab] = useState('fabrics');
+  const [activeTab, setActiveTab] = useState<MasterTab>('categories');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -231,6 +249,7 @@ export default function MastersPage() {
   const [iva, setIva] = useState(19);
   const [search, setSearch] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
  
   useEffect(() => {
     const fetchIva = async () => {
@@ -251,19 +270,24 @@ export default function MastersPage() {
 
   useEffect(() => {
     setSearch('');
+    setCurrentPage(1);
     fetchData();
     const fetchMasters = async () => {
       try {
-        const { data: catData } = await supabase.from('categories').select('*').order('categoria');
+        const catData = await fetchAll(() => supabase.from('categories').select('*').order('categoria'));
         if (catData) setCategories(catData);
         
-        const { data: accData } = await supabase.from('accessories').select('*').order('nombre');
+        const accData = await fetchAll(() => supabase.from('accessories').select('*').order('nombre'));
         if (accData) setAccessories(accData || []);
 
-        const { data: allCategoryAccs } = await supabase.from('category_accessories').select('*, accessories(nombre)');
-        if (allCategoryAccs) setCategoryAccessoriesList(allCategoryAccs || []);
+        try {
+          const allCategoryAccs = await fetchAll(() => supabase.from('category_accessories').select('*, accessories(nombre)'));
+          if (allCategoryAccs) setCategoryAccessoriesList(allCategoryAccs || []);
+        } catch (e) {
+          console.warn('category_accessories table not found:', e);
+        }
 
-        const { data: allProductAccs } = await supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida)');
+        const allProductAccs = await fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida)'));
         if (allProductAccs) setProductAccessoriesList(allProductAccs || []);
       } catch (err) {
         console.error('Error fetching categories/accessories/products:', err);
@@ -275,12 +299,12 @@ export default function MastersPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: result, error } = await supabase
-        .from(config.table)
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const result = await fetchAll(() =>
+        supabase
+          .from(config.table)
+          .select('*')
+          .order('created_at', { ascending: false })
+      );
       setData(result || []);
     } catch (err) {
       console.error('Error:', err);
@@ -350,14 +374,46 @@ export default function MastersPage() {
           .from('accessories')
           .select('*', { count: 'exact', head: true })
           .eq('tipo', payload.tipo || '');
-        const seq = ((count || 0) + 1).toString().padStart(3, '0');
-        payload.codigo = `${prefix}-${seq}`;
+        
+        let nextNum = (count || 0) + 1;
+        let code = `${prefix}-${nextNum.toString().padStart(3, '0')}`;
+        let exists = true;
+        while (exists) {
+          const { data: existing } = await supabase
+            .from('accessories')
+            .select('id')
+            .eq('codigo', code);
+          if (existing && existing.length > 0) {
+            nextNum++;
+            code = `${prefix}-${nextNum.toString().padStart(3, '0')}`;
+          } else {
+            exists = false;
+          }
+        }
+        payload.codigo = code;
       }
 
       // Auto-generar código de categoría si es nuevo
       if (activeTab === 'categories' && !editingId) {
-        const count = data.length + 1;
-        const code = `CAT-${count.toString().padStart(3, '0')}`;
+        const { count } = await supabase
+          .from('categories')
+          .select('*', { count: 'exact', head: true });
+        
+        let nextNum = (count || 0) + 1;
+        let code = `CAT-${nextNum.toString().padStart(3, '0')}`;
+        let exists = true;
+        while (exists) {
+          const { data: existing } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('cod_categoria', code);
+          if (existing && existing.length > 0) {
+            nextNum++;
+            code = `CAT-${nextNum.toString().padStart(3, '0')}`;
+          } else {
+            exists = false;
+          }
+        }
         payload.cod_categoria = code;
         formData.cod_categoria = code;
       }
@@ -527,12 +583,17 @@ export default function MastersPage() {
           <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
              <div style={{ position: 'relative', width: '300px' }}>
                 <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="text" 
-                  placeholder="Buscar..." 
+                <input
+                  type="text"
+                  placeholder="Buscar..."
                   value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2.5rem', borderRadius: '8px', border: '1px solid var(--border)' }} 
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  style={{ padding: '0.75rem 1rem 0.75rem 2.5rem', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '0.9rem', width: '250px', outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
+                  onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }}
+                  onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)'; }}
                 />
              </div>
           </div>
@@ -563,8 +624,9 @@ export default function MastersPage() {
               }
 
               return (
+                <>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {filteredData.map((item) => (
+                  {filteredData.slice((currentPage - 1) * 50, currentPage * 50).map((item) => (
                     <div key={item.id} style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'background 0.2s' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flex: 1 }}>
                       {/* Visual Indicator (Color or Icon) */}
@@ -625,10 +687,7 @@ export default function MastersPage() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap', width: '100%', marginBottom: '0.25rem' }}>
                               <span style={{ fontWeight: '600' }}>Accesorios requeridos:</span>
                               {(() => {
-                                const accs = productAccessoriesList.filter(pa => {
-                                  const paProd = data.find(p => p.id === pa.product_id);
-                                  return paProd && item.nombre_producto && paProd.nombre_producto?.toLowerCase().trim() === item.nombre_producto?.toLowerCase().trim();
-                                });
+                                const accs = productAccessoriesList.filter(pa => String(pa.product_id) === String(item.id));
                                 if (accs.length === 0) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Ninguno</span>;
                                 return accs.map(pa => (
                                   <span key={pa.id} style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', border: '1px solid #bae6fd', fontSize: '0.7rem' }}>
@@ -723,6 +782,45 @@ export default function MastersPage() {
                   </div>
                   ))}
                 </div>
+                
+                {filteredData.length > 50 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '1.5rem', padding: '1rem', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: '1px solid var(--border)', background: currentPage === 1 ? '#f8fafc' : 'white', color: currentPage === 1 ? '#94a3b8' : '#334155', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontWeight: '600', transition: 'all 0.2s', boxShadow: currentPage === 1 ? 'none' : '0 1px 2px rgba(0,0,0,0.05)' }}
+                    >
+                      Anterior
+                    </button>
+                    
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                      {Array.from({ length: Math.ceil(filteredData.length / 50) }, (_, i) => i + 1)
+                        .filter(pageNum => pageNum === 1 || pageNum === Math.ceil(filteredData.length / 50) || (pageNum >= currentPage - 2 && pageNum <= currentPage + 2))
+                        .map((pageNum, idx, arr) => (
+                          <React.Fragment key={pageNum}>
+                            {idx > 0 && arr[idx - 1] !== pageNum - 1 && (
+                              <span style={{ padding: '0.4rem 0.6rem', color: '#64748b' }}>...</span>
+                            )}
+                            <button
+                              onClick={() => setCurrentPage(pageNum)}
+                              style={{ width: '36px', height: '36px', borderRadius: '8px', border: pageNum === currentPage ? 'none' : '1px solid var(--border)', background: pageNum === currentPage ? '#3b82f6' : 'white', color: pageNum === currentPage ? 'white' : '#475569', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s', boxShadow: pageNum === currentPage ? '0 4px 6px -1px rgba(59, 130, 246, 0.4)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              {pageNum}
+                            </button>
+                          </React.Fragment>
+                        ))}
+                    </div>
+
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(filteredData.length / 50)))}
+                      disabled={currentPage === Math.ceil(filteredData.length / 50)}
+                      style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: '1px solid var(--border)', background: currentPage === Math.ceil(filteredData.length / 50) ? '#f8fafc' : 'white', color: currentPage === Math.ceil(filteredData.length / 50) ? '#94a3b8' : '#334155', cursor: currentPage === Math.ceil(filteredData.length / 50) ? 'not-allowed' : 'pointer', fontWeight: '600', transition: 'all 0.2s', boxShadow: currentPage === Math.ceil(filteredData.length / 50) ? 'none' : '0 1px 2px rgba(0,0,0,0.05)' }}
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                )}
+                </>
               );
             })()}
           </div>
@@ -985,10 +1083,7 @@ export default function MastersPage() {
                       const categoryObj = categories.find(c => c.id === item.category_id);
                       const categoryName = categoryObj ? categoryObj.categoria : 'Sin Categoría';
                       
-                      const accs = productAccessoriesList.filter(pa => {
-                        const paProd = data.find(p => p.id === pa.product_id);
-                        return paProd && item.nombre_producto && paProd.nombre_producto?.toLowerCase().trim() === item.nombre_producto?.toLowerCase().trim();
-                      });
+                      const accs = productAccessoriesList.filter(pa => String(pa.product_id) === String(item.id));
 
                       return (
                         <tr key={item.id || idx} style={{ borderBottom: '1px solid #e2e8f0' }}>

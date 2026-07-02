@@ -11,6 +11,24 @@ import {
 
 type Stage = 'matriz_corte' | 'talleres';
 
+const fetchAll = async (queryFn: () => any) => {
+  let allData: any[] = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    const { data, error } = await queryFn().range(from, from + step - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allData = [...allData, ...data];
+      from += step;
+      if (data.length < step) break;
+    } else {
+      break;
+    }
+  }
+  return allData;
+};
+
 export default function SewingPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [workshops, setWorkshops] = useState<any[]>([]);
@@ -64,42 +82,14 @@ export default function SewingPage() {
       const { data: accData } = await supabase
         .from('accessories').select('*').order('nombre');
 
-      // Fetch products referenced in cuts, plus all duplicate/matching products by name
-      const uniqueProductIds = new Set<string>();
-      (ordersData || []).forEach((o: any) => {
-        (o.cuts || []).forEach((c: any) => {
-          if (c.product_id) uniqueProductIds.add(String(c.product_id));
-        });
-      });
-
-      let productsList: any[] = [];
-      if (uniqueProductIds.size > 0) {
-        const { data: directProds } = await supabase
-          .from('products')
-          .select('*')
-          .in('id', Array.from(uniqueProductIds));
-        
-        const productNames = new Set<string>();
-        (directProds || []).forEach((p: any) => {
-          if (p.nombre_producto) productNames.add(p.nombre_producto);
-        });
-
-        if (productNames.size > 0) {
-          const { data: matchedProds } = await supabase
-            .from('products')
-            .select('*')
-            .in('nombre_producto', Array.from(productNames));
-          productsList = matchedProds || [];
-        } else {
-          productsList = directProds || [];
-        }
-      }
+      // Load ALL products so cuts can always resolve product details
+      const productsList = await fetchAll(() => supabase.from('products').select('*'));
 
       const { data: catData } = await supabase.from('categories').select('*');
       const { data: fabData } = await supabase.from('fabrics').select('*');
       const { data: sizesData } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: colorsData } = await supabase.from('colors').select('*');
-      const { data: allProductAccs } = await supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida)');
+      const allProductAccs = await fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'));
 
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
@@ -530,8 +520,9 @@ export default function SewingPage() {
           const prodObj = products.find(p => String(p.id) === String(cut.product_id));
           const prodName = prodObj?.nombre_producto;
           const prodAccs = productAccessoriesList.filter(pa => {
-            const mappingProdObj = products.find(p => String(p.id) === String(pa.product_id));
-            return mappingProdObj && prodName && mappingProdObj.nombre_producto?.toLowerCase().trim() === prodName.toLowerCase().trim();
+            if (String(pa.product_id) === String(cut.product_id)) return true;
+            const paProdName = pa.products?.nombre_producto;
+            return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
           });
 
           prodAccs.forEach(pa => {
@@ -1188,8 +1179,9 @@ export default function SewingPage() {
                               <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '800', color: '#475569', minWidth: '100px' }}>Talla</th>
                               {categoryAssignmentEntries.map(([catId, cat]) => {
                                 const prodAccs = productAccessoriesList.filter(pa => {
-                                  const paProd = products.find(p => p.id === pa.product_id);
-                                  return paProd && cat.categoryName && paProd.nombre_producto?.toLowerCase().trim() === cat.categoryName.toLowerCase().trim();
+                                  if (String(pa.product_id) === String(catId)) return true;
+                                  const paProdName = pa.products?.nombre_producto;
+                                  return paProdName && cat.categoryName && paProdName.toLowerCase().trim() === cat.categoryName.toLowerCase().trim();
                                 });
                                 return (
                                   <th key={catId} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>
@@ -1499,8 +1491,9 @@ export default function SewingPage() {
                   const prodObj = products.find(p => String(p.id) === String(cut.product_id));
                   const prodName = prodObj?.nombre_producto;
                   const prodAccs = productAccessoriesList.filter(pa => {
-                    const mappingProdObj = products.find(p => String(p.id) === String(pa.product_id));
-                    return mappingProdObj && prodName && mappingProdObj.nombre_producto?.toLowerCase().trim() === prodName.toLowerCase().trim();
+                    if (String(pa.product_id) === String(cut.product_id)) return true;
+                    const paProdName = pa.products?.nombre_producto;
+                    return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
                   });
                   prodAccs.forEach(pa => {
                     let accName = pa.accessories?.nombre || 'Accesorio';

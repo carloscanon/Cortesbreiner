@@ -1044,10 +1044,7 @@ export default function OrdersPage() {
         scheduled_date: formData.scheduled_date
       };
 
-      // Only add created_by if it's a completely new order that hasn't been saved to database yet
-      if (!editingId && !currentOrderId) {
-        orderPayload.created_by = profile?.full_name || profile?.email || user?.email || 'Sistema';
-      }
+
 
       let orderId = editingId || currentOrderId;
 
