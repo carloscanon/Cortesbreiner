@@ -691,7 +691,8 @@ export default function Dashboard() {
                         <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría / Tela</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Distribución Tallas</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad Total</th>
                         </tr>
@@ -731,6 +732,7 @@ export default function Dashboard() {
                                   productName,
                                   colorName,
                                   categoryName,
+                                  fabricName: viewingOrderDetails.fabrics?.nombre_tela || '—',
                                   sizeCode: sizeName,
                                   quantity: actualQty
                                 });
@@ -739,13 +741,14 @@ export default function Dashboard() {
                           });
 
                           if (itemsList.length === 0) {
-                            return <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
+                            return <tr><td colSpan={6} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
                           }
 
                           const groupedItems: {
                             productName: string;
                             colorName: string;
                             categoryName: string;
+                            fabricName: string;
                             sizes: { [size: string]: number };
                             totalQuantity: number;
                           }[] = [];
@@ -753,7 +756,8 @@ export default function Dashboard() {
                           itemsList.forEach(item => {
                             const existing = groupedItems.find(g => 
                               g.productName.toLowerCase() === item.productName.toLowerCase() && 
-                              g.colorName.toLowerCase() === item.colorName.toLowerCase()
+                              g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
+                              g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
                             );
                             if (existing) {
                               existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
@@ -763,6 +767,7 @@ export default function Dashboard() {
                                 productName: item.productName,
                                 colorName: item.colorName,
                                 categoryName: item.categoryName,
+                                fabricName: item.fabricName,
                                 sizes: { [item.sizeCode]: item.quantity },
                                 totalQuantity: item.quantity
                               });
@@ -776,6 +781,7 @@ export default function Dashboard() {
                                   <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.productName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.categoryName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
                                     {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
                                   </td>
@@ -783,7 +789,7 @@ export default function Dashboard() {
                                 </tr>
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
-                                <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
+                                <td colSpan={5} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
                                 <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.9rem', fontWeight: '950' }}>
                                   {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                 </td>
