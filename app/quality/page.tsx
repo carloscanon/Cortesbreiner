@@ -176,6 +176,18 @@ export default function QualityPage() {
       }
     }
 
+    const totalInspected = Number(form.items_inspected) || 0;
+
+    if (finalRejected > totalInspected) {
+      setSaving(false);
+      return alert(`❌ La cantidad de prendas rechazadas (${finalRejected}) no puede ser mayor que las prendas inspeccionadas (${totalInspected}).`);
+    }
+
+    if (finalApproved + finalRejected > totalInspected) {
+      setSaving(false);
+      return alert(`❌ La suma de prendas aprobadas (${finalApproved}) y rechazadas (${finalRejected}) no puede superar el total de prendas inspeccionadas (${totalInspected}).`);
+    }
+
     const payload = {
       order_id: form.order_id,
       workshop_name: selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
