@@ -692,8 +692,8 @@ export default function Dashboard() {
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría / Tela</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569', width: '80px' }}>Talla</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Distribución Tallas</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad Total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -724,7 +724,6 @@ export default function Dashboard() {
 
                               if (actualQty > 0) {
                                 itemsList.push({
-                                  cutId: cut.id,
                                   productName,
                                   colorName,
                                   categoryName,
@@ -739,21 +738,50 @@ export default function Dashboard() {
                             return <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
                           }
 
+                          const groupedItems: {
+                            productName: string;
+                            colorName: string;
+                            categoryName: string;
+                            sizes: { [size: string]: number };
+                            totalQuantity: number;
+                          }[] = [];
+
+                          itemsList.forEach(item => {
+                            const existing = groupedItems.find(g => 
+                              g.productName.toLowerCase() === item.productName.toLowerCase() && 
+                              g.colorName.toLowerCase() === item.colorName.toLowerCase()
+                            );
+                            if (existing) {
+                              existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                              existing.totalQuantity += item.quantity;
+                            } else {
+                              groupedItems.push({
+                                productName: item.productName,
+                                colorName: item.colorName,
+                                categoryName: item.categoryName,
+                                sizes: { [item.sizeCode]: item.quantity },
+                                totalQuantity: item.quantity
+                              });
+                            }
+                          });
+
                           return (
                             <>
-                              {itemsList.map((item, idx) => (
+                              {groupedItems.map((item, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
                                   <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.productName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '500' }}>{item.colorName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.categoryName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>{item.sizeCode}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{item.quantity} uds</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
+                                    {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
+                                  </td>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{item.totalQuantity} uds</td>
                                 </tr>
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
                                 <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
                                 <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.9rem', fontWeight: '950' }}>
-                                  {itemsList.reduce((sum, item) => sum + item.quantity, 0)} uds
+                                  {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                 </td>
                               </tr>
                             </>

@@ -1690,34 +1690,67 @@ export default function SewingPage() {
                       <h3 style={{ fontSize: '0.8rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.5rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.25rem' }}>
                         📋 Prendas y Cantidades
                       </h3>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-                        <thead>
-                          <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                            <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Referencia</th>
-                            <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Color</th>
-                            <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Categoría</th>
-                            <th style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800' }}>Talla</th>
-                            <th style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '900' }}>Cantidad</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {workshopItems.map((item, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                              <td style={{ padding: '0.5rem', fontWeight: '700' }}>{item.productName}</td>
-                              <td style={{ padding: '0.5rem' }}>{item.colorName}</td>
-                              <td style={{ padding: '0.5rem', color: '#475569' }}>{item.categoryName}</td>
-                              <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>{item.sizeCode}</td>
-                              <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800' }}>{item.quantity} uds</td>
-                            </tr>
-                          ))}
-                          <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
-                            <td colSpan={4} style={{ padding: '0.6rem 0.5rem', textTransform: 'uppercase' }}>Total Unidades Enviadas</td>
-                            <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.85rem' }}>
-                              {workshopItems.reduce((sum, item) => sum + item.quantity, 0)} uds
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                      {(() => {
+                        const groupedItems: {
+                          productName: string;
+                          colorName: string;
+                          categoryName: string;
+                          sizes: { [size: string]: number };
+                          totalQuantity: number;
+                        }[] = [];
+
+                        workshopItems.forEach(item => {
+                          const existing = groupedItems.find(g => 
+                            g.productName.toLowerCase() === item.productName.toLowerCase() && 
+                            g.colorName.toLowerCase() === item.colorName.toLowerCase()
+                          );
+                          if (existing) {
+                            existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                            existing.totalQuantity += item.quantity;
+                          } else {
+                            groupedItems.push({
+                              productName: item.productName,
+                              colorName: item.colorName,
+                              categoryName: item.categoryName,
+                              sizes: { [item.sizeCode]: item.quantity },
+                              totalQuantity: item.quantity
+                            });
+                          }
+                        });
+
+                        return (
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Referencia</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Color</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Categoría</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800' }}>Distribución Tallas</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '900', width: '120px' }}>Cantidad Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {groupedItems.map((item, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '0.5rem', fontWeight: '700' }}>{item.productName}</td>
+                                  <td style={{ padding: '0.5rem', fontWeight: '600' }}>{item.colorName}</td>
+                                  <td style={{ padding: '0.5rem', color: '#475569' }}>{item.categoryName}</td>
+                                  <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
+                                    {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
+                                  </td>
+                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800' }}>{item.totalQuantity} uds</td>
+                                </tr>
+                              ))}
+                              <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
+                                <td colSpan={4} style={{ padding: '0.6rem 0.5rem', textTransform: 'uppercase', fontSize: '0.7rem', color: '#334155' }}>Total Unidades Enviadas</td>
+                                <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.85rem', fontWeight: '950' }}>
+                                  {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        );
+                      })()}
                     </div>
 
                     {/* Accessories Table */}
