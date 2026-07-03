@@ -390,19 +390,26 @@ export default function Dashboard() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-              {profile?.avatar_url && (
-                <div style={{ width: '60px', height: '60px', borderRadius: '50%', overflow: 'hidden', border: '3px solid var(--primary-lighter)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              {profile?.avatar_url ? (
+                <div style={{ width: '80px', height: '80px', borderRadius: '20px', overflow: 'hidden', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
                   <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ) : (
+                <div style={{ width: '80px', height: '80px', borderRadius: '20px', backgroundColor: 'var(--primary-lighter)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
+                  <Factory size={32} />
                 </div>
               )}
               <div>
-                <h1 style={{ fontSize: '2.1rem', fontWeight: '950', margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  ¡Hola, {profile?.full_name?.split(' ')[0] || 'Taller'}! 👋
+                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '4px 10px', borderRadius: '6px' }}>
+                  Taller Satélite Conectado
+                </span>
+                <h1 style={{ fontSize: '2.5rem', fontWeight: '950', margin: '0.4rem 0 0.25rem 0', color: '#0f172a', lineHeight: 1.1 }}>
+                  {userWorkshop?.nombre_taller || 'Cargando taller...'}
                 </h1>
-                <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.35rem', fontWeight: '500', margin: 0 }}>
-                  Aquí tienes el resumen de tu taller satélite <strong style={{ color: 'var(--primary)', fontWeight: '800' }}>{userWorkshop?.nombre_taller || '...'}</strong>.
+                <p style={{ color: '#64748b', fontSize: '0.92rem', fontWeight: '500', margin: 0 }}>
+                  ¡Hola, <strong style={{ color: '#0f172a' }}>{profile?.full_name || 'Operario'}</strong>! 👋 Aquí tienes el resumen y gestión de tu producción.
                 </p>
               </div>
             </div>
