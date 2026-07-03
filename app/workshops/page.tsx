@@ -360,38 +360,78 @@ export default function WorkshopsPage() {
     }
   };
 
-  const handleApplyBaseRates = (workshopId: string) => {
+  const handleApplyBaseRates = async (workshopId: string) => {
     const updatedRates = [...workshopRates];
+    const ratesToUpsert: any[] = [];
+
     categories.forEach(cat => {
       const baseVal = cat.base_rate || 0;
       const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
+      
+      const item = { workshop_id: workshopId, category_id: cat.id, rate: baseVal };
+      ratesToUpsert.push(item);
+
       if (idx >= 0) {
         updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
       } else {
-        updatedRates.push({ workshop_id: workshopId, category_id: cat.id, rate: baseVal });
+        updatedRates.push(item);
       }
     });
 
     setWorkshopRates(updatedRates);
+
+    // Save automatically to DB
+    const { error } = await supabase
+      .from('workshop_rates')
+      .upsert(ratesToUpsert, { onConflict: 'workshop_id,category_id' });
+
+    if (error) {
+      console.error('Error saving rates automatically:', error.message);
+      alert('❌ Error al guardar tarifas en la base de datos: ' + error.message);
+    } else {
+      // Refresh to ensure we have the primary key IDs from Supabase loaded in state
+      const { data } = await supabase.from('workshop_rates').select('*');
+      if (data) setWorkshopRates(data);
+    }
   };
 
-  const handleApplyBaseToAll = () => {
-    if (!confirm('¿Aplicar los costos base de referencia a TODOS los talleres? Esto sobrescribirá los valores no guardados en pantalla.')) return;
+  const handleApplyBaseToAll = async () => {
+    if (!confirm('¿Aplicar los costos base de referencia a TODOS los talleres? Esto guardará y actualizará los valores en la base de datos de manera definitiva.')) return;
     
     const updatedRates = [...workshopRates];
+    const ratesToUpsert: any[] = [];
+
     workshops.forEach(w => {
       categories.forEach(cat => {
         const baseVal = cat.base_rate || 0;
         const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
+        
+        const item = { workshop_id: w.id, category_id: cat.id, rate: baseVal };
+        ratesToUpsert.push(item);
+
         if (idx >= 0) {
           updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
         } else {
-          updatedRates.push({ workshop_id: w.id, category_id: cat.id, rate: baseVal });
+          updatedRates.push(item);
         }
       });
     });
 
     setWorkshopRates(updatedRates);
+
+    // Save automatically to DB in batch
+    const { error } = await supabase
+      .from('workshop_rates')
+      .upsert(ratesToUpsert, { onConflict: 'workshop_id,category_id' });
+
+    if (error) {
+      console.error('Error saving rates automatically for all workshops:', error.message);
+      alert('❌ Error al aplicar tarifas: ' + error.message);
+    } else {
+      alert('⚡ Costos base aplicados y guardados exitosamente en la base de datos para TODOS los talleres.');
+      const { data } = await supabase.from('workshop_rates').select('*');
+      if (data) setWorkshopRates(data);
+    }
   };
 
   const handleDelete = async (id: string) => {
