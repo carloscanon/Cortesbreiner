@@ -622,14 +622,40 @@ export default function WorkshopsPage() {
               <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Maestro de Tarifas de Confección</h2>
               <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>Establece el costo por prenda de costura a pagar a cada taller satélite según la categoría de producto.</p>
             </div>
-            <button 
-              className="btn btn-primary" 
-              onClick={handleSaveRates}
-              disabled={savingRates}
-              style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
-            >
-              {savingRates ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Guardar Tarifas</>}
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                onClick={() => {
+                  const withRates = categories.filter(c => c.base_rate > 0);
+                  const firstW = workshops[0];
+                  const firstC = categories[0];
+                  const matchSample = firstW && firstC ? workshopRates.find(r => String(r.workshop_id) === String(firstW.id) && String(r.category_id) === String(firstC.id)) : null;
+                  alert(
+                    `DIAGNÓSTICO:\n` +
+                    `- Categorías totales: ${categories.length}\n` +
+                    `- Con costo base > 0: ${withRates.length} (Ejs: ${withRates.slice(0, 3).map(c => `${c.categoria}: $${c.base_rate}`).join(', ')})\n` +
+                    `- Registros en workshopRates: ${workshopRates.length}\n` +
+                    `- Primer Taller: ${firstW ? firstW.nombre_taller : 'Ninguno'} (${firstW ? firstW.id : 'N/A'})\n` +
+                    `- Primera Categoría: ${firstC ? firstC.categoria : 'Ninguna'} (${firstC ? firstC.id : 'N/A'})\n` +
+                    `- Coincidencia de tarifa: ${matchSample ? `Existe (tarifa: ${matchSample.rate})` : 'No existe'}`
+                  );
+                }}
+                style={{
+                  padding: '0.5rem 0.75rem', border: '1px solid #cbd5e1', background: 'white',
+                  fontSize: '0.8rem', fontWeight: '800', color: '#475569', borderRadius: '8px',
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.25rem'
+                }}
+              >
+                🔍 Diagnóstico
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSaveRates}
+                disabled={savingRates}
+                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+              >
+                {savingRates ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Guardar Tarifas</>}
+              </button>
+            </div>
           </div>
 
           <div style={{ padding: '1.25rem', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
