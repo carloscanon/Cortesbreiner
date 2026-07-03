@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { 
   LayoutDashboard, 
@@ -68,11 +68,17 @@ export default function Sidebar() {
 
   const isTaller = profile?.roles?.name === 'Taller';
 
-  const filteredMenuItems = allMenuItems.filter(item => 
-    isTaller 
-      ? item.module === 'dashboard'
-      : allowedModules.includes(item.module) || item.module === 'dashboard'
-  );
+  const tallerMenuItems = [
+    { icon: LayoutDashboard, label: 'Dashboard', href: '/', module: 'dashboard' },
+    { icon: Scissors, label: 'Órdenes', href: '/?tab=orders', module: 'orders' },
+    { icon: Truck, label: 'Entrega y Pagos', href: '/?tab=payments', module: 'sewing' },
+  ];
+
+  const filteredMenuItems = isTaller
+    ? tallerMenuItems
+    : allMenuItems.filter(item => 
+        allowedModules.includes(item.module) || item.module === 'dashboard'
+      );
 
   const filteredBottomItems = allBottomItems.filter(item => 
     isTaller
@@ -83,6 +89,9 @@ export default function Sidebar() {
   const logoUrl = config?.logo_url || '';
   const logoWidth = config?.logo_width || '150';
   const mobileAppImg = config?.mobile_app_image_url || '';
+
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get('tab') || 'dashboard';
 
   return (
     <aside className="sidebar">
@@ -130,7 +139,14 @@ export default function Sidebar() {
         <p style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Menú</p>
         <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {filteredMenuItems.map((item) => {
-            const isActive = pathname === item.href;
+            let isActive = false;
+            if (isTaller) {
+              if (item.module === 'dashboard' && currentTab === 'dashboard') isActive = true;
+              else if (item.module === 'orders' && currentTab === 'orders') isActive = true;
+              else if (item.module === 'sewing' && currentTab === 'payments') isActive = true;
+            } else {
+              isActive = pathname === item.href;
+            }
             return (
               <li key={item.label}>
                 <Link 
