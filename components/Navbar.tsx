@@ -110,7 +110,11 @@ export default function Navbar() {
             overflow: 'hidden',
             border: '1px solid var(--border)'
           }}>
-            <User size={20} color="var(--text-muted)" />
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <User size={20} color="var(--text-muted)" />
+            )}
           </div>
         </div>
       </div>

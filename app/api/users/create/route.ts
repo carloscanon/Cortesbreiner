@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: Request) {
   try {
-    const { email, password, full_name, role_id, workshop_id } = await request.json();
+    const { email, password, full_name, role_id, workshop_id, avatarBase64, avatarName } = await request.json();
 
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'Email, contraseña y nombre son obligatorios.' }, { status: 400 });
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    let avatar_url = undefined;
+
     // Crear usuario en Auth (sin requerir confirmación de email)
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
@@ -41,6 +43,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No se pudo obtener el ID del usuario creado.' }, { status: 500 });
     }
 
+    // Upload avatar to Storage if provided
+    if (avatarBase64 && avatarName) {
+      const buffer = Buffer.from(avatarBase64, 'base64');
+      const uniqueFileName = `avatar-${userId}-${Date.now()}-${avatarName}`;
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('logos')
+        .upload(uniqueFileName, buffer, {
+          contentType: avatarName.endsWith('.png') ? 'image/png' : 'image/jpeg',
+          upsert: true
+        });
+
+      if (!uploadError) {
+        const { data: { publicUrl } } = supabaseAdmin.storage.from('logos').getPublicUrl(uniqueFileName);
+        avatar_url = publicUrl;
+      } else {
+        console.error('Error uploading avatar:', uploadError.message);
+      }
+    }
+
     // Esperar brevemente para que el trigger handle_new_user cree el perfil
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -52,6 +73,9 @@ export async function POST(request: Request) {
     };
     if (workshop_id) {
       profilePayload.workshop_id = workshop_id;
+    }
+    if (avatar_url) {
+      profilePayload.avatar_url = avatar_url;
     }
 
     // Actualizar el perfil con el nombre completo, rol y taller asignado

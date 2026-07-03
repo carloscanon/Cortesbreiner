@@ -390,14 +390,21 @@ export default function Dashboard() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h1 style={{ fontSize: '2.1rem', fontWeight: '950', margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                ¡Hola, {profile?.full_name?.split(' ')[0] || 'Taller'}! 👋
-              </h1>
-              <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.35rem', fontWeight: '500' }}>
-                Aquí tienes el resumen de tu taller satélite <strong style={{ color: 'var(--primary)', fontWeight: '800' }}>{userWorkshop?.nombre_taller || '...'}</strong>.
-              </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+              {profile?.avatar_url && (
+                <div style={{ width: '60px', height: '60px', borderRadius: '50%', overflow: 'hidden', border: '3px solid var(--primary-lighter)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+                  <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              )}
+              <div>
+                <h1 style={{ fontSize: '2.1rem', fontWeight: '950', margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  ¡Hola, {profile?.full_name?.split(' ')[0] || 'Taller'}! 👋
+                </h1>
+                <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.35rem', fontWeight: '500', margin: 0 }}>
+                  Aquí tienes el resumen de tu taller satélite <strong style={{ color: 'var(--primary)', fontWeight: '800' }}>{userWorkshop?.nombre_taller || '...'}</strong>.
+                </p>
+              </div>
             </div>
           </div>
 

@@ -94,6 +94,12 @@ export default function SettingsPage() {
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Avatar upload states
+  const [createAvatarFile, setCreateAvatarFile] = useState<File | null>(null);
+  const [createAvatarPreview, setCreateAvatarPreview] = useState<string | null>(null);
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null);
+
   useEffect(() => {
     fetchData();
   }, [activeTab]);
@@ -263,34 +269,50 @@ export default function SettingsPage() {
     setSaving(true);
     const formData = new FormData(e.target as HTMLFormElement);
     const workshopVal = formData.get('workshop_id') as string;
-    const userData: any = {
-      full_name: formData.get('full_name'),
-      role_id: formData.get('role_id') || null,
-      workshop_id: workshopVal && workshopVal !== '' ? workshopVal : null,
-    };
+    const full_name = formData.get('full_name') as string;
+    const role_id = formData.get('role_id') || null;
     const newPassword = formData.get('new_password') as string;
 
     try {
       if (editingUser) {
-        // Actualizar perfil del usuario
-        const { error } = await supabase.from('profiles').update(userData).eq('id', editingUser.id);
-        if (error) throw error;
+        let avatarBase64 = null;
+        let avatarName = null;
 
-        // Actualizar contraseña si se proporcionó una
-        if (newPassword && newPassword.trim() !== '') {
-          const res = await fetch('/api/users/password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: editingUser.id, newPassword })
+        if (editAvatarFile) {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const result = reader.result as string;
+              resolve(result.split(',')[1]);
+            };
+            reader.onerror = reject;
           });
-          const result = await res.json();
-          if (!res.ok) {
-            throw new Error(result.error || 'Error al actualizar contraseña');
-          }
+          reader.readAsDataURL(editAvatarFile);
+          avatarBase64 = await base64Promise;
+          avatarName = editAvatarFile.name;
         }
+
+        const res = await fetch('/api/users/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: editingUser.id,
+            full_name,
+            role_id,
+            workshop_id: workshopVal && workshopVal !== '' ? workshopVal : null,
+            newPassword,
+            avatarBase64,
+            avatarName
+          })
+        });
+
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Error al actualizar el usuario');
       }
       setShowUserModal(false);
       setEditingUser(null);
+      setEditAvatarFile(null);
+      setEditAvatarPreview(null);
       fetchData();
       setMessage('Usuario y accesos actualizados.');
       setTimeout(() => setMessage(''), 3000);
@@ -320,10 +342,35 @@ export default function SettingsPage() {
     }
 
     try {
+      let avatarBase64 = null;
+      let avatarName = null;
+
+      if (createAvatarFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+        });
+        reader.readAsDataURL(createAvatarFile);
+        avatarBase64 = await base64Promise;
+        avatarName = createAvatarFile.name;
+      }
+
       const res = await fetch('/api/users/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, full_name, role_id: cleanRoleId, workshop_id: cleanWorkshopId })
+        body: JSON.stringify({
+          email,
+          password,
+          full_name,
+          role_id: cleanRoleId,
+          workshop_id: cleanWorkshopId,
+          avatarBase64,
+          avatarName
+        })
       });
 
       const result = await res.json();
@@ -333,6 +380,8 @@ export default function SettingsPage() {
       }
 
       setShowCreateUserModal(false);
+      setCreateAvatarFile(null);
+      setCreateAvatarPreview(null);
       await fetchData();
       setMessage('Usuario registrado exitosamente.');
       setTimeout(() => setMessage(''), 5000);
@@ -504,8 +553,12 @@ export default function SettingsPage() {
                     {users.map((u) => (
                       <div key={u.id} style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'var(--primary-lighter)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Users size={20} color="var(--primary)" />
+                          <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'var(--primary-lighter)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                            {u.avatar_url ? (
+                              <img src={u.avatar_url} alt={u.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <Users size={20} color="var(--primary)" />
+                            )}
                           </div>
                           <div>
                             <p style={{ fontWeight: '700' }}>{u.full_name}</p>
@@ -1016,6 +1069,35 @@ export default function SettingsPage() {
             
             <form onSubmit={handleCreateUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>FOTO DE PERFIL (AVATAR)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '12px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
+                    {createAvatarPreview ? (
+                      <img src={createAvatarPreview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <UserIcon size={24} color="#94a3b8" />
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="create-avatar-upload"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setCreateAvatarFile(file);
+                        setCreateAvatarPreview(URL.createObjectURL(file));
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={() => document.getElementById('create-avatar-upload')?.click()}>
+                    Seleccionar Foto
+                  </button>
+                </div>
+              </div>
+
+              <div className="input-group">
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
                 <div style={{ position: 'relative' }}>
                   <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -1103,6 +1185,35 @@ export default function SettingsPage() {
             </div>
             
             <form onSubmit={handleSaveUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>FOTO DE PERFIL (AVATAR)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '12px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
+                    {editAvatarPreview || editingUser?.avatar_url ? (
+                      <img src={editAvatarPreview || editingUser?.avatar_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <UserIcon size={24} color="#94a3b8" />
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="edit-avatar-upload"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setEditAvatarFile(file);
+                        setEditAvatarPreview(URL.createObjectURL(file));
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={() => document.getElementById('edit-avatar-upload')?.click()}>
+                    Cambiar Foto
+                  </button>
+                </div>
+              </div>
+
               <div className="input-group">
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
                 <div style={{ position: 'relative' }}>
