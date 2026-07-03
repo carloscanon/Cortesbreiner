@@ -33,6 +33,7 @@ export default function WorkshopsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [workshopRates, setWorkshopRates] = useState<any[]>([]);
   const [savingRates, setSavingRates] = useState(false);
+  const [selectedRateWorkshopId, setSelectedRateWorkshopId] = useState<string>('');
 
   useEffect(() => {
     fetchWorkshops();
@@ -92,6 +93,10 @@ export default function WorkshopsPage() {
       setWorkshops(wData || []);
       setCategories(cData || []);
       setWorkshopRates(rData || []);
+      
+      if (wData && wData.length > 0 && !selectedRateWorkshopId) {
+        setSelectedRateWorkshopId(wData[0].id);
+      }
     } catch (err: any) {
       console.error('Error loading workshop rates or categories:', err.message);
       // Fallback in case table workshop_rates does not exist yet
@@ -99,6 +104,9 @@ export default function WorkshopsPage() {
       const { data: cData } = await supabase.from('categories').select('*').order('categoria', { ascending: true });
       setWorkshops(wData || []);
       setCategories(cData || []);
+      if (wData && wData.length > 0 && !selectedRateWorkshopId) {
+        setSelectedRateWorkshopId(wData[0].id);
+      }
     } finally {
       setLoading(false);
     }
@@ -688,69 +696,72 @@ export default function WorkshopsPage() {
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                  <th style={{ padding: '1rem 1.25rem', fontWeight: '850', color: '#475569' }}>Taller Satélite</th>
-                  <th style={{ padding: '1rem 1.25rem', fontWeight: '850', color: '#475569', textAlign: 'center' }}>Acciones Rápidas</th>
-                  {categories.map(cat => (
-                    <th key={cat.id} style={{ padding: '1rem 1.25rem', fontWeight: '850', color: '#475569', textAlign: 'center' }}>
-                      {cat.categoria}
-                    </th>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '1.25rem', backgroundColor: '#f8fafc' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#334155' }}>TALLER SATÉLITE SELECCIONADO:</span>
+                <select
+                  value={selectedRateWorkshopId}
+                  onChange={e => setSelectedRateWorkshopId(e.target.value)}
+                  style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750', color: '#0f172a', backgroundColor: 'white', minWidth: '220px' }}
+                >
+                  <option value="">Selecciona un taller...</option>
+                  {workshops.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_taller}</option>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {workshops.length === 0 ? (
-                  <tr>
-                    <td colSpan={categories.length + 2} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-                      No hay talleres satélite registrados para configurar tarifas.
-                    </td>
-                  </tr>
-                ) : (
-                  workshops.map(w => (
-                    <tr key={w.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '1rem 1.25rem', fontWeight: '800', color: '#0f172a' }}>
-                        {w.nombre_taller}
-                      </td>
-                      <td style={{ padding: '0.75rem 1.25rem', textAlign: 'center' }}>
-                        <button 
-                          onClick={() => handleApplyBaseRates(w.id)}
-                          style={{
-                            padding: '0.3rem 0.65rem', border: '1px solid #bae6fd', background: '#f0f9ff',
-                            fontSize: '0.7rem', fontWeight: '800', color: '#0369a1', borderRadius: '6px',
-                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.2rem'
-                          }}
-                          title="Copia los precios base configurados arriba a este taller"
+                </select>
+              </div>
+
+              {selectedRateWorkshopId && (
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => handleApplyBaseRates(selectedRateWorkshopId)}
+                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem', fontWeight: '800', backgroundColor: '#0284c7', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                  >
+                    ⚡ Aplicar Costos Base a este Taller
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {!selectedRateWorkshopId ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                Selecciona un taller satélite para comenzar a configurar sus costos específicos por prenda.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginTop: '0.5rem' }}>
+                {categories.map(cat => {
+                  const match = workshopRates.find(r => String(r.workshop_id).toLowerCase() === String(selectedRateWorkshopId).toLowerCase() && String(r.category_id).toLowerCase() === String(cat.id).toLowerCase());
+                  const currentRate = match ? match.rate : 0;
+                  return (
+                    <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.85rem 1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '850', color: '#0f172a', textTransform: 'uppercase' }}>{cat.categoria || '(Sin Categoría)'}</span>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                        Costo Base: <span style={{ color: '#0284c7', fontWeight: '800' }}>${cat.base_rate || 0}</span>
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#94a3b8', fontWeight: '700', fontSize: '0.8rem' }}>$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={currentRate || ''}
+                          onChange={e => handleRateChange(selectedRateWorkshopId, cat.id, e.target.value)}
+                          placeholder="0"
+                          style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', textAlign: 'right', fontWeight: '750', color: '#0f172a' }}
+                        />
+                        <button
+                          onClick={() => handleRateChange(selectedRateWorkshopId, cat.id, String(cat.base_rate || 0))}
+                          style={{ padding: '0.35rem 0.5rem', fontSize: '0.68rem', fontWeight: '800', border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          title="Copia el costo base de referencia a esta prenda para este taller"
                         >
-                          ⚡ Aplicar Costos Base
+                          ⚡ Base
                         </button>
-                      </td>
-                      {categories.map(cat => {
-                        const match = workshopRates.find(r => String(r.workshop_id).toLowerCase() === String(w.id).toLowerCase() && String(r.category_id).toLowerCase() === String(cat.id).toLowerCase());
-                        const currentRate = match ? match.rate : 0;
-                        return (
-                          <td key={cat.id} style={{ padding: '0.75rem 1.25rem', textAlign: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', maxWidth: '140px', margin: '0 auto' }}>
-                              <span style={{ color: '#94a3b8', fontWeight: '700' }}>$</span>
-                              <input 
-                                type="number" 
-                                min="0"
-                                value={currentRate || ''} 
-                                onChange={e => handleRateChange(w.id, cat.id, e.target.value)}
-                                placeholder="0"
-                                style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.825rem', textAlign: 'right', fontWeight: '700', color: '#0f172a' }}
-                              />
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
