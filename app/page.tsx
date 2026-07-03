@@ -708,7 +708,11 @@ export default function Dashboard() {
                             let colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
                             if (!colorObj && prod && prod.nombre_producto) {
                               const prodNameLower = prod.nombre_producto.toLowerCase();
-                              colorObj = colorsList.find(c => c.nombre_color && prodNameLower.includes(c.nombre_color.toLowerCase()));
+                              colorObj = colorsList.find(c => {
+                                if (!c.nombre_color) return false;
+                                const firstWord = c.nombre_color.split(/[\s,]+/)[0].toLowerCase().trim();
+                                return firstWord.length > 2 && prodNameLower.includes(firstWord);
+                              });
                             }
                             const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 

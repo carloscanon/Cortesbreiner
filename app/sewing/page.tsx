@@ -756,7 +756,11 @@ export default function SewingPage() {
       let colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
       if (!colorObj && prod && prod.nombre_producto) {
         const prodNameLower = prod.nombre_producto.toLowerCase();
-        colorObj = colorsMaster.find(c => c.nombre_color && prodNameLower.includes(c.nombre_color.toLowerCase()));
+        colorObj = colorsMaster.find(c => {
+          if (!c.nombre_color) return false;
+          const firstWord = c.nombre_color.split(/[\s,]+/)[0].toLowerCase().trim();
+          return firstWord.length > 2 && prodNameLower.includes(firstWord);
+        });
       }
       const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 
