@@ -318,7 +318,14 @@ export default function WorkshopsPage() {
 
   const handleBaseRateChange = (categoryId: string, val: string) => {
     const numeric = val === '' ? 0 : parseFloat(val);
-    const updated = { ...baseRates, [categoryId]: numeric };
+    let currentBase = {};
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cortesbreiner_base_rates');
+      if (stored) {
+        try { currentBase = JSON.parse(stored); } catch (e) {}
+      }
+    }
+    const updated = { ...currentBase, [categoryId]: numeric };
     setBaseRates(updated);
     localStorage.setItem('cortesbreiner_base_rates', JSON.stringify(updated));
   };
