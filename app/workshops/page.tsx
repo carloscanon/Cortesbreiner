@@ -33,16 +33,6 @@ export default function WorkshopsPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [workshopRates, setWorkshopRates] = useState<any[]>([]);
   const [savingRates, setSavingRates] = useState(false);
-  const [baseRates, setBaseRates] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('cortesbreiner_base_rates');
-      if (stored) {
-        try { setBaseRates(JSON.parse(stored)); } catch (e) {}
-      }
-    }
-  }, []);
 
   useEffect(() => {
     fetchWorkshops();
@@ -316,32 +306,27 @@ export default function WorkshopsPage() {
     });
   };
 
-  const handleBaseRateChange = (categoryId: string, val: string) => {
+  const handleBaseRateChange = async (categoryId: string, val: string) => {
     const numeric = val === '' ? 0 : parseFloat(val);
-    let currentBase = {};
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('cortesbreiner_base_rates');
-      if (stored) {
-        try { currentBase = JSON.parse(stored); } catch (e) {}
-      }
+    
+    // Update local categories state immediately
+    setCategories(prev => prev.map(cat => cat.id === categoryId ? { ...cat, base_rate: numeric } : cat));
+    
+    // Save directly to categories table in database
+    const { error } = await supabase
+      .from('categories')
+      .update({ base_rate: numeric })
+      .eq('id', categoryId);
+      
+    if (error) {
+      console.error('Error updating base rate in DB:', error.message);
     }
-    const updated = { ...currentBase, [categoryId]: numeric };
-    setBaseRates(updated);
-    localStorage.setItem('cortesbreiner_base_rates', JSON.stringify(updated));
   };
 
   const handleApplyBaseRates = (workshopId: string) => {
-    let latestBaseRates = baseRates;
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('cortesbreiner_base_rates');
-      if (stored) {
-        try { latestBaseRates = JSON.parse(stored); } catch (e) {}
-      }
-    }
-
     const updatedRates = [...workshopRates];
     categories.forEach(cat => {
-      const baseVal = latestBaseRates[cat.id] || 0;
+      const baseVal = cat.base_rate || 0;
       const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
       if (idx >= 0) {
         updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
@@ -356,18 +341,10 @@ export default function WorkshopsPage() {
   const handleApplyBaseToAll = () => {
     if (!confirm('¿Aplicar los costos base de referencia a TODOS los talleres? Esto sobrescribirá los valores no guardados en pantalla.')) return;
     
-    let latestBaseRates = baseRates;
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('cortesbreiner_base_rates');
-      if (stored) {
-        try { latestBaseRates = JSON.parse(stored); } catch (e) {}
-      }
-    }
-
     const updatedRates = [...workshopRates];
     workshops.forEach(w => {
       categories.forEach(cat => {
-        const baseVal = latestBaseRates[cat.id] || 0;
+        const baseVal = cat.base_rate || 0;
         const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
         if (idx >= 0) {
           updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
@@ -597,7 +574,7 @@ export default function WorkshopsPage() {
                     <input 
                       type="number" 
                       min="0"
-                      value={baseRates[cat.id] || ''} 
+                      value={cat.base_rate || ''} 
                       onChange={e => handleBaseRateChange(cat.id, e.target.value)}
                       placeholder="0"
                       style={{ width: '100%', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid #7dd3fc', fontSize: '0.78rem', textAlign: 'right', fontWeight: '700', color: '#0369a1' }}
