@@ -503,16 +503,16 @@ export default function Dashboard() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                       <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
-                        {['Orden', 'Cliente', 'Tela', 'Prendas', 'Estado', 'Progreso', 'Acción'].map(h => (
+                        {['Orden', 'Cliente', 'Tela', 'Prendas', 'Fecha Asignada', 'Estado', 'Progreso', 'Acción'].map(h => (
                           <th key={h} style={{ padding: '0.85rem 1rem', fontWeight: '800', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {loading ? (
-                        <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
+                        <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
                       ) : pendingOrders.length === 0 ? (
-                        <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
+                        <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
                       ) : pendingOrders.map(o => {
                         const progress = getProgressionPercentage(o);
                         return (
@@ -521,6 +521,7 @@ export default function Dashboard() {
                             <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#1e293b' }}>{o.client_name}</td>
                             <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '500' }}>{o.fabrics?.nombre_tela || '—'}</td>
                             <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#0f172a' }}>{getTotalPrendas(o)} uds</td>
+                            <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '600' }}>{o.created_at ? new Date(o.created_at).toLocaleDateString('es-CO') : '—'}</td>
                             <td style={{ padding: '1rem 1rem' }}>
                               <span style={{ fontSize: '0.68rem', padding: '0.25rem 0.65rem', borderRadius: '8px', backgroundColor: '#eff6ff', color: '#1e4ed8', fontWeight: '800', border: '1px solid #bfdbfe' }}>
                                 En confección
