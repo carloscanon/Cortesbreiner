@@ -702,10 +702,16 @@ export default function Dashboard() {
     if (currentTab === 'orders') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-          <div>
-            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
-            <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Mis Órdenes Asignadas</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Listado total de órdenes históricas y activas en tu satélite.</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Mis Órdenes Asignadas</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Listado total de órdenes históricas y activas en tu satélite.</p>
+            </div>
+            <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
+              <strong style={{ fontSize: '0.95rem', color: '#1e1b4b', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+            </div>
           </div>
 
           <div className="card" style={{ padding: '2rem' }}>
@@ -756,10 +762,16 @@ export default function Dashboard() {
     if (currentTab === 'payments') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-          <div>
-            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
-            <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Control de Entregas y Pagos</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Registro de prendas aprobadas en auditoría de calidad y valor liquidado.</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Control de Entregas y Pagos</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Registro de prendas aprobadas en auditoría de calidad y valor liquidado.</p>
+            </div>
+            <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #bbf7d0' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
+              <strong style={{ fontSize: '0.95rem', color: '#14532d', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+            </div>
           </div>
 
           <div className="card" style={{ padding: '2rem' }}>
