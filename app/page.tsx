@@ -619,49 +619,66 @@ export default function Dashboard() {
           {/* Workshop Order Confección Details Modal */}
           {viewingOrderDetails && (
             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
-              <div className="card" style={{ width: '100%', maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
+              <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                
+                {/* Modal Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
                   <div>
-                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '4px 10px', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '6px 12px', borderRadius: '8px' }}>
                       Especificaciones de Confección
                     </span>
-                    <h2 style={{ fontSize: '1.75rem', fontWeight: '950', color: '#0f172a', margin: '0.5rem 0 0 0' }}>
+                    <h2 style={{ fontSize: '2rem', fontWeight: '950', color: '#0f172a', margin: '0.75rem 0 0.25rem 0', letterSpacing: '-0.02em' }}>
                       Orden OC-{viewingOrderDetails.internal_code}
                     </h2>
-                    <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.25rem 0 0 0', fontWeight: '500' }}>
-                      Cliente: <strong style={{ color: '#0f172a' }}>{viewingOrderDetails.client_name}</strong> | Tela: <strong style={{ color: '#0f172a' }}>{viewingOrderDetails.fabrics?.nombre_tela || 'Sin tela'}</strong>
+                    <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0, fontWeight: '500' }}>
+                      Información técnica provista para la producción del lote.
                     </p>
                   </div>
-                  <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#64748b', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
+                  <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '12px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e2e8f0'} onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}><X size={20} /></button>
+                </div>
+
+                {/* Quick Info Grid Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#64748b', textTransform: 'uppercase', display: 'block' }}>Cliente</span>
+                    <strong style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '850', marginTop: '0.15rem', display: 'block' }}>{viewingOrderDetails.client_name || 'Sin especificar'}</strong>
+                  </div>
+                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#64748b', textTransform: 'uppercase', display: 'block' }}>Tela Seleccionada</span>
+                    <strong style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '850', marginTop: '0.15rem', display: 'block' }}>{viewingOrderDetails.fabrics?.nombre_tela || 'Sin tela'}</strong>
+                  </div>
+                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1px solid #ddd6fe' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#7c3aed', textTransform: 'uppercase', display: 'block' }}>Total Prendas Lote</span>
+                    <strong style={{ fontSize: '1.05rem', color: '#4f46e5', fontWeight: '950', marginTop: '0.15rem', display: 'block' }}>{getTotalPrendas(viewingOrderDetails)} uds</strong>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   
                   {/* Sizes and Color Grid Table */}
                   <div>
-                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Cantidades a Confeccionar por Talla / Color
+                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Cantidades a Confeccionar por Talla y Color
                     </h4>
-                    <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead>
-                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
+                            <th style={{ padding: '1rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
                             {sizesList.map(s => (
-                              <th key={s.id} style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla {s.nombre_talla}</th>
+                              <th key={s.id} style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla {s.nombre_talla}</th>
                             ))}
-                            <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '850', color: '#0f172a', backgroundColor: '#f1f5f9' }}>Total</th>
+                            <th style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f1f5f9', width: '100px' }}>Total</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(() => {
-                            // Extract unique color_ids from this order's cuts sizes
                             const uniqueColorIds = Array.from(new Set(
                               viewingOrderDetails.cuts?.map((c: any) => c.color_id).filter(Boolean)
                             ));
 
                             if (uniqueColorIds.length === 0) {
-                              return <tr><td colSpan={sizesList.length + 2} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No hay trazos de corte registrados en esta orden.</td></tr>;
+                              return <tr><td colSpan={sizesList.length + 2} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No hay trazos de corte registrados en esta orden.</td></tr>;
                             }
 
                             return uniqueColorIds.map(colorId => {
@@ -671,10 +688,12 @@ export default function Dashboard() {
                               let rowTotal = 0;
 
                               return (
-                                <tr key={String(colorId)} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#1e293b' }}>{colorName}</td>
+                                <tr key={String(colorId)} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.1s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fcfbff'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                                  <td style={{ padding: '1rem 1.25rem', fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: colorObj?.codigo_hex || '#cbd5e1', border: '1px solid #cbd5e1' }} />
+                                    {colorName}
+                                  </td>
                                   {sizesList.map(sz => {
-                                    // Sum quantities across all cuts of this color and size
                                     const qty = viewingOrderDetails.cuts?.reduce((sum: number, cut: any) => {
                                       if (String(cut.color_id) !== String(colorId)) return sum;
                                       const szQty = cut.cut_sizes?.find((cs: any) => String(cs.size_id) === String(sz.id));
@@ -689,12 +708,12 @@ export default function Dashboard() {
                                     rowTotal += qty;
 
                                     return (
-                                      <td key={sz.id} style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: qty > 0 ? '800' : '400', color: qty > 0 ? '#0f172a' : '#94a3b8' }}>
+                                      <td key={sz.id} style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: qty > 0 ? '800' : '500', color: qty > 0 ? '#0f172a' : '#94a3b8' }}>
                                         {qty > 0 ? `${qty} uds` : '—'}
                                       </td>
                                     );
                                   })}
-                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '900', color: 'var(--primary)', backgroundColor: '#fcfbff' }}>
+                                  <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '900', color: 'var(--primary)', backgroundColor: '#fcfbff', borderLeft: '1px solid #f1f5f9' }}>
                                     {rowTotal} uds
                                   </td>
                                 </tr>
@@ -707,19 +726,19 @@ export default function Dashboard() {
                   </div>
 
                   {/* Special Observations */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
-                    <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', backgroundColor: '#fcfbff' }}>
-                      <h5 style={{ margin: '0 0 0.5rem 0', textTransform: 'uppercase', fontSize: '0.65rem', fontWeight: '850', color: '#475569', letterSpacing: '0.05em' }}>Observaciones e Instrucciones Especiales</h5>
-                      <p style={{ margin: 0, fontSize: '0.825rem', color: '#334155', lineHeight: '1.5', fontWeight: '500' }}>
-                        {viewingOrderDetails.observaciones || 'No se han ingresado observaciones o detalles específicos de costura para esta orden.'}
+                  <div>
+                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>Instrucciones y Novedades</h4>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.5rem', backgroundColor: '#faf9ff' }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem', color: '#334155', lineHeight: '1.6', fontWeight: '500' }}>
+                        {viewingOrderDetails.observaciones || 'No hay observaciones específicas ni notas técnicas registradas en esta orden para la fase de confección.'}
                       </p>
                     </div>
                   </div>
 
                 </div>
 
-                <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #e2e8f0', marginTop: '2rem', paddingTop: '1.5rem' }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Especificación</button>
+                <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Detalle de Orden</button>
                 </div>
               </div>
             </div>
