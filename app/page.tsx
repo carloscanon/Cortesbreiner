@@ -291,6 +291,8 @@ export default function Dashboard() {
   const [colorsList, setColorsList] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
   const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [workshopRates, setWorkshopRates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [viewingOrderDetails, setViewingOrderDetails] = useState<any>(null);
@@ -309,7 +311,9 @@ export default function Dashboard() {
           res5,
           res6,
           res7,
-          res8
+          res8,
+          res9,
+          res10
         ] = await Promise.all([
           supabase
             .from('orders')
@@ -321,7 +325,9 @@ export default function Dashboard() {
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
           supabase.from('products').select('*'),
-          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')
+          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'),
+          supabase.from('categories').select('*'),
+          supabase.from('workshop_rates').select('*')
         ]);
         const ordersData = res1.data;
         const workshopsData = res2.data;
@@ -331,6 +337,8 @@ export default function Dashboard() {
         const cData = res6.data;
         const pData = res7.data;
         const paData = res8.data;
+        const catsData = res9.data;
+        const ratesData = res10.data;
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
@@ -340,6 +348,8 @@ export default function Dashboard() {
         if (cData) setColorsList(cData);
         if (pData) setProductsList(pData);
         if (paData) setProductAccessoriesList(paData);
+        if (catsData) setCategories(catsData);
+        if (ratesData) setWorkshopRates(ratesData);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -377,13 +387,103 @@ export default function Dashboard() {
     const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
     const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (i.items_rejected || 0), 0);
 
-    // Sewing cost rate config
-    const costuraConfig = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura');
-    const rate = costuraConfig && Number(costuraConfig.unidad) > 0
-      ? (Number(costuraConfig.valor) / Number(costuraConfig.unidad))
-      : 500; // default 500 per unit if 25000/50
+    const getCostsFromJson = (order: any) => {
+      if (!order || !order.observaciones) return {};
+      const match = order.observaciones.match(/<!--COSTS_JSON:(.*?)-->/);
+      if (!match) return {};
+      try { return JSON.parse(match[1]); } catch (e) { return {}; }
+    };
 
-    const totalEarnings = totalApprovedGarments * rate;
+    const getAssignmentsFromJson = (order: any) => {
+      if (!order || !order.observaciones) return null;
+      const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:(.*?)-->/);
+      if (!match) return null;
+      try { return JSON.parse(match[1]); } catch (e) { return null; }
+    };
+
+    let totalAuthorizedUnits = 0;
+    let totalSewedUnits = 0;
+    let totalAuthorizedPayment = 0;
+    let totalSewedPayment = 0;
+
+    const baseSewingGlobal = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura')?.valor || 2500;
+
+    if (userWorkshop) {
+      assignedOrders.forEach(order => {
+        const overrides = getCostsFromJson(order);
+        const assignments = getAssignmentsFromJson(order);
+        if (!order.cuts) return;
+
+        order.cuts.forEach((cut: any) => {
+          const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+          const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+          const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
+
+          const layersProyec = cut.layers || 1;
+          const layersProduced = cut.layers_produced || 0;
+
+          (cut.cut_sizes || []).forEach((cs: any) => {
+            const plannedQty = Number(cs.quantity) || 0;
+            const ppc = plannedQty / layersProyec;
+            const actualSewedQty = layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
+
+            const catId = prod ? String(prod.id) : 'sin_prod';
+            const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+            const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+            const cellKey = `${catId}_${sz}`;
+            const assignedWorkshopId = assignments?.rowWorkshops?.[cellKey];
+
+            if (assignedWorkshopId && String(assignedWorkshopId).toLowerCase() === String(userWorkshop.id).toLowerCase()) {
+              let itemRate = catBaseRate;
+
+              if (categoryObj) {
+                const rateObj = workshopRates.find(r => 
+                  String(r.workshop_id).toLowerCase() === String(userWorkshop.id).toLowerCase() && 
+                  String(r.category_id).toLowerCase() === String(categoryObj.id).toLowerCase()
+                );
+                if (rateObj && Number(rateObj.rate) > 0) {
+                  itemRate = Number(rateObj.rate);
+                }
+              }
+
+              const finalRate = overrides.custom_sewing_rate !== undefined ? Number(overrides.custom_sewing_rate) : itemRate;
+
+              totalAuthorizedUnits += plannedQty;
+              totalSewedUnits += actualSewedQty;
+
+              totalAuthorizedPayment += plannedQty * finalRate;
+              totalSewedPayment += actualSewedQty * finalRate;
+            }
+          });
+        });
+      });
+    }
+
+    const averageRate = totalSewedUnits > 0 
+      ? Math.round(totalSewedPayment / totalSewedUnits) 
+      : (totalAuthorizedUnits > 0 ? Math.round(totalAuthorizedPayment / totalAuthorizedUnits) : 500);
+
+    const getRateForOrder = (orderId: string) => {
+      const orderObj = orders.find(o => o.id === orderId);
+      if (!orderObj || !orderObj.cuts || orderObj.cuts.length === 0) return averageRate;
+
+      const cut = orderObj.cuts[0];
+      const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+      const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+      if (!categoryObj) return averageRate;
+
+      const rateObj = workshopRates.find(r => 
+        userWorkshop &&
+        String(r.workshop_id).toLowerCase() === String(userWorkshop.id).toLowerCase() && 
+        String(r.category_id).toLowerCase() === String(categoryObj.id).toLowerCase()
+      );
+      if (rateObj && Number(rateObj.rate) > 0) {
+        return Number(rateObj.rate);
+      }
+
+      return categoryObj.base_rate || baseSewingGlobal / 5;
+    };
 
     const getTotalPrendas = (order: any) => {
       if (!order.cuts) return 0;
@@ -493,17 +593,24 @@ export default function Dashboard() {
             {/* Card 4: Wallet Earnings Payout */}
             <div className="card" style={{
               position: 'relative', overflow: 'hidden', padding: '1.5rem 1.75rem', color: 'white',
-              background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', boxShadow: '0 10px 25px -5px rgba(49,46,129,0.3)'
+              background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', boxShadow: '0 10px 25px -5px rgba(49,46,129,0.3)',
+              display: 'flex', flexDirection: 'column', gap: '0.75rem'
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', position: 'relative', zIndex: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#c7d2fe', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Saldo por Pagar</p>
-                  <h3 style={{ fontSize: '2.2rem', fontWeight: '950', margin: '0.35rem 0', color: 'white' }}>{loading ? '…' : `$${totalEarnings.toLocaleString('es-CO')} COP`}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#a5b4fc', margin: 0, fontWeight: '600' }}>Tarifa base: ${rate.toLocaleString('es-CO')} / prenda</p>
+                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#c7d2fe', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Saldo Real Confeccionado</p>
+                  <h3 style={{ fontSize: '2.2rem', fontWeight: '950', margin: '0.2rem 0', color: 'white' }}>{loading ? '…' : `$${totalSewedPayment.toLocaleString('es-CO')} COP`}</h3>
+                  <p style={{ fontSize: '0.74rem', color: '#a5b4fc', margin: 0, fontWeight: '600' }}>
+                    Saldo Autorizado: <strong style={{ color: 'white' }}>${totalAuthorizedPayment.toLocaleString('es-CO')} COP</strong>
+                  </p>
                 </div>
                 <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <DollarSign size={20} />
                 </div>
+              </div>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#c7d2fe', fontWeight: '600', position: 'relative', zIndex: 2 }}>
+                <span>Prendas: {totalSewedUnits} / {totalAuthorizedUnits} uds</span>
+                <span>Tarifa Prom.: ${averageRate.toLocaleString('es-CO')} / ud</span>
               </div>
               <div style={{ position: 'absolute', bottom: '-20px', right: '-20px', width: '120px', height: '120px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.03)', pointerEvents: 'none' }} />
             </div>
@@ -601,7 +708,8 @@ export default function Dashboard() {
                       ) : workshopInspections.slice(0, 5).map(i => {
                         const orderObj = orders.find(o => o.id === i.order_id);
                         const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
-                        const payment = (i.items_approved || 0) * rate;
+                        const itemRate = getRateForOrder(i.order_id);
+                        const payment = (i.items_approved || 0) * itemRate;
                         return (
                           <tr key={i.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                             <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#4f46e5' }}>{orderCode}</td>
@@ -1121,7 +1229,8 @@ export default function Dashboard() {
                   ) : workshopInspections.map(i => {
                     const orderObj = orders.find(o => o.id === i.order_id);
                     const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
-                    const payment = (i.items_approved || 0) * rate;
+                    const itemRate = getRateForOrder(i.order_id);
+                    const payment = (i.items_approved || 0) * itemRate;
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '1rem', fontWeight: '800', color: '#4f46e5' }}>{orderCode}</td>
@@ -1129,7 +1238,7 @@ export default function Dashboard() {
                         <td style={{ padding: '1rem', fontWeight: '700' }}>{i.items_inspected} uds</td>
                         <td style={{ padding: '1rem', fontWeight: '700', color: '#16a34a' }}>{i.items_approved} uds</td>
                         <td style={{ padding: '1rem', fontWeight: '700', color: '#ef4444' }}>{i.items_rejected} uds</td>
-                        <td style={{ padding: '1rem', fontWeight: '600' }}>${rate.toLocaleString('es-CO')} COP</td>
+                        <td style={{ padding: '1rem', fontWeight: '600' }}>${itemRate.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1rem', fontWeight: '900', color: '#10b981' }}>${payment.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1rem' }}>
                           <span style={{
