@@ -616,143 +616,153 @@ export default function Dashboard() {
 
           </div>
 
-          {/* Workshop Order Confección Details Modal */}
+          {/* Workshop Order Confección Details Modal (Relación de Despacho Format) */}
           {viewingOrderDetails && (
             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
-              <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+              <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid #cbd5e1', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                 
-                {/* Modal Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
-                  <div>
-                    <span style={{ fontSize: '0.68rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '6px 12px', borderRadius: '8px' }}>
-                      Especificaciones de Confección
-                    </span>
-                    <h2 style={{ fontSize: '2rem', fontWeight: '950', color: '#0f172a', margin: '0.75rem 0 0.25rem 0', letterSpacing: '-0.02em' }}>
-                      Orden OC-{viewingOrderDetails.internal_code}
-                    </h2>
-                    <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0, fontWeight: '500' }}>
-                      Información técnica provista para la producción del lote.
-                    </p>
+                {/* Print relation header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
+                      <Factory size={22} />
+                    </div>
+                    <div>
+                      <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
+                        Relación de Despacho a Confección
+                      </h2>
+                      <p style={{ fontSize: '0.72rem', color: '#475569', margin: 0 }}>
+                        Cortesbreiner Sistema de Control Satélite · {new Date().toLocaleDateString('es-CO')}
+                      </p>
+                    </div>
                   </div>
-                  <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '12px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e2e8f0'} onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}><X size={20} /></button>
+                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                    <div>
+                      <p style={{ fontSize: '0.75rem', margin: 0, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Orden de Confección</p>
+                      <p style={{ fontSize: '1.1rem', fontWeight: '950', color: 'var(--primary)', margin: 0 }}>
+                        OC-{viewingOrderDetails.internal_code}
+                      </p>
+                    </div>
+                    <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+                  </div>
                 </div>
 
-                {/* Quick Info Grid Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#64748b', textTransform: 'uppercase', display: 'block' }}>Cliente</span>
-                    <strong style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '850', marginTop: '0.15rem', display: 'block' }}>{viewingOrderDetails.client_name || 'Sin especificar'}</strong>
+                {/* Workshop Info */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.825rem', marginBottom: '2rem' }}>
+                  <div>
+                    <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Taller Satélite Destinatario</p>
+                    <p style={{ margin: 0, fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>{userWorkshop?.nombre_taller || 'Taller Asignado'}</p>
+                    <p style={{ margin: '0.2rem 0 0', color: '#334155', fontWeight: '600' }}>Responsable: <span style={{ color: '#0f172a', fontWeight: '800' }}>{userWorkshop?.responsable || '—'}</span></p>
+                    <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Teléfono: {userWorkshop?.telefono || '—'}</p>
                   </div>
-                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#64748b', textTransform: 'uppercase', display: 'block' }}>Tela Seleccionada</span>
-                    <strong style={{ fontSize: '0.95rem', color: '#0f172a', fontWeight: '850', marginTop: '0.15rem', display: 'block' }}>{viewingOrderDetails.fabrics?.nombre_tela || 'Sin tela'}</strong>
-                  </div>
-                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1px solid #ddd6fe' }}>
-                    <span style={{ fontSize: '0.65rem', fontWeight: '750', color: '#7c3aed', textTransform: 'uppercase', display: 'block' }}>Total Prendas Lote</span>
-                    <strong style={{ fontSize: '1.05rem', color: '#4f46e5', fontWeight: '950', marginTop: '0.15rem', display: 'block' }}>{getTotalPrendas(viewingOrderDetails)} uds</strong>
+                  <div>
+                    <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
+                    <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.client_name}</strong></p>
+                    <p style={{ margin: '0.2rem 0 0', color: '#7c3aed', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.created_at ? new Date(viewingOrderDetails.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
+                    <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.fabrics?.nombre_tela || '—'}</p>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   
-                  {/* Relación de Despacho Style Table */}
+                  {/* Items Table */}
                   <div>
-                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.5rem' }}>
-                      📋 Relación de Despacho - Prendas y Cantidades
-                    </h4>
-                    <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                        <thead>
-                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
-                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
-                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
-                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela principal</th>
-                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla</th>
-                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            // Collect and build row-by-row items from cuts and sizes
-                            const itemsList: any[] = [];
-                            viewingOrderDetails.cuts?.forEach((cut: any) => {
-                              const colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
-                              const colorName = colorObj ? colorObj.nombre_color : '—';
-                              const colorHex = colorObj ? colorObj.codigo_hex : '#cbd5e1';
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>📋</span> Prendas y Cantidades a Armar
+                    </h3>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría / Tela</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569', width: '80px' }}>Talla</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const itemsList: any[] = [];
+                          viewingOrderDetails.cuts?.forEach((cut: any) => {
+                            const colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
+                            const colorName = colorObj ? colorObj.nombre_color : '—';
 
-                              cut.cut_sizes?.forEach((szQty: any) => {
-                                const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
-                                const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+                            cut.cut_sizes?.forEach((szQty: any) => {
+                              const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
+                              const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
 
-                                const layersProyec = cut.layers || 1;
-                                const layersProduced = cut.layers_produced || 0;
-                                const plannedQty = Number(szQty.quantity) || 0;
-                                const ppc = plannedQty / layersProyec;
-                                const actualQty = Math.round(ppc * layersProduced);
+                              const layersProyec = cut.layers || 1;
+                              const layersProduced = cut.layers_produced || 0;
+                              const plannedQty = Number(szQty.quantity) || 0;
+                              const ppc = plannedQty / layersProyec;
+                              const actualQty = Math.round(ppc * layersProduced);
 
-                                if (actualQty > 0) {
-                                  itemsList.push({
-                                    productName: viewingOrderDetails.client_name || 'Referencia',
-                                    colorName,
-                                    colorHex,
-                                    fabricName: viewingOrderDetails.fabrics?.nombre_tela || '—',
-                                    sizeCode: sizeName,
-                                    quantity: actualQty
-                                  });
-                                }
-                              });
+                              if (actualQty > 0) {
+                                itemsList.push({
+                                  productName: `OC-${viewingOrderDetails.internal_code}`,
+                                  colorName,
+                                  categoryName: viewingOrderDetails.fabrics?.nombre_tela || '—',
+                                  sizeCode: sizeName,
+                                  quantity: actualQty
+                                });
+                              }
                             });
+                          });
 
-                            if (itemsList.length === 0) {
-                              return <tr><td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No hay cantidades confeccionables calculadas para esta orden.</td></tr>;
-                            }
+                          if (itemsList.length === 0) {
+                            return <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
+                          }
 
-                            return (
-                              <>
-                                {itemsList.map((item, idx) => (
-                                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.1s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fcfbff'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                                    <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#1e293b' }}>
-                                      OC-{viewingOrderDetails.internal_code}
-                                    </td>
-                                    <td style={{ padding: '0.85rem 1.25rem', color: '#1e293b', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: item.colorHex, border: '1px solid #cbd5e1' }} />
-                                      {item.colorName}
-                                    </td>
-                                    <td style={{ padding: '0.85rem 1.25rem', color: '#475569', fontWeight: '500' }}>{item.fabricName}</td>
-                                    <td style={{ padding: '0.85rem 1.25rem', textAlign: 'center', fontWeight: '800', color: 'var(--primary)' }}>Talla {item.sizeCode}</td>
-                                    <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>{item.quantity} uds</td>
-                                  </tr>
-                                ))}
-                                <tr style={{ backgroundColor: '#fcfbff', fontWeight: '900', borderTop: '2px solid #cbd5e1' }}>
-                                  <td colSpan={4} style={{ padding: '1rem 1.25rem', textTransform: 'uppercase', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.05em' }}>Total Unidades Despachadas</td>
-                                  <td style={{ padding: '1rem 1.25rem', textAlign: 'right', color: 'var(--primary)', fontSize: '1rem', fontWeight: '950' }}>
-                                    {itemsList.reduce((sum, item) => sum + item.quantity, 0)} uds
-                                  </td>
+                          return (
+                            <>
+                              {itemsList.map((item, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.productName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '500' }}>{item.colorName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.categoryName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>{item.sizeCode}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{item.quantity} uds</td>
                                 </tr>
-                              </>
-                            );
-                          })()}
-                        </tbody>
-                      </table>
+                              ))}
+                              <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
+                                <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
+                                <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.9rem', fontWeight: '950' }}>
+                                  {itemsList.reduce((sum, item) => sum + item.quantity, 0)} uds
+                                </td>
+                              </tr>
+                            </>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Special Notes & Observations */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', fontSize: '0.78rem' }}>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem', backgroundColor: '#faf9ff' }}>
+                      <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.4rem 0', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Observaciones y Detalles de Costura</p>
+                      <p style={{ margin: 0, color: '#475569', lineHeight: '1.5', fontSize: '0.825rem', fontWeight: '500' }}>{viewingOrderDetails.observaciones || 'Sin instrucciones adicionales de preparación.'}</p>
                     </div>
                   </div>
 
-                  {/* Special Observations */}
-                  <div>
-                    <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.95rem', fontWeight: '950', color: '#0f172a', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.5rem' }}>
-                      📋 Observaciones e Instrucciones Especiales
-                    </h4>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.5rem', backgroundColor: '#faf9ff' }}>
-                      <p style={{ margin: 0, fontSize: '0.875rem', color: '#334155', lineHeight: '1.6', fontWeight: '500' }}>
-                        {viewingOrderDetails.observaciones || 'No hay observaciones específicas ni notas técnicas registradas en esta orden para la fase de confección.'}
-                      </p>
+                  {/* Signature Block */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', marginTop: '2rem', paddingTop: '1.5rem' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
+                      <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Entregado por (Planta)</p>
+                      <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>Cortesbreiner Producción</p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
+                      <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Recibido por Taller Satélite</p>
+                      <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>{userWorkshop?.nombre_taller || 'Taller Satélite'}</p>
                     </div>
                   </div>
 
                 </div>
 
                 <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Detalle de Orden</button>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Orden</button>
                 </div>
               </div>
             </div>
