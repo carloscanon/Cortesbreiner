@@ -17,6 +17,10 @@ const EMPTY_FORM = {
   items_rejected: '',
   status: 'Pendiente',
   notes: '',
+  lavanderia: '0',
+  saldos: '0',
+  costuras: '0',
+  incompleto: '0',
 };
 
 // Fetch all pages of a query
@@ -151,14 +155,23 @@ export default function QualityPage() {
 
     const selectedOrder = orders.find(o => o.id === form.order_id);
     const rows = getDetailRows(orderDetail);
+    
+    const lavVal = Number(form.lavanderia) || 0;
+    const salVal = Number(form.saldos) || 0;
+    const cosVal = Number(form.costuras) || 0;
+    const incVal = Number(form.incompleto) || 0;
+    
+    // Total rejected is the sum of breakdown categories
+    let finalRejected = lavVal + salVal + cosVal + incVal;
     let finalApproved = Number(form.items_approved) || 0;
-    let finalRejected = Number(form.items_rejected) || 0;
 
-    // If we have per-row data, compute from that
+    // If we have per-row data, compute approved from that
     if (rows.length > 0) {
       const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
-      if (totalApproved > 0 || totalRejected > 0) {
+      if (totalApproved > 0) {
         finalApproved = totalApproved;
+      }
+      if (totalRejected > 0 && finalRejected === 0) {
         finalRejected = totalRejected;
       }
     }
@@ -169,6 +182,10 @@ export default function QualityPage() {
       items_inspected: Number(form.items_inspected) || 0,
       items_approved: finalApproved,
       items_rejected: finalRejected,
+      lavanderia: lavVal,
+      saldos: salVal,
+      costuras: cosVal,
+      incompleto: incVal,
       status: form.status,
       notes: form.notes,
     };
@@ -213,6 +230,10 @@ export default function QualityPage() {
       items_inspected: (item.items_inspected || 0).toString(),
       items_approved: (item.items_approved || 0).toString(),
       items_rejected: (item.items_rejected || 0).toString(),
+      lavanderia: (item.lavanderia || 0).toString(),
+      saldos: (item.saldos || 0).toString(),
+      costuras: (item.costuras || 0).toString(),
+      incompleto: (item.incompleto || 0).toString(),
       status: item.status,
       notes: item.notes || '',
     });
@@ -355,7 +376,21 @@ export default function QualityPage() {
                     <span>🏭 {workshop}</span>
                     {item.items_inspected > 0 && <span>📦 {item.items_inspected} prendas</span>}
                     {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '700' }}>✓ {item.items_approved} aprobadas</span>}
-                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '700' }}>✗ {item.items_rejected} rechazadas</span>}
+                    {item.items_rejected > 0 && (
+                      <span style={{ color: '#ef4444', fontWeight: '700' }}>
+                        ✗ {item.items_rejected} rechazadas
+                        {(item.costuras > 0 || item.lavanderia > 0 || item.saldos > 0 || item.incompleto > 0) && (
+                          <span style={{ fontWeight: '500', fontSize: '0.68rem', color: '#7f1d1d', marginLeft: '0.2rem' }}>
+                            ({[
+                              item.costuras > 0 && `${item.costuras} costura`,
+                              item.lavanderia > 0 && `${item.lavanderia} lavandería`,
+                              item.saldos > 0 && `${item.saldos} saldos`,
+                              item.incompleto > 0 && `${item.incompleto} incompleto`
+                            ].filter(Boolean).join(', ')})
+                          </span>
+                        )}
+                      </span>
+                    )}
                     <span>📅 {date}</span>
                   </div>
                   {item.notes && item.notes !== 'Creado automáticamente al recibir de confección.' && (
@@ -580,9 +615,53 @@ export default function QualityPage() {
                     <input
                       type="number" min="0" placeholder="0"
                       style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #fecaca', backgroundColor: '#fff5f5', fontWeight: '700', textAlign: 'center', color: '#dc2626' }}
-                      value={hasRowData ? rowTotalRejected : form.items_rejected}
-                      readOnly={hasRowData}
-                      onChange={e => !hasRowData && setForm({ ...form, items_rejected: e.target.value })}
+                      value={hasRowData ? rowTotalRejected : (Number(form.lavanderia || 0) + Number(form.saldos || 0) + Number(form.costuras || 0) + Number(form.incompleto || 0))}
+                      readOnly={true}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown of Rejected Garments */}
+              <div style={{ backgroundColor: '#fff5f5', border: '1px solid #fecaca', padding: '1.25rem', borderRadius: '12px' }}>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.8rem', fontWeight: '900', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span>✗</span> Clasificación de Defectos y Rechazos
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Costuras</label>
+                    <input
+                      type="number" min="0" placeholder="0"
+                      value={form.costuras}
+                      onChange={e => setForm({ ...form, costuras: e.target.value })}
+                      style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Lavandería</label>
+                    <input
+                      type="number" min="0" placeholder="0"
+                      value={form.lavanderia}
+                      onChange={e => setForm({ ...form, lavanderia: e.target.value })}
+                      style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Saldos</label>
+                    <input
+                      type="number" min="0" placeholder="0"
+                      value={form.saldos}
+                      onChange={e => setForm({ ...form, saldos: e.target.value })}
+                      style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Incompleto</label>
+                    <input
+                      type="number" min="0" placeholder="0"
+                      value={form.incompleto}
+                      onChange={e => setForm({ ...form, incompleto: e.target.value })}
+                      style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
                     />
                   </div>
                 </div>
