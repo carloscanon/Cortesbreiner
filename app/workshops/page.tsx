@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Plus, MapPin, Phone, Star, Users, Search,
-  Trash2, X, Loader2, Edit2, Factory, Save, BarChart3
+  Trash2, X, Loader2, Edit2, Factory, Save, BarChart3, Coins, Layers
 } from 'lucide-react';
 
 const EMPTY_FORM = {
@@ -29,6 +29,10 @@ export default function WorkshopsPage() {
   const [selectedWorkshopForOrders, setSelectedWorkshopForOrders] = useState<any>(null);
   const [workshopOrders, setWorkshopOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [activeTab, setActiveTab] = useState<'workshops' | 'rates'>('workshops');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [workshopRates, setWorkshopRates] = useState<any[]>([]);
+  const [savingRates, setSavingRates] = useState(false);
 
   useEffect(() => {
     fetchWorkshops();
@@ -37,12 +41,30 @@ export default function WorkshopsPage() {
 
   const fetchWorkshops = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('workshops')
-      .select('*')
-      .order('nombre_taller', { ascending: true });
-    setWorkshops(data || []);
-    setLoading(false);
+    try {
+      const [
+        { data: wData },
+        { data: cData },
+        { data: rData }
+      ] = await Promise.all([
+        supabase.from('workshops').select('*').order('nombre_taller', { ascending: true }),
+        supabase.from('categories').select('*').order('categoria', { ascending: true }),
+        supabase.from('workshop_rates').select('*')
+      ]);
+      
+      setWorkshops(wData || []);
+      setCategories(cData || []);
+      setWorkshopRates(rData || []);
+    } catch (err: any) {
+      console.error('Error loading workshop rates or categories:', err.message);
+      // Fallback in case table workshop_rates does not exist yet
+      const { data: wData } = await supabase.from('workshops').select('*').order('nombre_taller', { ascending: true });
+      const { data: cData } = await supabase.from('categories').select('*').order('categoria', { ascending: true });
+      setWorkshops(wData || []);
+      setCategories(cData || []);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchOrderCounts = async () => {
@@ -249,6 +271,41 @@ export default function WorkshopsPage() {
     fetchWorkshops();
   };
 
+  const handleSaveRates = async () => {
+    setSavingRates(true);
+    try {
+      // Upsert rates lists
+      const { error } = await supabase
+        .from('workshop_rates')
+        .upsert(workshopRates, { onConflict: 'workshop_id,category_id' });
+
+      if (error) {
+        alert('Error al guardar tarifas: ' + error.message);
+      } else {
+        alert('✅ Tarifas guardadas exitosamente.');
+        fetchWorkshops();
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSavingRates(false);
+    }
+  };
+
+  const handleRateChange = (workshopId: string, categoryId: string, val: string) => {
+    const numericRate = val === '' ? 0 : parseFloat(val);
+    setWorkshopRates(prev => {
+      const copy = [...prev];
+      const idx = copy.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(categoryId));
+      if (idx >= 0) {
+        copy[idx] = { ...copy[idx], rate: numericRate };
+      } else {
+        copy.push({ workshop_id: workshopId, category_id: categoryId, rate: numericRate });
+      }
+      return copy;
+    });
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este taller? Esta acción no se puede deshacer.')) return;
     const { error } = await supabase.from('workshops').delete().eq('id', id);
@@ -286,117 +343,217 @@ export default function WorkshopsPage() {
         </button>
       </div>
 
-      {/* Search */}
-      <div style={{ position: 'relative' }}>
-        <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-        <input
-          type="text"
-          placeholder="Buscar por nombre, especialidad o responsable..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
-        />
+      {/* Tabs Selector */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '1.5rem', marginBottom: '0.5rem' }}>
+        <button 
+          onClick={() => setActiveTab('workshops')}
+          style={{
+            padding: '0.75rem 0.5rem', border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: '0.875rem', fontWeight: '800',
+            color: activeTab === 'workshops' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: activeTab === 'workshops' ? '3px solid var(--primary)' : '3px solid transparent',
+            display: 'flex', alignItems: 'center', gap: '0.5rem'
+          }}
+        >
+          <Factory size={16} /> Directorio de Talleres
+        </button>
+        <button 
+          onClick={() => setActiveTab('rates')}
+          style={{
+            padding: '0.75rem 0.5rem', border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: '0.875rem', fontWeight: '800',
+            color: activeTab === 'rates' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: activeTab === 'rates' ? '3px solid var(--primary)' : '3px solid transparent',
+            display: 'flex', alignItems: 'center', gap: '0.5rem'
+          }}
+        >
+          <Coins size={16} /> Tarifas y Costos por Categoría
+        </button>
       </div>
 
-      {/* Cards grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
-          <Loader2 className="animate-spin" style={{ margin: 'auto' }} />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
-          No hay talleres registrados. Crea el primero.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
-          {filtered.map(w => (
-            <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {/* Card header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h3 style={{ fontSize: '1.125rem', marginBottom: '0.25rem' }}>{w.nombre_taller}</h3>
-                  {w.especialidad && (
-                    <span className="badge badge-info" style={{ fontSize: '0.625rem' }}>{w.especialidad}</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: '0.25rem' }}>
-                  <button
-                    onClick={() => handleViewOrders(w)}
-                    style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f5f3ff', cursor: 'pointer', color: '#7c3aed' }}
-                    title="Ver Reporte de Carga"
-                  >
-                    <BarChart3 size={15} />
-                  </button>
-                  <button
-                    onClick={() => openEdit(w)}
-                    style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'white', cursor: 'pointer', color: 'var(--primary)' }}
-                    title="Editar"
-                  >
-                    <Edit2 size={15} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(w.id)}
-                    style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff5f5', cursor: 'pointer', color: '#ef4444' }}
-                    title="Eliminar"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
+      {activeTab === 'workshops' ? (
+        <>
+          {/* Search */}
+          <div style={{ position: 'relative' }}>
+            <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Buscar por nombre, especialidad o responsable..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 3rem', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+            />
+          </div>
 
-              {/* Info rows */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {w.responsable && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                    <Users size={15} />
-                    <span>Responsable: <strong>{w.responsable}</strong></span>
-                  </div>
-                )}
-                {w.direccion && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                    <MapPin size={15} />
-                    <span>{w.direccion}</span>
-                  </div>
-                )}
-                {w.telefono && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                    <Phone size={15} />
-                    <span>{w.telefono}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
-                <div>
-                  <p style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Capacidad Diaria</p>
-                  <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem' }}>
-                    {w.capacidad_diaria ? `${w.capacidad_diaria} pnd` : '—'}
-                  </p>
-                </div>
-                <div 
-                  onClick={() => handleViewOrders(w)}
-                  style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '0.25rem', borderRadius: '4px' }}
-                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e2e8f0'}
-                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                >
-                  <p style={{ fontSize: '0.625rem', color: 'var(--primary)', fontWeight: '800', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    Órdenes Asignadas <Search size={10} />
-                  </p>
-                  <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem', color: 'var(--text)' }}>
-                    {orderCounts[w.id] || 0}
-                  </p>
-                </div>
-              </div>
-
-              {/* Status */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className={`badge ${w.activo ? 'badge-success' : 'badge-warning'}`}>
-                  {w.activo ? 'Activo' : 'Inactivo'}
-                </span>
-              </div>
+          {/* Cards grid */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
+              <Loader2 className="animate-spin" style={{ margin: 'auto' }} />
             </div>
-          ))}
+          ) : filtered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
+              No hay talleres registrados. Crea el primero.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
+              {filtered.map(w => (
+                <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Card header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.125rem', marginBottom: '0.25rem' }}>{w.nombre_taller}</h3>
+                      {w.especialidad && (
+                        <span className="badge badge-info" style={{ fontSize: '0.625rem' }}>{w.especialidad}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                      <button
+                        onClick={() => handleViewOrders(w)}
+                        style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f5f3ff', cursor: 'pointer', color: '#7c3aed' }}
+                        title="Ver Reporte de Carga"
+                      >
+                        <BarChart3 size={15} />
+                      </button>
+                      <button
+                        onClick={() => openEdit(w)}
+                        style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'white', cursor: 'pointer', color: 'var(--primary)' }}
+                        title="Editar"
+                      >
+                        <Edit2 size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(w.id)}
+                        style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff5f5', cursor: 'pointer', color: '#ef4444' }}
+                        title="Eliminar"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Info rows */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {w.responsable && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                        <Users size={15} />
+                        <span>Responsable: <strong>{w.responsable}</strong></span>
+                      </div>
+                    )}
+                    {w.direccion && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                        <MapPin size={15} />
+                        <span>{w.direccion}</span>
+                      </div>
+                    )}
+                    {w.telefono && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                        <Phone size={15} />
+                        <span>{w.telefono}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
+                    <div>
+                      <p style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Capacidad Diaria</p>
+                      <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem' }}>
+                        {w.capacidad_diaria ? `${w.capacidad_diaria} pnd` : '—'}
+                      </p>
+                    </div>
+                    <div 
+                      onClick={() => handleViewOrders(w)}
+                      style={{ cursor: 'pointer', transition: 'all 0.2s', padding: '0.25rem', borderRadius: '4px' }}
+                      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                      onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <p style={{ fontSize: '0.625rem', color: 'var(--primary)', fontWeight: '800', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        Órdenes Asignadas <Search size={10} />
+                      </p>
+                      <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem', color: 'var(--text)' }}>
+                        {orderCounts[w.id] || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className={`badge ${w.activo ? 'badge-success' : 'badge-warning'}`}>
+                      {w.activo ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ backgroundColor: 'white', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Maestro de Tarifas de Confección</h2>
+              <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>Establece el costo por prenda de costura a pagar a cada taller satélite según la categoría de producto.</p>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleSaveRates}
+              disabled={savingRates}
+              style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+            >
+              {savingRates ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Guardar Tarifas</>}
+            </button>
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                  <th style={{ padding: '1rem 1.25rem', fontWeight: '850', color: '#475569' }}>Taller Satélite</th>
+                  {categories.map(cat => (
+                    <th key={cat.id} style={{ padding: '1rem 1.25rem', fontWeight: '850', color: '#475569', textAlign: 'center' }}>
+                      {cat.categoria}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {workshops.length === 0 ? (
+                  <tr>
+                    <td colSpan={categories.length + 1} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                      No hay talleres satélite registrados para configurar tarifas.
+                    </td>
+                  </tr>
+                ) : (
+                  workshops.map(w => (
+                    <tr key={w.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '1rem 1.25rem', fontWeight: '800', color: '#0f172a' }}>
+                        {w.nombre_taller}
+                      </td>
+                      {categories.map(cat => {
+                        const match = workshopRates.find(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
+                        const currentRate = match ? match.rate : 0;
+                        return (
+                          <td key={cat.id} style={{ padding: '0.75rem 1.25rem', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', maxWidth: '140px', margin: '0 auto' }}>
+                              <span style={{ color: '#94a3b8', fontWeight: '700' }}>$</span>
+                              <input 
+                                type="number" 
+                                min="0"
+                                value={currentRate || ''} 
+                                onChange={e => handleRateChange(w.id, cat.id, e.target.value)}
+                                placeholder="0"
+                                style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.825rem', textAlign: 'right', fontWeight: '700', color: '#0f172a' }}
+                              />
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
