@@ -749,10 +749,16 @@ export default function SewingPage() {
     order.cuts.forEach((cut: any) => {
       const prod = products.find(p => String(p.id) === String(cut.product_id));
       const catId = prod ? String(prod.id) : 'sin_prod';
-      const categoryName = prod ? (prod.nombre_producto || 'Sin Referencia') : 'Sin Referencia';
       
-      const colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
-      const colorName = colorObj ? colorObj.nombre_color : 'Color';
+      const categoryObj = prod ? categoriesMaster.find(c => String(c.id) === String(prod.category_id)) : null;
+      const categoryName = categoryObj ? categoryObj.categoria : (prod ? (prod.categoria || 'Sin Categoría') : 'Sin Categoría');
+      
+      let colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
+      if (!colorObj && prod && prod.nombre_producto) {
+        const prodNameLower = prod.nombre_producto.toLowerCase();
+        colorObj = colorsMaster.find(c => c.nombre_color && prodNameLower.includes(c.nombre_color.toLowerCase()));
+      }
+      const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
@@ -764,7 +770,7 @@ export default function SewingPage() {
         const cellKey = `${catId}_${sz}`;
         const assignedWorkshopId = rowWorkshopsData[cellKey];
 
-        if (String(assignedWorkshopId) === String(targetWorkshopId)) {
+        if (String(assignedWorkshopId).toLowerCase() === String(targetWorkshopId).toLowerCase()) {
           const proyecQty = Number(cs.quantity) || 0;
           const ppc = proyecQty / layersProyec;
           const realQty = Math.round(ppc * layersProduced);

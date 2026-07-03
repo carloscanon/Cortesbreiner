@@ -700,8 +700,17 @@ export default function Dashboard() {
                         {(() => {
                           const itemsList: any[] = [];
                           viewingOrderDetails.cuts?.forEach((cut: any) => {
-                            const colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
-                            const colorName = colorObj ? colorObj.nombre_color : '—';
+                            const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
+                            const productName = prod ? prod.nombre_producto : `OC-${viewingOrderDetails.internal_code}`;
+                            
+                            const categoryName = prod ? (prod.categoria || '—') : '—';
+
+                            let colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
+                            if (!colorObj && prod && prod.nombre_producto) {
+                              const prodNameLower = prod.nombre_producto.toLowerCase();
+                              colorObj = colorsList.find(c => c.nombre_color && prodNameLower.includes(c.nombre_color.toLowerCase()));
+                            }
+                            const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 
                             cut.cut_sizes?.forEach((szQty: any) => {
                               const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
@@ -716,9 +725,9 @@ export default function Dashboard() {
                               if (actualQty > 0) {
                                 itemsList.push({
                                   cutId: cut.id,
-                                  productName: `OC-${viewingOrderDetails.internal_code}`,
+                                  productName,
                                   colorName,
-                                  categoryName: viewingOrderDetails.fabrics?.nombre_tela || '—',
+                                  categoryName,
                                   sizeCode: sizeName,
                                   quantity: actualQty
                                 });
