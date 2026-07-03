@@ -34,6 +34,9 @@ export default function CostsPage() {
   const [fabricsMaster, setFabricsMaster] = useState<any[]>([]);
   const [baseCosts, setBaseCosts] = useState<any[]>([]);
   const [accessories, setAccessories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [workshopRates, setWorkshopRates] = useState<any[]>([]);
+  const [sizesMaster, setSizesMaster] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Search & Filter
@@ -64,12 +67,18 @@ export default function CostsPage() {
       const { data: fabData } = await supabase.from('fabrics').select('*');
       const { data: costsData } = await supabase.from('base_costs').select('*');
       const { data: accData } = await supabase.from('accessories').select('*');
+      const { data: ratesData } = await supabase.from('workshop_rates').select('*');
+      const { data: catsData } = await supabase.from('categories').select('*');
+      const { data: sizesData } = await supabase.from('sizes').select('*');
 
       setOrders(ordersData || []);
       setProducts(prodData || []);
       setFabricsMaster(fabData || []);
       setBaseCosts(costsData || []);
       setAccessories(accData || []);
+      setWorkshopRates(ratesData || []);
+      setCategories(catsData || []);
+      setSizesMaster(sizesData || []);
       
       // Auto select first order if available
       if (ordersData && ordersData.length > 0) {
@@ -256,10 +265,56 @@ export default function CostsPage() {
     // 2. Confeccion Cost (Sewing)
     const units = getTotalPrendas(order);
     const baseSewing = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura')?.valor || 2500;
-    const realSewingRate = overrides.custom_sewing_rate !== undefined ? Number(overrides.custom_sewing_rate) : baseSewing;
     
-    const realSewingCost = units * realSewingRate;
-    const estSewingCost = units * baseSewing;
+    let realSewingCost = 0;
+    let estSewingCost = 0;
+
+    if (order.cuts) {
+      order.cuts.forEach((cut: any) => {
+        const prod = products.find(p => String(p.id) === String(cut.product_id));
+        const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+        const catBaseRate = categoryObj?.base_rate || baseSewing;
+
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const qty = Number(cs.quantity) || 0;
+          const ppc = qty / layersProyec;
+          
+          const plannedUnits = qty;
+          const realUnits = Math.round(ppc * (layersProduced || layersProyec));
+
+          const catId = prod ? String(prod.id) : 'sin_prod';
+          const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+          const cellKey = `${catId}_${sz}`;
+          const assignedWorkshopId = assignments?.rowWorkshops?.[cellKey];
+
+          let itemRate = catBaseRate;
+
+          if (assignedWorkshopId && categoryObj) {
+            const rateObj = workshopRates.find(r => 
+              String(r.workshop_id).toLowerCase() === String(assignedWorkshopId).toLowerCase() && 
+              String(r.category_id).toLowerCase() === String(categoryObj.id).toLowerCase()
+            );
+            if (rateObj && Number(rateObj.rate) > 0) {
+              itemRate = Number(rateObj.rate);
+            }
+          }
+
+          const finalRealRate = overrides.custom_sewing_rate !== undefined ? Number(overrides.custom_sewing_rate) : itemRate;
+
+          realSewingCost += realUnits * finalRealRate;
+          estSewingCost += plannedUnits * itemRate;
+        });
+      });
+    } else {
+      const realSewingRate = overrides.custom_sewing_rate !== undefined ? Number(overrides.custom_sewing_rate) : baseSewing;
+      realSewingCost = units * realSewingRate;
+      estSewingCost = units * baseSewing;
+    }
 
     // 3. Accessories Cost (Insumos)
     let realAccsCost = 0;
