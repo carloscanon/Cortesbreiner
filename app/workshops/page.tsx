@@ -332,6 +332,8 @@ export default function WorkshopsPage() {
       }
     }
 
+    alert(`Taller ID: ${workshopId}\nCategorías disponibles: ${categories.length}\nTarifas base cargadas: ${JSON.stringify(latestBaseRates)}`);
+
     setWorkshopRates(prev => {
       let copy = [...prev];
       categories.forEach(cat => {
