@@ -345,6 +345,7 @@ export default function WorkshopsPage() {
           copy.push({ workshop_id: workshopId, category_id: cat.id, rate: baseVal });
         }
       });
+      alert(`Estado copy actualizado:\n${JSON.stringify(copy.filter(r => String(r.workshop_id) === String(workshopId)).map(r => `${r.category_id}: $${r.rate}`))}`);
       return copy;
     });
   };
