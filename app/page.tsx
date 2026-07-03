@@ -406,7 +406,9 @@ export default function Dashboard() {
                   Taller Satélite Conectado
                 </span>
                 <h1 style={{ fontSize: '2.5rem', fontWeight: '950', margin: '0.4rem 0 0.25rem 0', color: '#0f172a', lineHeight: 1.1 }}>
-                  {userWorkshop?.nombre_taller || 'Cargando taller...'}
+                  {loading 
+                    ? 'Cargando taller...' 
+                    : (userWorkshop?.nombre_taller || 'Sin taller asignado (Contacte Administrador)')}
                 </h1>
                 <p style={{ color: '#64748b', fontSize: '0.92rem', fontWeight: '500', margin: 0 }}>
                   ¡Hola, <strong style={{ color: '#0f172a' }}>{profile?.full_name || 'Operario'}</strong>! 👋 Aquí tienes el resumen y gestión de tu producción.
