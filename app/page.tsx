@@ -287,8 +287,11 @@ export default function Dashboard() {
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [inspections, setInspections] = useState<any[]>([]);
   const [baseCosts, setBaseCosts] = useState<any[]>([]);
+  const [sizesList, setSizesList] = useState<any[]>([]);
+  const [colorsList, setColorsList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [viewingOrderDetails, setViewingOrderDetails] = useState<any>(null);
 
   const currentTab = searchParams.get('tab') || 'dashboard';
 
@@ -300,7 +303,9 @@ export default function Dashboard() {
           { data: ordersData },
           { data: workshopsData },
           { data: inspectionsData },
-          { data: baseCostsData }
+          { data: baseCostsData },
+          { data: sData },
+          { data: cData }
         ] = await Promise.all([
           supabase
             .from('orders')
@@ -308,13 +313,17 @@ export default function Dashboard() {
             .order('created_at', { ascending: false }),
           supabase.from('workshops').select('*'),
           supabase.from('quality_inspections').select('*'),
-          supabase.from('base_costs').select('*')
+          supabase.from('base_costs').select('*'),
+          supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
+          supabase.from('colors').select('*')
         ]);
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
         if (inspectionsData) setInspections(inspectionsData);
         if (baseCostsData) setBaseCosts(baseCostsData);
+        if (sData) setSizesList(sData);
+        if (cData) setColorsList(cData);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -536,9 +545,12 @@ export default function Dashboard() {
                               </div>
                             </td>
                             <td style={{ padding: '1rem 1rem' }}>
-                              <Link href={`/?tab=orders`} style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                Ver <ChevronRight size={14} />
-                              </Link>
+                              <button 
+                                onClick={() => setViewingOrderDetails(o)} 
+                                style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                              >
+                                Ver Detalles <ChevronRight size={14} />
+                              </button>
                             </td>
                           </tr>
                         );
@@ -595,19 +607,129 @@ export default function Dashboard() {
                           </tr>
                         );
                       })}
+{/* Orders table ... inside useEffect: const [sizesList, setSizesList] = useState([]); const [colorsList, setColorsList] = useState([]); const [viewingOrderDetails, setViewingOrderDetails] = useState(null); ... useEffect(() => { ... fetchSizes(); fetchColors(); ... }, []); */}
+
                     </tbody>
                   </table>
                 </div>
               </div>
 
-            </div>
+          </div>
 
-            {/* Right Side Panel */}
+          {/* Workshop Order Confección Details Modal */}
+          {viewingOrderDetails && (
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
+              <div className="card" style={{ width: '100%', maxWidth: '750px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '4px 10px', borderRadius: '6px' }}>
+                      Especificaciones de Confección
+                    </span>
+                    <h2 style={{ fontSize: '1.75rem', fontWeight: '950', color: '#0f172a', margin: '0.5rem 0 0 0' }}>
+                      Orden OC-{viewingOrderDetails.internal_code}
+                    </h2>
+                    <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.25rem 0 0 0', fontWeight: '500' }}>
+                      Cliente: <strong style={{ color: '#0f172a' }}>{viewingOrderDetails.client_name}</strong> | Tela: <strong style={{ color: '#0f172a' }}>{viewingOrderDetails.fabrics?.nombre_tela || 'Sin tela'}</strong>
+                    </p>
+                  </div>
+                  <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#64748b', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  
+                  {/* Sizes and Color Grid Table */}
+                  <div>
+                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Cantidades a Confeccionar por Talla / Color
+                    </h4>
+                    <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                            {sizesList.map(s => (
+                              <th key={s.id} style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla {s.nombre_talla}</th>
+                            ))}
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '850', color: '#0f172a', backgroundColor: '#f1f5f9' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            // Extract unique color_ids from this order's cuts sizes
+                            const uniqueColorIds = Array.from(new Set(
+                              viewingOrderDetails.cuts?.map((c: any) => c.color_id).filter(Boolean)
+                            ));
+
+                            if (uniqueColorIds.length === 0) {
+                              return <tr><td colSpan={sizesList.length + 2} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No hay trazos de corte registrados en esta orden.</td></tr>;
+                            }
+
+                            return uniqueColorIds.map(colorId => {
+                              const colorObj = colorsList.find(c => String(c.id) === String(colorId));
+                              const colorName = colorObj ? colorObj.nombre_color : '—';
+                              
+                              let rowTotal = 0;
+
+                              return (
+                                <tr key={String(colorId)} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#1e293b' }}>{colorName}</td>
+                                  {sizesList.map(sz => {
+                                    // Sum quantities across all cuts of this color and size
+                                    const qty = viewingOrderDetails.cuts?.reduce((sum: number, cut: any) => {
+                                      if (String(cut.color_id) !== String(colorId)) return sum;
+                                      const szQty = cut.cut_sizes?.find((cs: any) => String(cs.size_id) === String(sz.id));
+                                      
+                                      const layersProyec = cut.layers || 1;
+                                      const layersProduced = cut.layers_produced || 0;
+                                      const plannedQty = Number(szQty?.quantity) || 0;
+                                      const ppc = plannedQty / layersProyec;
+                                      return sum + Math.round(ppc * layersProduced);
+                                    }, 0) || 0;
+
+                                    rowTotal += qty;
+
+                                    return (
+                                      <td key={sz.id} style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: qty > 0 ? '800' : '400', color: qty > 0 ? '#0f172a' : '#94a3b8' }}>
+                                        {qty > 0 ? `${qty} uds` : '—'}
+                                      </td>
+                                    );
+                                  })}
+                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '900', color: 'var(--primary)', backgroundColor: '#fcfbff' }}>
+                                    {rowTotal} uds
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Special Observations */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
+                    <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem', backgroundColor: '#fcfbff' }}>
+                      <h5 style={{ margin: '0 0 0.5rem 0', textTransform: 'uppercase', fontSize: '0.65rem', fontWeight: '850', color: '#475569', letterSpacing: '0.05em' }}>Observaciones e Instrucciones Especiales</h5>
+                      <p style={{ margin: 0, fontSize: '0.825rem', color: '#334155', lineHeight: '1.5', fontWeight: '500' }}>
+                        {viewingOrderDetails.observaciones || 'No se han ingresado observaciones o detalles específicos de costura para esta orden.'}
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #e2e8f0', marginTop: '2rem', paddingTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Especificación</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Right Side Panel */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               
               {/* Notifications */}
               <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
-                <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '800', color: '#0f172a' }}>Notificaciones</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
