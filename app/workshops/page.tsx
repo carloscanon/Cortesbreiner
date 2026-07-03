@@ -324,10 +324,18 @@ export default function WorkshopsPage() {
   };
 
   const handleApplyBaseRates = (workshopId: string) => {
+    let latestBaseRates = baseRates;
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cortesbreiner_base_rates');
+      if (stored) {
+        try { latestBaseRates = JSON.parse(stored); } catch (e) {}
+      }
+    }
+
     setWorkshopRates(prev => {
       let copy = [...prev];
       categories.forEach(cat => {
-        const baseVal = baseRates[cat.id] || 0;
+        const baseVal = latestBaseRates[cat.id] || 0;
         const idx = copy.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
         if (idx >= 0) {
           copy[idx] = { ...copy[idx], rate: baseVal };
