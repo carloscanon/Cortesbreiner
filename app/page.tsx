@@ -655,70 +655,82 @@ export default function Dashboard() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   
-                  {/* Sizes and Color Grid Table */}
+                  {/* Relación de Despacho Style Table */}
                   <div>
-                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <Layers size={16} style={{ color: 'var(--primary)' }} /> Cantidades a Confeccionar por Talla y Color
+                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.5rem' }}>
+                      📋 Relación de Despacho - Prendas y Cantidades
                     </h4>
                     <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                         <thead>
                           <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2.5px solid #e2e8f0' }}>
-                            <th style={{ padding: '1rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
-                            {sizesList.map(s => (
-                              <th key={s.id} style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla {s.nombre_talla}</th>
-                            ))}
-                            <th style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f1f5f9', width: '100px' }}>Total</th>
+                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
+                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela principal</th>
+                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Talla</th>
+                            <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(() => {
-                            const uniqueColorIds = Array.from(new Set(
-                              viewingOrderDetails.cuts?.map((c: any) => c.color_id).filter(Boolean)
-                            ));
+                            // Collect and build row-by-row items from cuts and sizes
+                            const itemsList: any[] = [];
+                            viewingOrderDetails.cuts?.forEach((cut: any) => {
+                              const colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
+                              const colorName = colorObj ? colorObj.nombre_color : '—';
+                              const colorHex = colorObj ? colorObj.codigo_hex : '#cbd5e1';
 
-                            if (uniqueColorIds.length === 0) {
-                              return <tr><td colSpan={sizesList.length + 2} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No hay trazos de corte registrados en esta orden.</td></tr>;
+                              cut.cut_sizes?.forEach((szQty: any) => {
+                                const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
+                                const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+
+                                const layersProyec = cut.layers || 1;
+                                const layersProduced = cut.layers_produced || 0;
+                                const plannedQty = Number(szQty.quantity) || 0;
+                                const ppc = plannedQty / layersProyec;
+                                const actualQty = Math.round(ppc * layersProduced);
+
+                                if (actualQty > 0) {
+                                  itemsList.push({
+                                    productName: viewingOrderDetails.client_name || 'Referencia',
+                                    colorName,
+                                    colorHex,
+                                    fabricName: viewingOrderDetails.fabrics?.nombre_tela || '—',
+                                    sizeCode: sizeName,
+                                    quantity: actualQty
+                                  });
+                                }
+                              });
+                            });
+
+                            if (itemsList.length === 0) {
+                              return <tr><td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No hay cantidades confeccionables calculadas para esta orden.</td></tr>;
                             }
 
-                            return uniqueColorIds.map(colorId => {
-                              const colorObj = colorsList.find(c => String(c.id) === String(colorId));
-                              const colorName = colorObj ? colorObj.nombre_color : '—';
-                              
-                              let rowTotal = 0;
-
-                              return (
-                                <tr key={String(colorId)} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.1s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fcfbff'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                                  <td style={{ padding: '1rem 1.25rem', fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: colorObj?.codigo_hex || '#cbd5e1', border: '1px solid #cbd5e1' }} />
-                                    {colorName}
-                                  </td>
-                                  {sizesList.map(sz => {
-                                    const qty = viewingOrderDetails.cuts?.reduce((sum: number, cut: any) => {
-                                      if (String(cut.color_id) !== String(colorId)) return sum;
-                                      const szQty = cut.cut_sizes?.find((cs: any) => String(cs.size_id) === String(sz.id));
-                                      
-                                      const layersProyec = cut.layers || 1;
-                                      const layersProduced = cut.layers_produced || 0;
-                                      const plannedQty = Number(szQty?.quantity) || 0;
-                                      const ppc = plannedQty / layersProyec;
-                                      return sum + Math.round(ppc * layersProduced);
-                                    }, 0) || 0;
-
-                                    rowTotal += qty;
-
-                                    return (
-                                      <td key={sz.id} style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: qty > 0 ? '800' : '500', color: qty > 0 ? '#0f172a' : '#94a3b8' }}>
-                                        {qty > 0 ? `${qty} uds` : '—'}
-                                      </td>
-                                    );
-                                  })}
-                                  <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: '900', color: 'var(--primary)', backgroundColor: '#fcfbff', borderLeft: '1px solid #f1f5f9' }}>
-                                    {rowTotal} uds
+                            return (
+                              <>
+                                {itemsList.map((item, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.1s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fcfbff'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                                    <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#1e293b' }}>
+                                      OC-{viewingOrderDetails.internal_code}
+                                    </td>
+                                    <td style={{ padding: '0.85rem 1.25rem', color: '#1e293b', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: item.colorHex, border: '1px solid #cbd5e1' }} />
+                                      {item.colorName}
+                                    </td>
+                                    <td style={{ padding: '0.85rem 1.25rem', color: '#475569', fontWeight: '500' }}>{item.fabricName}</td>
+                                    <td style={{ padding: '0.85rem 1.25rem', textAlign: 'center', fontWeight: '800', color: 'var(--primary)' }}>Talla {item.sizeCode}</td>
+                                    <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>{item.quantity} uds</td>
+                                  </tr>
+                                ))}
+                                <tr style={{ backgroundColor: '#fcfbff', fontWeight: '900', borderTop: '2px solid #cbd5e1' }}>
+                                  <td colSpan={4} style={{ padding: '1rem 1.25rem', textTransform: 'uppercase', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.05em' }}>Total Unidades Despachadas</td>
+                                  <td style={{ padding: '1rem 1.25rem', textAlign: 'right', color: 'var(--primary)', fontSize: '1rem', fontWeight: '950' }}>
+                                    {itemsList.reduce((sum, item) => sum + item.quantity, 0)} uds
                                   </td>
                                 </tr>
-                              );
-                            });
+                              </>
+                            );
                           })()}
                         </tbody>
                       </table>
@@ -727,7 +739,9 @@ export default function Dashboard() {
 
                   {/* Special Observations */}
                   <div>
-                    <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>Instrucciones y Novedades</h4>
+                    <h4 style={{ margin: '0 0 0.8rem 0', fontSize: '0.95rem', fontWeight: '950', color: '#0f172a', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.5rem' }}>
+                      📋 Observaciones e Instrucciones Especiales
+                    </h4>
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.5rem', backgroundColor: '#faf9ff' }}>
                       <p style={{ margin: 0, fontSize: '0.875rem', color: '#334155', lineHeight: '1.6', fontWeight: '500' }}>
                         {viewingOrderDetails.observaciones || 'No hay observaciones específicas ni notas técnicas registradas en esta orden para la fase de confección.'}
