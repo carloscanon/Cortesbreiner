@@ -333,7 +333,7 @@ export default function WorkshopsPage() {
     const numericRate = val === '' ? 0 : parseFloat(val);
     setWorkshopRates(prev => {
       const copy = [...prev];
-      const idx = copy.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(categoryId));
+      const idx = copy.findIndex(r => String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && String(r.category_id).toLowerCase() === String(categoryId).toLowerCase());
       if (idx >= 0) {
         copy[idx] = { ...copy[idx], rate: numericRate };
       } else {
@@ -366,7 +366,7 @@ export default function WorkshopsPage() {
 
     categories.forEach(cat => {
       const baseVal = cat.base_rate || 0;
-      const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
+      const idx = updatedRates.findIndex(r => String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && String(r.category_id).toLowerCase() === String(cat.id).toLowerCase());
       
       const item = { workshop_id: workshopId, category_id: cat.id, rate: baseVal };
       ratesToUpsert.push(item);
@@ -404,7 +404,7 @@ export default function WorkshopsPage() {
     workshops.forEach(w => {
       categories.forEach(cat => {
         const baseVal = cat.base_rate || 0;
-        const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
+        const idx = updatedRates.findIndex(r => String(r.workshop_id).toLowerCase() === String(w.id).toLowerCase() && String(r.category_id).toLowerCase() === String(cat.id).toLowerCase());
         
         const item = { workshop_id: w.id, category_id: cat.id, rate: baseVal };
         ratesToUpsert.push(item);
@@ -628,7 +628,7 @@ export default function WorkshopsPage() {
                   const withRates = categories.filter(c => c.base_rate > 0);
                   const firstW = workshops[0];
                   const firstC = categories[0];
-                  const matchSample = firstW && firstC ? workshopRates.find(r => String(r.workshop_id) === String(firstW.id) && String(r.category_id) === String(firstC.id)) : null;
+                  const matchSample = firstW && firstC ? workshopRates.find(r => String(r.workshop_id).toLowerCase() === String(firstW.id).toLowerCase() && String(r.category_id).toLowerCase() === String(firstC.id).toLowerCase()) : null;
                   alert(
                     `DIAGNÓSTICO:\n` +
                     `- Categorías totales: ${categories.length}\n` +
@@ -728,7 +728,7 @@ export default function WorkshopsPage() {
                         </button>
                       </td>
                       {categories.map(cat => {
-                        const match = workshopRates.find(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
+                        const match = workshopRates.find(r => String(r.workshop_id).toLowerCase() === String(w.id).toLowerCase() && String(r.category_id).toLowerCase() === String(cat.id).toLowerCase());
                         const currentRate = match ? match.rate : 0;
                         return (
                           <td key={cat.id} style={{ padding: '0.75rem 1.25rem', textAlign: 'center' }}>
