@@ -52,6 +52,43 @@ export default function WorkshopsPage() {
         supabase.from('workshop_rates').select('*')
       ]);
       
+      // Automigration from localStorage to Database
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('cortesbreiner_base_rates');
+        if (stored) {
+          try {
+            const localBaseRates = JSON.parse(stored);
+            const updates = [];
+            const updatedCData = cData ? [...cData] : [];
+            
+            for (const catId of Object.keys(localBaseRates)) {
+              // Extract the clean UUID (in case they have a prefixed "f" key, we strip it)
+              const cleanId = catId.startsWith('f') && catId.length === 37 ? catId.substring(1) : catId;
+              const rate = localBaseRates[catId];
+              const dbCat = updatedCData.find(c => String(c.id) === String(cleanId));
+              if (dbCat && rate > 0 && (!dbCat.base_rate || dbCat.base_rate === 0)) {
+                // Queue the database update
+                updates.push(
+                  supabase
+                    .from('categories')
+                    .update({ base_rate: rate })
+                    .eq('id', cleanId)
+                );
+                dbCat.base_rate = rate;
+              }
+            }
+            if (updates.length > 0) {
+              await Promise.all(updates);
+              console.log(`Migrated ${updates.length} base rates from localStorage to DB`);
+            }
+            // Clear once migrated successfully
+            localStorage.removeItem('cortesbreiner_base_rates');
+          } catch (e) {
+            console.error('Error migrating base rates from localStorage:', e);
+          }
+        }
+      }
+
       setWorkshops(wData || []);
       setCategories(cData || []);
       setWorkshopRates(rData || []);
