@@ -289,6 +289,8 @@ export default function Dashboard() {
   const [baseCosts, setBaseCosts] = useState<any[]>([]);
   const [sizesList, setSizesList] = useState<any[]>([]);
   const [colorsList, setColorsList] = useState<any[]>([]);
+  const [productsList, setProductsList] = useState<any[]>([]);
+  const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [viewingOrderDetails, setViewingOrderDetails] = useState<any>(null);
@@ -300,12 +302,14 @@ export default function Dashboard() {
       setLoading(true);
       try {
         const [
-          { data: ordersData },
-          { data: workshopsData },
-          { data: inspectionsData },
-          { data: baseCostsData },
-          { data: sData },
-          { data: cData }
+          res1,
+          res2,
+          res3,
+          res4,
+          res5,
+          res6,
+          res7,
+          res8
         ] = await Promise.all([
           supabase
             .from('orders')
@@ -315,8 +319,18 @@ export default function Dashboard() {
           supabase.from('quality_inspections').select('*'),
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
-          supabase.from('colors').select('*')
+          supabase.from('colors').select('*'),
+          supabase.from('products').select('*'),
+          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')
         ]);
+        const ordersData = res1.data;
+        const workshopsData = res2.data;
+        const inspectionsData = res3.data;
+        const baseCostsData = res4.data;
+        const sData = res5.data;
+        const cData = res6.data;
+        const pData = res7.data;
+        const paData = res8.data;
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
@@ -324,6 +338,8 @@ export default function Dashboard() {
         if (baseCostsData) setBaseCosts(baseCostsData);
         if (sData) setSizesList(sData);
         if (cData) setColorsList(cData);
+        if (pData) setProductsList(pData);
+        if (paData) setProductAccessoriesList(paData);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -699,6 +715,7 @@ export default function Dashboard() {
 
                               if (actualQty > 0) {
                                 itemsList.push({
+                                  cutId: cut.id,
                                   productName: `OC-${viewingOrderDetails.internal_code}`,
                                   colorName,
                                   categoryName: viewingOrderDetails.fabrics?.nombre_tela || '—',
@@ -737,11 +754,103 @@ export default function Dashboard() {
                     </table>
                   </div>
 
+                  {/* Accessories Table */}
+                  <div>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>🔗</span> Accesorios e Insumos Entregados
+                    </h3>
+                    {(() => {
+                      const computedAccs: { name: string; unit: string; qty: number }[] = [];
+                      
+                      // Process items assigned to sew
+                      const itemsList: any[] = [];
+                      viewingOrderDetails.cuts?.forEach((cut: any) => {
+                        cut.cut_sizes?.forEach((szQty: any) => {
+                          const layersProyec = cut.layers || 1;
+                          const layersProduced = cut.layers_produced || 0;
+                          const plannedQty = Number(szQty.quantity) || 0;
+                          const ppc = plannedQty / layersProyec;
+                          const actualQty = Math.round(ppc * layersProduced);
+
+                          if (actualQty > 0) {
+                            itemsList.push({
+                              cutId: cut.id,
+                              productId: cut.product_id,
+                              quantity: actualQty
+                            });
+                          }
+                        });
+                      });
+
+                      itemsList.forEach(item => {
+                        if (!item.productId) return;
+                        const prodObj = productsList.find(p => String(p.id) === String(item.productId));
+                        const prodName = prodObj?.nombre_producto;
+                        const prodAccs = productAccessoriesList.filter(pa => {
+                          if (String(pa.product_id) === String(item.productId)) return true;
+                          const paProdName = pa.products?.nombre_producto;
+                          return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
+                        });
+
+                        prodAccs.forEach(pa => {
+                          const accName = pa.accessories?.nombre || 'Accesorio';
+                          const rawUnit = pa.accessories?.unidad_medida || '';
+                          const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
+                          const qtyPerProduct = Number(pa.cantidad) || 0;
+                          const totalRequired = item.quantity * qtyPerProduct;
+
+                          if (totalRequired > 0) {
+                            const existing = computedAccs.find(wa => wa.name === accName);
+                            if (existing) {
+                              existing.qty += totalRequired;
+                            } else {
+                              computedAccs.push({
+                                name: accName,
+                                unit: accUnit,
+                                qty: totalRequired
+                              });
+                            }
+                          }
+                        });
+                      });
+
+                      if (computedAccs.length === 0) {
+                        return <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0, fontStyle: 'italic', padding: '0.5rem 0' }}>No se relacionan accesorios para este lote.</p>;
+                      }
+
+                      return (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Insumo / Accesorio</th>
+                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569', width: '100px' }}>Unidad</th>
+                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '150px' }}>Cantidad Proporcional</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {computedAccs.map((wa, idx) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{wa.name}</td>
+                                <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{wa.unit}</td>
+                                <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{Math.round(wa.qty)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </div>
+
                   {/* Special Notes & Observations */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', fontSize: '0.78rem' }}>
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem', backgroundColor: '#faf9ff' }}>
                       <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.4rem 0', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Observaciones y Detalles de Costura</p>
-                      <p style={{ margin: 0, color: '#475569', lineHeight: '1.5', fontSize: '0.825rem', fontWeight: '500' }}>{viewingOrderDetails.observaciones || 'Sin instrucciones adicionales de preparación.'}</p>
+                      <p style={{ margin: 0, color: '#475569', lineHeight: '1.5', fontSize: '0.825rem', fontWeight: '500' }}>
+                        {(() => {
+                          const rawObs = viewingOrderDetails.observaciones || '';
+                          return rawObs.replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '').trim() || 'Sin observaciones adicionales de preparación.';
+                        })()}
+                      </p>
                     </div>
                   </div>
 
