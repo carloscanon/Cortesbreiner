@@ -332,29 +332,45 @@ export default function WorkshopsPage() {
       }
     }
 
-    alert(`Taller ID: ${workshopId}\nCategorías disponibles: ${categories.length}\nTarifas base cargadas: ${JSON.stringify(latestBaseRates)}`);
-
-    setWorkshopRates(prev => {
-      let copy = [...prev];
-      categories.forEach(cat => {
-        const baseVal = latestBaseRates[cat.id] || 0;
-        const idx = copy.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
-        if (idx >= 0) {
-          copy[idx] = { ...copy[idx], rate: baseVal };
-        } else {
-          copy.push({ workshop_id: workshopId, category_id: cat.id, rate: baseVal });
-        }
-      });
-      alert(`Estado copy actualizado:\n${JSON.stringify(copy.filter(r => String(r.workshop_id) === String(workshopId)).map(r => `${r.category_id}: $${r.rate}`))}`);
-      return copy;
+    const updatedRates = [...workshopRates];
+    categories.forEach(cat => {
+      const baseVal = latestBaseRates[cat.id] || 0;
+      const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(workshopId) && String(r.category_id) === String(cat.id));
+      if (idx >= 0) {
+        updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
+      } else {
+        updatedRates.push({ workshop_id: workshopId, category_id: cat.id, rate: baseVal });
+      }
     });
+
+    setWorkshopRates(updatedRates);
   };
 
   const handleApplyBaseToAll = () => {
     if (!confirm('¿Aplicar los costos base de referencia a TODOS los talleres? Esto sobrescribirá los valores no guardados en pantalla.')) return;
+    
+    let latestBaseRates = baseRates;
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cortesbreiner_base_rates');
+      if (stored) {
+        try { latestBaseRates = JSON.parse(stored); } catch (e) {}
+      }
+    }
+
+    const updatedRates = [...workshopRates];
     workshops.forEach(w => {
-      handleApplyBaseRates(w.id);
+      categories.forEach(cat => {
+        const baseVal = latestBaseRates[cat.id] || 0;
+        const idx = updatedRates.findIndex(r => String(r.workshop_id) === String(w.id) && String(r.category_id) === String(cat.id));
+        if (idx >= 0) {
+          updatedRates[idx] = { ...updatedRates[idx], rate: baseVal };
+        } else {
+          updatedRates.push({ workshop_id: w.id, category_id: cat.id, rate: baseVal });
+        }
+      });
     });
+
+    setWorkshopRates(updatedRates);
   };
 
   const handleDelete = async (id: string) => {
