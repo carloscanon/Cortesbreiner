@@ -632,7 +632,7 @@ export default function QualityPage() {
                     <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Costuras</label>
                     <input
                       type="number" min="0" placeholder="0"
-                      value={form.costuras}
+                      value={form.costuras || ''}
                       onChange={e => setForm({ ...form, costuras: e.target.value })}
                       style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
                     />
@@ -641,7 +641,7 @@ export default function QualityPage() {
                     <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Lavandería</label>
                     <input
                       type="number" min="0" placeholder="0"
-                      value={form.lavanderia}
+                      value={form.lavanderia || ''}
                       onChange={e => setForm({ ...form, lavanderia: e.target.value })}
                       style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
                     />
@@ -650,7 +650,7 @@ export default function QualityPage() {
                     <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Saldos</label>
                     <input
                       type="number" min="0" placeholder="0"
-                      value={form.saldos}
+                      value={form.saldos || ''}
                       onChange={e => setForm({ ...form, saldos: e.target.value })}
                       style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
                     />
@@ -659,7 +659,7 @@ export default function QualityPage() {
                     <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', marginBottom: '0.3rem', color: '#7f1d1d' }}>Incompleto</label>
                     <input
                       type="number" min="0" placeholder="0"
-                      value={form.incompleto}
+                      value={form.incompleto || ''}
                       onChange={e => setForm({ ...form, incompleto: e.target.value })}
                       style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fca5a5', textAlign: 'center', fontWeight: '700', fontSize: '0.8rem' }}
                     />
