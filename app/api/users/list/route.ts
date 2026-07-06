@@ -38,6 +38,7 @@ export async function GET() {
         full_name: profile?.full_name || authUser.user_metadata?.full_name || '',
         role_id: profile?.role_id || null,
         roles: profile?.roles || null,
+        workshop_id: authUser.user_metadata?.workshop_id || profile?.workshop_id || null,
         created_at: authUser.created_at,
         last_sign_in_at: authUser.last_sign_in_at
       };

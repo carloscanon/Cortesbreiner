@@ -24,7 +24,10 @@ import {
   Star,
   Sparkles,
   TrendingDown,
-  Info
+  Info,
+  HelpCircle,
+  BookOpen,
+  Printer
 } from 'lucide-react';
 import {
   BarChart,
@@ -289,13 +292,28 @@ export default function Dashboard() {
   const [baseCosts, setBaseCosts] = useState<any[]>([]);
   const [sizesList, setSizesList] = useState<any[]>([]);
   const [colorsList, setColorsList] = useState<any[]>([]);
+  const [fabricsList, setFabricsList] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
   const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [workshopRates, setWorkshopRates] = useState<any[]>([]);
+  const [sewingAssignments, setSewingAssignments] = useState<any[]>([]);
+  const [sewingOrdersList, setSewingOrdersList] = useState<any[]>([]);
+  const [specialCosts, setSpecialCosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [viewingOrderDetails, setViewingOrderDetails] = useState<any>(null);
+  const [printMode, setPrintMode] = useState<'report' | 'sticker'>('report');
+  const [activeWorkshopId, setActiveWorkshopId] = useState<string>('all');
+  const [expandedWorkshopId, setExpandedWorkshopId] = useState<string | null>(null);
+  // IDs de talleres leídos directamente de auth.getUser() (siempre frescos)
+  const [authWorkshopIds, setAuthWorkshopIds] = useState<string[]>([]);
+  const [adminTab, setAdminTab] = useState<'overview' | 'comparison'>('overview');
+  const [compProductId, setCompProductId] = useState<string>('all');
+  const [compStartDate, setCompStartDate] = useState<string>('');
+  const [compEndDate, setCompEndDate] = useState<string>('');
+  const [compPage, setCompPage] = useState<number>(1);
+  const [showSatelliteHelp, setShowSatelliteHelp] = useState<boolean>(false);
 
   const currentTab = searchParams.get('tab') || 'dashboard';
 
@@ -303,6 +321,12 @@ export default function Dashboard() {
     const fetchData = async () => {
       setLoading(true);
       try {
+        // Obtener user_metadata fresco del servidor para workshop_id confiable
+        const { data: authData } = await supabase.auth.getUser();
+        const rawWorkshopId = authData?.user?.user_metadata?.workshop_id || '';
+        const parsedWorkshopIds = rawWorkshopId.split(',').map((id: string) => id.trim()).filter(Boolean);
+        setAuthWorkshopIds(parsedWorkshopIds);
+
         const [
           res1,
           res2,
@@ -313,7 +337,11 @@ export default function Dashboard() {
           res7,
           res8,
           res9,
-          res10
+          res10,
+          res11,
+          res12,
+          res13,
+          res14
         ] = await Promise.all([
           supabase
             .from('orders')
@@ -327,7 +355,11 @@ export default function Dashboard() {
           supabase.from('products').select('*'),
           supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'),
           supabase.from('categories').select('*'),
-          supabase.from('workshop_rates').select('*')
+          supabase.from('workshop_rates').select('*'),
+          supabase.from('sewing_assignments').select('*'),
+          supabase.from('workshop_special_costs').select('*'),
+          supabase.from('sewing_orders').select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))'),
+          supabase.from('fabrics').select('*')
         ]);
         const ordersData = res1.data;
         const workshopsData = res2.data;
@@ -339,6 +371,10 @@ export default function Dashboard() {
         const paData = res8.data;
         const catsData = res9.data;
         const ratesData = res10.data;
+        const sewingAssData = res11.data;
+        const specCostsData = res12.data;
+        const sewingOrdersData = res13.data;
+        const fabricsData = res14.data;
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
@@ -350,6 +386,117 @@ export default function Dashboard() {
         if (paData) setProductAccessoriesList(paData);
         if (catsData) setCategories(catsData);
         if (ratesData) setWorkshopRates(ratesData);
+        if (sewingAssData) setSewingAssignments(sewingAssData);
+        if (sewingOrdersData) setSewingOrdersList(sewingOrdersData);
+        if (specCostsData) setSpecialCosts(specCostsData);
+        if (fabricsData) setFabricsList(fabricsData);
+
+        // Migración automática de asignaciones antiguas
+        if (ordersData && sewingOrdersData && sData) {
+          const missingMigrations: any[] = [];
+          
+          ordersData.forEach(order => {
+            const hasSewingOrders = sewingOrdersData.some(so => String(so.parent_order_id) === String(order.id));
+            if (!hasSewingOrders && order.observaciones) {
+              const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:([\s\S]*?)-->/);
+              if (match) {
+                try {
+                  const assData = JSON.parse(match[1]);
+                  const rowWorkshops = assData.rowWorkshops || {};
+                  
+                  // Agrupar por taller y producto
+                  const sewingOrdersMap: Record<string, {
+                    workshopId: string;
+                    productId: string;
+                    cantidadPlaneada: number;
+                    sizes: { sizeId: string; qty: number }[];
+                  }> = {};
+
+                  Object.entries(rowWorkshops).forEach(([cellKey, wId]) => {
+                    if (!wId) return;
+                    const [productId, szCode] = cellKey.split('_');
+                    
+                    const cut = order.cuts?.find((c: any) => String(c.product_id) === String(productId));
+                    if (!cut) return;
+                    
+                    const sizeObj = sData.find(s => String(s.codigo_talla).toLowerCase() === szCode.toLowerCase());
+                    if (!sizeObj) return;
+
+                    const szQty = cut.cut_sizes?.find((sc: any) => String(sc.size_id) === String(sizeObj.id));
+                    if (!szQty) return;
+
+                    const layersProyec = cut.layers || 1;
+                    const layersProduced = cut.layers_produced || 0;
+                    const plannedQty = Number(szQty.quantity) || 0;
+                    const ppc = plannedQty / layersProyec;
+                    const qty = Math.round(ppc * layersProduced);
+
+                    if (qty <= 0) return;
+
+                    const key = `${wId}_${productId}`;
+                    if (!sewingOrdersMap[key]) {
+                      sewingOrdersMap[key] = {
+                        workshopId: String(wId),
+                        productId,
+                        cantidadPlaneada: 0,
+                        sizes: []
+                      };
+                    }
+                    sewingOrdersMap[key].cantidadPlaneada += qty;
+                    sewingOrdersMap[key].sizes.push({ sizeId: String(sizeObj.id), qty });
+                  });
+
+                  Object.values(sewingOrdersMap).forEach(lot => {
+                    missingMigrations.push({
+                      parent_order_id: order.id,
+                      workshop_id: lot.workshopId,
+                      product_id: lot.productId,
+                      cantidad_planeada: lot.cantidadPlaneada,
+                      sizes: lot.sizes,
+                      cleanCode: (order.internal_code || '').replace(/^OC-?/i, '') || order.consecutive || '—'
+                    });
+                  });
+                } catch (e) {
+                  console.warn("Error parsing historical assignments JSON:", e);
+                }
+              }
+            }
+          });
+
+          if (missingMigrations.length > 0) {
+            (async () => {
+              for (const migration of missingMigrations) {
+                // Generar correlativo
+                const { data: existing } = await supabase.from('sewing_orders').select('id').eq('parent_order_id', migration.parent_order_id);
+                const count = (existing || []).length;
+                const confCode = `${migration.cleanCode}-${count + 1}`;
+
+                const { data: inserted, error: insErr } = await supabase.from('sewing_orders').insert({
+                  parent_order_id: migration.parent_order_id,
+                  confeccion_code: confCode,
+                  workshop_id: migration.workshop_id,
+                  product_id: migration.product_id,
+                  status: 'En Confección',
+                  cantidad_planeada: migration.cantidad_planeada,
+                  cantidad_confeccionada: 0
+                }).select().single();
+
+                if (inserted && migration.sizes.length > 0) {
+                  const sizesToInsert = migration.sizes.map((s: any) => ({
+                    sewing_order_id: inserted.id,
+                    size_id: s.sizeId,
+                    cantidad_planeada: s.qty,
+                    cantidad_confeccionada: 0
+                  }));
+                  await supabase.from('sewing_order_sizes').insert(sizesToInsert);
+                }
+              }
+              // Refrescar el estado de órdenes de confección tras migrar
+              const { data: freshSewingOrders } = await supabase.from('sewing_orders').select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))');              
+              if (freshSewingOrders) setSewingOrdersList(freshSewingOrders);
+            })();
+          }
+        }
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
       } finally {
@@ -363,29 +510,26 @@ export default function Dashboard() {
 
   // ─── WORKSHOP USER SPECIFIC LOGIC ──────────────────────────────────────────
   if (isTaller) {
-    const userWorkshop = workshops.find(w =>
-      (profile?.workshop_id && w.id === profile.workshop_id) ||
-      (w.nombre_taller || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim() ||
-      (w.responsable || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim()
-    );
+    // 1. IDs de talleres del usuario: priorizar los de auth.getUser() (frescos), fallback al profile
+    const userWorkshopIds = authWorkshopIds.length > 0
+      ? authWorkshopIds
+      : (profile?.workshop_id || '').split(',').map((id: string) => id.trim()).filter(Boolean);
 
-    // Filter orders assigned to this workshop
-    const assignedOrders = orders.filter(o => {
-      if (!userWorkshop) return false;
-      return o.workshop_id === userWorkshop.id ||
-        (o.workshops?.nombre_taller || '').toLowerCase().trim() === (userWorkshop.nombre_taller || '').toLowerCase().trim();
+    // 2. Encontrar talleres que coincidan por ID o por nombre/responsable
+    const associatedWorkshops = workshops.filter(w => {
+      const byId = userWorkshopIds.includes(String(w.id));
+      const byName = (w.nombre_taller || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim() ||
+                     (w.responsable || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim();
+      return byId || byName;
     });
 
-    const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección');
-    const completedOrders = assignedOrders.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
+    // 3. Solo mostrar los talleres que el usuario tiene realmente asociados (si no tiene ninguno, la lista debe ser vacía para que muestre 0)
+    const finalWorkshopsList = associatedWorkshops;
 
-    // Quality stats for payment matching
-    const workshopInspections = inspections.filter(i =>
-      userWorkshop && (i.workshop_name || '').toLowerCase().trim() === (userWorkshop.nombre_taller || '').toLowerCase().trim()
-    );
-
-    const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
-    const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (i.items_rejected || 0), 0);
+    // Determinar qué taller está seleccionado actualmente en el selector superior (o todos)
+    const userWorkshop = activeWorkshopId === 'all'
+      ? (finalWorkshopsList.length > 0 ? finalWorkshopsList[0] : null)
+      : (finalWorkshopsList.find(w => String(w.id) === String(activeWorkshopId)) || null);
 
     const getCostsFromJson = (order: any) => {
       if (!order || !order.observaciones) return {};
@@ -401,6 +545,134 @@ export default function Dashboard() {
       try { return JSON.parse(match[1]); } catch (e) { return null; }
     };
 
+    // Mapear asignaciones: la tabla sewing_assignments guarda category_id = product.id (no el category real)
+    // El JSON observaciones guarda rowWorkshops con clave `{product.id}_{size_code}` y valor workshop_id (UUID)
+    const getOrderAssignments = (order: any) => {
+      const rowWorkshops: Record<string, string> = {};
+      const orderAss = sewingAssignments.filter(a => a.order_id === order.id);
+
+      if (orderAss.length > 0) {
+        // sewing_assignments.category_id = product.id (ver sewing/page.tsx getCategoryAssignmentsData)
+        orderAss.forEach(asg => {
+          // Clave por product_id (que es lo que guarda category_id en la tabla)
+          rowWorkshops[`${asg.category_id}_${asg.size_code}`] = asg.workshop_id;
+        });
+        return { rowWorkshops };
+      }
+
+      // Fallback: leer del JSON en observaciones
+      const assData = getAssignmentsFromJson(order);
+      if (assData && assData.rowWorkshops) {
+        Object.entries(assData.rowWorkshops).forEach(([key, wId]) => {
+          rowWorkshops[key] = String(wId);
+        });
+        return { rowWorkshops };
+      }
+      return null;
+    };
+
+    // Filtrar órdenes asignadas a cualquiera de los talleres del usuario
+    const assignedOrders = orders.filter(o => {
+      // Restringir estrictamente a órdenes que ya estén en taller (en confección o terminadas/enviadas)
+      const isSewingState = o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada';
+      if (!isSewingState) return false;
+
+      // 1. Coincidencia directa en cabecera de orden
+      const isDirectMatch = finalWorkshopsList.some(w =>
+        String(o.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim() ||
+        (o.workshops?.nombre_taller || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()
+      );
+      if (isDirectMatch) return true;
+
+      // 2. Coincidencia en la matriz de asignaciones (rowWorkshops)
+      const assData = getOrderAssignments(o);
+      if (assData && assData.rowWorkshops) {
+        const match = Object.values(assData.rowWorkshops).some(wId =>
+          finalWorkshopsList.some(w =>
+            String(w.id).toLowerCase().trim() === String(wId).toLowerCase().trim() ||
+            (w.nombre_taller || '').toLowerCase().trim() === String(wId).toLowerCase().trim()
+          )
+        );
+        return match;
+      }
+      return false;
+    });
+
+    const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección');
+    const completedOrders = assignedOrders.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
+
+    // Inspecciones de todos los talleres del usuario (el selector solo afecta la vista, no el pool)
+    const workshopInspections = inspections.filter(i =>
+      finalWorkshopsList.some(w => (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim())
+    );
+
+    const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
+    const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (i.items_rejected || 0), 0);
+
+    // Obtener código único de confección por taller (ej. 12XKE-1, 12XKE-2)
+    const getConfeccionCode = (order: any, workshopId: string, productId?: string) => {
+      const cleanCode = (order.internal_code || '').replace(/^OC-?/i, '') || order.consecutive || '—';
+      const assignments = getOrderAssignments(order);
+      if (!assignments || !assignments.rowWorkshops) return `${cleanCode}-1`;
+
+      // Encontrar todos los talleres únicos asignados a esta orden en rowWorkshops
+      const uniqueWorkshops: string[] = [];
+      
+      // Si el taller de la cabecera está y no está en la matriz, lo agregamos primero para mantener consistencia
+      const headWorkshopId = order.workshop_id ? String(order.workshop_id).toLowerCase().trim() : '';
+      if (headWorkshopId) {
+        uniqueWorkshops.push(headWorkshopId);
+      }
+
+      Object.values(assignments.rowWorkshops).forEach(wId => {
+        if (wId) {
+          const cleanWId = String(wId).toLowerCase().trim();
+          if (!uniqueWorkshops.includes(cleanWId)) {
+            uniqueWorkshops.push(cleanWId);
+          }
+        }
+      });
+
+      const targetWId = String(workshopId).toLowerCase().trim();
+      const idx = uniqueWorkshops.indexOf(targetWId) + 1;
+      const displayIdx = idx > 0 ? idx : 1;
+      return `${cleanCode}-${displayIdx}`;
+    };
+
+    // Obtener prendas asignadas a un taller y un producto específico
+    const getPrendasParaTallerYProducto = (order: any, workshopId: string, productId: string) => {
+      if (!order.cuts) return { planeadas: 0, confeccionadas: 0 };
+      const assignments = getOrderAssignments(order);
+      if (!assignments || !assignments.rowWorkshops) return { planeadas: 0, confeccionadas: 0 };
+
+      let planeadas = 0;
+      let confeccionadas = 0;
+      const wid = String(workshopId).toLowerCase().trim();
+
+      order.cuts.forEach((cut: any) => {
+        if (String(cut.product_id) !== String(productId)) return;
+        const prodId = String(cut.product_id);
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const qty = Number(cs.quantity) || 0;
+          const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+          const cellKey = `${prodId}_${sz}`;
+
+          const assignedTo = assignments.rowWorkshops[cellKey];
+          if (assignedTo && String(assignedTo).toLowerCase().trim() === wid) {
+            planeadas += qty;
+            const ppc = qty / layersProyec;
+            confeccionadas += layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
+          }
+        });
+      });
+
+      return { planeadas, confeccionadas };
+    };
+
     let totalAuthorizedUnits = 0;
     let totalSewedUnits = 0;
     let totalAuthorizedPayment = 0;
@@ -408,61 +680,101 @@ export default function Dashboard() {
 
     const baseSewingGlobal = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura')?.valor || 2500;
 
-    if (userWorkshop) {
-      assignedOrders.forEach(order => {
-        const overrides = getCostsFromJson(order);
-        const assignments = getAssignmentsFromJson(order);
-        if (!order.cuts) return;
+    // Si está en consolidado, sumamos todos los talleres asociados, si no, solo el taller seleccionado
+    const workshopsToAggregate = activeWorkshopId === 'all' 
+      ? finalWorkshopsList 
+      : finalWorkshopsList.filter(w => String(w.id) === String(activeWorkshopId));
 
-        order.cuts.forEach((cut: any) => {
-          const prod = productsList.find(p => String(p.id) === String(cut.product_id));
-          const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
-          const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
+    workshopsToAggregate.forEach(currentWs => {
+      const wsSewingOrders = sewingOrdersList.filter(so => 
+        String(so.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim()
+      );
 
-          const layersProyec = cut.layers || 1;
-          const layersProduced = cut.layers_produced || 0;
+      // Calcular Autorizados (lo planeado que se le envió al taller)
+      wsSewingOrders.forEach(so => {
+        if (so.status !== 'En Confección' && so.status !== 'Terminada' && so.status !== 'Enviada') return;
 
-          (cut.cut_sizes || []).forEach((cs: any) => {
-            const plannedQty = Number(cs.quantity) || 0;
-            const ppc = plannedQty / layersProyec;
-            const actualSewedQty = layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
+        const prod = productsList.find(p => String(p.id) === String(so.product_id));
+        const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+        const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
 
-            const catId = prod ? String(prod.id) : 'sin_prod';
-            const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-            const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+        let itemRate = catBaseRate;
+        if (categoryObj) {
+          const rateObj = workshopRates.find(r => 
+            String(r.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim() && 
+            String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+          );
+          if (rateObj && Number(rateObj.rate) > 0) {
+            itemRate = Number(rateObj.rate);
+          }
+        }
 
-            const cellKey = `${catId}_${sz}`;
-            const assignedWorkshopId = assignments?.rowWorkshops?.[cellKey];
+        let finalRate = itemRate;
+        if (so.tarifa_especial !== null && so.tarifa_especial !== undefined && Number(so.tarifa_especial) > 0) {
+          const specCostObj = specialCosts.find(sc => 
+            String(sc.workshop_id).toLowerCase() === String(currentWs.id).toLowerCase() && 
+            String(sc.product_id).toLowerCase() === String(so.product_id).toLowerCase()
+          );
+          if (specCostObj && Number(specCostObj.special_rate) > 0) {
+            finalRate = Number(specCostObj.special_rate);
+          }
+        }
 
-            if (assignedWorkshopId && String(assignedWorkshopId).toLowerCase() === String(userWorkshop.id).toLowerCase()) {
-              let itemRate = catBaseRate;
-
-              if (categoryObj) {
-                const rateObj = workshopRates.find(r => 
-                  String(r.workshop_id).toLowerCase() === String(userWorkshop.id).toLowerCase() && 
-                  String(r.category_id).toLowerCase() === String(categoryObj.id).toLowerCase()
-                );
-                if (rateObj && Number(rateObj.rate) > 0) {
-                  itemRate = Number(rateObj.rate);
-                }
-              }
-
-              const finalRate = overrides.custom_sewing_rate !== undefined ? Number(overrides.custom_sewing_rate) : itemRate;
-
-              totalAuthorizedUnits += plannedQty;
-              totalSewedUnits += actualSewedQty;
-
-              totalAuthorizedPayment += plannedQty * finalRate;
-              totalSewedPayment += actualSewedQty * finalRate;
-            }
-          });
-        });
+        const plannedQty = so.cantidad_planeada || 0;
+        totalAuthorizedUnits += plannedQty;
+        totalAuthorizedPayment += plannedQty * finalRate;
       });
-    }
+
+      // Calcular Confeccionados/Aprobados reales a pagar basados en las inspecciones de calidad aprobadas
+      const wsInsps = inspections.filter(i => 
+        (i.workshop_name || '').toLowerCase().trim() === (currentWs.nombre_taller || '').toLowerCase().trim()
+      );
+
+      wsInsps.forEach(i => {
+        // Encontrar la orden de confección correspondiente a la orden de corte (i.order_id)
+        const parentOrder = orders.find(o => o.id === i.order_id);
+        if (!parentOrder || !parentOrder.cuts || parentOrder.cuts.length === 0) return;
+
+        const cut = parentOrder.cuts[0];
+        const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+        const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+        if (!categoryObj) return;
+
+        let itemRate = categoryObj.base_rate || baseSewingGlobal;
+        const rateObj = workshopRates.find(r => 
+          String(r.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim() && 
+          String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+        );
+        if (rateObj && Number(rateObj.rate) > 0) {
+          itemRate = Number(rateObj.rate);
+        }
+
+        // Buscar si la orden de confección correspondiente tiene flag de precio especial
+        const so = sewingOrdersList.find(s => 
+          String(s.parent_order_id) === String(i.order_id) && 
+          String(s.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim()
+        );
+
+        let finalRate = itemRate;
+        if (so && so.tarifa_especial !== null && so.tarifa_especial !== undefined && Number(so.tarifa_especial) > 0) {
+          const specCostObj = specialCosts.find(sc => 
+            String(sc.workshop_id).toLowerCase() === String(currentWs.id).toLowerCase() && 
+            String(sc.product_id).toLowerCase() === String(cut.product_id).toLowerCase()
+          );
+          if (specCostObj && Number(specCostObj.special_rate) > 0) {
+            finalRate = Number(specCostObj.special_rate);
+          }
+        }
+
+        const approvedQty = i.items_approved || 0;
+        totalSewedUnits += approvedQty;
+        totalSewedPayment += approvedQty * finalRate;
+      });
+    });
 
     const averageRate = totalSewedUnits > 0 
       ? Math.round(totalSewedPayment / totalSewedUnits) 
-      : (totalAuthorizedUnits > 0 ? Math.round(totalAuthorizedPayment / totalAuthorizedUnits) : 500);
+      : (totalAuthorizedUnits > 0 ? Math.round(totalAuthorizedPayment / totalAuthorizedUnits) : 0);
 
     const getRateForOrder = (orderId: string) => {
       const orderObj = orders.find(o => o.id === orderId);
@@ -472,6 +784,28 @@ export default function Dashboard() {
       const prod = productsList.find(p => String(p.id) === String(cut.product_id));
       const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
       if (!categoryObj) return averageRate;
+
+      // Buscar si para este taller y esta orden de corte existe alguna orden de confección con flag de precio especial
+      const sewingOrderForThis = sewingOrdersList.find(so => 
+        String(so.parent_order_id) === String(orderId) &&
+        userWorkshop &&
+        String(so.workshop_id).toLowerCase() === String(userWorkshop.id).toLowerCase() &&
+        String(so.product_id) === String(cut.product_id) &&
+        so.tarifa_especial !== null &&
+        Number(so.tarifa_especial) > 0
+      );
+
+      if (sewingOrderForThis) {
+        // Buscar la tarifa en workshop_special_costs
+        const specCostObj = specialCosts.find(sc => 
+          userWorkshop &&
+          String(sc.workshop_id).toLowerCase() === String(userWorkshop.id).toLowerCase() && 
+          String(sc.product_id).toLowerCase() === String(prod?.id).toLowerCase()
+        );
+        if (specCostObj && Number(specCostObj.special_rate) > 0) {
+          return Number(specCostObj.special_rate);
+        }
+      }
 
       const rateObj = workshopRates.find(r => 
         userWorkshop &&
@@ -498,6 +832,41 @@ export default function Dashboard() {
       }, 0);
     };
 
+    // ─── Prendas asignadas A UN TALLER específico en una orden ────────────────
+    // La clave rowWorkshops es `{product.id}_{size_code}` → workshop_id (UUID)
+    const getPrendasParaTaller = (order: any, workshopId: string) => {
+      if (!order.cuts) return { planeadas: 0, confeccionadas: 0 };
+      const assignments = getOrderAssignments(order);
+      if (!assignments || !assignments.rowWorkshops) return { planeadas: 0, confeccionadas: 0 };
+
+      let planeadas = 0;
+      let confeccionadas = 0;
+      const wid = String(workshopId).toLowerCase().trim();
+
+      order.cuts.forEach((cut: any) => {
+        const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+        const prodId = prod ? String(prod.id) : 'sin_prod';
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const qty = Number(cs.quantity) || 0;
+          const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+          const cellKey = `${prodId}_${sz}`;
+
+          const assignedTo = assignments.rowWorkshops[cellKey];
+          if (assignedTo && String(assignedTo).toLowerCase().trim() === wid) {
+            planeadas += qty;
+            const ppc = qty / layersProyec;
+            confeccionadas += layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
+          }
+        });
+      });
+
+      return { planeadas, confeccionadas };
+    };
+
     // Calculate generic progression percentage for orders
     const getProgressionPercentage = (order: any) => {
       // Logic placeholder for progression: e.g. based on status or logs
@@ -510,35 +879,537 @@ export default function Dashboard() {
       return 0;
     };
 
+    // Contabilizar las órdenes activas y terminadas sumando individualmente por cada taller asignado
+    let activeConfeccionesCount = 0;
+    let completedConfeccionesCount = 0;
+
+    finalWorkshopsList.filter(w => activeWorkshopId === 'all' || String(w.id) === String(activeWorkshopId)).forEach(w => {
+      const wsSewingOrders = sewingOrdersList.filter(so => 
+        String(so.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim()
+      );
+
+      wsSewingOrders.forEach(so => {
+        const plannedQty = so.cantidad_planeada || 0;
+        if (plannedQty <= 0) return;
+
+        const parentOrder = so.parent_order || {};
+        const parentCuts = parentOrder.cuts || [];
+        const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
+        let actualSewedQty = 0;
+        if (cut) {
+          const layersProyec = cut.layers || 1;
+          const layersProduced = cut.layers_produced || 0;
+          const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
+          actualSewedQty = Math.round(plannedQty * pct);
+        } else {
+          actualSewedQty = so.cantidad_confeccionada || 0;
+        }
+
+        if (actualSewedQty >= plannedQty) {
+          completedConfeccionesCount++;
+        } else {
+          activeConfeccionesCount++;
+        }
+      });
+    });
+
     // Main Workshop Dashboard Tab
     if (currentTab === 'dashboard') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-          {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem', marginBottom: '1rem' }}>
+          {/* 1. Encabezado Ejecutivo Consolidado */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '1.5rem', backgroundColor: 'white', padding: '1.5rem 2rem', borderRadius: '18px', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
               {profile?.avatar_url ? (
-                <div style={{ width: '80px', height: '80px', borderRadius: '20px', overflow: 'hidden', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
+                <div style={{ width: '70px', height: '70px', borderRadius: '16px', overflow: 'hidden', border: '3px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
                   <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
               ) : (
-                <div style={{ width: '80px', height: '80px', borderRadius: '20px', backgroundColor: 'var(--primary-lighter)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '4px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
-                  <Factory size={32} />
+                <div style={{ width: '70px', height: '70px', borderRadius: '16px', backgroundColor: 'var(--primary-lighter)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '3px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
+                  <Factory size={28} />
                 </div>
               )}
               <div>
-                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '4px 10px', borderRadius: '6px' }}>
-                  Taller Satélite Conectado
+                <span style={{ fontSize: '0.72rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '3px 8px', borderRadius: '6px' }}>
+                  Centro de Control
                 </span>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: '950', margin: '0.4rem 0 0.25rem 0', color: '#0f172a', lineHeight: 1.1 }}>
-                  {loading 
-                    ? 'Cargando taller...' 
-                    : (userWorkshop?.nombre_taller || 'Sin taller asignado (Contacte Administrador)')}
+                <h1 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0 0.1rem 0', color: '#0f172a', lineHeight: 1.1 }}>
+                  Hola Liliana 👋
                 </h1>
-                <p style={{ color: '#64748b', fontSize: '0.92rem', fontWeight: '500', margin: 0 }}>
-                  ¡Hola, <strong style={{ color: '#0f172a' }}>{profile?.full_name || 'Operario'}</strong>! 👋 Aquí tienes el resumen y gestión de tu producción.
+                <p style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '600', margin: 0 }}>
+                  Administras <strong style={{ color: '#0f172a' }}>{finalWorkshopsList.length} talleres asociados</strong> desde esta pantalla consolidada.
                 </p>
               </div>
+            </div>
+
+            {/* Selector de Taller */}
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#64748b' }}>Taller Activo:</span>
+              <select
+                value={activeWorkshopId}
+                onChange={e => setActiveWorkshopId(e.target.value)}
+                style={{
+                  padding: '0.65rem 1.25rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.82rem',
+                  fontWeight: '900',
+                  backgroundColor: 'white',
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                }}
+              >
+                <option value="all">🌐 Consolidado General</option>
+                {finalWorkshopsList.map(w => (
+                  <option key={w.id} value={w.id}>🏭 {w.nombre_taller}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Botón de Ayuda */}
+            <button
+              onClick={() => setShowSatelliteHelp(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                padding: '0.6rem 1.1rem', borderRadius: '10px',
+                border: '1.5px solid var(--border)', cursor: 'pointer',
+                fontSize: '0.8rem', fontWeight: '800',
+                backgroundColor: 'white', color: 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--primary)';
+                (e.currentTarget as HTMLElement).style.color = 'var(--primary)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
+                (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)';
+              }}
+            >
+              <HelpCircle size={16} /> Ayuda
+            </button>
+          </div>
+
+          {/* ── Modal de Ayuda del Portal Satélite ──────────────────────────── */}
+          {showSatelliteHelp && (
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+              <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '100%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 40px 80px -20px rgba(0,0,0,0.35)' }}>
+                {/* Header del modal */}
+                <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, #7c3aed 100%)', padding: '2rem', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{ width: '48px', height: '48px', borderRadius: '14px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <BookOpen size={24} />
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>Centro de Ayuda</p>
+                        <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '950' }}>Guía del Portal de Taller</h2>
+                      </div>
+                    </div>
+                    <button onClick={() => setShowSatelliteHelp(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', flexShrink: 0 }}>
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Contenido del modal */}
+                <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+
+                  {/* Flujo General */}
+                  <div>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#eef2ff', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>1</span>
+                      ¿Cómo funciona este portal?
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', paddingLeft: '2rem' }}>
+                      {[
+                        { icon: '📦', title: 'Recibe órdenes de confección', desc: 'Las órdenes asignadas a tu taller aparecen automáticamente en la sección "Estado de mis Talleres".' },
+                        { icon: '✂️', title: 'Registra tu avance', desc: 'Actualiza el progreso de cada lote a medida que confeccionas las prendas. Esto permite que la planta vea tu avance en tiempo real.' },
+                        { icon: '📋', title: 'Consulta el comprobante de despacho', desc: 'Al hacer clic en "Ver Detalles" de una orden activa, puedes ver e imprimir la relación de despacho con los detalles de las prendas y tallas.' },
+                        { icon: '✅', title: 'Entrega y calidad', desc: 'Cuando entregues las prendas, la planta registra la inspección de calidad. El resultado aparecerá en "Historial de Entregas y Pagos".' },
+                        { icon: '💰', title: 'Liquidación de pagos', desc: 'Una vez aprobadas las prendas en calidad, el saldo confeccionado se calcula automáticamente según la tarifa del taller.' },
+                      ].map((step, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.85rem 1rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                          <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>{step.icon}</span>
+                          <div>
+                            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: '800', color: '#1e293b' }}>{step.title}</p>
+                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: '1.4' }}>{step.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Métricas */}
+                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>2</span>
+                      ¿Qué significan los indicadores?
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', paddingLeft: '2rem' }}>
+                      {[
+                        { label: '🔵 Órdenes Activas', desc: 'Lotes de confección que actualmente tienes asignados y aún no han sido completados.' },
+                        { label: '✅ Órdenes Terminadas', desc: 'Lotes que ya completaste y han pasado por inspección de calidad.' },
+                        { label: '👗 Prendas Aprobadas', desc: 'Total de prendas revisadas y aceptadas por la planta en control de calidad.' },
+                        { label: '💵 Saldo Confeccionado', desc: 'Valor económico acumulado de las prendas aprobadas, calculado con tu tarifa asignada.' },
+                      ].map((m, i) => (
+                        <div key={i} style={{ padding: '0.85rem', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                          <p style={{ margin: '0 0 0.25rem', fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>{m.label}</p>
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', lineHeight: '1.35' }}>{m.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Consejos */}
+                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#fffbeb', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>3</span>
+                      Consejos para optimizar tu trabajo
+                    </h3>
+                    <div style={{ paddingLeft: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {[
+                        '💡 Actualiza el progreso de tus lotes al menos una vez al día para que la planta tenga visibilidad precisa.',
+                        '🖨️ Imprime la relación de despacho antes de cada entrega para tener soporte físico.',
+                        '📞 Si ves un error en los datos de una orden (tallas, cantidades), comunícate con la planta inmediatamente.',
+                        '⏰ Las entregas a tiempo mejoran tu puntuación de desempeño y pueden darte acceso a tarifas preferenciales.',
+                        '🔄 Si el portal no carga datos nuevos, recarga la página — los datos se actualizan en tiempo real desde la planta.',
+                      ].map((tip, i) => (
+                        <p key={i} style={{ margin: 0, fontSize: '0.78rem', color: '#475569', padding: '0.5rem 0.75rem', backgroundColor: '#fafafa', borderRadius: '8px', borderLeft: '3px solid #fbbf24', lineHeight: '1.4' }}>{tip}</p>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Botón cerrar */}
+                  <button
+                    onClick={() => setShowSatelliteHelp(false)}
+                    style={{ padding: '0.85rem', borderRadius: '12px', border: 'none', cursor: 'pointer', backgroundColor: 'var(--primary)', color: 'white', fontWeight: '800', fontSize: '0.875rem', width: '100%', marginTop: '0.5rem' }}
+                  >
+                    Entendido — Cerrar guía
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Acordeón / Estado Detallado por Taller */}
+          <div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>🏭 Estado y Detalle de Mis Talleres</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+              {finalWorkshopsList.filter(w => activeWorkshopId === 'all' || String(w.id) === String(activeWorkshopId)).map(w => {
+                // Filtrar las órdenes de confección asignadas a este taller
+                const wsSewingOrders = sewingOrdersList.filter(so => 
+                  String(so.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim()
+                );
+
+                const wsLotes: { 
+                  order: any; 
+                  productId: string; 
+                  productName: string; 
+                  planeadas: number; 
+                  confeccionadas: number;
+                  confeccionCode: string;
+                  sewingOrderId: string;
+                }[] = [];
+
+                wsSewingOrders.forEach(so => {
+                  const parentOrder = so.parent_order || {};
+                  const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
+                  const plannedQty = so.cantidad_planeada || 0;
+                  if (plannedQty <= 0) return;
+
+                  const parentCuts = parentOrder.cuts || [];
+                  const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
+                  let actualSewedQty = 0;
+                  if (cut) {
+                    const layersProyec = cut.layers || 1;
+                    const layersProduced = cut.layers_produced || 0;
+                    const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
+                    actualSewedQty = Math.round(plannedQty * pct);
+                  } else {
+                    actualSewedQty = so.cantidad_confeccionada || 0;
+                  }
+
+                  wsLotes.push({
+                    order: parentOrder,
+                    productId: so.product_id,
+                    productName: prodObj ? prodObj.nombre_producto : 'Referencia',
+                    planeadas: plannedQty,
+                    confeccionadas: actualSewedQty,
+                    confeccionCode: so.confeccion_code,
+                    sewingOrderId: so.id
+                  });
+                });
+
+                const wsPending = wsLotes.filter(lot => lot.confeccionadas < lot.planeadas);
+                const wsCompleted = wsLotes.filter(lot => lot.confeccionadas >= lot.planeadas);
+                const wsInsps = inspections.filter(i => (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim());
+                const wsApproved = wsInsps.reduce((s, i) => s + (i.items_approved || 0), 0);
+                const isExpanded = expandedWorkshopId === w.id;
+
+                const totals = wsLotes.reduce((acc: { planeadas: number; confeccionadas: number }, lot) => {
+                  return { planeadas: acc.planeadas + lot.planeadas, confeccionadas: acc.confeccionadas + lot.confeccionadas };
+                }, { planeadas: 0, confeccionadas: 0 });
+
+                const pctGlobal = totals.planeadas > 0 ? Math.round((totals.confeccionadas / totals.planeadas) * 100) : 0;
+
+                // Paleta de colores únicos por índice de taller
+                const ACCENT_PALETTES = [
+                  { from: '#4f46e5', to: '#7c3aed', light: '#eef2ff', text: '#3730a3', pill: '#c7d2fe' },
+                  { from: '#0891b2', to: '#0e7490', light: '#ecfeff', text: '#155e75', pill: '#a5f3fc' },
+                  { from: '#059669', to: '#047857', light: '#ecfdf5', text: '#065f46', pill: '#a7f3d0' },
+                  { from: '#d97706', to: '#b45309', light: '#fffbeb', text: '#92400e', pill: '#fde68a' },
+                  { from: '#db2777', to: '#be185d', light: '#fdf2f8', text: '#831843', pill: '#fbcfe8' },
+                ];
+                const wIdx = finalWorkshopsList.indexOf(w) % ACCENT_PALETTES.length;
+                const pal = ACCENT_PALETTES[wIdx];
+                const initial = (w.nombre_taller || 'T').charAt(0).toUpperCase();
+
+                // SVG donut ring
+                const r = 22; const circ = 2 * Math.PI * r;
+                const dash = (pctGlobal / 100) * circ;
+
+                const hasOrders = wsLotes.length > 0;
+
+                return (
+                  <div key={w.id} style={{
+                    borderRadius: '22px',
+                    overflow: 'hidden',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04)',
+                    border: '1px solid rgba(255,255,255,0.8)',
+                    display: 'flex', flexDirection: 'column',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    background: 'white',
+                  }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 16px 40px rgba(0,0,0,0.11)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 32px rgba(0,0,0,0.07)'; }}
+                  >
+                    {/* ── Header con gradiente ── */}
+                    <div style={{
+                      background: `linear-gradient(135deg, ${pal.from} 0%, ${pal.to} 100%)`,
+                      padding: '1.25rem 1.5rem',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                      position: 'relative', overflow: 'hidden',
+                    }}>
+                      {/* Círculo decorativo fondo */}
+                      <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
+                      <div style={{ position: 'absolute', bottom: '-30px', right: '30px', width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
+                      {/* Ícono textil decorativo */}
+                      <img
+                        src="/textile-icon.png"
+                        alt=""
+                        style={{
+                          position: 'absolute', bottom: '10px', right: '14px',
+                          width: '38px', height: '38px', objectFit: 'contain',
+                          filter: 'brightness(0) invert(1)',
+                          opacity: 0.18, pointerEvents: 'none', zIndex: 0,
+                        }}
+                      />
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', position: 'relative', zIndex: 1 }}>
+                        {/* Avatar con inicial del taller */}
+                        <div style={{
+                          width: '46px', height: '46px', borderRadius: '14px',
+                          background: 'rgba(255,255,255,0.2)',
+                          backdropFilter: 'blur(8px)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: '1.5px solid rgba(255,255,255,0.35)',
+                          flexShrink: 0,
+                        }}>
+                          <span style={{ fontSize: '1.35rem', fontWeight: '900', color: 'white', lineHeight: 1 }}>{initial}</span>
+                        </div>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', color: 'white', lineHeight: 1.2 }}>{w.nombre_taller}</h4>
+                          <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.75)', fontWeight: '600' }}>
+                            👤 {w.responsable || '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Badge de estado */}
+                      <span style={{
+                        padding: '0.25rem 0.65rem', borderRadius: '20px', fontSize: '0.62rem', fontWeight: '900',
+                        background: wsLotes.length > 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)',
+                        color: 'white', border: '1px solid rgba(255,255,255,0.3)',
+                        backdropFilter: 'blur(4px)', position: 'relative', zIndex: 1, whiteSpace: 'nowrap',
+                      }}>
+                        {wsLotes.length > 0 ? `● ${wsLotes.length} lote${wsLotes.length !== 1 ? 's' : ''}` : '○ Disponible'}
+                      </span>
+                    </div>
+
+                    {/* ── Cuerpo con métricas ── */}
+                    <div style={{ padding: '1.35rem 1.5rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+
+                      {/* Donut + métricas */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                        {/* SVG donut */}
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                          <svg width="60" height="60" viewBox="0 0 60 60">
+                            <circle cx="30" cy="30" r={r} fill="none" stroke="#f1f5f9" strokeWidth="7" />
+                            <circle
+                              cx="30" cy="30" r={r} fill="none"
+                              stroke={pal.from} strokeWidth="7"
+                              strokeDasharray={`${dash} ${circ}`}
+                              strokeLinecap="round"
+                              transform="rotate(-90 30 30)"
+                              style={{ transition: 'stroke-dasharray 0.6s ease' }}
+                            />
+                          </svg>
+                          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: '900', color: pal.text }}>{pctGlobal}%</span>
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 0.75rem' }}>
+                          <div>
+                            <span style={{ fontSize: '0.6rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', display: 'block' }}>Planeadas</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#1e293b' }}>{totals.planeadas}</span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.6rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', display: 'block' }}>Confeccionadas</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: '900', color: pal.text }}>{totals.confeccionadas}</span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.6rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', display: 'block' }}>En Confección</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#1e293b' }}>{wsPending.length}</span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.6rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', display: 'block' }}>Aprobadas</span>
+                            <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#059669' }}>{wsApproved}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pills de estado */}
+                      <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+                        {wsPending.length > 0 && (
+                          <span style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.62rem', fontWeight: '800', background: pal.light, color: pal.text, border: `1px solid ${pal.pill}` }}>
+                            🧵 {wsPending.length} en proceso
+                          </span>
+                        )}
+                        {wsCompleted.length > 0 && (
+                          <span style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.62rem', fontWeight: '800', background: '#f0fdf4', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                            ✅ {wsCompleted.length} terminada{wsCompleted.length !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {wsLotes.length === 0 && (
+                          <span style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.62rem', fontWeight: '800', background: '#f8fafc', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                            Sin órdenes activas
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ── Footer: botón expandir ── */}
+                    <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <button
+                        onClick={() => setExpandedWorkshopId(isExpanded ? null : w.id)}
+                        style={{
+                          width: '100%', padding: '0.85rem 1.5rem',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: isExpanded ? pal.light : 'white',
+                          border: 'none', cursor: 'pointer',
+                          fontSize: '0.75rem', fontWeight: '800', color: pal.text,
+                          transition: 'background 0.15s ease',
+                        }}
+                      >
+                        <span>{isExpanded ? '▲ Ocultar lotes' : '▼ Ver lotes de confección'}</span>
+                        <span style={{
+                          background: pal.light, color: pal.text,
+                          borderRadius: '8px', padding: '0.15rem 0.5rem',
+                          fontSize: '0.65rem', fontWeight: '900'
+                        }}>{wsLotes.length}</span>
+                      </button>
+
+                      {/* ── Panel expandido ── */}
+                      {isExpanded && (
+                        <div style={{ background: pal.light, borderTop: `2px solid ${pal.pill}`, padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                          {(() => {
+                            if (wsLotes.length === 0) {
+                              return (
+                                <div style={{ textAlign: 'center', padding: '1.5rem', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                  Sin órdenes asignadas a este taller
+                                </div>
+                              );
+                            }
+
+                            return wsLotes.map(({ order, productId, productName, planeadas, confeccionadas, confeccionCode, sewingOrderId }) => {
+                              const pct = planeadas > 0 ? Math.round((confeccionadas / planeadas) * 100) : 0;
+                              const isTerminada = confeccionadas >= planeadas;
+                              return (
+                                <div
+                                  key={sewingOrderId}
+                                  onClick={() => {
+                                    const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
+                                    if (realSewingOrder) {
+                                      setViewingOrderDetails(realSewingOrder);
+                                    }
+                                  }}
+                                  style={{
+                                    background: 'white', borderRadius: '14px',
+                                    border: `1.5px solid ${isTerminada ? '#bbf7d0' : pal.pill}`,
+                                    padding: '0.9rem 1.1rem', cursor: 'pointer',
+                                    display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                                    transition: 'all 0.15s ease',
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+                                  }}
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'; }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'translateX(0)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 6px rgba(0,0,0,0.04)'; }}
+                                >
+                                  {/* Row 1: código + status */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      <div style={{ width: '32px', height: '32px', borderRadius: '99px', background: pal.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '5px' }}>
+                                        <img src="/textile-icon.png" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: `brightness(0) saturate(100%) ${pal.text === '#3730a3' ? 'invert(20%) sepia(80%) saturate(3000%) hue-rotate(230deg)' : pal.text === '#155e75' ? 'invert(25%) sepia(70%) saturate(2000%) hue-rotate(175deg)' : pal.text === '#065f46' ? 'invert(25%) sepia(60%) saturate(2000%) hue-rotate(130deg)' : 'invert(30%) sepia(80%) saturate(2000%) hue-rotate(20deg)'}` }} />
+                                      </div>
+                                      <div>
+                                        <strong style={{ fontSize: '0.82rem', color: pal.text, display: 'block', lineHeight: 1.1 }}>
+                                          {confeccionCode}
+                                        </strong>
+                                        <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '600' }}>{productName} (OC-{(order.internal_code || '').replace(/^OC-?/i, '')})</span>
+                                      </div>
+                                    </div>
+                                    <span style={{
+                                      fontSize: '0.6rem', fontWeight: '900', padding: '0.2rem 0.55rem', borderRadius: '20px',
+                                      background: isTerminada ? '#f0fdf4' : order.status === 'En Confección' ? pal.light : '#f8fafc',
+                                      color: isTerminada ? '#059669' : order.status === 'En Confección' ? pal.text : '#64748b',
+                                      border: `1px solid ${isTerminada ? '#a7f3d0' : order.status === 'En Confección' ? pal.pill : '#e2e8f0'}`,
+                                    }}>{isTerminada ? 'Terminada' : order.status}</span>
+                                  </div>
+
+                                  {/* Row 2: métricas */}
+                                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.68rem', color: '#475569', fontWeight: '700' }}>
+                                    <span>Planeadas: <strong style={{ color: '#1e293b' }}>{planeadas}</strong></span>
+                                    <span>Confeccionadas: <strong style={{ color: pal.text }}>{confeccionadas}</strong></span>
+                                    <span style={{ marginLeft: 'auto', color: pct >= 100 ? '#059669' : pal.text }}>{pct}%</span>
+                                  </div>
+
+                                  {/* Row 3: barra de progreso */}
+                                  {planeadas > 0 && (
+                                    <div style={{ height: '5px', borderRadius: '99px', background: '#e2e8f0', overflow: 'hidden' }}>
+                                      <div style={{
+                                        height: '100%',
+                                        width: `${Math.min(pct, 100)}%`,
+                                        background: pct >= 100
+                                          ? 'linear-gradient(90deg, #059669, #10b981)'
+                                          : `linear-gradient(90deg, ${pal.from}, ${pal.to})`,
+                                        borderRadius: '99px',
+                                        transition: 'width 0.5s cubic-bezier(0.4,0,0.2,1)',
+                                      }} />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -550,8 +1421,8 @@ export default function Dashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
                 <div>
                   <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#4f46e5', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Órdenes Activas</p>
-                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#1e1b4b' }}>{loading ? '…' : pendingOrders.length}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>En confección actualmente</p>
+                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#1e1b4b' }}>{loading ? '…' : activeConfeccionesCount}</h3>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Lotes asignados en confección</p>
                 </div>
                 <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Scissors size={20} style={{ alignSelf: 'center' }} />
@@ -565,8 +1436,8 @@ export default function Dashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
                 <div>
                   <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#16a34a', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Órdenes Terminadas</p>
-                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#052e16' }}>{loading ? '…' : completedOrders.length}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Entregadas a central</p>
+                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#052e16' }}>{loading ? '…' : completedConfeccionesCount}</h3>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Lotes totalmente confeccionados</p>
                 </div>
                 <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <CheckCircle2 size={20} />
@@ -598,10 +1469,12 @@ export default function Dashboard() {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#c7d2fe', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Saldo Real Confeccionado</p>
-                  <h3 style={{ fontSize: '2.2rem', fontWeight: '950', margin: '0.2rem 0', color: 'white' }}>{loading ? '…' : `$${totalSewedPayment.toLocaleString('es-CO')} COP`}</h3>
+                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#c7d2fe', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Saldo Confeccionado</p>
+                  <h3 style={{ fontSize: '2.2rem', fontWeight: '950', margin: '0.2rem 0', color: 'white' }}>
+                    {loading ? '…' : totalSewedPayment > 0 ? `$${totalSewedPayment.toLocaleString('es-CO')} COP` : '—'}
+                  </h3>
                   <p style={{ fontSize: '0.74rem', color: '#a5b4fc', margin: 0, fontWeight: '600' }}>
-                    Saldo Autorizado: <strong style={{ color: 'white' }}>${totalAuthorizedPayment.toLocaleString('es-CO')} COP</strong>
+                    Autorizado: <strong style={{ color: 'white' }}>{totalAuthorizedPayment > 0 ? `$${totalAuthorizedPayment.toLocaleString('es-CO')} COP` : '— Sin tarifa configurada'}</strong>
                   </p>
                 </div>
                 <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -624,64 +1497,109 @@ export default function Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               
               {/* Active Orders */}
-              <div className="card" style={{ padding: '2rem', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    Órdenes Asignadas Activas
-                    <span style={{ fontSize: '0.72rem', backgroundColor: '#eef2ff', color: '#4f46e5', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>{pendingOrders.length}</span>
-                  </h3>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
-                        {['Orden', 'Cliente', 'Tela', 'Prendas', 'Fecha Asignada', 'Estado', 'Progreso', 'Acción'].map(h => (
-                          <th key={h} style={{ padding: '0.85rem 1rem', fontWeight: '800', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loading ? (
-                        <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
-                      ) : pendingOrders.length === 0 ? (
-                        <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
-                      ) : pendingOrders.map(o => {
-                        const progress = getProgressionPercentage(o);
-                        return (
-                          <tr key={o.id} style={{ borderBottom: '1px solid #f8fafc', transition: 'background-color 0.15s' }}>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#4f46e5' }}>OC-{o.internal_code}</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#1e293b' }}>{o.client_name}</td>
-                            <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '500' }}>{o.fabrics?.nombre_tela || '—'}</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#0f172a' }}>{getTotalPrendas(o)} uds</td>
-                            <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '600' }}>{o.created_at ? new Date(o.created_at).toLocaleDateString('es-CO') : '—'}</td>
-                            <td style={{ padding: '1rem 1rem' }}>
-                              <span style={{ fontSize: '0.68rem', padding: '0.25rem 0.65rem', borderRadius: '8px', backgroundColor: '#eff6ff', color: '#1e4ed8', fontWeight: '800', border: '1px solid #bfdbfe' }}>
-                                En confección
-                              </span>
-                            </td>
-                            <td style={{ padding: '1rem 1rem', width: '160px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                <div style={{ flex: 1, height: '6px', borderRadius: '999px', backgroundColor: '#e2e8f0', overflow: 'hidden' }}>
-                                  <div style={{ width: `${progress}%`, height: '100%', borderRadius: '999px', backgroundColor: 'var(--primary)' }} />
-                                </div>
-                                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>{progress}%</span>
-                              </div>
-                            </td>
-                            <td style={{ padding: '1rem 1rem' }}>
-                              <button 
-                                onClick={() => setViewingOrderDetails(o)} 
-                                style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                              >
-                                Ver Detalles <ChevronRight size={14} />
-                              </button>
-                            </td>
+              {(() => {
+                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string }[] = [];
+                sewingOrdersList.forEach(so => {
+                  const w = finalWorkshopsList.find(workshop => String(workshop.id).toLowerCase().trim() === String(so.workshop_id).toLowerCase().trim());
+                  if (!w) return;
+
+                  if (activeWorkshopId !== 'all' && String(w.id) !== String(activeWorkshopId)) return;
+
+                  const plannedQty = so.cantidad_planeada || 0;
+                  if (plannedQty <= 0) return;
+
+                  const parentOrder = so.parent_order || {};
+                  const parentCuts = parentOrder.cuts || [];
+                  const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
+                  let actualSewedQty = 0;
+                  if (cut) {
+                    const layersProyec = cut.layers || 1;
+                    const layersProduced = cut.layers_produced || 0;
+                    const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
+                    actualSewedQty = Math.round(plannedQty * pct);
+                  } else {
+                    actualSewedQty = so.cantidad_confeccionada || 0;
+                  }
+
+                  if (actualSewedQty < plannedQty && so.status === 'En Confección') {
+                    pendingConfecciones.push({
+                      order: parentOrder,
+                      workshop: w,
+                      planeadas: plannedQty,
+                      confeccionadas: actualSewedQty,
+                      confeccionCode: so.confeccion_code
+                    });
+                  }
+                });
+
+                return (
+                  <div className="card" style={{ padding: '2rem', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        Órdenes Asignadas Activas
+                        <span style={{ fontSize: '0.72rem', backgroundColor: '#eef2ff', color: '#4f46e5', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>
+                          {pendingConfecciones.length}
+                        </span>
+                      </h3>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
+                            {['Orden Confección', 'Taller', 'Cliente', 'Tela', 'Prendas', 'Fecha Asig.', 'Progreso', 'Acción'].map(h => (
+                              <th key={h} style={{ padding: '0.85rem 1rem', fontWeight: '800', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                            ))}
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                        </thead>
+                        <tbody>
+                          {loading ? (
+                            <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
+                          ) : pendingConfecciones.length === 0 ? (
+                            <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
+                          ) : pendingConfecciones.map(({ order, workshop, planeadas, confeccionadas, confeccionCode }) => {
+                            const progress = planeadas > 0 ? Math.round((confeccionadas / planeadas) * 100) : 0;
+                            return (
+                              <tr key={`${order.id}-${workshop.id}-${confeccionCode}`} style={{ borderBottom: '1px solid #f8fafc', transition: 'background-color 0.15s' }}>
+                                <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#4f46e5' }}>{confeccionCode}</td>
+                                <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#1e293b' }}>
+                                  <span style={{ padding: '0.2rem 0.5rem', borderRadius: '6px', backgroundColor: '#f1f5f9', fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>
+                                    🏭 {workshop.nombre_taller}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#64748b' }}>{order.client_name || '—'}</td>
+                                <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '500' }}>{order.fabrics?.nombre_tela || '—'}</td>
+                                <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#0f172a' }}>{confeccionadas} / {planeadas} uds</td>
+                                <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '600' }}>{order.created_at ? new Date(order.created_at).toLocaleDateString('es-CO') : '—'}</td>
+                                <td style={{ padding: '1rem 1rem', width: '150px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                    <div style={{ flex: 1, height: '6px', borderRadius: '999px', backgroundColor: '#e2e8f0', overflow: 'hidden' }}>
+                                      <div style={{ width: `${Math.min(progress, 100)}%`, height: '100%', borderRadius: '999px', backgroundColor: progress >= 100 ? '#10b981' : 'var(--primary)' }} />
+                                    </div>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>{progress}%</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '1rem 1rem' }}>
+                                  <button 
+                                    onClick={() => {
+                                      const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
+                                      if (realSewingOrder) {
+                                        setViewingOrderDetails(realSewingOrder);
+                                      }
+                                    }} 
+                                    style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                  >
+                                    Ver Detalles <ChevronRight size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Delivery History */}
               <div className="card" style={{ padding: '2rem', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
@@ -731,61 +1649,297 @@ export default function Dashboard() {
                           </tr>
                         );
                       })}
-{/* Orders table ... inside useEffect: const [sizesList, setSizesList] = useState([]); const [colorsList, setColorsList] = useState([]); const [viewingOrderDetails, setViewingOrderDetails] = useState(null); ... useEffect(() => { ... fetchSizes(); fetchColors(); ... }, []); */}
-
                     </tbody>
                   </table>
                 </div>
               </div>
 
-          </div>
+            </div>
 
           {/* Workshop Order Confección Details Modal (Relación de Despacho Format) */}
           {viewingOrderDetails && (
-            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
-              <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid #cbd5e1', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
-                
-                {/* Print relation header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
-                      <Factory size={22} />
-                    </div>
-                    <div>
-                      <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
-                        Relación de Despacho a Confección
-                      </h2>
-                      <p style={{ fontSize: '0.72rem', color: '#475569', margin: 0 }}>
-                        Cortesbreiner Sistema de Control Satélite · {new Date().toLocaleDateString('es-CO')}
-                      </p>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                    <div>
-                      <p style={{ fontSize: '0.75rem', margin: 0, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Orden de Confección</p>
-                      <p style={{ fontSize: '1.1rem', fontWeight: '950', color: 'var(--primary)', margin: 0 }}>
-                        OC-{viewingOrderDetails.internal_code}
-                      </p>
-                    </div>
-                    <button onClick={() => setViewingOrderDetails(null)} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-                  </div>
-                </div>
+             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
+               <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
+                 width: '100%',
+                 maxWidth: '650px',
+                 maxHeight: '90vh',
+                 overflowY: 'auto',
+                 padding: '3rem',
+                 borderRadius: '16px',
+                 backgroundColor: '#f1f5f9',
+                 border: '1px solid #cbd5e1',
+                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+               } : {
+                 width: '100%',
+                 maxWidth: '850px',
+                 maxHeight: '90vh',
+                 overflowY: 'auto',
+                 padding: '3rem',
+                 borderRadius: '16px',
+                 backgroundColor: 'white',
+                 border: '1px solid #cbd5e1',
+                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+               }}>
+                 
+                 {/* Print relation header */}
+                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                     <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
+                       <Factory size={22} />
+                     </div>
+                     <div>
+                       <h2 style={{ fontSize: '1.1rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
+                         Relación de Despacho
+                       </h2>
+                       <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px', marginTop: '0.25rem' }}>
+                         <button
+                           onClick={() => setPrintMode('report')}
+                           style={{
+                             border: 'none',
+                             backgroundColor: printMode === 'report' ? 'white' : 'transparent',
+                             color: printMode === 'report' ? '#0f172a' : '#475569',
+                             padding: '0.25rem 0.6rem',
+                             borderRadius: '6px',
+                             fontSize: '0.68rem',
+                             fontWeight: '850',
+                             cursor: 'pointer',
+                             boxShadow: printMode === 'report' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                           }}
+                         >
+                           📄 Reporte
+                         </button>
+                         <button
+                           onClick={() => setPrintMode('sticker')}
+                           style={{
+                             border: 'none',
+                             backgroundColor: printMode === 'sticker' ? 'white' : 'transparent',
+                             color: printMode === 'sticker' ? '#0f172a' : '#475569',
+                             padding: '0.25rem 0.6rem',
+                             borderRadius: '6px',
+                             fontSize: '0.68rem',
+                             fontWeight: '850',
+                             cursor: 'pointer',
+                             boxShadow: printMode === 'sticker' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                           }}
+                         >
+                           🏷️ Sticker 10x10
+                         </button>
+                       </div>
+                     </div>
+                   </div>
+                   <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                     <div>
+                       <p style={{ fontSize: '0.75rem', margin: 0, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Orden de Confección</p>
+                       <p style={{ fontSize: '1.1rem', fontWeight: '950', color: 'var(--primary)', margin: 0 }}>
+                         {viewingOrderDetails.confeccion_code}
+                       </p>
+                     </div>
+                     <button
+                       className="btn"
+                       onClick={() => window.print()}
+                       style={{ backgroundColor: '#7c3aed', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
+                     >
+                       <Printer size={13} /> Imprimir
+                     </button>
+                     <button onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+                   </div>
+                 </div>
+ 
+                 {printMode === 'sticker' ? (
+                   (() => {
+                     const parentOrder = viewingOrderDetails.parent_order || {};
+                     const assignments = getOrderAssignments(parentOrder);
+                     const rowWorkshopsMap = assignments?.rowWorkshops || {};
+                     const workshopId = viewingOrderDetails.workshop_id;
+                     const currentWs = workshops.find(w => String(w.id) === String(workshopId));
 
+                     const qtyByCutSize: Record<string, number> = {};
+                     (parentOrder.cuts || []).forEach((cut: any) => {
+                       const targetProdId = cut.product_id;
+                       const layersProyec = cut.layers || 1;
+                       const layersProduced = cut.layers_produced || 0;
+                       (cut.cut_sizes || []).forEach((cs: any) => {
+                         const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                         const cellKey = `${targetProdId}_${sz}`;
+                         const assignedWId = rowWorkshopsMap[cellKey];
+                         if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
+                         let realQty = 0;
+                         if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                           realQty = Number(cs.quantity_produced);
+                         } else {
+                           const proyecQty = Number(cs.quantity) || 0;
+                           const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                           realQty = Math.round(ppc * layersProduced);
+                         }
+                         if (realQty <= 0) return;
+                         const key = `${cut.id}_${sz}`;
+                         qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
+                       });
+                     });
+
+                     const itemsList: any[] = [];
+                     const seenKeys = new Set<string>();
+                     (parentOrder.cuts || []).forEach((cut: any) => {
+                       const targetProdId = cut.product_id;
+                       const prodObj = productsList.find(p => String(p.id) === String(targetProdId));
+                       const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                       const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+                       const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
+                       const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+                       const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
+                       const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
+
+                       let displayFabricName = fabricName;
+                       let displayColorName = colorName;
+                       if (fabricName.includes(',')) {
+                         const commaIdx = fabricName.indexOf(',');
+                         displayFabricName = fabricName.substring(0, commaIdx).trim();
+                         const extractedColor = fabricName.substring(commaIdx + 1).trim();
+                         if (extractedColor) {
+                           displayColorName = extractedColor;
+                         }
+                       }
+
+                       (cut.cut_sizes || []).forEach((cs: any) => {
+                         const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                         const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+                         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                         const key = `${cut.id}_${sz}`;
+                         if (!qtyByCutSize[key] || seenKeys.has(key)) return;
+                         seenKeys.add(key);
+                         itemsList.push({
+                           categoryName,
+                           colorName: displayColorName,
+                           fabricName: displayFabricName,
+                           sizeCode: sizeName,
+                           quantity: qtyByCutSize[key]
+                         });
+                       });
+                     });
+
+                     const groupedItems: {
+                       colorName: string;
+                       categoryName: string;
+                       fabricName: string;
+                       sizes: { [size: string]: number };
+                       totalQuantity: number;
+                     }[] = [];
+
+                     itemsList.forEach((item: any) => {
+                       const existing = groupedItems.find(g => 
+                         g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                         g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
+                         g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
+                       );
+                       if (existing) {
+                         existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                         existing.totalQuantity += item.quantity;
+                       } else {
+                         groupedItems.push({
+                           categoryName: item.categoryName,
+                           colorName: item.colorName,
+                           fabricName: item.fabricName,
+                           sizes: { [item.sizeCode]: item.quantity },
+                           totalQuantity: item.quantity
+                         });
+                       }
+                     });
+
+                     groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                     const totalUnits = groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0);
+
+                     return (
+                       <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem', backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
+                         <div className="print-stickers-page" style={{
+                           width: '100mm',
+                           height: '100mm',
+                           padding: '8mm',
+                           boxSizing: 'border-box',
+                           display: 'flex',
+                           flexDirection: 'column',
+                           justifyContent: 'space-between',
+                           border: '2.5px solid #000',
+                           backgroundColor: 'white',
+                           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                           color: 'black',
+                           fontFamily: 'system-ui, sans-serif'
+                         }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                             <div style={{ textAlign: 'center', borderBottom: '2.5px solid #000', paddingBottom: '0.35rem', marginBottom: '0.2rem' }}>
+                               <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
+                               <p style={{ fontSize: '0.6rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
+                             </div>
+                             
+                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
+                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span><strong>ORDEN CONFECCIÓN:</strong></span>
+                                 <span style={{ fontWeight: '900', color: '#7c3aed' }}>{viewingOrderDetails.confeccion_code}</span>
+                               </div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span><strong>TALLER SATÉLITE:</strong></span>
+                                 <span style={{ fontWeight: '800' }}>{currentWs?.nombre_taller || '—'}</span>
+                               </div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span><strong>CLIENTE:</strong></span>
+                                 <span>{viewingOrderDetails.parent_order?.client_name || '—'}</span>
+                               </div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span><strong>TELA PRINCIPAL:</strong></span>
+                                 <span>{viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</span>
+                               </div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span><strong>FECHA PROGRAMADA:</strong></span>
+                                 <span><strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></span>
+                               </div>
+                             </div>
+
+                             <div style={{ marginTop: '0.3rem', borderTop: '1.5px dashed #000', paddingTop: '0.3rem' }}>
+                               <p style={{ margin: '0 0 0.15rem 0', fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
+                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.625rem', maxHeight: '2.5rem', overflow: 'hidden' }}>
+                                 {groupedItems.slice(0, 5).map((item, idx) => (
+                                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                     <span style={{ fontWeight: '600' }}>• {item.categoryName} ({item.colorName})</span>
+                                     <strong style={{ fontSize: '0.68rem' }}>{item.totalQuantity} uds</strong>
+                                   </div>
+                                 ))}
+                                 {groupedItems.length > 5 && (
+                                   <div style={{ fontSize: '0.55rem', fontStyle: 'italic', textAlign: 'center', color: '#666' }}>+ {groupedItems.length - 5} más categorías/colores...</div>
+                                 )}
+                                </div>
+                             </div>
+                           </div>
+
+                           <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                             <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
+                             <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
+                           </div>
+                         </div>
+                       </div>
+                     );
+                   })()
+                 ) : (
+                   <>
                 {/* Workshop Info */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.825rem', marginBottom: '2rem' }}>
-                  <div>
-                    <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Taller Satélite Destinatario</p>
-                    <p style={{ margin: 0, fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>{userWorkshop?.nombre_taller || 'Taller Asignado'}</p>
-                    <p style={{ margin: '0.2rem 0 0', color: '#334155', fontWeight: '600' }}>Responsable: <span style={{ color: '#0f172a', fontWeight: '800' }}>{userWorkshop?.responsable || '—'}</span></p>
-                    <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Teléfono: {userWorkshop?.telefono || '—'}</p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
-                    <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.client_name}</strong></p>
-                    <p style={{ margin: '0.2rem 0 0', color: '#7c3aed', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.created_at ? new Date(viewingOrderDetails.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
-                    <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.fabrics?.nombre_tela || '—'}</p>
-                  </div>
-                </div>
+                {(() => {
+                  const currentWs = workshops.find(w => String(w.id) === String(viewingOrderDetails.workshop_id));
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.825rem', marginBottom: '2rem' }}>
+                      <div>
+                        <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Taller Satélite Destinatario</p>
+                        <p style={{ margin: 0, fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>{currentWs?.nombre_taller || 'Taller Asignado'}</p>
+                        <p style={{ margin: '0.2rem 0 0', color: '#334155', fontWeight: '600' }}>Responsable: <span style={{ color: '#0f172a', fontWeight: '800' }}>{currentWs?.responsable || '—'}</span></p>
+                        <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Teléfono: {currentWs?.telefono || '—'}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
+                        <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
+                        <p style={{ margin: '0.2rem 0 0', color: '#7c3aed', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
+                        <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   
@@ -797,9 +1951,8 @@ export default function Dashboard() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Referencia</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
+                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Distribución Tallas</th>
                           <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad Total</th>
@@ -807,53 +1960,81 @@ export default function Dashboard() {
                       </thead>
                       <tbody>
                         {(() => {
-                          const itemsList: any[] = [];
-                          viewingOrderDetails.cuts?.forEach((cut: any) => {
-                            const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
-                            const productName = prod ? prod.nombre_producto : `OC-${viewingOrderDetails.internal_code}`;
-                            
-                            const categoryName = prod ? (prod.categoria || '—') : '—';
+                          const parentOrder = viewingOrderDetails.parent_order || {};
+                          const assignments = getOrderAssignments(parentOrder);
+                          const rowWorkshopsMap = assignments?.rowWorkshops || {};
+                          const workshopId = viewingOrderDetails.workshop_id;
 
-                            let colorObj = colorsList.find(c => String(c.id) === String(cut.color_id));
-                            if (!colorObj && prod && prod.nombre_producto) {
-                              const prodNameLower = prod.nombre_producto.toLowerCase();
-                              colorObj = colorsList.find(c => {
-                                if (!c.nombre_color) return false;
-                                const firstWord = c.nombre_color.split(/[\s,]+/)[0].toLowerCase().trim();
-                                return firstWord.length > 2 && prodNameLower.includes(firstWord);
-                              });
-                            }
-                            const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
-
-                            cut.cut_sizes?.forEach((szQty: any) => {
-                              const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
-                              const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
-
-                              const layersProyec = cut.layers || 1;
-                              const layersProduced = cut.layers_produced || 0;
-                              const plannedQty = Number(szQty.quantity) || 0;
-                              const ppc = plannedQty / layersProyec;
-                              const actualQty = Math.round(ppc * layersProduced);
-
-                              if (actualQty > 0) {
-                                itemsList.push({
-                                  productName,
-                                  colorName,
-                                  categoryName,
-                                  fabricName: viewingOrderDetails.fabrics?.nombre_tela || '—',
-                                  sizeCode: sizeName,
-                                  quantity: actualQty
-                                });
+                          const qtyByCutSize: Record<string, number> = {};
+                          (parentOrder.cuts || []).forEach((cut: any) => {
+                            const targetProdId = cut.product_id;
+                            const layersProyec = cut.layers || 1;
+                            const layersProduced = cut.layers_produced || 0;
+                            (cut.cut_sizes || []).forEach((cs: any) => {
+                              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                              const cellKey = `${targetProdId}_${sz}`;
+                              const assignedWId = rowWorkshopsMap[cellKey];
+                              if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
+                              let realQty = 0;
+                              if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                                realQty = Number(cs.quantity_produced);
+                              } else {
+                                const proyecQty = Number(cs.quantity) || 0;
+                                const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                                realQty = Math.round(ppc * layersProduced);
                               }
+                              if (realQty <= 0) return;
+                              const key = `${cut.id}_${sz}`;
+                              qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
+                            });
+                          });
+
+                          const itemsList: any[] = [];
+                          const seenKeys = new Set<string>();
+                          (parentOrder.cuts || []).forEach((cut: any) => {
+                            const targetProdId = cut.product_id;
+                            const prodObj = productsList.find(p => String(p.id) === String(targetProdId));
+                            const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                            const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+                            const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
+                            const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+                            const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
+                            const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
+
+                            let displayFabricName = fabricName;
+                            let displayColorName = colorName;
+                            if (fabricName.includes(',')) {
+                              const commaIdx = fabricName.indexOf(',');
+                              displayFabricName = fabricName.substring(0, commaIdx).trim();
+                              const extractedColor = fabricName.substring(commaIdx + 1).trim();
+                              if (extractedColor) {
+                                displayColorName = extractedColor;
+                              }
+                            }
+
+                            (cut.cut_sizes || []).forEach((cs: any) => {
+                              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                              const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+                              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                              const key = `${cut.id}_${sz}`;
+                              if (!qtyByCutSize[key] || seenKeys.has(key)) return;
+                              seenKeys.add(key);
+                              itemsList.push({
+                                categoryName,
+                                colorName: displayColorName,
+                                fabricName: displayFabricName,
+                                sizeCode: sizeName,
+                                quantity: qtyByCutSize[key]
+                              });
                             });
                           });
 
                           if (itemsList.length === 0) {
-                            return <tr><td colSpan={6} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
+                            return <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
                           }
 
                           const groupedItems: {
-                            productName: string;
                             colorName: string;
                             categoryName: string;
                             fabricName: string;
@@ -861,9 +2042,9 @@ export default function Dashboard() {
                             totalQuantity: number;
                           }[] = [];
 
-                          itemsList.forEach(item => {
+                          itemsList.forEach((item: any) => {
                             const existing = groupedItems.find(g => 
-                              g.productName.toLowerCase() === item.productName.toLowerCase() && 
+                              g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
                               g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
                               g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
                             );
@@ -872,9 +2053,8 @@ export default function Dashboard() {
                               existing.totalQuantity += item.quantity;
                             } else {
                               groupedItems.push({
-                                productName: item.productName,
-                                colorName: item.colorName,
                                 categoryName: item.categoryName,
+                                colorName: item.colorName,
                                 fabricName: item.fabricName,
                                 sizes: { [item.sizeCode]: item.quantity },
                                 totalQuantity: item.quantity
@@ -882,13 +2062,14 @@ export default function Dashboard() {
                             }
                           });
 
+                          groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+
                           return (
                             <>
                               {groupedItems.map((item, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.productName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.categoryName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.categoryName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
                                     {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
@@ -897,7 +2078,7 @@ export default function Dashboard() {
                                 </tr>
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
-                                <td colSpan={5} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
+                                <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
                                 <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.9rem', fontWeight: '950' }}>
                                   {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                 </td>
@@ -916,28 +2097,41 @@ export default function Dashboard() {
                     </h3>
                     {(() => {
                       const computedAccs: { name: string; unit: string; qty: number }[] = [];
-                      
-                      // Process items assigned to sew
                       const itemsList: any[] = [];
-                      viewingOrderDetails.cuts?.forEach((cut: any) => {
-                        cut.cut_sizes?.forEach((szQty: any) => {
-                          const layersProyec = cut.layers || 1;
-                          const layersProduced = cut.layers_produced || 0;
-                          const plannedQty = Number(szQty.quantity) || 0;
-                          const ppc = plannedQty / layersProyec;
-                          const actualQty = Math.round(ppc * layersProduced);
+                      const assignments = getOrderAssignments(viewingOrderDetails);
+                      const workshopId = viewingOrderDetails.workshop_id;
+                      const targetWorkshopId = workshopId || userWorkshop?.id;
 
-                          if (actualQty > 0) {
-                            itemsList.push({
-                              cutId: cut.id,
-                              productId: cut.product_id,
-                              quantity: actualQty
-                            });
+                      viewingOrderDetails.cuts?.forEach((cut: any) => {
+                        const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
+                        const prodId = prod ? String(prod.id) : 'sin_prod';
+
+                        cut.cut_sizes?.forEach((szQty: any) => {
+                          const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
+                          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+                          const cellKey = `${prodId}_${sz}`;
+                          const assignedTo = assignments?.rowWorkshops?.[cellKey];
+
+                          if (targetWorkshopId && assignedTo && String(assignedTo).toLowerCase().trim() === String(targetWorkshopId).toLowerCase().trim()) {
+                            const layersProyec = cut.layers || 1;
+                            const layersProduced = cut.layers_produced || 0;
+                            const plannedQty = Number(szQty.quantity) || 0;
+                            const ppc = plannedQty / layersProyec;
+                            const actualQty = Math.round(ppc * layersProduced);
+
+                            if (actualQty > 0) {
+                              itemsList.push({
+                                cutId: cut.id,
+                                productId: cut.product_id,
+                                quantity: actualQty
+                              });
+                            }
                           }
                         });
                       });
 
-                      itemsList.forEach(item => {
+                      itemsList.forEach((item: any) => {
                         if (!item.productId) return;
                         const prodObj = productsList.find(p => String(p.id) === String(item.productId));
                         const prodName = prodObj?.nombre_producto;
@@ -1022,11 +2216,12 @@ export default function Dashboard() {
                       <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>{userWorkshop?.nombre_taller || 'Taller Satélite'}</p>
                     </div>
                   </div>
+                 </div>
+                 </>
+                )}
 
-                </div>
-
-                <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => setViewingOrderDetails(null)}>Cerrar Orden</button>
+                <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
                 </div>
               </div>
             </div>
@@ -1120,7 +2315,7 @@ export default function Dashboard() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: '700', marginBottom: '0.25rem' }}>
                       <span style={{ color: '#475569' }}>Comunicación</span>
-                      <span style={{ color: '#0f172a' }}>4.9 / 5.0</span>
+                      <span style={{ color: '#0f172a' }}>{"4.9 / 5.0"}</span>
                     </div>
                     <div style={{ height: '4px', borderRadius: '999px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
                       <div style={{ width: '92%', height: '100%', backgroundColor: '#7c3aed' }} />
@@ -1295,8 +2490,75 @@ export default function Dashboard() {
     pendientes: { title: 'Órdenes Pendientes',   subtitle: 'Esperando inicio',    orders: pendientes,accentColor: '#ef4444' },
   };
 
+  const filteredCompOrders = orders.filter(o => {
+    if (compProductId !== 'all') {
+      const hasProduct = o.cuts?.some(c => String(c.product_id) === compProductId);
+      if (!hasProduct) return false;
+    }
+    if (compStartDate) {
+      if (new Date(o.created_at) < new Date(compStartDate)) return false;
+    }
+    if (compEndDate) {
+      const end = new Date(compEndDate);
+      end.setHours(23, 59, 59, 999);
+      if (new Date(o.created_at) > end) return false;
+    }
+    return true;
+  });
+
+  const productData: Record<string, { name: string; planeado: number; real: number }> = {};
+  filteredCompOrders.forEach(o => {
+    (o.cuts || []).forEach(cut => {
+      const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+      const prodName = prod ? prod.nombre_producto : 'Referencia';
+      if (!productData[prodName]) {
+        productData[prodName] = { name: prodName, planeado: 0, real: 0 };
+      }
+      
+      const planned = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+      let real = 0;
+      if (o.status === 'Cortado') {
+        real = planned;
+      } else if (o.status === 'En Corte') {
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+        real = Math.round(planned * (layersProyec > 0 ? layersProduced / layersProyec : 0));
+      }
+      
+      productData[prodName].planeado += planned;
+      productData[prodName].real += real;
+    });
+  });
+  const comparisonChartData = Object.values(productData).slice(0, 8);
+
+  const dateData: Record<string, { date: string; planeado: number; real: number }> = {};
+  filteredCompOrders.forEach(o => {
+    const dateStr = o.created_at ? new Date(o.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' }) : '—';
+    if (!dateData[dateStr]) {
+      dateData[dateStr] = { date: dateStr, planeado: 0, real: 0 };
+    }
+    
+    let planned = 0;
+    let real = 0;
+    (o.cuts || []).forEach(cut => {
+      const pl = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+      planned += pl;
+      if (o.status === 'Cortado') {
+        real += pl;
+      } else if (o.status === 'En Corte') {
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+        real += Math.round(pl * (layersProyec > 0 ? layersProduced / layersProyec : 0));
+      }
+    });
+    
+    dateData[dateStr].planeado += planned;
+    dateData[dateStr].real += real;
+  });
+  const lineChartData = Object.values(dateData).slice(-10);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -1313,173 +2575,617 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
-      <div className="dashboard-grid">
-        <StatCard
-          label="Órdenes Totales" value={loading ? '…' : total}
-          sub={`${total} órdenes en el sistema`}
-          icon={<Package size={20} />} primary
-          onClick={() => setActiveModal('total')}
-        />
-        <StatCard
-          label="Órdenes Cortadas" value={loading ? '…' : cortadas.length}
-          sub={`${total > 0 ? Math.round((cortadas.length / total) * 100) : 0}% del total completado`}
-          icon={<CheckCircle2 size={20} />}
-          onClick={() => setActiveModal('cortadas')}
-        />
-        <StatCard
-          label="En Corte" value={loading ? '…' : enProceso.length}
-          sub="Actualmente en mesa de corte"
-          icon={<Scissors size={20} />}
-          onClick={() => setActiveModal('en_proceso')}
-        />
-        <StatCard
-          label="Pendientes" value={loading ? '…' : pendientes.length}
-          sub="Esperando inicio de corte"
-          icon={<AlertCircle size={20} />}
-          onClick={() => setActiveModal('pendientes')}
-        />
+      {/* Selector de Pestañas Premium */}
+      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginTop: '-0.5rem' }}>
+        <button
+          onClick={() => setAdminTab('overview')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.65rem 1.25rem', borderRadius: '10px',
+            border: 'none', cursor: 'pointer',
+            fontSize: '0.85rem', fontWeight: '800',
+            backgroundColor: adminTab === 'overview' ? 'var(--primary)' : 'transparent',
+            color: adminTab === 'overview' ? 'white' : 'var(--text-muted)',
+            transition: 'all 0.15s ease',
+            boxShadow: adminTab === 'overview' ? '0 2px 8px rgba(99,102,241,0.25)' : 'none',
+          }}
+        >
+          <BarChart2 size={16} /> Vista General
+        </button>
+        <button
+          onClick={() => setAdminTab('comparison')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.65rem 1.25rem', borderRadius: '10px',
+            border: 'none', cursor: 'pointer',
+            fontSize: '0.85rem', fontWeight: '800',
+            backgroundColor: adminTab === 'comparison' ? 'var(--primary)' : 'transparent',
+            color: adminTab === 'comparison' ? 'white' : 'var(--text-muted)',
+            transition: 'all 0.15s ease',
+            boxShadow: adminTab === 'comparison' ? '0 2px 8px rgba(99,102,241,0.25)' : 'none',
+          }}
+        >
+          <TrendingUp size={16} /> Planeado vs Real (Cortes)
+        </button>
       </div>
 
-      {/* ── Charts Row ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+      {adminTab === 'overview' ? (
+        <>
+          {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
+          <div className="dashboard-grid">
+            <StatCard
+              label="Órdenes Totales" value={loading ? '…' : total}
+              sub={`${total} órdenes en el sistema`}
+              icon={<Package size={20} />} primary
+              onClick={() => setActiveModal('total')}
+            />
+            <StatCard
+              label="Órdenes Cortadas" value={loading ? '…' : cortadas.length}
+              sub={`${total > 0 ? Math.round((cortadas.length / total) * 100) : 0}% del total completado`}
+              icon={<CheckCircle2 size={20} />}
+              onClick={() => setActiveModal('cortadas')}
+            />
+            <StatCard
+              label="En Corte" value={loading ? '…' : enProceso.length}
+              sub="Actualmente en mesa de corte"
+              icon={<Scissors size={20} />}
+              onClick={() => setActiveModal('en_proceso')}
+            />
+            <StatCard
+              label="Pendientes" value={loading ? '…' : pendientes.length}
+              sub="Esperando inicio de corte"
+              icon={<AlertCircle size={20} />}
+              onClick={() => setActiveModal('pendientes')}
+            />
+          </div>
 
-        {/* Bar Chart */}
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <div>
-              <h3 style={{ margin: 0 }}>Órdenes por Mes</h3>
-              <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Órdenes creadas en los últimos meses</p>
-            </div>
-            <BarChart2 size={20} color="var(--primary)" />
-          </div>
-          <div style={{ height: '240px', width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData.length > 0 ? barData : [{ name: 'Sin datos', value: 0 }]}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 700 }} />
-                <YAxis hide allowDecimals={false} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(99,102,241,0.06)' }}
-                  contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
-                />
-                <Bar dataKey="value" fill="var(--primary)" radius={[6, 6, 0, 0]} barSize={36} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+          {/* ── Charts Row ──────────────────────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
 
-        {/* Pie Chart */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ alignSelf: 'flex-start', marginBottom: '1rem', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 style={{ margin: 0 }}>Estado de Órdenes</h3>
-              <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Distribución actual</p>
-            </div>
-          </div>
-          <div style={{ height: '180px', width: '100%', position: 'relative' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%" cy="50%"
-                  innerRadius={55} outerRadius={78}
-                  paddingAngle={4} dataKey="value"
-                >
-                  {pieData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-              <p style={{ fontSize: '1.6rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>{total}</p>
-              <p style={{ fontSize: '0.6rem', color: '#64748b', margin: 0, fontWeight: '700', textTransform: 'uppercase' }}>Total</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem', width: '100%' }}>
-            {pieData.map((entry, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[i] }} />
-                  <span style={{ color: '#475569', fontWeight: '600' }}>{entry.name}</span>
+            {/* Bar Chart */}
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Órdenes por Mes</h3>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Órdenes creadas en los últimos meses</p>
                 </div>
-                <span style={{ fontWeight: '800', color: '#1e293b' }}>{entry.value}</span>
+                <BarChart2 size={20} color="var(--primary)" />
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+              <div style={{ height: '240px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={barData.length > 0 ? barData : [{ name: 'Sin datos', value: 0 }]}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 700 }} />
+                    <YAxis hide allowDecimals={false} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
+                      contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
+                    />
+                    <Bar dataKey="value" fill="var(--primary)" radius={[6, 6, 0, 0]} barSize={36} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-      {/* ── Últimas Órdenes ─────────────────────────────────────────────────── */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <div>
-            <h3 style={{ margin: 0 }}>Últimas Órdenes</h3>
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Las 5 órdenes más recientes</p>
-          </div>
-          <Link href="/cutting" style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            Ver todas <ArrowUpRight size={14} />
-          </Link>
-        </div>
-
-        {loading ? (
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Cargando órdenes…</p>
-        ) : orders.length === 0 ? (
-          <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem', fontSize: '0.85rem' }}>No hay órdenes aún.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            {orders.slice(0, 5).map(order => {
-              const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['Planeada'];
-              return (
-                <Link key={order.id} href={`/cutting/${order.id}`} style={{ textDecoration: 'none' }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '1rem',
-                    padding: '0.85rem 1.1rem', borderRadius: '10px',
-                    border: '1.5px solid #f1f5f9', backgroundColor: '#fafafa',
-                    cursor: 'pointer', transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = '#6366f1';
-                    (e.currentTarget as HTMLElement).style.backgroundColor = '#f8f7ff';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.borderColor = '#f1f5f9';
-                    (e.currentTarget as HTMLElement).style.backgroundColor = '#fafafa';
-                  }}
-                  >
-                    <div style={{ width: '36px', height: '36px', borderRadius: '999px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Scissors size={16} color="#6366f1" />
+            {/* Pie Chart */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ alignSelf: 'flex-start', marginBottom: '1rem', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Estado de Órdenes</h3>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Distribución actual</p>
+                </div>
+              </div>
+              <div style={{ height: '180px', width: '100%', position: 'relative' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%" cy="50%"
+                      innerRadius={55} outerRadius={78}
+                      paddingAngle={4} dataKey="value"
+                    >
+                      {pieData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+                  <p style={{ fontSize: '1.6rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>{total}</p>
+                  <p style={{ fontSize: '0.6rem', color: '#64748b', margin: 0, fontWeight: '700', textTransform: 'uppercase' }}>Total</p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem', width: '100%' }}>
+                {pieData.map((entry, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[i] }} />
+                      <span style={{ color: '#475569', fontWeight: '600' }}>{entry.name}</span>
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontWeight: '800', fontSize: '0.875rem', color: '#1e293b' }}>
-                          OC-{order.internal_code}
-                        </span>
-                        <span style={{
-                          fontSize: '0.65rem', fontWeight: '800',
-                          padding: '2px 7px', borderRadius: '5px',
-                          backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
-                        }}>
-                          {cfg.label}
-                        </span>
-                      </div>
-                      <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', fontWeight: '600', marginTop: '0.15rem' }}>
-                        {order.cortador_name ? `✂ ${order.cortador_name}` : 'Sin cortador asignado'}
-                        {order.scheduled_date && ` · 📅 ${order.scheduled_date}`}
-                      </p>
-                    </div>
-                    <Clock size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: '800', color: '#1e293b' }}>{entry.value}</span>
                   </div>
-                </Link>
-              );
-            })}
+                ))}
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* ── Últimas Órdenes ─────────────────────────────────────────────────── */}
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Últimas Órdenes</h3>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Las 5 órdenes más recientes</p>
+              </div>
+              <Link href="/cutting" style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                Ver todas <ArrowUpRight size={14} />
+              </Link>
+            </div>
+
+            {loading ? (
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Cargando órdenes…</p>
+            ) : orders.length === 0 ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem', fontSize: '0.85rem' }}>No hay órdenes aún.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                {orders.slice(0, 5).map(order => {
+                  const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['Planeada'];
+                  return (
+                    <Link key={order.id} href={`/cutting/${order.id}`} style={{ textDecoration: 'none' }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '1rem',
+                        padding: '0.85rem 1.1rem', borderRadius: '10px',
+                        border: '1.5px solid #f1f5f9', backgroundColor: '#fafafa',
+                        cursor: 'pointer', transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLElement).style.borderColor = '#6366f1';
+                        (e.currentTarget as HTMLElement).style.backgroundColor = '#f8f7ff';
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLElement).style.borderColor = '#f1f5f9';
+                        (e.currentTarget as HTMLElement).style.backgroundColor = '#fafafa';
+                      }}
+                      >
+                        <div style={{ width: '36px', height: '36px', borderRadius: '999px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Scissors size={16} color="#6366f1" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontWeight: '800', fontSize: '0.875rem', color: '#1e293b' }}>
+                              OC-{order.internal_code}
+                            </span>
+                            <span style={{
+                              fontSize: '0.65rem', fontWeight: '800',
+                              padding: '2px 7px', borderRadius: '5px',
+                              backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+                            }}>
+                              {cfg.label}
+                            </span>
+                          </div>
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', fontWeight: '600', marginTop: '0.15rem' }}>
+                            {order.cortador_name ? `✂ ${order.cortador_name}` : 'Sin cortador asignado'}
+                            {order.scheduled_date && ` · 📅 ${order.scheduled_date}`}
+                          </p>
+                        </div>
+                        <Clock size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Tab de Comparación */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          {/* Filtros de comparación */}
+          <div className="card" style={{ padding: '1.25rem 1.5rem', display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-end', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1, minWidth: '200px' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Filtrar por Prenda / Referencia</span>
+              <select
+                value={compProductId}
+                onChange={e => setCompProductId(e.target.value)}
+                style={{ padding: '0.6rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750', color: '#0f172a', backgroundColor: 'white' }}
+              >
+                <option value="all">Todas las referencias</option>
+                {productsList.map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre_producto}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', width: '160px' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha Inicio</span>
+              <input
+                type="date"
+                value={compStartDate}
+                onChange={e => setCompStartDate(e.target.value)}
+                style={{ padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', color: '#0f172a', width: '100%' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', width: '160px' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha Fin</span>
+              <input
+                type="date"
+                value={compEndDate}
+                onChange={e => setCompEndDate(e.target.value)}
+                style={{ padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', color: '#0f172a', width: '100%' }}
+              />
+            </div>
+
+            <button
+              onClick={() => {
+                setCompProductId('all');
+                setCompStartDate('');
+                setCompEndDate('');
+              }}
+              style={{
+                padding: '0.65rem 1.25rem', borderRadius: '10px',
+                border: '1.5px solid #cbd5e1', cursor: 'pointer',
+                fontSize: '0.85rem', fontWeight: '800',
+                backgroundColor: 'white', color: '#475569',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Limpiar Filtros
+            </button>
+          </div>
+
+          {/* Comparativa KPI Cards */}
+          {(() => {
+            let totalPl = 0;
+            let totalRl = 0;
+            let totalKilosPl = 0;
+            let totalKilosRl = 0;
+            let totalMetrosPl = 0;
+            let totalMetrosRl = 0;
+
+            // Listado plano de filas para la tabla
+            const allRows: any[] = [];
+
+            // Top acumuladores
+            const categoryQtyMap: Record<string, number> = {};
+            const productQtyMap: Record<string, number> = {};
+
+            filteredCompOrders.forEach(order => {
+              (order.cuts || []).forEach(cut => {
+                const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+                const prodName = prod ? prod.nombre_producto : 'Referencia';
+                const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+                const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.name || 'Sin Categoría') : 'Sin Categoría';
+                const fabricName = (order.fabrics as any)?.nombre_tela || 'Tela Externa';
+
+                const planned = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+                
+                const layersProyec = cut.layers || 1;
+                const layersProduced = cut.layers_produced > 0 ? cut.layers_produced : (order.status === 'Cortado' ? layersProyec : 0);
+                const real = Math.round(planned * (layersProyec > 0 ? layersProduced / layersProyec : 0));
+
+                const kPl = Number(cut.consumo_estimado) || Number(cut.kilos) || 0;
+                const kRl = Number(cut.kilos) || 0;
+
+                const mPl = Number(cut.stroke_length || 0) * Number(cut.layers || 0);
+                const mRl = Number(cut.stroke_length || 0) * layersProduced;
+
+                totalPl += planned;
+                totalRl += real;
+                totalKilosPl += kPl;
+                totalKilosRl += kRl;
+                totalMetrosPl += mPl;
+                totalMetrosRl += mRl;
+
+                // Acumular Tops
+                categoryQtyMap[categoryName] = (categoryQtyMap[categoryName] || 0) + real;
+                productQtyMap[prodName] = (productQtyMap[prodName] || 0) + real;
+
+                allRows.push({
+                  code: `OC-${order.internal_code}`,
+                  productName: prodName,
+                  fabricName: fabricName,
+                  planned,
+                  real,
+                  kPl,
+                  kRl,
+                  mPl,
+                  mRl,
+                  efficiency: planned > 0 ? (real / planned) * 100 : 0,
+                  orderId: order.id,
+                  cutId: cut.id
+                });
+              });
+            });
+
+            // Entregas reales del taller aprobadas en calidad en ese período
+            const matchingWorkshops = activeWorkshopId === 'all' 
+              ? workshops 
+              : workshops.filter(w => String(w.id) === String(activeWorkshopId));
+            
+            let totalPrendasProyectadas = 0;
+            let totalPrendasEntregadas = 0;
+
+            matchingWorkshops.forEach(currentWs => {
+              const wsSewingOrders = sewingOrdersList.filter(so => 
+                String(so.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim()
+              );
+              wsSewingOrders.forEach(so => {
+                totalPrendasProyectadas += (so.cantidad_planeada || 0);
+              });
+
+              const wsInsps = inspections.filter(i => 
+                (i.workshop_name || '').toLowerCase().trim() === (currentWs.nombre_taller || '').toLowerCase().trim()
+              );
+              wsInsps.forEach(i => {
+                totalPrendasEntregadas += (i.items_approved || 0);
+              });
+            });
+
+            // Paginación
+            const itemsPerPage = 25;
+            const totalPages = Math.ceil(allRows.length / itemsPerPage) || 1;
+            const currentPage = Math.min(compPage, totalPages);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const paginatedRows = allRows.slice(startIndex, endIndex);
+
+            // Tops ordenados
+            const topCategories = Object.entries(categoryQtyMap)
+              .map(([name, val]) => ({ name, value: val }))
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 10);
+
+            const topProducts = Object.entries(productQtyMap)
+              .map(([name, val]) => ({ name, value: val }))
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 10);
+
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
+                  {/* Card 1: Unidades de Corte */}
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #6366f1', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prendas Planeadas vs Cortadas</span>
+                    <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
+                      {totalRl.toLocaleString('es-CO')} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalPl.toLocaleString('es-CO')} uds</span>
+                    </h3>
+                    <p style={{ fontSize: '0.74rem', color: totalRl >= totalPl ? '#10b981' : '#ef4444', margin: 0, fontWeight: '800' }}>
+                      Eficiencia Corte: {totalPl > 0 ? (totalRl / totalPl * 100).toFixed(1) : '0'}%
+                    </p>
+                  </div>
+
+                  {/* Card 2: Confeccionadas vs Proyectadas */}
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #f59e0b', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Proyectado vs Entregado Satélite</span>
+                    <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
+                      {totalPrendasEntregadas.toLocaleString('es-CO')} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalPrendasProyectadas.toLocaleString('es-CO')} uds</span>
+                    </h3>
+                    <p style={{ fontSize: '0.74rem', color: '#f59e0b', margin: 0, fontWeight: '800' }}>
+                      Entregas Aprobadas: {totalPrendasProyectadas > 0 ? (totalPrendasEntregadas / totalPrendasProyectadas * 100).toFixed(1) : '0'}%
+                    </p>
+                  </div>
+
+                  {/* Card 3: Pesos de Tela (Kilos) */}
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #10b981', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Kilos Programados vs Reales</span>
+                    <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
+                      {totalKilosRl.toFixed(1)} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalKilosPl.toFixed(1)} kg</span>
+                    </h3>
+                    <p style={{ fontSize: '0.74rem', color: totalKilosRl > totalKilosPl ? '#ef4444' : '#10b981', margin: 0, fontWeight: '800' }}>
+                      Desviación: {(totalKilosRl - totalKilosPl).toFixed(1)} kg ({totalKilosPl > 0 ? (totalKilosRl / totalKilosPl * 100).toFixed(1) : '0'}%)
+                    </p>
+                  </div>
+
+                  {/* Card 4: Metros de Tela */}
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #06b6d4', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Metros Planificados vs Cortados</span>
+                    <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
+                      {totalMetrosRl.toFixed(1)} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalMetrosPl.toFixed(1)} m</span>
+                    </h3>
+                    <p style={{ fontSize: '0.74rem', color: totalMetrosRl > totalMetrosPl ? '#ef4444' : '#10b981', margin: 0, fontWeight: '800' }}>
+                      Diferencia Metraje: {(totalMetrosRl - totalMetrosPl).toFixed(1)} m
+                    </p>
+                  </div>
+                </div>
+
+                {/* Gráficas Comparativas */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', marginTop: '0.5rem' }}>
+                  {/* Gráfica de barras de Referencias */}
+                  <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <h3 style={{ margin: 0 }}>Rendimiento de Prendas por Referencia</h3>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Prendas planeadas frente a prendas reales cortadas</p>
+                    </div>
+                    <div style={{ height: '280px', width: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={comparisonChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
+                          <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.08)' }} />
+                          <Bar dataKey="planeado" fill="#818cf8" radius={[4, 4, 0, 0]} name="Planeado" />
+                          <Bar dataKey="real" fill="#34d399" radius={[4, 4, 0, 0]} name="Ejecutado" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Gráfica de líneas de Cumplimiento */}
+                  <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <h3 style={{ margin: 0 }}>Cumplimiento en el Tiempo</h3>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Evolución de planeación vs ejecución real de cortes</p>
+                    </div>
+                    <div style={{ height: '280px', width: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={lineChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
+                          <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.08)' }} />
+                          <Line type="monotone" dataKey="planeado" stroke="#818cf8" strokeWidth={3} dot={{ r: 4 }} name="Planeado" />
+                          <Line type="monotone" dataKey="real" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Ejecutado" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sección de Tops 10 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                  {/* Top 10 Categorías de Producto */}
+                  <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '0.95rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '1.1rem' }}>🏷️</span> Top 10 Categorías Producidas
+                      <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', backgroundColor: '#ede9fe', padding: '2px 8px', borderRadius: '20px', marginLeft: '0.25rem' }}>uds reales</span>
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {topCategories.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>Sin datos de categorías.</p>
+                      ) : topCategories.map((item, idx) => {
+                        const catColors = ['#6366f1','#8b5cf6','#a78bfa','#7c3aed','#4f46e5','#6d28d9','#818cf8','#7e22ce','#5b21b6','#4338ca'];
+                        const barColor = catColors[idx % catColors.length];
+                        const maxVal = topCategories[0].value;
+                        return (
+                          <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', fontWeight: '700' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span style={{ width: '18px', height: '18px', borderRadius: '4px', backgroundColor: barColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: 'white', fontWeight: '900', flexShrink: 0 }}>{idx + 1}</span>
+                                <span style={{ color: '#1e293b', fontWeight: '800' }}>{item.name}</span>
+                              </div>
+                              <span style={{ color: barColor, fontWeight: '900' }}>{item.value.toLocaleString('es-CO')} uds</span>
+                            </div>
+                            <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
+                              <div style={{ width: `${maxVal > 0 ? (item.value / maxVal * 100) : 0}%`, height: '100%', background: `linear-gradient(90deg, ${barColor}, ${barColor}99)`, borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Top 10 Productos Producidos */}
+                  <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.95rem', fontWeight: '900' }}>⭐ Top 10 de Productos Producidos (uds reales)</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {topProducts.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>Sin datos de productos.</p>
+                      ) : topProducts.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: '700' }}>
+                            <span style={{ color: '#475569' }}>{idx + 1}. {item.name}</span>
+                            <span style={{ color: '#1e293b', fontWeight: '800' }}>{item.value.toLocaleString('es-CO')} uds</span>
+                          </div>
+                          <div style={{ height: '8px', borderRadius: '4px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
+                            <div style={{ width: `${topProducts[0].value > 0 ? (item.value / topProducts[0].value * 100) : 0}%`, height: '100%', backgroundColor: '#10b981', borderRadius: '4px' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tabla de Detalle Comparativo con Paginación */}
+                <div className="card" style={{ padding: 0, borderRadius: '18px', overflow: 'hidden', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.01)' }}>
+                  <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: '#0f172a' }}>Listado Comparativo de Lotes de Corte</h3>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>Total: {allRows.length} registros</span>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '850', color: '#475569' }}>Código</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '850', color: '#475569' }}>Referencia</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'left', fontWeight: '850', color: '#475569' }}>Tela</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Prendas (Pl vs Rl)</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Kilos (Pl vs Rl)</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Metros (Pl vs Rl)</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '850', color: '#475569' }}>Desviación</th>
+                          <th style={{ padding: '0.85rem 1.25rem', textAlign: 'center', fontWeight: '850', color: '#475569' }}>Eficiencia</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedRows.length === 0 ? (
+                          <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>No hay datos que coincidan con los filtros.</td></tr>
+                        ) : paginatedRows.map((row, idx) => {
+                          const diffQtyVal = row.real - row.planned;
+                          return (
+                            <tr key={`${row.cutId}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#4f46e5' }}>{row.code}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#1e293b' }}>{row.productName}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', color: '#475569', fontWeight: '600' }}>{row.fabricName}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '700' }}>
+                                {row.real.toLocaleString('es-CO')} <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>/ {row.planned.toLocaleString('es-CO')}</span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '700' }}>
+                                {row.kRl.toFixed(1)} <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>/ {row.kPl.toFixed(1)} kg</span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '700' }}>
+                                {row.mRl.toFixed(1)} <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>/ {row.mPl.toFixed(1)} m</span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '800', color: diffQtyVal < 0 ? '#ef4444' : '#10b981' }}>
+                                {diffQtyVal >= 0 ? `+${diffQtyVal}` : diffQtyVal} uds
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', textAlign: 'center' }}>
+                                <span style={{
+                                  fontSize: '0.72rem', padding: '0.2rem 0.55rem', borderRadius: '6px', fontWeight: '800',
+                                  backgroundColor: row.efficiency >= 100 ? '#ecfdf5' : '#fff1f2',
+                                  color: row.efficiency >= 100 ? '#15803d' : '#9f1239'
+                                }}>
+                                  {row.efficiency.toFixed(0)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Paginador */}
+                  {totalPages > 1 && (
+                    <div style={{ padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <button
+                        disabled={currentPage === 1}
+                        onClick={() => setCompPage(p => Math.max(1, p - 1))}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1',
+                          backgroundColor: currentPage === 1 ? '#f1f5f9' : 'white',
+                          color: currentPage === 1 ? '#94a3b8' : '#475569',
+                          fontWeight: '800', cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        Anterior
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '750' }}>
+                        Página {currentPage} de {totalPages}
+                      </span>
+                      <button
+                        disabled={currentPage === totalPages}
+                        onClick={() => setCompPage(p => Math.min(totalPages, p + 1))}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1',
+                          backgroundColor: currentPage === totalPages ? '#f1f5f9' : 'white',
+                          color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                          fontWeight: '800', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* ── Detail Modal ─────────────────────────────────────────────────────── */}
       {activeModal && (
@@ -1488,6 +3194,42 @@ export default function Dashboard() {
           onClose={() => setActiveModal(null)}
         />
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .print-only {
+          display: none;
+        }
+        @media print {
+          @page {
+            size: ${printMode === 'sticker' ? '100mm 100mm' : 'auto'};
+            margin: 0;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .printable-workshop-order, .printable-workshop-order * {
+            visibility: visible !important;
+          }
+          .printable-workshop-order {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            color: black !important;
+            background: white !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-only {
+            display: inline !important;
+          }
+        }
+      `}} />
     </div>
   );
 }

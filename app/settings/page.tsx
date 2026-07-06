@@ -268,7 +268,15 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     const formData = new FormData(e.target as HTMLFormElement);
-    const workshopVal = formData.get('workshop_id') as string;
+    
+    // Colectar checkboxes de edición
+    const editCheckboxes = document.getElementsByName('edit_workshop_ids_check');
+    const selectedEditWorkshopIds: string[] = [];
+    editCheckboxes.forEach((cb: any) => {
+      if (cb.checked) selectedEditWorkshopIds.push(cb.value);
+    });
+    const workshopVal = selectedEditWorkshopIds.join(',');
+
     const full_name = formData.get('full_name') as string;
     const role_id = formData.get('role_id') || null;
     const newPassword = formData.get('new_password') as string;
@@ -331,7 +339,15 @@ export default function SettingsPage() {
     const password = formData.get('password') as string;
     const full_name = formData.get('full_name') as string;
     const role_id = formData.get('role_id') as string;
-    const workshop_id_val = formData.get('workshop_id') as string;
+
+    // Colectar checkboxes de creación
+    const createCheckboxes = document.getElementsByName('workshop_ids_check');
+    const selectedCreateWorkshopIds: string[] = [];
+    createCheckboxes.forEach((cb: any) => {
+      if (cb.checked) selectedCreateWorkshopIds.push(cb.value);
+    });
+    const workshop_id_val = selectedCreateWorkshopIds.join(',');
+
     const cleanRoleId = role_id && role_id !== '' ? role_id : null;
     const cleanWorkshopId = workshop_id_val && workshop_id_val !== '' ? workshop_id_val : null;
 
@@ -562,7 +578,24 @@ export default function SettingsPage() {
                           </div>
                           <div>
                             <p style={{ fontWeight: '700' }}>{u.full_name}</p>
-                            <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{u.roles?.name || 'Invitado'}</span>
+                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
+                              <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{u.roles?.name || 'Invitado'}</span>
+                              {u.workshop_id && u.workshop_id !== '' && (() => {
+                                const wIds = u.workshop_id.split(',').map((id: string) => id.trim());
+                                const wNames = wIds.map((id: string) => {
+                                  const match = workshopsList.find(w => String(w.id) === id);
+                                  return match ? match.nombre_taller : null;
+                                }).filter(Boolean);
+                                if (wNames.length > 0) {
+                                  return (
+                                    <span style={{ fontSize: '0.7rem', backgroundColor: '#f3e8ff', color: '#7e22ce', padding: '2px 8px', borderRadius: '999px', fontWeight: '850' }}>
+                                      🏭 {wNames.join(', ')}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1148,15 +1181,24 @@ export default function SettingsPage() {
 
               {workshopsList.length > 0 && (
                 <div className="input-group">
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLER ASIGNADO <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
-                  <div style={{ position: 'relative' }}>
-                    <Factory size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                    <select name="workshop_id" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
-                      <option value="">Sin taller asignado...</option>
-                      {workshopsList.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
-                    </select>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLERES ASOCIADOS <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', backgroundColor: 'white' }}>
+                    {workshopsList.map(w => {
+                      return (
+                        <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600' }}>
+                          <input
+                            type="checkbox"
+                            value={w.id}
+                            name="workshop_ids_check"
+                            style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
+                          />
+                          🏭 {w.nombre_taller}
+                        </label>
+                      );
+                    })}
                   </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Solo necesario si el rol es "Taller". Vincula este usuario con el taller que gestionará.</p>
+                  <input type="hidden" name="workshop_id" id="create_workshop_ids_hidden" />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
                 </div>
               )}
 
@@ -1235,15 +1277,27 @@ export default function SettingsPage() {
 
               {workshopsList.length > 0 && (
                 <div className="input-group">
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLER ASIGNADO <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
-                  <div style={{ position: 'relative' }}>
-                    <Factory size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                    <select name="workshop_id" defaultValue={editingUser?.workshop_id || ''} style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
-                      <option value="">Sin taller asignado...</option>
-                      {workshopsList.map(w => <option key={w.id} value={w.id}>{w.nombre_taller}</option>)}
-                    </select>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLERES ASOCIADOS <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', backgroundColor: 'white' }}>
+                    {workshopsList.map(w => {
+                      const userWorkshopIds = (editingUser?.workshop_id || '').split(',').map((id: string) => id.trim());
+                      const isChecked = userWorkshopIds.includes(String(w.id));
+                      return (
+                        <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600' }}>
+                          <input
+                            type="checkbox"
+                            value={w.id}
+                            name="edit_workshop_ids_check"
+                            defaultChecked={isChecked}
+                            style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
+                          />
+                          🏭 {w.nombre_taller}
+                        </label>
+                      );
+                    })}
                   </div>
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Solo necesario si el rol es "Taller". Vincula este usuario con el taller que gestionará.</p>
+                  <input type="hidden" name="workshop_id" id="edit_workshop_ids_hidden" />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
                 </div>
               )}
 

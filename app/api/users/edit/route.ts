@@ -51,11 +51,18 @@ export async function POST(request: Request) {
       }
     }
 
-    // Build profiles update payload
+    // Update auth user metadata (where we can freely store workshop_id as text/comma list)
+    const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: { full_name, role_id, workshop_id }
+    });
+    if (metadataError) {
+      console.error('Error updating auth metadata:', metadataError.message);
+    }
+
+    // Build profiles update payload (excluding workshop_id to prevent UUID database errors)
     const updatePayload: any = {
       full_name,
       role_id: role_id || null,
-      workshop_id: workshop_id || null,
     };
     if (avatar_url !== undefined) {
       updatePayload.avatar_url = avatar_url;

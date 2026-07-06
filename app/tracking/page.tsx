@@ -93,35 +93,65 @@ export default function TrackingPage() {
           .eq('id', id)
           .single();
 
-        const totalQty = fullOrder?.cuts ? fullOrder.cuts.reduce((sum: number, c: any) => {
-          const layersProyec = c.layers || 1;
-          const layersProduced = c.layers_produced || 0;
-          return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
-            const qty = Number(cs.quantity) || 0;
-            const ppc = qty / layersProyec;
-            return s + Math.round(ppc * layersProduced);
-          }, 0);
-        }, 0) : 0;
+        const { data: childSewingOrders } = await supabase
+          .from('sewing_orders')
+          .select('*, workshops(nombre_taller)')
+          .eq('parent_order_id', id);
 
-        const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
+        if (childSewingOrders && childSewingOrders.length > 0) {
+          for (const so of childSewingOrders) {
+            const { data: existingInspections } = await supabase
+              .from('quality_inspections')
+              .select('id')
+              .eq('sewing_order_id', so.id);
 
-        const { data: existingInspections } = await supabase
-          .from('quality_inspections')
-          .select('id')
-          .eq('order_id', id);
+            if (!existingInspections || existingInspections.length === 0) {
+              const workshopName = so.workshops?.nombre_taller || 'Taller Satélite';
+              await supabase
+                .from('quality_inspections')
+                .insert([{
+                  order_id: id,
+                  sewing_order_id: so.id,
+                  workshop_name: workshopName,
+                  items_inspected: so.cantidad_planeada || 0,
+                  items_approved: 0,
+                  items_rejected: 0,
+                  status: 'Pendiente',
+                  notes: 'Creado automáticamente al recibir de confección.'
+                }]);
+            }
+          }
+        } else {
+          // Fallback to parent order if no child sewing orders exist
+          const totalQty = fullOrder?.cuts ? fullOrder.cuts.reduce((sum: number, c: any) => {
+            const layersProyec = c.layers || 1;
+            const layersProduced = c.layers_produced || 0;
+            return sum + (c.cut_sizes || []).reduce((s: number, cs: any) => {
+              const qty = Number(cs.quantity) || 0;
+              const ppc = qty / layersProyec;
+              return s + Math.round(ppc * layersProduced);
+            }, 0);
+          }, 0) : 0;
+          const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
 
-        if (!existingInspections || existingInspections.length === 0) {
-          await supabase
+          const { data: existingInspections } = await supabase
             .from('quality_inspections')
-            .insert([{
-              order_id: id,
-              workshop_name: workshopName,
-              items_inspected: totalQty,
-              items_approved: 0,
-              items_rejected: 0,
-              status: 'Pendiente',
-              notes: 'Creado automáticamente al recibir de confección.'
-            }]);
+            .select('id')
+            .eq('order_id', id);
+
+          if (!existingInspections || existingInspections.length === 0) {
+            await supabase
+              .from('quality_inspections')
+              .insert([{
+                order_id: id,
+                workshop_name: workshopName,
+                items_inspected: totalQty,
+                items_approved: 0,
+                items_rejected: 0,
+                status: 'Pendiente',
+                notes: 'Creado automáticamente al recibir de confección.'
+              }]);
+          }
         }
       }
 

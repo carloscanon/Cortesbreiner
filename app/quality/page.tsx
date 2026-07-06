@@ -7,10 +7,11 @@ import {
   Plus, X, Loader2, Save, ClipboardList, Package, ChevronDown, ChevronUp
 } from 'lucide-react';
 
-const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Reproceso', 'Rechazado'];
+const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado'];
 
 const EMPTY_FORM = {
   order_id: '',
+  sewing_order_id: '',
   workshop_name: '',
   items_inspected: '',
   items_approved: '',
@@ -42,6 +43,7 @@ const fetchAll = async (queryFn: () => any) => {
 
 export default function QualityPage() {
   const [inspections, setInspections] = useState<any[]>([]);
+  const [sewingOrders, setSewingOrders] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
@@ -64,7 +66,7 @@ export default function QualityPage() {
     supabase.from('sizes').select('*').order('orden_visual', { ascending: true }).then(({ data }) => setSizes(data || []));
     supabase.from('colors').select('*').then(({ data }) => setColors(data || []));
     fetchInspections();
-    fetchOrders();
+    fetchSewingOrders();
   }, []);
 
   const fetchInspections = async () => {
@@ -78,8 +80,14 @@ export default function QualityPage() {
           consecutive,
           internal_code,
           client_name,
-          brand,
-          workshops (nombre_taller)
+          brand
+        ),
+        sewing_orders (
+          id,
+          confeccion_code,
+          workshops (
+            nombre_taller
+          )
         )
       `)
       .order('created_at', { ascending: false });
@@ -87,29 +95,119 @@ export default function QualityPage() {
     setLoading(false);
   };
 
-  const fetchOrders = async () => {
+  const fetchSewingOrders = async () => {
     const { data } = await supabase
-      .from('orders')
-      .select('id, consecutive, internal_code, client_name, brand, workshops(nombre_taller)')
-      .order('consecutive', { ascending: false });
-    setOrders(data || []);
+      .from('sewing_orders')
+      .select(`
+        id,
+        confeccion_code,
+        parent_order_id,
+        orders (
+          id,
+          consecutive,
+          internal_code,
+          client_name,
+          brand
+        ),
+        workshops (
+          id,
+          nombre_taller
+        )
+      `)
+      .order('created_at', { ascending: false });
+    setSewingOrders(data || []);
   };
 
-  const fetchOrderDetail = async (orderId: string) => {
+  const fetchOrderDetail = async (id: string, isSewingOrder: boolean = true) => {
     setLoadingDetail(true);
     setOrderDetail(null);
-    const { data } = await supabase
-      .from('orders')
-      .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
-      .eq('id', orderId)
-      .single();
-    setOrderDetail(data);
+    if (isSewingOrder) {
+      const { data } = await supabase
+        .from('sewing_orders')
+        .select(`
+          *,
+          parent_order:orders(
+            *,
+            fabrics(nombre_tela),
+            workshops(nombre_taller, responsable),
+            cuts(
+              *,
+              cut_sizes(*)
+            )
+          ),
+          sewing_order_sizes(
+            *,
+            sizes(*)
+          ),
+          workshops(nombre_taller, responsable)
+        `)
+        .eq('id', id)
+        .single();
+      setOrderDetail(data);
+    } else {
+      const { data } = await supabase
+        .from('orders')
+        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
+        .eq('id', id)
+        .single();
+      setOrderDetail(data);
+    }
     setLoadingDetail(false);
   };
 
   // Build detail rows from order cuts
   const getDetailRows = (order: any) => {
-    if (!order?.cuts) return [];
+    if (!order) return [];
+
+    // Check if it is a sewing order (has sewing_order_sizes)
+    if (order.sewing_order_sizes) {
+      const sewingOrder = order;
+      const parent = sewingOrder.parent_order;
+      if (!parent || !parent.cuts) return [];
+
+      const rows: { key: string; productName: string; colorName: string; size: string; quantity: number }[] = [];
+      parent.cuts.forEach((cut: any) => {
+        // Only include cuts for this specific product
+        if (String(cut.product_id) !== String(sewingOrder.product_id)) return;
+
+        const prod = products.find(p => String(p.id) === String(cut.product_id));
+        const colorObj = colors.find(c => String(c.id) === String(cut.color_id));
+        const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
+        const productName = prod ? prod.nombre_producto : 'Sin Referencia';
+
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : (cs.size_code || 'S/T');
+
+          // Check if this size is assigned to this sewing order
+          const isAssigned = sewingOrder.sewing_order_sizes.some(
+            (sos: any) => String(sos.size_id) === String(cs.size_id) && (sos.cantidad_planeada || 0) > 0
+          );
+          if (!isAssigned) return;
+
+          let qty = 0;
+          if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+            qty = Number(cs.quantity_produced);
+          } else {
+            const proyecQty = Number(cs.quantity) || 0;
+            const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+            qty = Math.round(ppc * layersProduced);
+          }
+
+          if (qty > 0) {
+            const key = `${cut.id}_${cs.id}`;
+            rows.push({ key, productName, colorName, size: sz, quantity: qty });
+          }
+        });
+      });
+      return rows;
+    }
+
+    // Otherwise fallback to parent order
+    if (!order.cuts) return [];
     const rows: { key: string; productName: string; colorName: string; size: string; quantity: number }[] = [];
     order.cuts.forEach((cut: any) => {
       const prod = products.find(p => String(p.id) === String(cut.product_id));
@@ -150,10 +248,12 @@ export default function QualityPage() {
   };
 
   const handleSave = async () => {
-    if (!form.order_id) return alert('Selecciona una orden.');
+    if (!form.sewing_order_id && !form.order_id) return alert('Selecciona una orden.');
     setSaving(true);
 
-    const selectedOrder = orders.find(o => o.id === form.order_id);
+    const selectedSewingOrder = sewingOrders.find(so => so.id === form.sewing_order_id);
+    const parentOrderId = selectedSewingOrder ? selectedSewingOrder.parent_order_id : form.order_id;
+    const selectedOrder = orders.find(o => o.id === parentOrderId);
     const rows = getDetailRows(orderDetail);
     
     const lavVal = Number(form.lavanderia) || 0;
@@ -189,8 +289,9 @@ export default function QualityPage() {
     }
 
     const payload = {
-      order_id: form.order_id,
-      workshop_name: selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
+      order_id: parentOrderId || null,
+      sewing_order_id: form.sewing_order_id || null,
+      workshop_name: selectedSewingOrder?.workshops?.nombre_taller || selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
       items_inspected: Number(form.items_inspected) || 0,
       items_approved: finalApproved,
       items_rejected: finalRejected,
@@ -237,7 +338,8 @@ export default function QualityPage() {
   const openReview = async (item: any) => {
     setEditingId(item.id);
     setForm({
-      order_id: item.order_id,
+      order_id: item.order_id || '',
+      sewing_order_id: item.sewing_order_id || '',
       workshop_name: item.workshop_name || '',
       items_inspected: (item.items_inspected || 0).toString(),
       items_approved: (item.items_approved || 0).toString(),
@@ -252,21 +354,27 @@ export default function QualityPage() {
     setRowApproved({});
     setRowRejected({});
     setShowModal(true);
-    await fetchOrderDetail(item.order_id);
+    await fetchOrderDetail(item.sewing_order_id || item.order_id, !!item.sewing_order_id);
   };
 
   // KPIs
+  const pending = inspections.filter(i => i.status === 'Pendiente').length;
   const approved = inspections.filter(i => i.status === 'Aprobado').length;
+  const folded = inspections.filter(i => i.status === 'Doblado').length;
+  const packed = inspections.filter(i => i.status === 'Empacado').length;
   const rework = inspections.filter(i => i.status === 'Reproceso').length;
   const rejected = inspections.filter(i => i.status === 'Rechazado').length;
-  const pending = inspections.filter(i => i.status === 'Pendiente').length;
 
   const filtered = inspections.filter(i => {
-    const orderCode = i.orders?.internal_code
-      ? `OC-${i.orders.internal_code}`
-      : i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : '';
+    const orderCode = i.sewing_orders?.confeccion_code
+      || (i.orders?.internal_code
+        ? `OC-${i.orders.internal_code}`
+        : i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : '');
     const client = i.orders?.client_name || '';
-    const workshop = i.workshop_name || i.orders?.workshops?.nombre_taller || '';
+    const workshop = i.workshop_name 
+      || i.sewing_orders?.workshops?.nombre_taller 
+      || i.orders?.workshops?.nombre_taller 
+      || '';
     const matchSearch =
       orderCode.toLowerCase().includes(search.toLowerCase()) ||
       client.toLowerCase().includes(search.toLowerCase()) ||
@@ -281,6 +389,7 @@ export default function QualityPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+      
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -303,20 +412,22 @@ export default function QualityPage() {
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Pendientes', value: pending, color: '#3b82f6', icon: ClipboardList },
-          { label: 'Aprobados', value: approved, color: '#10b981', icon: CheckCircle2 },
+          { label: 'Pendientes', value: pending, color: '#64748b', icon: ClipboardList },
+          { label: 'Validados', value: approved, color: '#10b981', icon: CheckCircle2 },
+          { label: 'En Doblado', value: folded, color: '#3b82f6', icon: ClipboardCheck },
+          { label: 'En Empaque', value: packed, color: '#7c3aed', icon: Package },
           { label: 'En Reproceso', value: rework, color: '#f59e0b', icon: AlertCircle },
           { label: 'Rechazados', value: rejected, color: '#ef4444', icon: XCircle },
         ].map((k, i) => (
-          <div key={i} className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', border: `1px solid ${k.color}25`, borderRadius: '16px' }}>
-            <div style={{ padding: '0.875rem', backgroundColor: `${k.color}15`, color: k.color, borderRadius: '14px', flexShrink: 0 }}>
-              <k.icon size={22} />
+          <div key={i} className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', border: `1px solid ${k.color}25`, borderRadius: '16px' }}>
+            <div style={{ padding: '0.75rem', backgroundColor: `${k.color}15`, color: k.color, borderRadius: '12px', flexShrink: 0 }}>
+              <k.icon size={18} />
             </div>
             <div>
-              <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k.label}</p>
-              <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.1rem 0', color: k.color }}>{k.value}</h3>
+              <p style={{ fontSize: '0.625rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{k.label}</p>
+              <h3 style={{ fontSize: '1.5rem', fontWeight: '950', margin: '0.1rem 0 0', color: k.color }}>{k.value}</h3>
             </div>
           </div>
         ))}
@@ -356,12 +467,16 @@ export default function QualityPage() {
               <ClipboardList size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
               <p>No hay inspecciones registradas.</p>
             </div>
-          ) : filtered.map(item => {
-            const orderCode = item.orders?.internal_code
-              ? `OC-${item.orders.internal_code}`
-              : item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—';
+                    ) : filtered.map(item => {
+            const orderCode = item.sewing_orders?.confeccion_code
+              || (item.orders?.internal_code
+                ? `OC-${item.orders.internal_code}`
+                : item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
             const client = item.orders?.client_name || '—';
-            const workshop = item.workshop_name || item.orders?.workshops?.nombre_taller || '—';
+            const workshop = item.workshop_name 
+              || item.sewing_orders?.workshops?.nombre_taller 
+              || item.orders?.workshops?.nombre_taller 
+              || '—';
             const date = item.created_at ? new Date(item.created_at).toLocaleDateString('es-CO') : '—';
             const statusColor = item.status === 'Aprobado' ? { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' }
               : item.status === 'Reproceso' ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
@@ -451,8 +566,10 @@ export default function QualityPage() {
                 </p>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: '950', color: 'white', margin: '0.25rem 0 0' }}>
                   {orderDetail
-                    ? `OC-${orderDetail.internal_code || orderDetail.consecutive} — ${orderDetail.client_name}`
-                    : 'Selecciona una orden para revisar'}
+                    ? orderDetail.confeccion_code
+                      ? `${orderDetail.confeccion_code} — ${orderDetail.parent_order?.client_name}`
+                      : `OC-${orderDetail.internal_code || orderDetail.consecutive} — ${orderDetail.client_name}`
+                    : 'Selecciona una orden de confección para revisar'}
                 </h2>
               </div>
               <button onClick={closeModal} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem' }}>
@@ -466,40 +583,46 @@ export default function QualityPage() {
               {/* Order selector (only when creating new) */}
               {!editingId && (
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem', color: '#374151' }}>Orden de Corte *</label>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem', color: '#374151' }}>Orden de Confección *</label>
                   <select
                     style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }}
-                    value={form.order_id}
+                    value={form.sewing_order_id}
                     onChange={async e => {
-                      setForm({ ...form, order_id: e.target.value });
-                      if (e.target.value) await fetchOrderDetail(e.target.value);
+                      setForm({ ...form, sewing_order_id: e.target.value });
+                      if (e.target.value) await fetchOrderDetail(e.target.value, true);
                       else setOrderDetail(null);
                     }}
                   >
-                    <option value="">Seleccionar Orden...</option>
-                    {orders.map(o => (
-                      <option key={o.id} value={o.id}>
-                        OC-{o.internal_code || o.consecutive?.toString().padStart(4, '0')} — {o.client_name} ({o.workshops?.nombre_taller || 'Sin taller'})
+                    <option value="">Seleccionar Orden de Confección...</option>
+                    {sewingOrders.map(so => (
+                      <option key={so.id} value={so.id}>
+                        {so.confeccion_code} — {so.orders?.client_name} ({so.workshops?.nombre_taller || 'Sin taller'})
                       </option>
                     ))}
                   </select>
                 </div>
               )}
 
-              {/* Order context info when editing */}
-              {editingId && orderDetail && (
+              {/* Order context info when editing or detail loaded */}
+              {orderDetail && (
                 <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
                   <div>
                     <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase' }}>Taller</p>
-                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>{orderDetail.workshops?.nombre_taller || '—'}</p>
+                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>
+                      {orderDetail.workshops?.nombre_taller || orderDetail.parent_order?.workshops?.nombre_taller || '—'}
+                    </p>
                   </div>
                   <div>
                     <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase' }}>Cliente</p>
-                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>{orderDetail.client_name}</p>
+                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>
+                      {orderDetail.parent_order?.client_name || orderDetail.client_name || '—'}
+                    </p>
                   </div>
                   <div>
                     <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase' }}>Tela</p>
-                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>{orderDetail.fabrics?.nombre_tela || '—'}</p>
+                    <p style={{ fontWeight: '800', fontSize: '0.9rem' }}>
+                      {orderDetail.parent_order?.fabrics?.nombre_tela || orderDetail.fabrics?.nombre_tela || '—'}
+                    </p>
                   </div>
                   <div>
                     <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase' }}>Total Esperado</p>

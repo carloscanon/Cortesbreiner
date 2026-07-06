@@ -39,6 +39,7 @@ export default function SewingPage() {
   const [sizesMaster, setSizesMaster] = useState<any[]>([]);
   const [colorsMaster, setColorsMaster] = useState<any[]>([]);
   const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
+  const [sewingOrders, setSewingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -54,6 +55,7 @@ export default function SewingPage() {
   const [workshopNotes, setWorkshopNotes] = useState('');
   const [rowWorkshops, setRowWorkshops] = useState<Record<string, string>>({}); // key is catId_size, value is workshopId
   const [cutAccessories, setCutAccessories] = useState<Record<string, { accId: string; qty: string }[]>>({}); // key is cutId, value is list of accessories
+  const [specialRates, setSpecialRates] = useState<Record<string, string>>({}); // key is workshopId_productId, value is special rate string
 
   // Inline inputs for cut accessories
   const [inlineAccId, setInlineAccId] = useState<Record<string, string>>({}); // cutId -> accId
@@ -62,8 +64,10 @@ export default function SewingPage() {
   // Print state variables
   const [printOrder, setPrintOrder] = useState<any>(null);
   const [printWorkshop, setPrintWorkshop] = useState<any>(null);
+  const [printSewingOrder, setPrintSewingOrder] = useState<any>(null); // sewing_order seleccionado para imprimir
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [customGafetes, setCustomGafetes] = useState<Record<string, string>>({});
+  const [printMode, setPrintMode] = useState<'report' | 'sticker'>('report');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -79,7 +83,8 @@ export default function SewingPage() {
         { data: sizesData, error: sizesError },
         { data: colorsData, error: colorsError },
         productsList,
-        allProductAccs
+        allProductAccs,
+        { data: sewingOrdersData, error: sewingOrdersError }
       ] = await Promise.all([
         supabase
           .from('orders')
@@ -93,7 +98,8 @@ export default function SewingPage() {
         supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
         supabase.from('colors').select('*'),
         fetchAll(() => supabase.from('products').select('*')),
-        fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'))
+        fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')),
+        supabase.from('sewing_orders').select('*, parent_order:orders(*, fabrics(nombre_tela), cuts(*, cut_sizes(*))), products(*), workshops(*), sewing_order_sizes(*, sizes(*))')
       ]);
 
       if (ordersError) throw ordersError;
@@ -103,6 +109,7 @@ export default function SewingPage() {
       if (fabError) throw fabError;
       if (sizesError) throw sizesError;
       if (colorsError) throw colorsError;
+      if (sewingOrdersError) throw sewingOrdersError;
 
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
@@ -113,6 +120,7 @@ export default function SewingPage() {
       setSizesMaster(sizesData || []);
       setColorsMaster(colorsData || []);
       setProductAccessoriesList(allProductAccs || []);
+      setSewingOrders(sewingOrdersData || []);
     } catch (err: any) {
       console.error('Error:', err.message);
     } finally {
@@ -130,6 +138,7 @@ export default function SewingPage() {
     setCutAccessories({});
     setInlineAccId({});
     setInlineAccQty({});
+    setSpecialRates({});
   };
 
   // Add accessory to specific cut (Reference + Color)
@@ -556,12 +565,79 @@ export default function SewingPage() {
 
       // Try database insertion
       try {
-        await supabase.from('sewing_assignments').delete().eq('order_id', selectedOrder.id);
+        // Limpiar asignaciones previas
+        await supabase.from('sewing_orders').delete().eq('parent_order_id', selectedOrder.id);
         await supabase.from('sewing_accessories').delete().eq('order_id', selectedOrder.id);
 
-        if (assignmentsToInsert.length > 0) {
-          const { error: assDbErr } = await supabase.from('sewing_assignments').insert(assignmentsToInsert);
-          if (assDbErr) console.warn("DB assignments insert failed:", assDbErr.message);
+        // Agrupar asignaciones por (taller_id, producto_id)
+        const sewingOrdersMap: Record<string, {
+          workshopId: string;
+          productId: string;
+          cantidadPlaneada: number;
+          sizes: { sizeId: string; qty: number }[];
+          specialRate: number | null;
+        }> = {};
+
+        assignments.forEach(asg => {
+          const productId = asg.categoryId; // categoryId contiene realmente el product_id
+          const key = `${asg.wId}_${productId}`;
+          
+          const sizeObj = sizesMaster.find(s => String(s.codigo_talla).toLowerCase() === String(asg.size).toLowerCase());
+          const sizeId = sizeObj ? sizeObj.id : null;
+
+          const specialRate = specialRates[key] ? Number(specialRates[key]) : null;
+
+          if (!sewingOrdersMap[key]) {
+            sewingOrdersMap[key] = {
+              workshopId: asg.wId,
+              productId,
+              cantidadPlaneada: 0,
+              sizes: [],
+              specialRate
+            };
+          }
+
+          sewingOrdersMap[key].cantidadPlaneada += asg.qty;
+          if (sizeId) {
+            sewingOrdersMap[key].sizes.push({ sizeId, qty: asg.qty });
+          }
+        });
+
+        // Inicializar contador global de correlativos de confección
+        let displayIdx = 0;
+
+        const cleanCode = (selectedOrder.internal_code || '').replace(/^OC-?/i, '') || selectedOrder.consecutive || '—';
+
+        // Insertar cada orden de confección independiente
+        for (const lot of Object.values(sewingOrdersMap)) {
+          displayIdx++;
+          const confCode = `${cleanCode}-${displayIdx}`;
+
+          // Insertar en sewing_orders
+          const { data: insertedOrder, error: orderErr } = await supabase.from('sewing_orders').insert({
+            parent_order_id: selectedOrder.id,
+            confeccion_code: confCode,
+            workshop_id: lot.workshopId,
+            product_id: lot.productId,
+            status: 'En Confección',
+            cantidad_planeada: lot.cantidadPlaneada,
+            cantidad_confeccionada: 0,
+            tarifa_especial: lot.specialRate
+          }).select().single();
+
+          if (orderErr) throw orderErr;
+
+          // Insertar todas las tallas asociadas en sewing_order_sizes
+          if (insertedOrder && lot.sizes.length > 0) {
+            const sizesToInsert = lot.sizes.map(s => ({
+              sewing_order_id: insertedOrder.id,
+              size_id: s.sizeId,
+              cantidad_planeada: s.qty,
+              cantidad_confeccionada: 0
+            }));
+            const { error: sizesErr } = await supabase.from('sewing_order_sizes').insert(sizesToInsert);
+            if (sizesErr) console.warn("Error inserting sewing_order_sizes:", sizesErr.message);
+          }
         }
 
         if (accessoriesToInsert.length > 0) {
@@ -572,7 +648,7 @@ export default function SewingPage() {
         // ── MOVIMIENTOS DE INVENTARIO → estado: 'confeccion' ────────────────────────────
         await syncOrderMovements(selectedOrder.id, 'En Confección');
       } catch (dbErr: any) {
-        console.warn("DB operations failed (check schema):", dbErr.message);
+        console.warn("DB operations failed:", dbErr.message);
       }
       
       const orderWithAssignments = {
@@ -587,6 +663,47 @@ export default function SewingPage() {
       setShowPrintModal(true);
     } catch (err: any) {
       alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevertToCortado = async (order: any) => {
+    if (!window.confirm(`¿Seguro que deseas revertir el estado de la orden (OC-${(order.internal_code || '').replace(/^OC-?/i, '')}) a 'Cortado' y desasignar todos los talleres?`)) return;
+    
+    try {
+      setSaving(true);
+      
+      // Limpiar logs y metadatos JSON de las observaciones de la orden
+      let cleanObs = order.observaciones || '';
+      cleanObs = cleanObs.replace(/=== ENTRADA A CONFECCIÓN[\s\S]*?(?=\n\n|$)/g, '');
+      cleanObs = cleanObs.replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '');
+      cleanObs = cleanObs.trim();
+
+      // Cambiar estado principal en Supabase
+      const { error } = await supabase.from('orders').update({
+        status: 'Cortado',
+        workshop_id: null,
+        observaciones: cleanObs
+      }).eq('id', order.id);
+
+      if (error) throw error;
+
+      // Limpiar tablas relacionales
+      try {
+        await supabase.from('sewing_orders').delete().eq('parent_order_id', order.id);
+        await supabase.from('sewing_accessories').delete().eq('order_id', order.id);
+      } catch (dbErr) {
+        console.warn("DB assignments delete warning:", dbErr);
+      }
+
+      // Sincronizar movimientos de inventario a estado 'corte'
+      await syncOrderMovements(order.id, 'Cortado');
+
+      alert('La orden ha sido revertida a Cortado y los talleres han sido desasignados.');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al revertir la orden: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -755,18 +872,46 @@ export default function SewingPage() {
       const categoryName = categoryObj ? categoryObj.categoria : (prod ? (prod.categoria || 'Sin Categoría') : 'Sin Categoría');
       
       let colorObj = colorsMaster.find(c => String(c.id) === String(cut.color_id));
-      if (!colorObj && prod && prod.nombre_producto) {
-        const prodNameLower = prod.nombre_producto.toLowerCase();
-        colorObj = colorsMaster.find(c => {
-          if (!c.nombre_color) return false;
-          const firstWord = c.nombre_color.split(/[\s,]+/)[0].toLowerCase().trim();
-          return firstWord.length > 2 && prodNameLower.includes(firstWord);
-        });
-      }
-      const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+      let colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 
       const fabricObj = fabricsMaster.find(f => String(f.id) === String(cut.fabric_id));
-      const fabricName = fabricObj ? fabricObj.nombre_tela : '—';
+      let fabricName = fabricObj ? fabricObj.nombre_tela : '—';
+
+      // Si el color viene como 'Sin Color', intentar extraerlo del nombre de la tela
+      // Ej: "JABON/, CAFE 80431" -> Separar por comas, barras o espacios y buscar coincidencias con el maestro de colores
+      if ((!colorName || colorName === 'Sin Color' || !isNaN(Number(colorName))) && fabricName && fabricName !== '—') {
+        const fabricNameUpper = fabricName.toUpperCase();
+        
+        // Unir el maestro de colores de base de datos con un listado estático básico de respaldo (para asegurar detección de colores comunes)
+        const baseColorsList = [
+          'VERDE OLIVA', 'VERDE MILITAR', 'AZUL TURQUESA', 'AZUL REY', 'AZUL MARINO',
+          'VINO', 'CAFE', 'CAFÉ', 'CAMEL', 'VERDE', 'AZUL', 'ROJO', 'NEGRO', 'BLANCO',
+          'GRIS', 'AMARILLO', 'ROSA', 'BEIGE', 'HUESO', 'MOSTAZA', 'LILA', 'FUCSIA'
+        ];
+
+        const dbColors = (colorsMaster || []).map(c => c.nombre_color).filter(Boolean);
+        const combinedColorNames = Array.from(new Set([...dbColors, ...baseColorsList]))
+          .sort((a, b) => b.length - a.length);
+
+        const matchedColorName = combinedColorNames.find(color => {
+          const masterColorUpper = color.toUpperCase().trim();
+          // regex flexible que busca el color como palabra completa o aislado por espacios, comas o barras
+          const regex = new RegExp(`(?:^|[^A-ZÀ-ÿ])(${masterColorUpper})(?:$|[^A-ZÀ-ÿ])`, 'i');
+          return regex.test(fabricNameUpper);
+        });
+
+        if (matchedColorName) {
+          colorName = matchedColorName;
+          // Limpiar la tela para quitar la parte del color si es necesario o dejar la tela limpia
+          const regex = new RegExp(matchedColorName, 'gi');
+          fabricName = fabricName.replace(regex, '').replace(/[\s,\/]+$/, '').trim();
+        }
+      }
+
+      // Si por alguna razón el colorName sigue siendo un número o nulo, reestablecer a "Sin Color"
+      if (!colorName || !isNaN(Number(colorName)) || String(colorName).trim() === '') {
+        colorName = 'Sin Color';
+      }
 
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
@@ -831,32 +976,116 @@ export default function SewingPage() {
           .eq('id', id)
           .single();
 
-        const totalQty = fullOrder ? getTotalPrendas(fullOrder) : 0;
-        const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
+        const { data: childSewingOrders } = await supabase
+          .from('sewing_orders')
+          .select('*, workshops(nombre_taller)')
+          .eq('parent_order_id', id);
 
-        const { data: existingInspections } = await supabase
-          .from('quality_inspections')
-          .select('id')
-          .eq('order_id', id);
+        if (childSewingOrders && childSewingOrders.length > 0) {
+          for (const so of childSewingOrders) {
+            const { data: existingInspections } = await supabase
+              .from('quality_inspections')
+              .select('id')
+              .eq('sewing_order_id', so.id);
 
-        if (!existingInspections || existingInspections.length === 0) {
-          await supabase
+            if (!existingInspections || existingInspections.length === 0) {
+              const workshopName = so.workshops?.nombre_taller || 'Taller Satélite';
+              await supabase
+                .from('quality_inspections')
+                .insert([{
+                  order_id: id,
+                  sewing_order_id: so.id,
+                  workshop_name: workshopName,
+                  items_inspected: so.cantidad_planeada || 0,
+                  items_approved: 0,
+                  items_rejected: 0,
+                  status: 'Pendiente',
+                  notes: 'Creado automáticamente al recibir de confección.'
+                }]);
+            }
+          }
+        } else {
+          // Fallback to parent order if no child sewing orders exist
+          const totalQty = fullOrder ? getTotalPrendas(fullOrder) : 0;
+          const workshopName = fullOrder?.workshops?.nombre_taller || 'Taller Satélite';
+
+          const { data: existingInspections } = await supabase
             .from('quality_inspections')
-            .insert([{
-              order_id: id,
-              workshop_name: workshopName,
-              items_inspected: totalQty,
-              items_approved: 0,
-              items_rejected: 0,
-              status: 'Pendiente',
-              notes: 'Creado automáticamente al recibir de confección.'
-            }]);
+            .select('id')
+            .eq('order_id', id);
+
+          if (!existingInspections || existingInspections.length === 0) {
+            await supabase
+              .from('quality_inspections')
+              .insert([{
+                order_id: id,
+                workshop_name: workshopName,
+                items_inspected: totalQty,
+                items_approved: 0,
+                items_rejected: 0,
+                status: 'Pendiente',
+                notes: 'Creado automáticamente al recibir de confección.'
+              }]);
+          }
         }
       }
 
       fetchData();
     } catch (err: any) {
       alert('Error: ' + err.message);
+    }
+  };
+
+  const handleReceiveSewingOrder = async (so: any) => {
+    try {
+      // 1. Update status in sewing_orders table
+      const { error } = await supabase
+        .from('sewing_orders')
+        .update({ status: 'Terminada' })
+        .eq('id', so.id);
+      if (error) throw error;
+
+      // 2. Automatically create a quality inspection for this child order
+      const { data: existingInspections } = await supabase
+        .from('quality_inspections')
+        .select('id')
+        .eq('sewing_order_id', so.id);
+
+      if (!existingInspections || existingInspections.length === 0) {
+        const workshopName = so.workshops?.nombre_taller || 'Taller Satélite';
+        await supabase
+          .from('quality_inspections')
+          .insert([{
+            order_id: so.parent_order_id,
+            sewing_order_id: so.id,
+            workshop_name: workshopName,
+            items_inspected: so.cantidad_planeada || 0,
+            items_approved: 0,
+            items_rejected: 0,
+            status: 'Pendiente',
+            notes: 'Creado automáticamente al recibir de confección.'
+          }]);
+      }
+
+      // 3. Check if all sewing orders for this parent_order are 'Terminada'
+      // If so, update parent order status to 'Terminada'
+      const { data: siblingOrders } = await supabase
+        .from('sewing_orders')
+        .select('status')
+        .eq('parent_order_id', so.parent_order_id);
+
+      const allFinished = siblingOrders && siblingOrders.every(s => s.status === 'Terminada');
+      if (allFinished) {
+        await supabase
+          .from('orders')
+          .update({ status: 'Terminada' })
+          .eq('id', so.parent_order_id);
+      }
+
+      // Refresh data
+      fetchData();
+    } catch (err: any) {
+      alert('Error al recibir de taller: ' + err.message);
     }
   };
 
@@ -901,16 +1130,50 @@ export default function SewingPage() {
     }, 0);
   };
 
-  const filtered = orders.filter(o => {
+  // Paginación local para la tabla principal (10 en 10)
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Cortadas son las órdenes padre que están listas para iniciar
+  const parentFiltered = orders.filter(o => {
     const matchSearch = (o.internal_code || '').toLowerCase().includes(search.toLowerCase()) ||
                         (o.client_name || '').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' ? true : o.status === filterStatus;
+    return matchSearch;
+  });
+  const cortadas = parentFiltered.filter(o => o.status === 'Cortado');
+
+  // Filtrado de las órdenes de confección (hijas) para la tabla y contadores
+  const filteredSewingOrders = sewingOrders.filter(so => {
+    const parentCode = so.parent_order?.internal_code || '';
+    const consecutive = so.parent_order?.consecutive?.toString() || '';
+    const client = so.parent_order?.client_name || '';
+    const code = so.confeccion_code || '';
+    const workshop = so.workshops?.nombre_taller || '';
+    const ref = so.products?.nombre_producto || '';
+    
+    const matchSearch = 
+      parentCode.toLowerCase().includes(search.toLowerCase()) ||
+      consecutive.toLowerCase().includes(search.toLowerCase()) ||
+      client.toLowerCase().includes(search.toLowerCase()) ||
+      code.toLowerCase().includes(search.toLowerCase()) ||
+      ref.toLowerCase().includes(search.toLowerCase()) ||
+      workshop.toLowerCase().includes(search.toLowerCase());
+
+    const matchStatus = filterStatus === 'all' ? true : so.status === filterStatus;
     return matchSearch && matchStatus;
   });
 
-  const cortadas = filtered.filter(o => o.status === 'Cortado');
-  const enConfeccion = filtered.filter(o => o.status === 'En Confección');
-  const terminadas = filtered.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
+  const enConfeccion = sewingOrders.filter(so => so.status === 'En Confección');
+  const terminadas = sewingOrders.filter(so => so.status === 'Terminada');
+
+  const totalItems = filteredSewingOrders.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  
+  // Obtener los items de la página activa
+  const paginatedTableOrders = filteredSewingOrders.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   const stageConfig: { id: Stage; label: string; icon: any }[] = [
     { id: 'matriz_corte', label: 'Matriz de Corte', icon: Clipboard },
@@ -923,6 +1186,11 @@ export default function SewingPage() {
   const { orderCategories, categorySizes, colorRows, categoryRatios } = getSpreadsheetMatrixData(selectedOrder);
   const categoryAssignments = getCategoryAssignmentsData(selectedOrder);
   const categoryAssignmentEntries = Object.entries(categoryAssignments);
+
+  // Reiniciar a la página 1 cuando cambie la búsqueda o filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
@@ -964,11 +1232,10 @@ export default function SewingPage() {
         ))}
       </div>
 
-      {/* ── Cortadas pendientes: mini-panel ── */}
+      {/* ── Cortadas list ── */}
       {cortadas.length > 0 && (
-        <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', border: '2px solid #fde68a' }}>
-          <div style={{ padding: '1rem 1.5rem', backgroundColor: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Scissors size={18} style={{ color: '#d97706' }} />
+        <div className="card" style={{ padding: 0, border: '1px solid #fef3c7', borderRadius: '16px', overflow: 'hidden' }}>
+          <div style={{ padding: '1rem 1.5rem', backgroundColor: '#fef3c7', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#92400e', margin: 0, textTransform: 'uppercase' }}>
               Órdenes listas para iniciar Confección ({cortadas.length})
             </h3>
@@ -982,7 +1249,7 @@ export default function SewingPage() {
               }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
-                    <span style={{ fontWeight: '900', color: '#0f172a' }}>OC-{order.internal_code}</span>
+                     <span style={{ fontWeight: '900', color: '#0f172a' }}>OC-{order.internal_code}</span>
                     <span style={{ fontSize: '0.65rem', backgroundColor: '#fef3c7', color: '#92400e', padding: '0.15rem 0.4rem', borderRadius: '4px', fontWeight: '700' }}>CORTADO</span>
                   </div>
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
@@ -1038,68 +1305,74 @@ export default function SewingPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ padding: '4rem', textAlign: 'center' }}><Loader2 className="animate-spin" size={28} style={{ margin: 'auto', color: '#7c3aed' }} /></td></tr>
-              ) : filtered.filter(o => o.status !== 'Cortado').length === 0 ? (
+              ) : paginatedTableOrders.length === 0 ? (
                 <tr><td colSpan={7} style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.875rem' }}>No hay órdenes en este estado.</td></tr>
-              ) : filtered.filter(o => o.status !== 'Cortado').map(order => {
-                const statusColor = order.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
-                  : order.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
+                            ) : paginatedTableOrders.map(so => {
+                const statusColor = so.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
+                  : so.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
                   : { bg: '#f5f3ff', color: '#7c3aed' };
                 return (
-                  <tr key={order.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <tr key={so.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '1rem 1.25rem', fontWeight: '900', color: '#7c3aed', fontSize: '0.9rem' }}>
-                      OC-{order.internal_code}
+                      {so.confeccion_code || '—'}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
-                      <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#0f172a' }}>{order.client_name}</div>
-                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{order.fabrics?.nombre_tela}</div>
+                      <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#0f172a' }}>{so.parent_order?.client_name || '—'}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                        Ref: {so.products?.nombre_producto || '—'} | Tela: {so.parent_order?.fabrics?.nombre_tela || '—'}
+                      </div>
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
-                      <span style={{ fontWeight: '800', fontSize: '0.9rem' }}>{getTotalPrendas(order)}</span>
+                      <span style={{ fontWeight: '800', fontSize: '0.9rem' }}>{so.cantidad_planeada || 0}</span>
                       <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: '0.25rem' }}>uds</span>
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
-                      <div style={{ fontWeight: '700', fontSize: '0.82rem' }}>{order.workshops?.nombre_taller || '—'}</div>
-                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{order.workshops?.responsable}</div>
+                      <div style={{ fontWeight: '700', fontSize: '0.82rem' }}>{so.workshops?.nombre_taller || '—'}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{so.workshops?.responsable || '—'}</div>
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
-                      {(() => {
-                        const { fechaGenerada, fechaEnviada } = getConfectionDates(order);
-                        return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#475569' }}>
-                              <span style={{ fontWeight: '600', color: '#94a3b8' }}>Generada:</span>
-                              <span style={{ fontWeight: '700' }}>{fechaGenerada}</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#475569' }}>
-                              <span style={{ fontWeight: '600', color: '#94a3b8' }}>Enviada:</span>
-                              <span style={{ fontWeight: '700', color: fechaEnviada !== '—' ? '#7c3aed' : '#475569' }}>{fechaEnviada}</span>
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: '#475569' }}>
+                          <span style={{ fontWeight: '600', color: '#94a3b8' }}>Enviada:</span>
+                          <span style={{ fontWeight: '700' }}>{so.created_at ? new Date(so.created_at).toLocaleDateString('es-ES') : '—'}</span>
+                        </div>
+                      </div>
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <span style={{ padding: '0.3rem 0.75rem', borderRadius: '999px', fontSize: '0.65rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color }}>
-                        {order.status.toUpperCase()}
+                        {so.status.toUpperCase()}
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button
-                          className="btn"
-                          style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                          onClick={() => handleOpenPrintModal(order)}
-                        >
-                          <Printer size={13} /> Órdenes Taller
-                        </button>
-                        {order.status === 'En Confección' && (
+                        {so.parent_order && (
                           <button
                             className="btn"
-                            style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px' }}
-                            onClick={() => handleUpdateStatus(order.id, 'Terminada')}
+                            style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                            onClick={() => handleOpenPrintModal(so.parent_order)}
                           >
-                            Recibir de Taller
+                            <Printer size={13} /> Órdenes Taller
                           </button>
+                        )}
+                        {so.status === 'En Confección' && (
+                          <>
+                            {so.parent_order && (
+                              <button
+                                className="btn"
+                                style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px' }}
+                                onClick={() => handleRevertToCortado(so.parent_order)}
+                              >
+                                Revertir a Cortado
+                              </button>
+                            )}
+                            <button
+                              className="btn"
+                              style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px' }}
+                              onClick={() => handleReceiveSewingOrder(so)}
+                            >
+                              Recibir de Taller
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -1109,6 +1382,41 @@ export default function SewingPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Controles de Paginación */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+              Mostrando página <strong>{currentPage}</strong> de {totalPages} ({totalItems} órdenes en total)
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="btn"
+                style={{
+                  fontSize: '0.72rem', fontWeight: '800', padding: '0.4rem 0.8rem',
+                  backgroundColor: 'white', color: currentPage === 1 ? '#cbd5e1' : '#4f46e5',
+                  border: '1px solid #e2e8f0', borderRadius: '6px', cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="btn"
+                style={{
+                  fontSize: '0.72rem', fontWeight: '800', padding: '0.4rem 0.8rem',
+                  backgroundColor: 'white', color: currentPage === totalPages ? '#cbd5e1' : '#4f46e5',
+                  border: '1px solid #e2e8f0', borderRadius: '6px', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── WIZARD MODAL ── */}
@@ -1170,29 +1478,16 @@ export default function SewingPage() {
                       <div style={{ overflowX: 'auto', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #ddd6fe', padding: '0.5rem' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                           <thead>
-                            {/* Fila 1: Nombres de Categorías (llamados Productos en la interfaz) */}
-                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Tela</th>
-                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Kilos</th>
-                              {orderCategories.map((cat: any) => {
-                                const colSpan = categorySizes[cat.id]?.length || 1;
-                                return (
-                                  <th key={cat.id} colSpan={colSpan} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#1e1b4b', borderLeft: '2px solid #cbd5e1', borderBottom: '2px solid #7c3aed', backgroundColor: '#faf5ff' }}>
-                                    {cat.categoria}
-                                  </th>
-                                );
-                              })}
-                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#475569', backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }} rowSpan={2}>Total Color</th>
-                            </tr>
-                            {/* Fila 2: Tallas correspondientes */}
+                            {/* Fila única: Solo nombre de referencia */}
                             <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                              <th style={{ padding: '0.6rem', textAlign: 'left', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }}>Tela</th>
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#475569', borderBottom: '2px solid #cbd5e1' }}>Kilos</th>
                               {orderCategories.map((cat: any) => (
-                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => (
-                                  <th key={`${cat.id}_${sz}`} style={{ padding: '0.4rem', textAlign: 'center', fontWeight: '800', color: '#475569', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #e2e8f0', fontSize: '0.72rem' }}>
-                                    {sz}
-                                  </th>
-                                ))
+                                <th key={cat.id} style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#1e1b4b', borderLeft: '2px solid #cbd5e1', borderBottom: '2px solid #7c3aed', backgroundColor: '#faf5ff' }}>
+                                  {cat.categoria}
+                                </th>
                               ))}
+                              <th style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '950', color: '#475569', backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>Total</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1200,19 +1495,17 @@ export default function SewingPage() {
                             <tr style={{ backgroundColor: '#fdf4ff', fontWeight: '700', borderBottom: '2px solid #ddd6fe' }}>
                               <td style={{ padding: '0.6rem', fontWeight: '900', color: '#701a75' }}>Marcación (Molds)</td>
                               <td style={{ padding: '0.6rem', textAlign: 'center', color: '#a21caf' }}>—</td>
-                              {orderCategories.map((cat: any) => (
-                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
-                                  const ratio = categoryRatios[`${cat.id}_${sz}`] || 0;
-                                  return (
-                                    <td key={`ratio_${cat.id}_${sz}`} style={{ padding: '0.5rem', textAlign: 'center', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #f5d0fe', color: '#701a75', fontWeight: '900' }}>
-                                      {ratio}
-                                    </td>
-                                  );
-                                })
-                              ))}
+                              {orderCategories.map((cat: any) => {
+                                const catTotal = (categorySizes[cat.id] || []).reduce((sum, sz) => sum + (categoryRatios[`${cat.id}_${sz}`] || 0), 0);
+                                return (
+                                  <td key={`ratio_${cat.id}`} style={{ padding: '0.5rem', textAlign: 'center', borderLeft: '2px solid #cbd5e1', color: '#701a75', fontWeight: '900' }}>
+                                    {catTotal}
+                                  </td>
+                                );
+                              })}
                               <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', backgroundColor: '#f5d0fe', color: '#701a75' }}>
-                                {orderCategories.reduce((accTotal, cat) => {
-                                  return accTotal + (categorySizes[cat.id] || []).reduce((subSum, sz) => subSum + (categoryRatios[`${cat.id}_${sz}`] || 0), 0);
+                                {orderCategories.reduce((accTotal: number, cat: any) => {
+                                  return accTotal + (categorySizes[cat.id] || []).reduce((subSum: number, sz: string) => subSum + (categoryRatios[`${cat.id}_${sz}`] || 0), 0);
                                 }, 0)}
                               </td>
                             </tr>
@@ -1224,17 +1517,15 @@ export default function SewingPage() {
                                 <tr key={colorRow.fabricId} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                   <td style={{ padding: '0.6rem', fontWeight: '700', color: '#475569' }}>{colorRow.fabricName}</td>
                                   <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '600', color: '#475569' }}>{colorRow.kilos.toFixed(2)} kg</td>
-                                  {orderCategories.map((cat: any) => (
-                                    (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
-                                      const qty = colorRow.quantities[`${cat.id}_${sz}`] || 0;
-                                      rowTotal += qty;
-                                      return (
-                                        <td key={`qty_${colorRow.fabricId}_${cat.id}_${sz}`} style={{ padding: '0.6rem', textAlign: 'center', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #f1f5f9', fontWeight: '700', color: qty > 0 ? '#1e293b' : '#cbd5e1' }}>
-                                          {qty || 0}
-                                        </td>
-                                      );
-                                    })
-                                  ))}
+                                  {orderCategories.map((cat: any) => {
+                                    const catQty = (categorySizes[cat.id] || []).reduce((sum: number, sz: string) => sum + (colorRow.quantities[`${cat.id}_${sz}`] || 0), 0);
+                                    rowTotal += catQty;
+                                    return (
+                                      <td key={`qty_${colorRow.fabricId}_${cat.id}`} style={{ padding: '0.6rem', textAlign: 'center', borderLeft: '2px solid #cbd5e1', fontWeight: '700', color: catQty > 0 ? '#1e293b' : '#cbd5e1' }}>
+                                        {catQty}
+                                      </td>
+                                    );
+                                  })}
                                   <td style={{ padding: '0.6rem', textAlign: 'center', fontWeight: '900', color: '#0f172a', backgroundColor: '#f8fafc' }}>
                                     {rowTotal}
                                   </td>
@@ -1248,16 +1539,14 @@ export default function SewingPage() {
                               <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed' }}>
                                 {colorRows.reduce((sum: number, r: any) => sum + r.kilos, 0).toFixed(2)} kg
                               </td>
-                              {orderCategories.map((cat: any) => (
-                                (categorySizes[cat.id] || []).map((sz: string, idx: number) => {
-                                  const colSum = colorRows.reduce((sum: number, r: any) => sum + (r.quantities[`${cat.id}_${sz}`] || 0), 0);
-                                  return (
-                                    <td key={`tot_${cat.id}_${sz}`} style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '900', borderLeft: idx === 0 ? '2px solid #cbd5e1' : '1px solid #e2e8f0' }}>
-                                      {colSum}
-                                    </td>
-                                  );
-                                })
-                              ))}
+                              {orderCategories.map((cat: any) => {
+                                const catTotal = colorRows.reduce((sum: number, r: any) => sum + (categorySizes[cat.id] || []).reduce((s: number, sz: string) => s + (r.quantities[`${cat.id}_${sz}`] || 0), 0), 0);
+                                return (
+                                  <td key={`tot_${cat.id}`} style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '900', borderLeft: '2px solid #cbd5e1' }}>
+                                    {catTotal}
+                                  </td>
+                                );
+                              })}
                               <td style={{ padding: '0.6rem', textAlign: 'center', color: '#7c3aed', fontWeight: '950', backgroundColor: '#f1f5f9' }}>
                                 {colorRows.reduce((sum: number, r: any) => {
                                   let rowSum = 0;
@@ -1368,7 +1657,58 @@ export default function SewingPage() {
                     </div>
                   )}
 
-                  <div>
+                  {/* Sección para Tarifas Especiales de Confección */}
+                  {(() => {
+                    const uniqueCombinations: { wId: string; catId: string }[] = [];
+                    Object.entries(rowWorkshops).forEach(([cellKey, wId]) => {
+                      if (!wId) return;
+                      const [catId] = cellKey.split('_');
+                      const exists = uniqueCombinations.some(c => c.wId === wId && c.catId === catId);
+                      if (!exists) {
+                        uniqueCombinations.push({ wId, catId });
+                      }
+                    });
+
+                    if (uniqueCombinations.length === 0) return null;
+
+                    return (
+                      <div style={{ marginTop: '1.5rem', padding: '1.25rem', backgroundColor: '#fafafa', borderRadius: '12px', border: '1.5px dashed #e2e8f0' }}>
+                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.82rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          💰 Tarifas Especiales de Confección (Opcional)
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          {uniqueCombinations.map(({ wId, catId }) => {
+                            const ws = workshops.find(w => String(w.id) === String(wId));
+                            const prod = products.find(p => String(p.id) === String(catId));
+                            const prodName = prod ? prod.nombre_producto : 'Referencia';
+                            const key = `${wId}_${catId}`;
+                            return (
+                              <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', padding: '0.75rem', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#1e293b' }}>
+                                  🏭 {ws ? ws.nombre_taller : 'Taller'}
+                                </span>
+                                <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '600' }}>
+                                  🧵 {prodName}
+                                </span>
+                                <input
+                                  type="number"
+                                  placeholder="Tarifa por ud (ej. 4500)"
+                                  value={specialRates[key] || ''}
+                                  onChange={e => setSpecialRates(prev => ({ ...prev, [key]: e.target.value }))}
+                                  style={{
+                                    marginTop: '0.25rem', padding: '0.4rem 0.6rem', borderRadius: '6px',
+                                    border: '1.5px solid #e2e8f0', fontSize: '0.75rem', fontWeight: '700'
+                                  }}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ marginTop: '1.5rem' }}>
                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
                       Observaciones de Preparación
                     </label>
@@ -1499,36 +1839,92 @@ export default function SewingPage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto' }}>
               {(() => {
-                const dataAss = getAssignmentsData(printOrder);
-                const assignedWorkshopIds = Array.from(new Set(Object.values(dataAss.rowWorkshops).filter(Boolean)));
+                const activeSewingOrders = sewingOrders.filter(so => 
+                  String(so.parent_order_id) === String(printOrder.id)
+                );
                 
-                if (assignedWorkshopIds.length === 0) {
-                  return <p style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>No hay talleres asignados a esta orden.</p>;
+                if (activeSewingOrders.length === 0) {
+                  return <p style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>No hay órdenes de confección creadas para esta orden.</p>;
                 }
 
-                return assignedWorkshopIds.map((wId: any) => {
-                  const workshopObj = workshops.find(w => String(w.id) === String(wId));
-                  const itemsForW = getWorkshopItems(printOrder, String(wId), dataAss.rowWorkshops);
-                  const totalUds = itemsForW.reduce((sum, item) => sum + item.quantity, 0);
-
-                  if (totalUds === 0) return null;
+                return activeSewingOrders.map((so: any) => {
+                  const workshopObj = workshops.find(w => String(w.id) === String(so.workshop_id));
+                  const prodObj = products.find(p => String(p.id) === String(so.product_id));
+                  const totalUds = so.cantidad_planeada || 0;
 
                   return (
-                    <div key={wId} style={{
+                    <div key={so.id} style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '12px',
                       backgroundColor: '#f8fafc'
                     }}>
                       <div>
                         <h4 style={{ fontWeight: '800', fontSize: '0.875rem', color: '#0f172a', margin: 0 }}>
-                          {workshopObj ? workshopObj.nombre_taller : `Taller ID: ${wId}`}
+                          {workshopObj ? workshopObj.nombre_taller : `Taller ID: ${so.workshop_id}`}
                         </h4>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
-                          Código Seguimiento: <strong style={{ color: '#7c3aed' }}>{((printOrder.internal_code || '').replace(/^OC-?/i, '') || printOrder.consecutive)}-{assignedWorkshopIds.indexOf(wId) + 1}</strong>
+                          Código Seguimiento: <strong style={{ color: '#7c3aed' }}>{so.confeccion_code}</strong>
                         </p>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
-                          Responsable: {workshopObj?.responsable || '—'} · <strong>{totalUds} prendas</strong>
+                          Referencia: <strong>{prodObj ? prodObj.nombre_producto : 'Producto'}</strong>
                         </p>
+                        {/* Control de Tarifa Especial, Lavandería y Empaque Individual */}
+                        <div style={{ marginTop: '0.6rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                          {/* Precio Especial */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <input
+                              type="checkbox"
+                              id={`sp-${so.id}`}
+                              checked={so.tarifa_especial !== null && so.tarifa_especial > 0}
+                              onChange={async (e) => {
+                                const isChecked = e.target.checked;
+                                const val = isChecked ? 1 : null;
+                                setSewingOrders(prev => prev.map(o => o.id === so.id ? { ...o, tarifa_especial: val } : o));
+                                await supabase.from('sewing_orders').update({ tarifa_especial: val }).eq('id', so.id);
+                              }}
+                              style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#ea580c' }}
+                            />
+                            <label htmlFor={`sp-${so.id}`} style={{ fontSize: '0.72rem', fontWeight: '800', color: '#ea580c', cursor: 'pointer' }}>
+                              ⭐ Especial
+                            </label>
+                          </div>
+
+                          {/* Lavandería */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <input
+                              type="checkbox"
+                              id={`lav-${so.id}`}
+                              checked={so.lavanderia || false}
+                              onChange={async (e) => {
+                                const isChecked = e.target.checked;
+                                setSewingOrders(prev => prev.map(o => o.id === so.id ? { ...o, lavanderia: isChecked } : o));
+                                await supabase.from('sewing_orders').update({ lavanderia: isChecked }).eq('id', so.id);
+                              }}
+                              style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#2563eb' }}
+                            />
+                            <label htmlFor={`lav-${so.id}`} style={{ fontSize: '0.72rem', fontWeight: '800', color: '#2563eb', cursor: 'pointer' }}>
+                              💧 Lavandería
+                            </label>
+                          </div>
+
+                          {/* Empaque */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <input
+                              type="checkbox"
+                              id={`emp-${so.id}`}
+                              checked={so.empaque || false}
+                              onChange={async (e) => {
+                                const isChecked = e.target.checked;
+                                setSewingOrders(prev => prev.map(o => o.id === so.id ? { ...o, empaque: isChecked } : o));
+                                await supabase.from('sewing_orders').update({ empaque: isChecked }).eq('id', so.id);
+                              }}
+                              style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#16a34a' }}
+                            />
+                            <label htmlFor={`emp-${so.id}`} style={{ fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', cursor: 'pointer' }}>
+                              📦 Empaque
+                            </label>
+                          </div>
+                        </div>
                       </div>
                       <button
                         className="btn"
@@ -1538,7 +1934,8 @@ export default function SewingPage() {
                           display: 'flex', alignItems: 'center', gap: '0.25rem'
                         }}
                         onClick={() => {
-                          setPrintWorkshop(workshopObj || { id: wId, nombre_taller: `Taller ${wId}` });
+                          setPrintWorkshop(workshopObj || { id: so.workshop_id, nombre_taller: `Taller ${so.workshop_id}` });
+                          setPrintSewingOrder(so);
                         }}
                       >
                         <Printer size={13} /> Generar PDF
@@ -1569,62 +1966,201 @@ export default function SewingPage() {
       {printOrder && printWorkshop && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(8px)', padding: '1rem' }}>
           <div className="card" style={{ width: '100%', maxWidth: '800px', padding: 0, maxHeight: '95vh', display: 'flex', flexDirection: 'column', borderRadius: '20px', overflow: 'hidden', backgroundColor: 'white' }}>
-            {/* Modal header (no-print) */}
-            <div className="no-print" style={{ padding: '1rem 2rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: '900', fontSize: '0.85rem', color: '#0f172a' }}>Vista Previa de Impresión - Taller: {printWorkshop.nombre_taller}</span>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  className="btn"
-                  onClick={() => window.print()}
-                  style={{ backgroundColor: '#7c3aed', color: 'white', border: 'none', padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
-                >
-                  <Printer size={13} /> Imprimir / PDF
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setPrintWorkshop(null)}
-                  style={{ padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '700' }}
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
+             {/* Modal header (no-print) */}
+             <div className="no-print" style={{ padding: '1rem 2rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                 <span style={{ fontWeight: '900', fontSize: '0.85rem', color: '#0f172a' }}>Vista Previa</span>
+                 <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px' }}>
+                   <button
+                     onClick={() => setPrintMode('report')}
+                     style={{
+                       border: 'none',
+                       backgroundColor: printMode === 'report' ? 'white' : 'transparent',
+                       color: printMode === 'report' ? '#0f172a' : '#475569',
+                       padding: '0.3rem 0.75rem',
+                       borderRadius: '6px',
+                       fontSize: '0.72rem',
+                       fontWeight: '800',
+                       cursor: 'pointer',
+                       boxShadow: printMode === 'report' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                     }}
+                   >
+                     📄 Reporte
+                   </button>
+                   <button
+                     onClick={() => setPrintMode('sticker')}
+                     style={{
+                       border: 'none',
+                       backgroundColor: printMode === 'sticker' ? 'white' : 'transparent',
+                       color: printMode === 'sticker' ? '#0f172a' : '#475569',
+                       padding: '0.3rem 0.75rem',
+                       borderRadius: '6px',
+                       fontSize: '0.72rem',
+                       fontWeight: '800',
+                       cursor: 'pointer',
+                       boxShadow: printMode === 'sticker' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                     }}
+                   >
+                     🏷️ Sticker 10x10
+                   </button>
+                 </div>
+               </div>
+               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                 <button
+                   className="btn"
+                   onClick={() => window.print()}
+                   style={{ backgroundColor: '#7c3aed', color: 'white', border: 'none', padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
+                 >
+                   <Printer size={13} /> Imprimir / PDF
+                 </button>
+                 <button
+                   className="btn btn-secondary"
+                   onClick={() => {
+                     setPrintWorkshop(null);
+                     setPrintMode('report');
+                   }}
+                   style={{ padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '700' }}
+                 >
+                   Cerrar
+                 </button>
+               </div>
+             </div>
 
-            {/* Printable container */}
-            <div className="printable-workshop-order" style={{ flex: 1, overflowY: 'auto', padding: '2.5rem', backgroundColor: 'white', color: 'black' }}>
+             {/* Printable container */}
+             <div className="printable-workshop-order" style={printMode === 'sticker' ? {
+               flex: 1,
+               overflowY: 'auto',
+               padding: '2rem',
+               backgroundColor: '#f1f5f9',
+               color: 'black',
+               display: 'flex',
+               justifyContent: 'center',
+               alignItems: 'center'
+             } : {
+               flex: 1,
+               overflowY: 'auto',
+               padding: '2.5rem',
+               backgroundColor: 'white',
+               color: 'black'
+             }}>
               {(() => {
                 const dataAss = getAssignmentsData(printOrder);
-                const workshopItems = getWorkshopItems(printOrder, String(printWorkshop.id), dataAss.rowWorkshops);
-                
-                // Calculate accessories required based on product definitions
+                const rowWorkshopsMap = dataAss?.rowWorkshops || {};
+
+                // Recalculate quantities directly from cuts + assignment map (avoid stale sewing_order_sizes)
+                const workshopItems: any[] = [];
+
+                // Group quantities by cutId+sizeCode for this workshop
+                const qtyByCutSize: Record<string, number> = {};
+
+                (printOrder.cuts || []).forEach((cut: any) => {
+                  const targetProdId = cut.product_id;
+                  const layersProyec = cut.layers || 1;
+                  const layersProduced = cut.layers_produced || 0;
+
+                  (cut.cut_sizes || []).forEach((cs: any) => {
+                    const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
+                    const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                    const cellKey = `${targetProdId}_${sz}`;
+                    const assignedWId = rowWorkshopsMap[cellKey];
+
+                    // Only include cells assigned to the selected workshop
+                    if (!assignedWId || String(assignedWId) !== String(printWorkshop.id)) return;
+
+                    let realQty = 0;
+                    if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                      realQty = Number(cs.quantity_produced);
+                    } else {
+                      const proyecQty = Number(cs.quantity) || 0;
+                      const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                      realQty = Math.round(ppc * layersProduced);
+                    }
+                    if (realQty <= 0) return;
+
+                    const key = `${cut.id}_${sz}`;
+                    qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
+                  });
+                });
+
+                // Build workshopItems from the aggregated quantities
+                const seenCutSizes = new Set<string>();
+                (printOrder.cuts || []).forEach((cut: any) => {
+                  const targetProdId = cut.product_id;
+                  const prodObj = products.find(p => String(p.id) === String(targetProdId));
+                  const prodName = prodObj?.nombre_producto || 'Referencia';
+
+                  const categoryObj = prodObj ? categoriesMaster.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                  const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+
+                  const fabricObj = cut ? fabricsMaster.find(f => String(f.id) === String(cut.fabric_id)) : null;
+                  const fabricName = fabricObj ? fabricObj.nombre_tela : '—';
+
+                  const colorObj = cut ? colorsMaster.find(c => String(c.id) === String(cut.color_id)) : null;
+                  const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+
+                  let displayFabricName = fabricName;
+                  let displayColorName = colorName;
+                  if (fabricName.includes(',')) {
+                    const commaIdx = fabricName.indexOf(',');
+                    displayFabricName = fabricName.substring(0, commaIdx).trim();
+                    const extractedColor = fabricName.substring(commaIdx + 1).trim();
+                    if (extractedColor) {
+                      displayColorName = extractedColor;
+                    }
+                  }
+
+                  (cut.cut_sizes || []).forEach((cs: any) => {
+                    const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
+                    const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                    const key = `${cut.id}_${sz}`;
+
+                    if (!qtyByCutSize[key] || seenCutSizes.has(key)) return;
+                    seenCutSizes.add(key);
+
+                    workshopItems.push({
+                      productName: prodName,
+                      colorName: displayColorName,
+                      categoryName,
+                      fabricName: displayFabricName,
+                      sizeCode: sz,
+                      quantity: qtyByCutSize[key],
+                      cutId: cut?.id || ''
+                    });
+                  });
+                });
+
+
                 const workshopAccs: { name: string; unit: string; qty: number }[] = [];
                 
-                workshopItems.forEach(item => {
+                workshopItems.forEach((item: any) => {
                   const cut = printOrder.cuts?.find((c: any) => String(c.id) === String(item.cutId));
                   if (!cut || !cut.product_id) return;
-
-                  // Find accessories for this product matching by product name (to handle duplicates/references gracefully)
-                  const prodObj = products.find(p => String(p.id) === String(cut.product_id));
-                  const prodName = prodObj?.nombre_producto;
+ 
                   const prodAccs = productAccessoriesList.filter(pa => {
                     if (String(pa.product_id) === String(cut.product_id)) return true;
                     const paProdName = pa.products?.nombre_producto;
-                    return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
+                    return paProdName && item.productName && paProdName.toLowerCase().trim() === item.productName.toLowerCase().trim();
                   });
-                  prodAccs.forEach(pa => {
+                  prodAccs.forEach((pa: any) => {
                     let accName = pa.accessories?.nombre || 'Accesorio';
                     const rawUnit = pa.accessories?.unidad_medida || '';
-                    // If unidad_medida is blank or purely numeric (e.g. "1"), use "Unidad" instead
                     const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
                     const qtyPerProduct = Number(pa.cantidad) || 0;
                     const totalRequired = item.quantity * qtyPerProduct;
                     
-                    // If it is a gafe/gafete, check for custom selection
                     const isGafete = accName.toLowerCase().includes('gafe') || accName.toLowerCase().includes('gafete');
-                    if (isGafete && customGafetes[accName]) {
-                      accName = customGafetes[accName];
+                    if (isGafete) {
+                      const targetColorName = item.colorName;
+                      const matchingColorGafete = accessories.find(a => {
+                        const nameLower = (a.nombre || '').toLowerCase();
+                        return (nameLower.includes('gafe') || nameLower.includes('gafete')) && 
+                               nameLower.includes(targetColorName.toLowerCase());
+                      });
+ 
+                      const baseGafeteName = customGafetes[accName] || (matchingColorGafete ? matchingColorGafete.nombre : accName);
+                      accName = `${baseGafeteName} (${targetColorName})`;
                     }
-                    
+                  
                     if (totalRequired > 0) {
                       const existing = workshopAccs.find(wa => wa.name === accName);
                       if (existing) {
@@ -1639,6 +2175,105 @@ export default function SewingPage() {
                     }
                   });
                 });
+
+                 if (printMode === 'sticker') {
+                   const stickerGrouped: {
+                     colorName: string;
+                     categoryName: string;
+                     fabricName: string;
+                     sizes: { [size: string]: number };
+                     totalQuantity: number;
+                   }[] = [];
+
+                   workshopItems.forEach((item: any) => {
+                     const existing = stickerGrouped.find(g => 
+                       g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                       g.colorName.toLowerCase() === item.colorName.toLowerCase()
+                     );
+                     if (existing) {
+                       existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                       existing.totalQuantity += item.quantity;
+                     } else {
+                       stickerGrouped.push({
+                         categoryName: item.categoryName,
+                         colorName: item.colorName,
+                         fabricName: item.fabricName,
+                         sizes: { [item.sizeCode]: item.quantity },
+                         totalQuantity: item.quantity
+                       });
+                     }
+                   });
+                   
+                   stickerGrouped.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                   
+                   const totalUnits = stickerGrouped.reduce((sum, item) => sum + item.totalQuantity, 0);
+                   return (
+                     <div className="print-stickers-page" style={{
+                       width: '100mm',
+                       height: '100mm',
+                       padding: '8mm',
+                       boxSizing: 'border-box',
+                       display: 'flex',
+                       flexDirection: 'column',
+                       justifyContent: 'space-between',
+                       border: '2.5px solid #000',
+                       backgroundColor: 'white',
+                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                       color: 'black',
+                       fontFamily: 'system-ui, sans-serif'
+                     }}>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                         <div style={{ textAlign: 'center', borderBottom: '2.5px solid #000', paddingBottom: '0.35rem', marginBottom: '0.2rem' }}>
+                           <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
+                           <p style={{ fontSize: '0.6rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
+                         </div>
+                         
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
+                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                             <span><strong>ORDEN CONFECCIÓN:</strong></span>
+                             <span style={{ fontWeight: '900', color: '#7c3aed' }}>{printSewingOrder.confeccion_code}</span>
+                           </div>
+                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                             <span><strong>TALLER SATÉLITE:</strong></span>
+                             <span style={{ fontWeight: '800' }}>{printWorkshop.nombre_taller}</span>
+                           </div>
+                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                             <span><strong>CLIENTE:</strong></span>
+                             <span>{printOrder.client_name}</span>
+                           </div>
+                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                             <span><strong>TELA PRINCIPAL:</strong></span>
+                             <span>{printOrder.fabrics?.nombre_tela || '—'}</span>
+                           </div>
+                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                             <span><strong>FECHA COMPROMISO:</strong></span>
+                             <span><strong>{dataAss.deliveryDate || '—'}</strong></span>
+                           </div>
+                         </div>
+
+                         <div style={{ marginTop: '0.3rem', borderTop: '1.5px dashed #000', paddingTop: '0.3rem' }}>
+                           <p style={{ margin: '0 0 0.15rem 0', fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.625rem', maxHeight: '2.5rem', overflow: 'hidden' }}>
+                             {stickerGrouped.slice(0, 5).map((item, idx) => (
+                               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                 <span style={{ fontWeight: '600' }}>• {item.categoryName} ({item.colorName})</span>
+                                 <strong style={{ fontSize: '0.68rem' }}>{item.totalQuantity} uds</strong>
+                               </div>
+                             ))}
+                             {stickerGrouped.length > 5 && (
+                               <div style={{ fontSize: '0.55rem', fontStyle: 'italic', textAlign: 'center', color: '#666' }}>+ {stickerGrouped.length - 5} más categorías/colores...</div>
+                             )}
+                           </div>
+                         </div>
+                       </div>
+
+                       <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                         <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
+                         <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
+                       </div>
+                     </div>
+                   );
+                 }
 
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -1658,17 +2293,18 @@ export default function SewingPage() {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <p style={{ fontSize: '0.8rem', margin: 0, fontWeight: '750' }}>Orden de Confección</p>
-                        {(() => {
-                          const cleanCode = (printOrder.internal_code || '').replace(/^OC-?/i, '') || printOrder.consecutive;
-                          const uniqueWIds = Array.from(new Set(Object.values(dataAss.rowWorkshops).filter(Boolean))) as string[];
-                          const wIdx = uniqueWIds.indexOf(String(printWorkshop.id)) + 1;
-                          const displayIdx = wIdx > 0 ? wIdx : 1;
-                          return (
-                            <p style={{ fontSize: '0.95rem', fontWeight: '950', color: '#7c3aed', margin: 0 }}>
-                              {cleanCode}-{displayIdx}
-                            </p>
-                          );
-                        })()}
+                        <p style={{ fontSize: '0.95rem', fontWeight: '950', color: '#7c3aed', margin: 0 }}>
+                          {printSewingOrder.confeccion_code}
+                        </p>
+                        {printOrder.pedido_especial && (
+                          <span style={{
+                            marginTop: '0.35rem', display: 'inline-block',
+                            padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '900',
+                            backgroundColor: '#ea580c', color: 'white', border: '1px solid #f97316'
+                          }}>
+                            ⭐ PRECIO ESPECIAL
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1695,7 +2331,6 @@ export default function SewingPage() {
                       </h3>
                       {(() => {
                         const groupedItems: {
-                          productName: string;
                           colorName: string;
                           categoryName: string;
                           fabricName: string;
@@ -1703,20 +2338,22 @@ export default function SewingPage() {
                           totalQuantity: number;
                         }[] = [];
 
-                        workshopItems.forEach(item => {
+                        workshopItems.forEach((item: any) => {
                           const existing = groupedItems.find(g => 
-                            g.productName.toLowerCase() === item.productName.toLowerCase() && 
-                            g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
-                            g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
+                            g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                            g.colorName.toLowerCase() === item.colorName.toLowerCase()
                           );
                           if (existing) {
                             existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
                             existing.totalQuantity += item.quantity;
+                            // Aggregate fabric names if different
+                            if (!existing.fabricName.split(' / ').includes(item.fabricName) && item.fabricName !== '—') {
+                              existing.fabricName = existing.fabricName === '—' ? item.fabricName : `${existing.fabricName} / ${item.fabricName}`;
+                            }
                           } else {
                             groupedItems.push({
-                              productName: item.productName,
-                              colorName: item.colorName,
                               categoryName: item.categoryName,
+                              colorName: item.colorName,
                               fabricName: item.fabricName,
                               sizes: { [item.sizeCode]: item.quantity },
                               totalQuantity: item.quantity
@@ -1724,13 +2361,14 @@ export default function SewingPage() {
                           }
                         });
 
+                        groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+
                         return (
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
                             <thead>
                               <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Referencia</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Color</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Categoría</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Color</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Tela</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800' }}>Distribución Tallas</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '900', width: '120px' }}>Cantidad Total</th>
@@ -1739,9 +2377,8 @@ export default function SewingPage() {
                             <tbody>
                               {groupedItems.map((item, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.5rem', fontWeight: '700' }}>{item.productName}</td>
+                                  <td style={{ padding: '0.5rem', color: '#475569', fontWeight: '700' }}>{item.categoryName}</td>
                                   <td style={{ padding: '0.5rem', fontWeight: '600' }}>{item.colorName}</td>
-                                  <td style={{ padding: '0.5rem', color: '#475569' }}>{item.categoryName}</td>
                                   <td style={{ padding: '0.5rem', color: '#475569' }}>{item.fabricName}</td>
                                   <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
                                     {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
@@ -1750,7 +2387,7 @@ export default function SewingPage() {
                                 </tr>
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
-                                <td colSpan={5} style={{ padding: '0.6rem 0.5rem', textTransform: 'uppercase', fontSize: '0.7rem', color: '#334155' }}>Total Unidades Enviadas</td>
+                                <td colSpan={4} style={{ padding: '0.6rem 0.5rem', textTransform: 'uppercase', fontSize: '0.7rem', color: '#334155' }}>Total Unidades Enviadas</td>
                                 <td style={{ padding: '0.6rem 0.5rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.85rem', fontWeight: '950' }}>
                                   {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                 </td>
@@ -1790,7 +2427,7 @@ export default function SewingPage() {
                                         <span className="print-only">{wa.name}</span>
                                         <select
                                           className="no-print"
-                                          value={wa.name}
+                                          value={wa.name.includes(' (') ? wa.name.split(' (')[0] : wa.name}
                                           onChange={e => {
                                             const newName = e.target.value;
                                             setCustomGafetes(prev => ({
@@ -1804,6 +2441,9 @@ export default function SewingPage() {
                                             <option key={opt.id} value={opt.nombre}>{opt.nombre}</option>
                                           ))}
                                         </select>
+                                        <span className="no-print" style={{ color: '#64748b', fontSize: '0.72rem', fontWeight: 'bold' }}>
+                                          ({wa.name.includes(' (') ? wa.name.slice(wa.name.indexOf(' (')) : ''})
+                                        </span>
                                       </div>
                                     ) : (
                                       wa.name
@@ -1859,6 +2499,10 @@ export default function SewingPage() {
           display: none;
         }
         @media print {
+          @page {
+            size: ${printMode === 'sticker' ? '100mm 100mm' : 'auto'};
+            margin: 0;
+          }
           body * {
             visibility: hidden !important;
           }

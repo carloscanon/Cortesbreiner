@@ -65,38 +65,23 @@ export async function POST(request: Request) {
     // Esperar brevemente para que el trigger handle_new_user cree el perfil
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Build profile payload — workshop_id is optional (column may not exist yet)
+    // Build profile payload (excluding workshop_id to prevent UUID database errors)
     const profilePayload: any = {
       id: userId,
       full_name,
       role_id: role_id || null,
     };
-    if (workshop_id) {
-      profilePayload.workshop_id = workshop_id;
-    }
     if (avatar_url) {
       profilePayload.avatar_url = avatar_url;
     }
 
-    // Actualizar el perfil con el nombre completo, rol y taller asignado
+    // Actualizar el perfil con el nombre completo y rol
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
       .upsert(profilePayload, { onConflict: 'id' });
 
     if (profileError) {
-      // If error is about missing workshop_id column, retry without it
-      if (profileError.message?.includes('workshop_id') && workshop_id) {
-        const { error: retryError } = await supabaseAdmin
-          .from('profiles')
-          .upsert({ id: userId, full_name, role_id: role_id || null }, { onConflict: 'id' });
-        if (retryError) {
-          console.error('Error updating profile (retry):', retryError.message);
-        } else {
-          console.info('Profile saved without workshop_id — column not yet in schema.');
-        }
-      } else {
-        console.error('Error updating profile:', profileError.message);
-      }
+      console.error('Error updating profile:', profileError.message);
     }
 
     return NextResponse.json({ success: true, userId });

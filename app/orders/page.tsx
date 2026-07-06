@@ -1625,6 +1625,15 @@ export default function OrdersPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                {viewingOrder.pedido_especial && (
+                  <span style={{
+                    padding: '0.4rem 1rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '900',
+                    backgroundColor: '#ea580c', color: 'white', border: '1.5px solid #f97316',
+                    display: 'flex', alignItems: 'center', gap: '0.25rem'
+                  }}>
+                    ⭐ PEDIDO ESPECIAL
+                  </span>
+                )}
                 <span style={{
                   padding: '0.4rem 1rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '800', border: '1.5px solid rgba(255,255,255,0.3)',
                   backgroundColor: viewingOrder.status === 'Planeada' ? 'rgba(100,116,139,0.3)' : viewingOrder.status === 'En Corte' ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)',
@@ -1849,11 +1858,52 @@ export default function OrdersPage() {
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '1rem 2rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', backgroundColor: '#f8fafc' }}>
-              <button onClick={() => { setViewingOrder(null); setViewCuts([]); }} className="btn btn-secondary" style={{ padding: '0.6rem 1.5rem', fontWeight: '700' }}>Cerrar</button>
-              <button onClick={() => window.print()} className="btn" style={{ padding: '0.6rem 1.5rem', fontWeight: '700', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Printer size={16} /> Imprimir
-              </button>
+            <div style={{ padding: '1rem 2rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+              <div>
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      const isSpecial = !viewingOrder.pedido_especial;
+                      try {
+                        const { error } = await supabase
+                          .from('orders')
+                          .update({ pedido_especial: isSpecial })
+                          .eq('id', viewingOrder.id);
+                        
+                        if (error) throw error;
+                        
+                        alert(`Orden configurada como ${isSpecial ? 'PEDIDO ESPECIAL (Tarifa Especial)' : 'PEDIDO ESTÁNDAR'} exitosamente.`);
+                        setViewingOrder({ ...viewingOrder, pedido_especial: isSpecial });
+                        fetchData();
+                      } catch (err: any) {
+                        alert('Error al actualizar tipo de pedido: ' + err.message);
+                      }
+                    }}
+                    className="btn"
+                    style={{
+                      padding: '0.6rem 1.25rem',
+                      fontWeight: '800',
+                      fontSize: '0.78rem',
+                      backgroundColor: viewingOrder.pedido_especial ? '#ea580c' : '#475569',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    ⭐ {viewingOrder.pedido_especial ? 'Quitar Precio Especial' : 'Marcar Precio Especial'}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button onClick={() => { setViewingOrder(null); setViewCuts([]); }} className="btn btn-secondary" style={{ padding: '0.6rem 1.5rem', fontWeight: '700' }}>Cerrar</button>
+                <button onClick={() => window.print()} className="btn" style={{ padding: '0.6rem 1.5rem', fontWeight: '700', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Printer size={16} /> Imprimir
+                </button>
+              </div>
             </div>
           </div>
         </div>

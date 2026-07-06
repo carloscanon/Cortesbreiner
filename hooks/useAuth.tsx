@@ -36,7 +36,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (error) {
         console.warn('Session retrieval error, clearing session:', error.message);
         // Clear session if refresh token is invalid
-        if (error.message.includes('Refresh Token') || error.status === 400) {
+        if (error.message.includes('Refresh Token') || error.status === 400 || error.message.includes('not found')) {
+          if (typeof window !== 'undefined') {
+            try {
+              const keysToRemove = [];
+              for (let i = 0; i < window.localStorage.length; i++) {
+                const key = window.localStorage.key(i);
+                if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                  keysToRemove.push(key);
+                }
+              }
+              keysToRemove.forEach(k => window.localStorage.removeItem(k));
+            } catch (e) {
+              console.error('Error clearing invalid session storage:', e);
+            }
+          }
           supabase.auth.signOut().catch(() => {});
         }
         setUser(null);
@@ -85,6 +99,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string) => {
     try {
+      // Usar getUser() (siempre consulta el servidor) en lugar de getSession() (puede estar en caché)
+      // Esto garantiza que user_metadata.workshop_id siempre esté actualizado
+      const { data: freshUserData } = await supabase.auth.getUser();
+      const authUser = freshUserData?.user;
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*, roles(name)')
@@ -94,7 +113,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (error) {
         console.warn('Profile fetch error:', error.message);
       } else if (data) {
-        setProfile(data);
+        // Priorizar user_metadata (fresco del servidor) sobre la tabla profiles
+        const extendedProfile = {
+          ...data,
+          workshop_id: authUser?.user_metadata?.workshop_id || data.workshop_id || null
+        };
+        setProfile(extendedProfile);
       } else {
         console.info('No profile found for user:', userId);
       }

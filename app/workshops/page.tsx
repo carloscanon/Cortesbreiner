@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Plus, MapPin, Phone, Star, Users, Search,
-  Trash2, X, Loader2, Edit2, Factory, Save, BarChart3, Coins, Layers
+  Trash2, X, Loader2, Edit2, Factory, Save, BarChart3, Coins, Layers,
+  HelpCircle, BookOpen
 } from 'lucide-react';
 
 const EMPTY_FORM = {
@@ -29,11 +30,16 @@ export default function WorkshopsPage() {
   const [selectedWorkshopForOrders, setSelectedWorkshopForOrders] = useState<any>(null);
   const [workshopOrders, setWorkshopOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
-  const [activeTab, setActiveTab] = useState<'workshops' | 'rates'>('workshops');
+  const [activeTab, setActiveTab] = useState<'workshops' | 'rates' | 'special_rates'>('workshops');
   const [categories, setCategories] = useState<any[]>([]);
   const [workshopRates, setWorkshopRates] = useState<any[]>([]);
   const [savingRates, setSavingRates] = useState(false);
   const [selectedRateWorkshopId, setSelectedRateWorkshopId] = useState<string>('');
+  const [selectedSpecialWorkshopId, setSelectedSpecialWorkshopId] = useState<string>('');
+  const [specialCosts, setSpecialCosts] = useState<any[]>([]);
+  const [savingSpecials, setSavingSpecials] = useState(false);
+  const [productsList, setProductsList] = useState<any[]>([]);
+  const [showWorkshopsHelp, setShowWorkshopsHelp] = useState<boolean>(false);
 
   useEffect(() => {
     fetchWorkshops();
@@ -46,11 +52,15 @@ export default function WorkshopsPage() {
       const [
         { data: wData },
         { data: cData },
-        { data: rData }
+        { data: rData },
+        { data: pData },
+        { data: specCostsData }
       ] = await Promise.all([
         supabase.from('workshops').select('*').order('nombre_taller', { ascending: true }),
         supabase.from('categories').select('*').order('categoria', { ascending: true }),
-        supabase.from('workshop_rates').select('*')
+        supabase.from('workshop_rates').select('*'),
+        supabase.from('products').select('*').order('nombre_producto', { ascending: true }),
+        supabase.from('workshop_special_costs').select('*')
       ]);
       
       // Automigration from localStorage to Database
@@ -93,19 +103,29 @@ export default function WorkshopsPage() {
       setWorkshops(wData || []);
       setCategories(cData || []);
       setWorkshopRates(rData || []);
+      setProductsList(pData || []);
+      setSpecialCosts(specCostsData || []);
       
       if (wData && wData.length > 0 && !selectedRateWorkshopId) {
         setSelectedRateWorkshopId(wData[0].id);
+      }
+      if (wData && wData.length > 0 && !selectedSpecialWorkshopId) {
+        setSelectedSpecialWorkshopId(wData[0].id);
       }
     } catch (err: any) {
       console.error('Error loading workshop rates or categories:', err.message);
       // Fallback in case table workshop_rates does not exist yet
       const { data: wData } = await supabase.from('workshops').select('*').order('nombre_taller', { ascending: true });
       const { data: cData } = await supabase.from('categories').select('*').order('categoria', { ascending: true });
+      const { data: pData } = await supabase.from('products').select('*').order('nombre_producto', { ascending: true });
       setWorkshops(wData || []);
       setCategories(cData || []);
+      setProductsList(pData || []);
       if (wData && wData.length > 0 && !selectedRateWorkshopId) {
         setSelectedRateWorkshopId(wData[0].id);
+      }
+      if (wData && wData.length > 0 && !selectedSpecialWorkshopId) {
+        setSelectedSpecialWorkshopId(wData[0].id);
       }
     } finally {
       setLoading(false);
@@ -114,35 +134,15 @@ export default function WorkshopsPage() {
 
   const fetchOrderCounts = async () => {
     try {
-      const { data: assignments } = await supabase
-        .from('sewing_assignments')
-        .select('order_id, workshop_id')
-        .not('workshop_id', 'is', null);
-
-      const { data: legacyOrders } = await supabase
-        .from('orders')
-        .select('id, workshop_id')
-        .not('workshop_id', 'is', null);
+      const { data: activeSewing } = await supabase
+        .from('sewing_orders')
+        .select('id, parent_order_id, workshop_id')
+        .eq('status', 'En Confección');
 
       const counts: Record<string, number> = {};
-      const workshopToOrders: Record<string, Set<string>> = {};
-
-      (assignments || []).forEach((asg: any) => {
-        if (!workshopToOrders[asg.workshop_id]) {
-          workshopToOrders[asg.workshop_id] = new Set();
-        }
-        workshopToOrders[asg.workshop_id].add(asg.order_id);
-      });
-
-      (legacyOrders || []).forEach((o: any) => {
-        if (!workshopToOrders[o.workshop_id]) {
-          workshopToOrders[o.workshop_id] = new Set();
-        }
-        workshopToOrders[o.workshop_id].add(o.id);
-      });
-
-      Object.entries(workshopToOrders).forEach(([wId, orderSet]) => {
-        counts[wId] = orderSet.size;
+      (activeSewing || []).forEach((so: any) => {
+        const wId = String(so.workshop_id);
+        counts[wId] = (counts[wId] || 0) + 1;
       });
 
       setOrderCounts(counts);
@@ -155,113 +155,51 @@ export default function WorkshopsPage() {
     setSelectedWorkshopForOrders(w);
     setLoadingOrders(true);
     try {
-      // 1. Fetch assignments for this workshop
-      const { data: assignments } = await supabase
-        .from('sewing_assignments')
-        .select('order_id, quantity')
+      // 1. Obtener todas las órdenes de confección activas para este taller
+      const { data: sewingOrders } = await supabase
+        .from('sewing_orders')
+        .select('*, parent_order:orders(*, fabrics(nombre_tela), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
         .eq('workshop_id', w.id);
 
-      // 2. Fetch orders where workshop_id is this workshop directly
-      const { data: legacyOrders } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('workshop_id', w.id);
-
-      const uniqueOrderIds = Array.from(new Set([
-        ...(assignments || []).map(a => a.order_id),
-        ...(legacyOrders || []).map(o => o.id)
-      ]));
-
-      if (uniqueOrderIds.length === 0) {
+      if (!sewingOrders || sewingOrders.length === 0) {
         setWorkshopOrders([]);
         setLoadingOrders(false);
         return;
       }
 
-      // 3. Fetch full order details including cuts, cut_sizes, fabrics
-      const { data: fullOrders } = await supabase
-        .from('orders')
-        .select('*, fabrics(nombre_tela), cuts(*, cut_sizes(*))')
-        .in('id', uniqueOrderIds)
-        .order('created_at', { ascending: false });
+      // 2. Mapear cada orden de confección en la información rica para mostrar
+      const richOrders = sewingOrders.map(so => {
+        const order = so.parent_order || {};
+        
+        // Sumar prendas del lote
+        const totalGarments = (so.sewing_order_sizes || []).reduce(
+          (sum: number, sz: any) => sum + (sz.cantidad_planeada || 0), 
+          0
+        );
 
-      // 4. Fetch catalog lists to compute calculations
-      const { data: sizesList } = await supabase.from('sizes').select('*');
-      const { data: productsList } = await supabase.from('products').select('*');
-      const { data: categoriesList } = await supabase.from('categories').select('*');
-      const { data: dbAssignments } = await supabase
-        .from('sewing_assignments')
-        .select('*')
-        .in('order_id', uniqueOrderIds);
+        // Kilos proporcionales: Si la orden padre tiene kilos, prorratear en base a prendas del lote respecto a prendas totales de la orden
+        let workshopKilos = 0;
+        const totalOrderGarments = (order.cuts || []).reduce((sum: number, cut: any) => {
+          return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+        }, 0);
 
-      // 5. Build rich order information with calculated garments and kilos
-      const richOrders = (fullOrders || []).map(order => {
-        // Find sewing assignments for this order
-        const orderAss = (dbAssignments || []).filter(a => a.order_id === order.id);
-
-        let rowWorkshops: Record<string, string> = {};
-        let isSplit = orderAss.length > 0;
-
-        if (isSplit) {
-          orderAss.forEach(asg => {
-            const cellKey = `${asg.category_id}_${asg.size_code}`;
-            rowWorkshops[cellKey] = asg.workshop_id;
-          });
+        if (totalOrderGarments > 0) {
+          const totalKilos = (order.cuts || []).reduce((sum: number, cut: any) => sum + (Number(cut.kilos) || 0), 0);
+          workshopKilos = totalKilos * (totalGarments / totalOrderGarments);
         }
 
-        // Calculate total garments and kilos for this workshop
-        let workshopGarments = 0;
-        let workshopKilos = 0;
-
-        (order.cuts || []).forEach((cut: any) => {
-          const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
-          const cat = prod ? categoriesList?.find(c => String(c.id) === String(prod.category_id)) : null;
-          const catId = cat ? String(cat.id) : 'sin_cat';
-
-          const layersProyec = cut.layers || 1;
-          const layersProduced = cut.layers_produced || 0;
-
-          // Calculate total items in this cut
-          let cutTotalQty = 0;
-          let cutWorkshopQty = 0;
-
-          (cut.cut_sizes || []).forEach((cs: any) => {
-            const sizeObj = sizesList?.find(s => String(s.id) === String(cs.size_id));
-            const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-
-            const proyecQty = Number(cs.quantity) || 0;
-            const ppc = proyecQty / layersProyec;
-            const realQty = Math.round(ppc * layersProduced);
-
-            cutTotalQty += realQty;
-
-            // If not split, everything goes to the main workshop_id
-            const cellKey = `${catId}_${sz}`;
-            const assignedWorkshopId = isSplit ? rowWorkshops[cellKey] : String(order.workshop_id);
-
-            if (String(assignedWorkshopId) === String(w.id)) {
-              cutWorkshopQty += realQty;
-            }
-          });
-
-          workshopGarments += cutWorkshopQty;
-
-          if (cutTotalQty > 0 && cutWorkshopQty > 0) {
-            const propKilos = (Number(cut.kilos) || 0) * (cutWorkshopQty / cutTotalQty);
-            workshopKilos += propKilos;
-          } else if (!isSplit && String(order.workshop_id) === String(w.id)) {
-            workshopKilos += Number(cut.kilos) || 0;
-          }
-        });
-
-        const isPending = !['Terminada', 'Cerrada', 'Enviada'].includes(order.status);
-        const pendingGarments = isPending ? workshopGarments : 0;
+        const isPending = so.status !== 'Terminada';
 
         return {
-          ...order,
-          workshopGarments,
-          workshopKilos,
-          pendingGarments,
+          id: so.id,
+          internal_code: so.confeccion_code,
+          client_name: order.client_name || '—',
+          fabrics: order.fabrics,
+          workshopGarments: totalGarments,
+          pendingGarments: isPending ? totalGarments : 0,
+          workshopKilos: parseFloat(workshopKilos.toFixed(2)),
+          productName: so.products?.nombre_producto || 'Referencia',
+          status: so.status || 'En Confección',
           isPending
         };
       });
@@ -365,6 +303,59 @@ export default function WorkshopsPage() {
       
     if (error) {
       console.error('Error updating base rate in DB:', error.message);
+    }
+  };
+
+  const handleSpecialCostChangeForCategory = (workshopId: string, categoryId: string, val: string) => {
+    const numericRate = val === '' ? 0 : parseFloat(val);
+    const productsInCat = productsList.filter(p => String(p.category_id) === String(categoryId));
+    
+    setSpecialCosts(prev => {
+      let copy = [...prev];
+      productsInCat.forEach(prod => {
+        const idx = copy.findIndex(r => 
+          String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
+          String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+        );
+        if (idx >= 0) {
+          copy[idx] = { ...copy[idx], special_rate: numericRate };
+        } else {
+          copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
+        }
+      });
+      return copy;
+    });
+  };
+
+  const handleSaveSpecials = async () => {
+    setSavingSpecials(true);
+    try {
+      // Filtrar y limpiar el payload asegurando que solo enviamos registros válidos
+      // Nota importante: NO enviamos en absoluto la propiedad 'id' a Supabase. 
+      // Al omitirla por completo, Supabase Postgres resolverá los registros en conflicto basándose en 
+      // la restricción UNIQUE (workshop_id, product_id) autogenerando el UUID para los registros nuevos.
+      const cleanedSpecials = specialCosts
+        .filter(item => item.workshop_id && item.product_id)
+        .map(item => ({
+          workshop_id: item.workshop_id,
+          product_id: item.product_id,
+          special_rate: Number(item.special_rate) || 0
+        }));
+
+      const { error } = await supabase
+        .from('workshop_special_costs')
+        .upsert(cleanedSpecials, { onConflict: 'workshop_id,product_id' });
+
+      if (error) {
+        alert('Error al guardar costos especiales: ' + error.message);
+      } else {
+        alert('✅ Costos especiales guardados exitosamente.');
+        fetchWorkshops();
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSavingSpecials(false);
     }
   };
 
@@ -474,10 +465,137 @@ export default function WorkshopsPage() {
             Administra tus talleres externos y controla la producción delegada.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>
-          <Plus size={18} /> Registrar Taller
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowWorkshopsHelp(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.6rem 1.1rem', borderRadius: '10px',
+              border: '1.5px solid var(--border)', cursor: 'pointer',
+              fontSize: '0.8rem', fontWeight: '800',
+              backgroundColor: 'white', color: 'var(--text-muted)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <HelpCircle size={16} /> Ayuda
+          </button>
+          <button className="btn btn-primary" onClick={openCreate}>
+            <Plus size={18} /> Registrar Taller
+          </button>
+        </div>
       </div>
+
+      {/* Modal de Ayuda del módulo Talleres */}
+      {showWorkshopsHelp && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '100%', maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 40px 80px -20px rgba(0,0,0,0.35)' }}>
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, #0891b2 100%)', padding: '2rem', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '14px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <BookOpen size={24} />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>Centro de Ayuda</p>
+                    <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '950' }}>Guía de Talleres Satélite</h2>
+                  </div>
+                </div>
+                <button onClick={() => setShowWorkshopsHelp(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', flexShrink: 0 }}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido */}
+            <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+
+              {/* Directorio */}
+              <div>
+                <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#eef2ff', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>1</span>
+                  Directorio de Talleres
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '2rem' }}>
+                  {[
+                    { icon: '🏭', title: 'Registrar un Taller', desc: 'Haz clic en “Registrar Taller” para crear un nuevo satélite. Completa nombre, responsable, dirección, teléfono, especialidad y capacidad diaria.' },
+                    { icon: '📈', title: 'Ver el reporte de carga', desc: 'El ícono de gráfica junto a cada taller muestra las órdenes activas, prendas pendientes y kilos de tela asignados.' },
+                    { icon: '✏️', title: 'Editar un Taller', desc: 'Haz clic en el ícono de edición para modificar los datos del taller en cualquier momento.' },
+                    { icon: '🗑️', title: 'Eliminar un Taller', desc: 'Solo puedes eliminar talleres que no tengan órdenes activas. Esta acción es permanente.' },
+                  ].map((s, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.8rem 1rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{s.icon}</span>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>{s.title}</p>
+                        <p style={{ margin: '0.15rem 0 0', fontSize: '0.72rem', color: '#64748b', lineHeight: '1.4' }}>{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tarifas */}
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
+                <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>2</span>
+                  Tarifas y Costos por Categoría
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '2rem' }}>
+                  {[
+                    { icon: '💲', title: 'Tarifa base global', desc: 'Es el precio base de confección por prenda, definido en Ajustes del sistema. Aplica a todos los talleres que no tengan tarifa específica.' },
+                    { icon: '🏷️', title: 'Tarifa por categoría', desc: 'Puedes asignar un precio diferente según la categoría del producto (ej: camisetas, pantalones). Esto sobrescribe la tarifa base para ese tipo de prenda.' },
+                    { icon: '🏠', title: 'Override por taller', desc: 'Selecciona un taller específico en el dropdown para definir tarifas personalizadas solo para ese taller. Si no se define, usa la tarifa de categoría o la base global.' },
+                  ].map((s, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.8rem 1rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{s.icon}</span>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>{s.title}</p>
+                        <p style={{ margin: '0.15rem 0 0', fontSize: '0.72rem', color: '#64748b', lineHeight: '1.4' }}>{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ padding: '0.85rem 1rem', backgroundColor: '#fffbeb', borderRadius: '10px', border: '1px solid #fed7aa', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚡</span>
+                    <p style={{ margin: 0, fontSize: '0.73rem', color: '#92400e', lineHeight: '1.45', fontWeight: '600' }}>
+                      <strong>Jerarquía de tarifas:</strong> Costo Especial (por orden) → Tarifa por Taller y Categoría → Tarifa de Categoría Global → Tarifa Base Global.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Costos Especiales */}
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
+                <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#fff7ed', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>3</span>
+                  Costos Especiales
+                </h3>
+                <div style={{ paddingLeft: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569', lineHeight: '1.5', padding: '0.85rem 1rem', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    Los costos especiales se activan cuando una orden de confección tiene marcado el flag "Precio Especial" ✅. 
+                    En ese caso, el sistema consulta esta tabla para obtener la tarifa correcta por categoría y taller, 
+                    y la usa para calcular el pago en lugar de la tarifa normal.
+                  </p>
+                  {[
+                    '⚠️ Si el precio especial está activo en una orden pero no hay costo especial configurado para esa categoría y taller, el sistema usa la tarifa base.',
+                    '📋 Puedes dejar el campo vacío (0) para indicar que no aplica costo especial para esa combinación.',
+                    '💾 Siempre haz clic en "Guardar Tarifas Especiales" para que los cambios tengan efecto.',
+                  ].map((tip, i) => (
+                    <p key={i} style={{ margin: 0, fontSize: '0.75rem', color: '#475569', padding: '0.5rem 0.75rem', backgroundColor: '#fafafa', borderRadius: '8px', borderLeft: '3px solid #f59e0b', lineHeight: '1.4' }}>{tip}</p>
+                  ))}
+                </div>
+              </div>
+
+              {/* Botón cerrar */}
+              <button
+                onClick={() => setShowWorkshopsHelp(false)}
+                style={{ padding: '0.85rem', borderRadius: '12px', border: 'none', cursor: 'pointer', backgroundColor: 'var(--primary)', color: 'white', fontWeight: '800', fontSize: '0.875rem', width: '100%' }}
+              >
+                Entendido — Cerrar guía
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs Selector */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '1.5rem', marginBottom: '0.5rem' }}>
@@ -504,6 +622,18 @@ export default function WorkshopsPage() {
           }}
         >
           <Coins size={16} /> Tarifas y Costos por Categoría
+        </button>
+        <button 
+          onClick={() => setActiveTab('special_rates')}
+          style={{
+            padding: '0.75rem 0.5rem', border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: '0.875rem', fontWeight: '800',
+            color: activeTab === 'special_rates' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: activeTab === 'special_rates' ? '3px solid var(--primary)' : '3px solid transparent',
+            display: 'flex', alignItems: 'center', gap: '0.5rem'
+          }}
+        >
+          <Star size={16} /> Costos Especiales por Producto
         </button>
       </div>
 
@@ -623,7 +753,7 @@ export default function WorkshopsPage() {
             </div>
           )}
         </>
-      ) : (
+      ) : activeTab === 'rates' ? (
         <div style={{ backgroundColor: 'white', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
@@ -764,7 +894,78 @@ export default function WorkshopsPage() {
             )}
           </div>
         </div>
-      )}
+      ) : activeTab === 'special_rates' ? (
+        <div style={{ backgroundColor: 'white', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Matriz de Costos Especiales y Adicionales por Categoría</h2>
+              <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>Define tarifas especiales de costura por prenda independientes de la tarifa base general para cada categoría.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSaveSpecials}
+                disabled={savingSpecials}
+                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+              >
+                {savingSpecials ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Guardar Costos Especiales</>}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '1.25rem', backgroundColor: '#f8fafc' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#334155' }}>SELECCIONAR TALLER SATÉLITE:</span>
+              <select
+                value={selectedSpecialWorkshopId}
+                onChange={e => setSelectedSpecialWorkshopId(e.target.value)}
+                style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750', color: '#0f172a', backgroundColor: 'white', minWidth: '220px' }}
+              >
+                <option value="">Selecciona un taller...</option>
+                {workshops.map(w => (
+                  <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                ))}
+              </select>
+            </div>
+
+            {!selectedSpecialWorkshopId ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                Selecciona un taller satélite para configurar los costos específicos de confección por categoría.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(265px, 1fr))', gap: '1rem', marginTop: '0.5rem' }}>
+                {categories.map(cat => {
+                  const productsInCat = productsList.filter(p => String(p.category_id) === String(cat.id));
+                  const match = specialCosts.find(r => 
+                    String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && 
+                    productsInCat.some(p => String(p.id).toLowerCase() === String(r.product_id).toLowerCase())
+                  );
+                  const currentRate = match ? match.special_rate : 0;
+                  return (
+                    <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.85rem 1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase' }}>{cat.categoria || '(Sin Categoría)'}</span>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: '700' }}>
+                        Tarifa Base General: <span style={{ color: '#0284c7', fontWeight: '800' }}>${cat.base_rate?.toLocaleString('es-CO') || '0'} COP</span>
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#94a3b8', fontWeight: '700', fontSize: '0.8rem' }}>$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={currentRate || ''}
+                          onChange={e => handleSpecialCostChangeForCategory(selectedSpecialWorkshopId, cat.id, e.target.value)}
+                          placeholder="Tarifa especial"
+                          style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', textAlign: 'right', fontWeight: '750', color: '#0f172a' }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* Modal */}
       {showModal && (
