@@ -75,6 +75,7 @@ export default function QualityPage() {
   const [defectChecklist, setDefectChecklist] = useState<Record<string, boolean>>({});
   const [garmentNotes, setGarmentNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [showLabelsModal, setShowLabelsModal] = useState(false);
 
   // Track per-row approved/rejected in the detail table
   const [rowApproved, setRowApproved] = useState<Record<string, number>>({});
@@ -931,6 +932,18 @@ export default function QualityPage() {
                           <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', backgroundColor: '#f0fdf4', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
                             {individualGarments.length} prendas registradas
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowLabelsModal(true)}
+                            className="btn"
+                            style={{
+                              fontSize: '0.7rem', fontWeight: '800', padding: '0.35rem 0.75rem',
+                              backgroundColor: '#0f172a', color: 'white', border: 'none',
+                              borderRadius: '6px', cursor: 'pointer', display: 'flex', gap: '0.3rem', alignItems: 'center'
+                            }}
+                          >
+                            🖨️ Etiquetas
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1344,6 +1357,131 @@ export default function QualityPage() {
           </div>
         </div>
       )}
+      {/* Printable Labels Modal */}
+      {showLabelsModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} className="no-print">
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '800px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>🖨️ Impresión de Etiquetas Unitarias</h3>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>Vista de impresión optimizada para las prendas registradas.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLabelsModal(false)}
+                style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Scrollable list of labels */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
+              <div id="printable-labels-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                {individualGarments.map((g: any) => (
+                  <div
+                    key={g.id}
+                    style={{
+                      backgroundColor: 'white', border: '1.5px solid #000', borderRadius: '8px', padding: '0.75rem',
+                      display: 'flex', flexDirection: 'column', gap: '0.4rem', position: 'relative',
+                      boxSizing: 'border-box', height: '150px', justifyContent: 'space-between'
+                    }}
+                  >
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #000', paddingBottom: '0.2rem' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: '950', letterSpacing: '0.05em' }}>CORTES BREINER</span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '950', backgroundColor: '#000', color: '#fff', padding: '0.05rem 0.35rem', borderRadius: '3px' }}>{g.size_code}</span>
+                    </div>
+                    {/* Body */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, padding: '0.25rem 0' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800' }}>Ref: {g.reference_name || 'N/A'}</span>
+                        <span style={{ fontSize: '0.62rem', color: '#334155' }}>Color: {g.color_name || 'N/A'}</span>
+                        <span style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: '700' }}>Lote: {orderDetail?.consecutive || '—'}</span>
+                      </div>
+                      
+                      {/* Fake QR Mockup (Vector drawing using SVG) */}
+                      <svg width="45" height="45" viewBox="0 0 100 100" style={{ border: '1px solid #000', padding: '2px' }}>
+                        <rect x="0" y="0" width="25" height="25" fill="#000"/>
+                        <rect x="5" y="5" width="15" height="15" fill="#fff"/>
+                        <rect x="75" y="0" width="25" height="25" fill="#000"/>
+                        <rect x="80" y="5" width="15" height="15" fill="#fff"/>
+                        <rect x="0" y="75" width="25" height="25" fill="#000"/>
+                        <rect x="5" y="80" width="15" height="15" fill="#fff"/>
+                        
+                        <rect x="35" y="10" width="10" height="10" fill="#000"/>
+                        <rect x="50" y="30" width="15" height="15" fill="#000"/>
+                        <rect x="30" y="50" width="15" height="15" fill="#000"/>
+                        <rect x="70" y="45" width="10" height="10" fill="#000"/>
+                        <rect x="85" y="85" width="15" height="15" fill="#000"/>
+                        <rect x="45" y="75" width="10" height="15" fill="#000"/>
+                      </svg>
+                    </div>
+                    {/* Barcode Mockup */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.2rem' }}>
+                      <div style={{ display: 'flex', gap: '2px', height: '18px', width: '80%' }}>
+                        {Array.from({ length: 28 }).map((_, idx) => {
+                          const w = (idx % 3 === 0) ? '3px' : (idx % 2 === 0) ? '1px' : '2px';
+                          const bg = (idx % 5 === 0) ? 'transparent' : '#000';
+                          return <div key={idx} style={{ width: w, height: '100%', backgroundColor: bg }} />;
+                        })}
+                      </div>
+                      <span style={{ fontSize: '0.62rem', fontWeight: '900', letterSpacing: '0.05em' }}>{g.barcode}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Modal Actions */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowLabelsModal(false)}
+                className="btn"
+                style={{ fontSize: '0.8rem', padding: '0.55rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white' }}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.print();
+                }}
+                className="btn"
+                style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#7c3aed', color: 'white', fontWeight: '800' }}
+              >
+                🖨️ Imprimir Etiquetas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print isolated Styles */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-labels-container, #printable-labels-container * {
+            visibility: visible !important;
+          }
+          #printable-labels-container {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 1.5cm !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
