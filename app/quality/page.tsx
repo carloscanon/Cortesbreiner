@@ -1283,10 +1283,12 @@ export default function QualityPage() {
                           const colors: Record<string, { bg: string; border: string; color: string }> = {
                             Pendiente: { bg: '#eff6ff', border: '#93c5fd', color: '#1d4ed8' },
                             Aprobado: { bg: '#f0fdf4', border: '#6ee7b7', color: '#065f46' },
+                            Doblado: { bg: '#faf5ff', border: '#c084fc', color: '#6b21a8' },
+                            Empacado: { bg: '#ecfeff', border: '#67e8f9', color: '#0369a1' },
                             Reproceso: { bg: '#fffbeb', border: '#fcd34d', color: '#92400e' },
                             Rechazado: { bg: '#fff1f2', border: '#fca5a5', color: '#9f1239' },
                           };
-                          const c = colors[s];
+                          const c = colors[s] || { bg: '#f1f5f9', border: '#cbd5e1', color: '#475569' };
                           const isSelected = form.status === s;
                           return (
                             <button
