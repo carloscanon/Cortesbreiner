@@ -242,7 +242,7 @@ export default function QualityPage() {
           parent_order:orders(
             *,
             fabrics(nombre_tela),
-            workshops(nombre_taller, responsable),
+            workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos),
             cuts(
               *,
               cut_sizes(*)
@@ -252,7 +252,7 @@ export default function QualityPage() {
             *,
             sizes(*)
           ),
-          workshops(nombre_taller, responsable)
+          workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos)
         `)
         .eq('id', id)
         .single();
@@ -287,7 +287,7 @@ export default function QualityPage() {
     } else {
       const { data } = await supabase
         .from('orders')
-        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
+        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos), cuts(*, cut_sizes(*))')
         .eq('id', id)
         .single();
       setOrderDetail(data);
@@ -324,24 +324,17 @@ export default function QualityPage() {
           const sz = sizeObj ? sizeObj.codigo_talla : (cs.size_code || 'S/T');
 
           // Check if this size is assigned to this sewing order
-          const isAssigned = sewingOrder.sewing_order_sizes.some(
-            (sos: any) => String(sos.size_id) === String(cs.size_id) && (sos.cantidad_planeada || 0) > 0
+          const sosMatch = sewingOrder.sewing_order_sizes.find(
+            (sos: any) => String(sos.size_id) === String(cs.size_id)
           );
-          if (!isAssigned) return;
+          const plannedQty = sosMatch ? Number(sosMatch.cantidad_planeada) || 0 : 0;
+          if (plannedQty <= 0) return;
 
-          let qty = 0;
-          if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
-            qty = Number(cs.quantity_produced);
-          } else {
-            const proyecQty = Number(cs.quantity) || 0;
-            const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-            qty = Math.round(ppc * layersProduced);
-          }
+          // Always use planned quantity for sewing orders to ensure we can always generate/print labels
+          const qty = plannedQty;
 
-          if (qty > 0) {
-            const key = `${cut.id}_${cs.id}`;
-            rows.push({ key, productName, colorName, size: sz, quantity: qty });
-          }
+          const key = `${cut.id}_${cs.id}`;
+          rows.push({ key, productName, colorName, size: sz, quantity: qty });
         });
       });
       return rows;
@@ -367,6 +360,10 @@ export default function QualityPage() {
           const proyecQty = Number(cs.quantity) || 0;
           const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
           qty = Math.round(ppc * layersProduced);
+        }
+        // Fallback to planned quantity if produced is 0
+        if (qty <= 0) {
+          qty = Number(cs.quantity) || 0;
         }
         if (qty > 0) {
           const key = `${cut.id}_${cs.id}`;
@@ -397,29 +394,54 @@ export default function QualityPage() {
     const selectedOrder = orders.find(o => o.id === parentOrderId);
     const rows = getDetailRows(orderDetail);
     
-    const lavVal = Number(form.lavanderia) || 0;
-    const salVal = Number(form.saldos) || 0;
-    const cosVal = Number(form.costuras) || 0;
-    const incVal = Number(form.incompleto) || 0;
-    
-    // Total rejected is the sum of breakdown categories
-    let finalRejected = lavVal + salVal + cosVal + incVal;
+    let lavVal = Number(form.lavanderia) || 0;
+    let salVal = Number(form.saldos) || 0;
+    let cosVal = Number(form.costuras) || 0;
+    let incVal = Number(form.incompleto) || 0;
     let finalApproved = Number(form.items_approved) || 0;
+    let finalRejected = 0;
 
     // If we have individual garments generated, calculate everything from them
     if (individualGarments.length > 0) {
       finalApproved = individualGarments.filter(g => g.status === 'Aprobada').length;
-      finalRejected = individualGarments.filter(g => g.status === 'Rechazada').length;
-      // Update form counts
+      const rejectedGarments = individualGarments.filter(g => g.status === 'Rechazada');
+      finalRejected = rejectedGarments.length;
+      
+      // Calculate breakdown from checklist
+      cosVal = 0;
+      lavVal = 0;
+      salVal = 0;
+      incVal = 0;
+      rejectedGarments.forEach(g => {
+        const chk = g.defect_checklist || {};
+        const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
+        const isLavado = chk['Lavado'] || chk['Mancha'];
+        if (isCostura) {
+          cosVal++;
+        } else if (isLavado) {
+          lavVal++;
+        } else {
+          salVal++;
+        }
+      });
+
       form.items_inspected = individualGarments.length.toString();
-    } else if (rows.length > 0) {
-      // If we have per-row data, compute approved from that
-      const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
-      if (totalApproved > 0) {
-        finalApproved = totalApproved;
-      }
-      if (totalRejected > 0 && finalRejected === 0) {
-        finalRejected = totalRejected;
+      form.items_approved = finalApproved.toString();
+      form.items_rejected = finalRejected.toString();
+      form.costuras = cosVal.toString();
+      form.lavanderia = lavVal.toString();
+      form.saldos = salVal.toString();
+      form.incompleto = incVal.toString();
+    } else {
+      finalRejected = lavVal + salVal + cosVal + incVal;
+      if (rows.length > 0) {
+        const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
+        if (totalApproved > 0) {
+          finalApproved = totalApproved;
+        }
+        if (totalRejected > 0 && finalRejected === 0) {
+          finalRejected = totalRejected;
+        }
       }
     }
 
@@ -435,9 +457,14 @@ export default function QualityPage() {
       return alert(`❌ La suma de prendas aprobadas (${finalApproved}) y rechazadas (${finalRejected}) no puede superar el total de prendas inspeccionadas (${totalInspected}).`);
     }
 
-    // Settlement calculations
+    // Settlement calculations using workshop-specific rates
     const valPrenda = Number(form.valor_prenda) || 3500;
-    const descDefectos = finalRejected * 500;
+    const workshopObj = selectedSewingOrder?.workshops || selectedOrder?.workshops || orderDetail?.workshops || orderDetail?.parent_order?.workshops;
+    const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
+    const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
+    const rateSaldos = workshopObj ? Number(workshopObj.desc_saldos ?? 500) : 500;
+
+    const descDefectos = (cosVal * rateCosturas) + (lavVal * rateLavanderia) + (salVal * rateSaldos);
     const valPagar = (finalApproved * valPrenda) - descDefectos;
 
     const payload = {
@@ -1197,9 +1224,33 @@ export default function QualityPage() {
                       const totalApp = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Aprobada').length : rowTotalApproved;
                       const totalRej = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Rechazada').length : rowTotalRejected;
                       const totalRep = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Reproceso').length : 0;
+                      
+                      let previewCos = Number(form.costuras) || 0;
+                      let previewLav = Number(form.lavanderia) || 0;
+                      let previewSal = Number(form.saldos) || 0;
+
+                      if (individualGarments.length > 0) {
+                        previewCos = 0;
+                        previewLav = 0;
+                        previewSal = 0;
+                        individualGarments.filter(g => g.status === 'Rechazada').forEach(g => {
+                          const chk = g.defect_checklist || {};
+                          const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
+                          const isLavado = chk['Lavado'] || chk['Mancha'];
+                          if (isCostura) previewCos++;
+                          else if (isLavado) previewLav++;
+                          else previewSal++;
+                        });
+                      }
+
+                      const workshopObj = orderDetail?.workshops || orderDetail?.parent_order?.workshops;
+                      const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
+                      const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
+                      const rateSaldos = workshopObj ? Number(workshopObj.desc_saldos ?? 500) : 500;
+
                       const valPrendaNum = Number(form.valor_prenda) || 3500;
                       const appValue = totalApp * valPrendaNum;
-                      const defDiscount = totalRej * 500;
+                      const defDiscount = (previewCos * rateCosturas) + (previewLav * rateLavanderia) + (previewSal * rateSaldos);
                       const netPayable = appValue - defDiscount;
 
                       return (
@@ -1359,7 +1410,7 @@ export default function QualityPage() {
       )}
       {/* Printable Labels Modal */}
       {showLabelsModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} className="no-print">
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '800px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             {/* Modal Header */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -16,6 +16,9 @@ const EMPTY_FORM = {
   especialidad: '',
   capacidad_diaria: '',
   activo: true,
+  desc_costuras: '500',
+  desc_lavanderia: '500',
+  desc_saldos: '500',
 };
 
 export default function WorkshopsPage() {
@@ -228,6 +231,9 @@ export default function WorkshopsPage() {
       especialidad: w.especialidad || '',
       capacidad_diaria: w.capacidad_diaria || '',
       activo: w.activo ?? true,
+      desc_costuras: (w.desc_costuras ?? 500).toString(),
+      desc_lavanderia: (w.desc_lavanderia ?? 500).toString(),
+      desc_saldos: (w.desc_saldos ?? 500).toString(),
     });
     setShowModal(true);
   };
@@ -239,7 +245,10 @@ export default function WorkshopsPage() {
     const payload = {
       ...form,
       name: form.nombre_taller,
-      capacidad_diaria: form.capacidad_diaria ? parseInt(form.capacidad_diaria, 10) : null
+      capacidad_diaria: form.capacidad_diaria ? parseInt(form.capacidad_diaria, 10) : null,
+      desc_costuras: form.desc_costuras ? parseFloat(form.desc_costuras) : 500,
+      desc_lavanderia: form.desc_lavanderia ? parseFloat(form.desc_lavanderia) : 500,
+      desc_saldos: form.desc_saldos ? parseFloat(form.desc_saldos) : 500,
     };
 
     if (editingId) {
@@ -1044,6 +1053,41 @@ export default function WorkshopsPage() {
                     <option value="true">Activo</option>
                     <option value="false">Inactivo</option>
                   </select>
+                </div>
+                
+                <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                  <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.8rem', fontWeight: '900', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    💵 Tarifas de Descuento por Defectos ($)
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Costuras ($)</label>
+                      <input
+                        type="number" min="0" placeholder="500"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                        value={form.desc_costuras || ''}
+                        onChange={e => setForm({ ...form, desc_costuras: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Lavandería ($)</label>
+                      <input
+                        type="number" min="0" placeholder="500"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                        value={form.desc_lavanderia || ''}
+                        onChange={e => setForm({ ...form, desc_lavanderia: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Saldos ($)</label>
+                      <input
+                        type="number" min="0" placeholder="500"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                        value={form.desc_saldos || ''}
+                        onChange={e => setForm({ ...form, desc_saldos: e.target.value })}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
