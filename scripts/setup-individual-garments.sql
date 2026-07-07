@@ -57,5 +57,9 @@ BEGIN
   END IF;
 END $$;
 
+-- Update status check constraint to support Doblado and Empacado
+ALTER TABLE quality_inspections DROP CONSTRAINT IF EXISTS quality_inspections_status_check;
+ALTER TABLE quality_inspections ADD CONSTRAINT quality_inspections_status_check CHECK (status IN ('Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado'));
+
 -- Reload PostgREST schema cache to instantly reflect the new columns in the client API
 NOTIFY pgrst, 'reload schema';
