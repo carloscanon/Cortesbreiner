@@ -61,3 +61,6 @@ BEGIN
     ALTER TABLE quality_inspections ADD COLUMN pago_status TEXT DEFAULT 'Pendiente de aprobación financiera';
   END IF;
 END $$;
+
+-- Reload PostgREST schema cache to instantly reflect the new columns in the client API
+NOTIFY pgrst, 'reload schema';
