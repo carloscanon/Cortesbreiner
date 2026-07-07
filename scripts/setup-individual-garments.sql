@@ -21,12 +21,7 @@ CREATE TABLE IF NOT EXISTS individual_garments (
 );
 
 -- Ensure order_id column exists if table was already created
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='individual_garments' AND column_name='order_id') THEN
-    ALTER TABLE individual_garments ADD COLUMN order_id UUID REFERENCES orders(id) ON DELETE CASCADE;
-  END IF;
-END $$;
+ALTER TABLE individual_garments ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id) ON DELETE CASCADE;
 
 -- Enable RLS
 ALTER TABLE individual_garments ENABLE ROW LEVEL SECURITY;
