@@ -567,6 +567,36 @@ export default function QualityPage() {
     await fetchOrderDetail(item.sewing_order_id || item.order_id, !!item.sewing_order_id);
   };
 
+  const printLabelsForInspection = async (item: any) => {
+    // Load garments for this inspection and open label modal
+    const sewingId = item.sewing_order_id;
+    const orderId = item.order_id;
+    let garments: any[] = [];
+    if (sewingId) {
+      const { data } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('sewing_order_id', sewingId)
+        .order('barcode', { ascending: true });
+      garments = data || [];
+    } else if (orderId) {
+      const { data } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('barcode', { ascending: true });
+      garments = data || [];
+    }
+    if (garments.length === 0) {
+      alert('Esta inspección no tiene prendas unitarias registradas. Abre la inspección y genera las prendas primero.');
+      return;
+    }
+    setIndividualGarments(garments);
+    // Use inspection order code as label reference
+    setOrderDetail({ consecutive: item.sewing_orders?.confeccion_code || item.orders?.consecutive || '' });
+    setShowLabelsModal(true);
+  };
+
   // KPIs & Executive Metrics
   const pending = inspections.filter(i => i.status === 'Pendiente').length;
   const approved = inspections.filter(i => i.status === 'Aprobado').length;
@@ -841,6 +871,16 @@ export default function QualityPage() {
                   >
                     {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                  {(item.status === 'Aprobado' || item.status === 'Doblado' || item.status === 'Empacado') && (
+                    <button
+                      className="btn"
+                      title="Imprimir etiquetas unitarias de esta orden"
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', gap: '0.25rem', alignItems: 'center' }}
+                      onClick={() => printLabelsForInspection(item)}
+                    >
+                      🖨️ Etiquetas
+                    </button>
+                  )}
                   <button
                     className="btn"
                     style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
@@ -955,23 +995,9 @@ export default function QualityPage() {
                           {loadingGarments ? 'Generando...' : '⚙️ GENERAR PRENDAS'}
                         </button>
                       ) : (
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', backgroundColor: '#f0fdf4', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
-                            {individualGarments.length} prendas registradas
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setShowLabelsModal(true)}
-                            className="btn"
-                            style={{
-                              fontSize: '0.7rem', fontWeight: '800', padding: '0.35rem 0.75rem',
-                              backgroundColor: '#0f172a', color: 'white', border: 'none',
-                              borderRadius: '6px', cursor: 'pointer', display: 'flex', gap: '0.3rem', alignItems: 'center'
-                            }}
-                          >
-                            🖨️ Etiquetas
-                          </button>
-                        </div>
+                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', backgroundColor: '#f0fdf4', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                          ✓ {individualGarments.length} prendas registradas
+                        </span>
                       )}
                     </div>
 
