@@ -436,7 +436,7 @@ export default function QualityPage() {
 
     // Settlement calculations
     const valPrenda = Number(form.valor_prenda) || 3500;
-    const descDefectos = finalRejected * valPrenda;
+    const descDefectos = finalRejected * 500;
     const valPagar = (finalApproved * valPrenda) - descDefectos;
 
     const payload = {
@@ -1186,7 +1186,7 @@ export default function QualityPage() {
                       const totalRep = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Reproceso').length : 0;
                       const valPrendaNum = Number(form.valor_prenda) || 3500;
                       const appValue = totalApp * valPrendaNum;
-                      const defDiscount = totalRej * valPrendaNum;
+                      const defDiscount = totalRej * 500;
                       const netPayable = appValue - defDiscount;
 
                       return (
