@@ -138,13 +138,15 @@ export default function QualityPage() {
     setSewingOrders(data || []);
   };
 
-  const fetchIndividualGarments = async (soId: string) => {
+  const fetchIndividualGarments = async (id: string, isSewingOrder: boolean = true) => {
     setLoadingGarments(true);
-    const { data } = await supabase
-      .from('individual_garments')
-      .select('*')
-      .eq('sewing_order_id', soId)
-      .order('barcode', { ascending: true });
+    const query = supabase.from('individual_garments').select('*');
+    if (isSewingOrder) {
+      query.eq('sewing_order_id', id);
+    } else {
+      query.eq('order_id', id);
+    }
+    const { data } = await query.order('barcode', { ascending: true });
     setIndividualGarments(data || []);
     setLoadingGarments(false);
   };
@@ -156,13 +158,7 @@ export default function QualityPage() {
     const toInsert: any[] = [];
     let globalIndex = 1;
     
-    const prodObj = products.find(p => String(p.id) === String(orderDetail.product_id));
-    const refName = prodObj ? prodObj.nombre_producto : 'Ref';
-    
-    // Find cut matching this product to get color
-    const cutObj = orderDetail.parent_order?.cuts?.find((c: any) => String(c.product_id) === String(orderDetail.product_id));
-    const colorObj = cutObj ? colors.find(col => String(col.id) === String(cutObj.color_id)) : null;
-    const colorName = colorObj ? colorObj.nombre_color : (cutObj?.color || 'Color');
+    const isSewingOrder = !!orderDetail.sewing_order_sizes;
     
     // Distribution of sizes derived from getDetailRows
     const detailRows = getDetailRows(orderDetail);
@@ -175,7 +171,8 @@ export default function QualityPage() {
         const paddedIdx = globalIndex.toString().padStart(4, '0');
         const barcode = `${orderDetail.confeccion_code || 'OC'}-${sizeCode}-${paddedIdx}`;
         toInsert.push({
-          sewing_order_id: orderDetail.id,
+          sewing_order_id: isSewingOrder ? orderDetail.id : null,
+          order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
           quality_inspection_id: editingId || null,
           barcode,
           reference_name: row.productName,
@@ -198,7 +195,7 @@ export default function QualityPage() {
     if (error) {
       alert('Error al generar prendas: ' + error.message);
     } else {
-      await fetchIndividualGarments(orderDetail.id);
+      await fetchIndividualGarments(orderDetail.id, isSewingOrder);
     }
     setLoadingGarments(false);
   };
@@ -260,7 +257,7 @@ export default function QualityPage() {
         .single();
       
       setOrderDetail(data);
-      await fetchIndividualGarments(id);
+      await fetchIndividualGarments(id, true);
 
       // Determine price per garment (valor_prenda)
       if (data) {
@@ -293,6 +290,7 @@ export default function QualityPage() {
         .eq('id', id)
         .single();
       setOrderDetail(data);
+      await fetchIndividualGarments(id, false);
     }
     setLoadingDetail(false);
   };
@@ -474,12 +472,20 @@ export default function QualityPage() {
     }
 
     // Update quality_inspection_id on individual_garments if this was a new inspection
-    if (!error && savedInspectionId && form.sewing_order_id) {
-      await supabase
-        .from('individual_garments')
-        .update({ quality_inspection_id: savedInspectionId })
-        .eq('sewing_order_id', form.sewing_order_id)
-        .is('quality_inspection_id', null);
+    if (!error && savedInspectionId) {
+      if (form.sewing_order_id) {
+        await supabase
+          .from('individual_garments')
+          .update({ quality_inspection_id: savedInspectionId })
+          .eq('sewing_order_id', form.sewing_order_id)
+          .is('quality_inspection_id', null);
+      } else if (parentOrderId) {
+        await supabase
+          .from('individual_garments')
+          .update({ quality_inspection_id: savedInspectionId })
+          .eq('order_id', parentOrderId)
+          .is('quality_inspection_id', null);
+      }
     }
 
     if (error) {

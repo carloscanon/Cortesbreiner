@@ -6,6 +6,7 @@
 CREATE TABLE IF NOT EXISTS individual_garments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sewing_order_id UUID REFERENCES sewing_orders(id) ON DELETE CASCADE,
+  order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
   quality_inspection_id UUID REFERENCES quality_inspections(id) ON DELETE SET NULL,
   barcode TEXT UNIQUE NOT NULL,
   reference_name TEXT,
@@ -18,6 +19,14 @@ CREATE TABLE IF NOT EXISTS individual_garments (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure order_id column exists if table was already created
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='individual_garments' AND column_name='order_id') THEN
+    ALTER TABLE individual_garments ADD COLUMN order_id UUID REFERENCES orders(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 
 -- Enable RLS
 ALTER TABLE individual_garments ENABLE ROW LEVEL SECURITY;
