@@ -164,13 +164,12 @@ export default function QualityPage() {
     const colorObj = cutObj ? colors.find(col => String(col.id) === String(cutObj.color_id)) : null;
     const colorName = colorObj ? colorObj.nombre_color : (cutObj?.color || 'Color');
     
-    // Distribution of sizes
-    const sizesToGen = orderDetail.sewing_order_sizes || [];
+    // Distribution of sizes derived from getDetailRows
+    const detailRows = getDetailRows(orderDetail);
     
-    sizesToGen.forEach((sos: any) => {
-      const qty = Number(sos.cantidad_planeada) || 0;
-      const sizeObj = sizes.find(s => String(s.id) === String(sos.size_id));
-      const sizeCode = sizeObj ? sizeObj.codigo_talla : 'ST';
+    detailRows.forEach((row: any) => {
+      const qty = Number(row.quantity) || 0;
+      const sizeCode = row.size || 'ST';
       
       for (let i = 0; i < qty; i++) {
         const paddedIdx = globalIndex.toString().padStart(4, '0');
@@ -179,8 +178,8 @@ export default function QualityPage() {
           sewing_order_id: orderDetail.id,
           quality_inspection_id: editingId || null,
           barcode,
-          reference_name: refName,
-          color_name: colorName,
+          reference_name: row.productName,
+          color_name: row.colorName,
           size_code: sizeCode,
           status: 'Pendiente',
           defect_checklist: {}
