@@ -6,11 +6,11 @@ export class SiigoTokenManager {
   private currentAuthPromise: Promise<string | null> | null = null;
 
   /**
-   * Obtiene un token válido. Si no existe o está vencido, solicita uno nuevo.
+   * Obtiene un token válido desde la base de datos.
+   * Si no existe o está vencido, solicita uno nuevo.
    */
   public async getToken(): Promise<string | null> {
     try {
-      // 1. Consultar base de datos
       const { data, error } = await supabaseAdmin
         .from('erp_tokens')
         .select('*')
@@ -23,9 +23,8 @@ export class SiigoTokenManager {
 
       if (data) {
         const expiresAt = new Date(data.expires_at).getTime();
-        // Margen de seguridad de 5 minutos antes de expirar
-        const safetyMargin = 5 * 60 * 1000;
-        
+        const safetyMargin = 5 * 60 * 1000; // 5 minutos antes de expirar
+
         if (expiresAt > Date.now() + safetyMargin) {
           try {
             return decrypt(data.access_token_encrypted);
@@ -35,7 +34,6 @@ export class SiigoTokenManager {
         }
       }
 
-      // 2. Si no hay token o está vencido, renovar
       return await this.refreshToken();
     } catch (e) {
       console.error('Excepción crítica en SiigoTokenManager.getToken:', e);
@@ -44,50 +42,78 @@ export class SiigoTokenManager {
   }
 
   /**
-   * Renueva el token realizando la petición a SIIGO.
-   * Evita solicitudes simultáneas en paralelo utilizando una promesa compartida (Locking).
+   * Renueva el token haciendo una petición directa al endpoint /auth de SIIGO.
+   * El endpoint de auth es: https://api.siigo.com/auth (SIN /v1)
+   * Usa un lock de promesa para evitar solicitudes paralelas simultáneas.
    */
   public async refreshToken(): Promise<string | null> {
+    // Lock: si ya hay una renovación en progreso, esperar esa misma promesa
     if (this.currentAuthPromise) {
       return this.currentAuthPromise;
     }
 
     this.currentAuthPromise = (async () => {
       try {
-        console.log('Iniciando renovación de token de SIIGO...');
+        console.log('[SIIGO] Iniciando renovación de token...');
         const config = await SiigoClient.getConfig();
 
         if (!config.username || !config.accessKey) {
-          console.warn('Configuración de credenciales de SIIGO incompleta. No se puede obtener token.');
+          console.warn('[SIIGO] Credenciales incompletas. Configura usuario y access_key en /siigo.');
           return null;
         }
 
-        const authPayload = {
-          username: config.username,
-          access_key: config.accessKey
-        };
+        // ⚠️ IMPORTANTE: El endpoint de auth de SIIGO NO tiene /v1
+        // La URL base es https://api.siigo.com/auth, no https://api.siigo.com/v1/auth
+        const baseUrl = config.apiUrl.replace(/\/v\d+\/?$/, ''); // Elimina "/v1" al final si existe
+        const authUrl = `${baseUrl}/auth`;
 
-        // Realizamos la llamada a /auth usando SiigoClient
-        const response = await SiigoClient.request(
-          'POST',
-          '/auth',
-          authPayload,
-          {},
-          true // Indica que es llamada de autenticación para evitar bucles de 401
-        );
+        console.log(`[SIIGO] Autenticando en: ${authUrl}`);
 
-        const token = response?.access_token;
-        const expiresIn = response?.expires_in || 86400; // segundos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+
+        let response: Response;
+        try {
+          response = await fetch(authUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Partner-Id': config.partnerId || ''
+            },
+            body: JSON.stringify({
+              username: config.username,
+              access_key: config.accessKey
+            }),
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        let responseData: any;
+        try {
+          responseData = await response.json();
+        } catch {
+          throw new Error(`SIIGO auth respondió sin JSON válido. Status: ${response.status}`);
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `SIIGO Auth falló (HTTP ${response.status}): ${responseData?.message || responseData?.Message || JSON.stringify(responseData)}`
+          );
+        }
+
+        const token = responseData?.access_token;
+        const expiresIn = responseData?.expires_in || 86400;
 
         if (!token) {
-          throw new Error('La respuesta de autenticación de SIIGO no contiene access_token');
+          throw new Error('La respuesta de SIIGO no contiene access_token');
         }
 
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         const encryptedToken = encrypt(token);
 
-        // Guardar token en DB (Upsert)
-        const { error } = await supabaseAdmin
+        const { error: dbError } = await supabaseAdmin
           .from('erp_tokens')
           .upsert(
             {
@@ -99,14 +125,18 @@ export class SiigoTokenManager {
             { onConflict: 'erp_name' }
           );
 
-        if (error) {
-          console.error('Error al guardar token de SIIGO en la DB:', error);
+        if (dbError) {
+          console.error('[SIIGO] Error al guardar token en DB:', dbError);
         }
 
-        console.log('Token de SIIGO renovado y almacenado exitosamente.');
+        console.log('[SIIGO] Token renovado y almacenado exitosamente.');
         return token;
-      } catch (err) {
-        console.error('Error crítico al autenticar con SIIGO:', err);
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          console.error('[SIIGO] Timeout al conectar con SIIGO Auth (8s)');
+        } else {
+          console.error('[SIIGO] Error crítico al autenticar:', err.message || err);
+        }
         return null;
       } finally {
         this.currentAuthPromise = null;

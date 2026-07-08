@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { SiigoClient } from '../../../../lib/integration/siigo/client';
 import { IntegrationLogger } from '../../../../lib/integration/shared/logger';
 
+// Timeout máximo para Vercel Hobby (10s por función) — dejamos 9s de margen
+export const maxDuration = 30; // segundos (requiere plan Pro en Vercel, en Hobby el max es 10s)
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -12,10 +15,10 @@ export async function POST(req: Request) {
     }
 
     console.log(`[Proxy] Ejecutando petición dinámica: ${method} ${endpoint}`);
-    
+
     const startTime = Date.now();
     let response;
-    
+
     try {
       response = await SiigoClient.request(
         method,
@@ -24,21 +27,22 @@ export async function POST(req: Request) {
         headers || {}
       );
     } catch (err: any) {
-      // Si arrojó una excepción capturada ErpException, la enviamos con status
+      const duration = Date.now() - startTime;
       return NextResponse.json({
-        error: err.message,
-        code: err.code,
+        error: err.message || String(err),
+        code: err.code || 'ERROR',
         details: err.details,
-        responseTimeMs: Date.now() - startTime
+        responseTimeMs: duration
       }, { status: err.statusCode || 400 });
     }
 
     const duration = Date.now() - startTime;
 
-    await IntegrationLogger.logAudit({
-      action: `PROXY_REQUEST_${method}`,
-      details: `Petición ejecutada exitosamente a ${endpoint}. Duración: ${duration}ms`
-    });
+    // Log en background para no bloquear la respuesta
+    IntegrationLogger.logAudit({
+      action: `PROXY_${method}`,
+      details: `${endpoint} → ${duration}ms`
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
