@@ -1,0 +1,113 @@
+{
+  "info": {
+    "_postman_id": "siigo-integration-postman-collection",
+    "name": "SIIGO Integration API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Configuración",
+      "item": [
+        {
+          "name": "Obtener Configuración",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/siigo/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "config"]
+            }
+          }
+        },
+        {
+          "name": "Guardar Configuración",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_url\": \"https://api.siigo.com/v1\",\n  \"environment\": \"sandbox\",\n  \"username\": \"admin@breiner.com\",\n  \"access_key\": \"your_siigo_access_key\",\n  \"partner_id\": \"\",\n  \"timeout_ms\": 10000,\n  \"max_retries\": 3,\n  \"retry_delay_ms\": 1000,\n  \"headers\": {},\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/siigo/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "config"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conexión",
+      "item": [
+        {
+          "name": "Probar Autenticación & Conexión",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/siigo/auth/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "auth", "test"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consola Proxy SIIGO",
+      "item": [
+        {
+          "name": "Ejecutar Petición Dinámica",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"GET\",\n  \"endpoint\": \"/document-types?type=FV\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/siigo/proxy",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "proxy"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Monitoreo",
+      "item": [
+        {
+          "name": "Obtener Métricas Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/siigo/dashboard",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "dashboard"]
+            }
+          }
+        },
+        {
+          "name": "Obtener Logs e Historial",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/siigo/logs?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "siigo", "logs"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

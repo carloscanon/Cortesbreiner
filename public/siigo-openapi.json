@@ -1,0 +1,112 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cortesbreiner SIIGO Integration API",
+    "description": "API y Proxies para conectar e integrar el sistema de taller con el ERP SIIGO.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api/siigo",
+      "description": "Servidor Local Next.js API"
+    }
+  ],
+  "paths": {
+    "/config": {
+      "get": {
+        "summary": "Obtener configuración activa de SIIGO",
+        "responses": {
+          "200": {
+            "description": "Configuración cargada (sin clave secreta por seguridad)"
+          }
+        }
+      },
+      "post": {
+        "summary": "Guardar/Actualizar configuración de SIIGO",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "api_url": { "type": "string" },
+                  "environment": { "type": "string", "enum": ["sandbox", "production"] },
+                  "username": { "type": "string" },
+                  "access_key": { "type": "string" },
+                  "partner_id": { "type": "string" },
+                  "timeout_ms": { "type": "integer" },
+                  "max_retries": { "type": "integer" },
+                  "retry_delay_ms": { "type": "integer" },
+                  "headers": { "type": "object" },
+                  "is_active": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuración guardada exitosamente"
+          }
+        }
+      }
+    },
+    "/auth/test": {
+      "post": {
+        "summary": "Probar conexión y renovación del token de SIIGO",
+        "responses": {
+          "200": {
+            "description": "Estado de la prueba de conexión"
+          }
+        }
+      }
+    },
+    "/proxy": {
+      "post": {
+        "summary": "Proxy seguro para ejecutar peticiones HTTP a SIIGO",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"] },
+                  "endpoint": { "type": "string" },
+                  "payload": { "type": "object" },
+                  "headers": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta directa de la API de SIIGO con logs registrados"
+          }
+        }
+      }
+    },
+    "/dashboard": {
+      "get": {
+        "summary": "Obtener KPIs y métricas de integración para el Dashboard",
+        "responses": {
+          "200": {
+            "description": "KPIs de llamadas, tasa de error y tiempos promedio"
+          }
+        }
+      }
+    },
+    "/logs": {
+      "get": {
+        "summary": "Obtener listado de logs e historial de auditoría",
+        "responses": {
+          "200": {
+            "description": "Listado de erp_logs y erp_audit"
+          }
+        }
+      }
+    }
+  }
+}
