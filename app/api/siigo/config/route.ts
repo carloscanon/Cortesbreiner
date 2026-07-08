@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { supabaseAdmin } from '../../../../lib/supabase';
 import { encrypt } from '../../../../lib/integration/shared/crypto';
 import { SiigoClient } from '../../../../lib/integration/siigo/client';
 import { IntegrationLogger } from '../../../../lib/integration/shared/logger';
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('erp_config')
       .select('*')
       .eq('erp_name', 'SIIGO')
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     }
 
     // Obtener la configuración actual para mantener la contraseña si no se envió una nueva
-    const { data: existing } = await supabase
+    const { data: existing } = await supabaseAdmin
       .from('erp_config')
       .select('access_key_encrypted')
       .eq('erp_name', 'SIIGO')
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'El access_key es obligatorio' }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('erp_config')
       .upsert(
         {

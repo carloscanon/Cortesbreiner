@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { supabaseAdmin } from '../../../../lib/supabase';
 
 export async function GET() {
   try {
@@ -7,7 +7,7 @@ export async function GET() {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const { data: logs, error } = await supabase
+    const { data: logs, error } = await supabaseAdmin
       .from('erp_logs')
       .select('*')
       .eq('erp_name', 'SIIGO')

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '../../../../lib/supabase';
+import { supabaseAdmin } from '../../../../lib/supabase';
 
 export async function GET(req: Request) {
   try {
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     const method = searchParams.get('method') || '';
     const status = searchParams.get('status') || '';
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('erp_logs')
       .select('*', { count: 'exact' })
       .eq('erp_name', 'SIIGO')
@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     if (error) throw error;
 
     // Obtener también logs de auditoría
-    const { data: audit, error: auditErr } = await supabase
+    const { data: audit, error: auditErr } = await supabaseAdmin
       .from('erp_audit')
       .select('*')
       .order('created_at', { ascending: false })

@@ -1,4 +1,4 @@
-import { supabase } from '../../supabase';
+import { supabaseAdmin } from '../../supabase';
 
 export interface LogParams {
   erpName: string;
@@ -27,7 +27,7 @@ export class IntegrationLogger {
     try {
       console.log(`[Integration Log] ${params.method} ${params.endpoint} - Status: ${params.statusCode || 'N/A'}`);
       
-      const { error } = await supabase.from('erp_logs').insert([
+      const { error } = await supabaseAdmin.from('erp_logs').insert([
         {
           erp_name: params.erpName,
           endpoint: params.endpoint,
@@ -56,7 +56,7 @@ export class IntegrationLogger {
     try {
       console.log(`[Audit Log] ${params.action} - Details: ${params.details || 'None'}`);
       
-      const { error } = await supabase.from('erp_audit').insert([
+      const { error } = await supabaseAdmin.from('erp_audit').insert([
         {
           username: params.username || 'System/API',
           action: params.action,

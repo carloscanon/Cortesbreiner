@@ -1,4 +1,4 @@
-import { supabase } from '../../supabase';
+import { supabaseAdmin } from '../../supabase';
 import { decrypt } from '../shared/crypto';
 import { IntegrationLogger } from '../shared/logger';
 import { ErpException } from '../core/errors';
@@ -30,7 +30,7 @@ export class SiigoClient {
       return this.cachedConfig;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('erp_config')
       .select('*')
       .eq('erp_name', 'SIIGO')

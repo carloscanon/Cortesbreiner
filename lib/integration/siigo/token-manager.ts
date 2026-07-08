@@ -1,4 +1,4 @@
-import { supabase } from '../../supabase';
+import { supabaseAdmin } from '../../supabase';
 import { encrypt, decrypt } from '../shared/crypto';
 import { SiigoClient } from './client';
 
@@ -11,7 +11,7 @@ export class SiigoTokenManager {
   public async getToken(): Promise<string | null> {
     try {
       // 1. Consultar base de datos
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('erp_tokens')
         .select('*')
         .eq('erp_name', 'SIIGO')
@@ -87,7 +87,7 @@ export class SiigoTokenManager {
         const encryptedToken = encrypt(token);
 
         // Guardar token en DB (Upsert)
-        const { error } = await supabase
+        const { error } = await supabaseAdmin
           .from('erp_tokens')
           .upsert(
             {
