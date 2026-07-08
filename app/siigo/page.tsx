@@ -30,7 +30,17 @@ import {
 } from 'recharts';
 
 export default function SiigoIntegrationPage() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'console' | 'config' | 'logs'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'console' | 'config' | 'logs' | 'invoices'>('dashboard');
+
+  // Invoices tab states
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [invoiceFilterId, setInvoiceFilterId] = useState('');
+  const [invoiceFilterStart, setInvoiceFilterStart] = useState('');
+  const [invoiceFilterEnd, setInvoiceFilterEnd] = useState('');
+  const [invoicePage, setInvoicePage] = useState(1);
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [showInvoiceDetail, setShowInvoiceDetail] = useState(false);
   
   // Config state
   const [config, setConfig] = useState({
@@ -120,6 +130,26 @@ export default function SiigoIntegrationPage() {
     fetchMetrics();
     fetchLogs();
   }, []);
+
+  const fetchInvoices = async (page = 1) => {
+    setLoadingInvoices(true);
+    try {
+      const res = await fetch(
+        `/api/siigo/invoices?page=${page}&customer_identification=${invoiceFilterId}&created_start=${invoiceFilterStart}&created_end=${invoiceFilterEnd}`
+      );
+      const data = await res.json();
+      if (data && !data.error) {
+        setInvoices(data.results || []);
+        setInvoicePage(page);
+      } else {
+        alert('Error al consultar facturas: ' + (data.error || 'Respuesta inválida'));
+      }
+    } catch (e: any) {
+      alert('Error en conexión: ' + e.message);
+    } finally {
+      setLoadingInvoices(false);
+    }
+  };
 
   const fetchConfig = async () => {
     try {
@@ -357,6 +387,12 @@ export default function SiigoIntegrationPage() {
         >
           <Database size={16} /> Logs & Auditoría
         </button>
+        <button 
+          onClick={() => { setActiveTab('invoices'); fetchInvoices(1); }} 
+          style={{ padding: '0.75rem 1.25rem', border: 'none', borderBottom: activeTab === 'invoices' ? '3px solid #4f46e5' : '3px solid transparent', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: '700', color: activeTab === 'invoices' ? '#4f46e5' : '#64748b', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+        >
+          <Database size={16} /> Consultar Facturas (SIIGO)
+        </button>
       </div>
 
       {/* ── TAB CONTENT ── */}
@@ -556,6 +592,260 @@ export default function SiigoIntegrationPage() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── INVOICES CONSULTATION TAB ── */}
+        {activeTab === 'invoices' && (
+          <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '1.25rem', color: '#0f172a' }}>
+              🔍 Consulta de Facturas en SIIGO Nube
+            </h3>
+
+            {/* Filtros de Facturas */}
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ minWidth: '200px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '700', display: 'block', marginBottom: '0.25rem' }}>Identificación Cliente</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 10101010"
+                  value={invoiceFilterId}
+                  onChange={e => setInvoiceFilterId(e.target.value)}
+                  style={{ width: '100%', padding: '0.45rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div style={{ minWidth: '150px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '700', display: 'block', marginBottom: '0.25rem' }}>Fecha Inicio</label>
+                <input
+                  type="date"
+                  value={invoiceFilterStart}
+                  onChange={e => setInvoiceFilterStart(e.target.value)}
+                  style={{ width: '100%', padding: '0.45rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div style={{ minWidth: '150px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '700', display: 'block', marginBottom: '0.25rem' }}>Fecha Fin</label>
+                <input
+                  type="date"
+                  value={invoiceFilterEnd}
+                  onChange={e => setInvoiceFilterEnd(e.target.value)}
+                  style={{ width: '100%', padding: '0.45rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button
+                  onClick={() => fetchInvoices(1)}
+                  disabled={loadingInvoices}
+                  style={{
+                    backgroundColor: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px',
+                    padding: '0.55rem 1.25rem', fontSize: '0.85rem', fontWeight: '700', cursor: 'pointer'
+                  }}
+                >
+                  {loadingInvoices ? 'Buscando...' : 'Buscar Facturas'}
+                </button>
+              </div>
+            </div>
+
+            {/* Listado de Facturas */}
+            {loadingInvoices ? (
+              <p style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>Cargando facturas desde SIIGO...</p>
+            ) : invoices.length === 0 ? (
+              <p style={{ textAlign: 'center', padding: '3rem', color: '#64748b', fontStyle: 'italic' }}>
+                No se encontraron facturas creadas en SIIGO con los filtros aplicados.
+              </p>
+            ) : (
+              <div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
+                        <th style={{ padding: '0.75rem' }}>Consecutivo</th>
+                        <th style={{ padding: '0.75rem' }}>Fecha</th>
+                        <th style={{ padding: '0.75rem' }}>Cliente</th>
+                        <th style={{ padding: '0.75rem' }}>Identificación</th>
+                        <th style={{ padding: '0.75rem' }}>Total</th>
+                        <th style={{ padding: '0.75rem' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((inv: any) => (
+                        <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.75rem', fontWeight: '700', color: '#4f46e5' }}>{inv.name || `${inv.document?.name}-${inv.number}`}</td>
+                          <td style={{ padding: '0.75rem' }}>{inv.date}</td>
+                          <td style={{ padding: '0.75rem' }}>
+                            {inv.customer?.name ? inv.customer.name.join(' ') : 'Sin Nombre'}
+                          </td>
+                          <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>{inv.customer?.identification}</td>
+                          <td style={{ padding: '0.75rem', fontWeight: '700', color: '#1e293b' }}>
+                            ${(inv.total || 0).toLocaleString('es-CO')}
+                          </td>
+                          <td style={{ padding: '0.75rem' }}>
+                            <button
+                              onClick={() => { setSelectedInvoice(inv); setShowInvoiceDetail(true); }}
+                              style={{
+                                backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1',
+                                borderRadius: '6px', padding: '0.3rem 0.75rem', fontSize: '0.75rem',
+                                fontWeight: '700', cursor: 'pointer'
+                              }}
+                            >
+                              Ver Detalle
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginador simple */}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1.5rem' }}>
+                  <button
+                    disabled={invoicePage <= 1 || loadingInvoices}
+                    onClick={() => fetchInvoices(invoicePage - 1)}
+                    style={{ padding: '0.4rem 0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px', backgroundColor: 'white', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >
+                    Anterior
+                  </button>
+                  <span style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', fontWeight: '700', padding: '0 0.5rem' }}>
+                    Página {invoicePage}
+                  </span>
+                  <button
+                    disabled={invoices.length < 20 || loadingInvoices}
+                    onClick={() => fetchInvoices(invoicePage + 1)}
+                    style={{ padding: '0.4rem 0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px', backgroundColor: 'white', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: Detalle de Factura */}
+            {showInvoiceDetail && selectedInvoice && (
+              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)', padding: '1rem' }}>
+                <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '700px', display: 'flex', flexDirection: 'column', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                  
+                  {/* Header */}
+                  <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)', color: 'white' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800' }}>
+                        Factura {selectedInvoice.name || selectedInvoice.number}
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.8 }}>ID SIIGO: {selectedInvoice.id}</p>
+                    </div>
+                    <button
+                      onClick={() => setShowInvoiceDetail(false)}
+                      style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '1.2rem', cursor: 'pointer', fontWeight: '700' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Body */}
+                  <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', fontSize: '0.85rem' }}>
+                    
+                    {/* Información Básica */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Fecha de Emisión</span>
+                        <strong>{selectedInvoice.date}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Vendedor (ID)</span>
+                        <strong>{selectedInvoice.seller || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Cliente</span>
+                        <strong>{selectedInvoice.customer?.name?.join(' ') || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Identificación</span>
+                        <strong>{selectedInvoice.customer?.identification}</strong>
+                      </div>
+                    </div>
+
+                    {/* Items */}
+                    <div>
+                      <h5 style={{ margin: '0 0 0.5rem', fontWeight: '700' }}>Ítems Facturados</h5>
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.8rem' }}>
+                          <thead style={{ backgroundColor: '#f8fafc' }}>
+                            <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
+                              <th style={{ padding: '0.5rem' }}>Código</th>
+                              <th style={{ padding: '0.5rem' }}>Descripción</th>
+                              <th style={{ padding: '0.5rem' }}>Cant.</th>
+                              <th style={{ padding: '0.5rem' }}>Precio</th>
+                              <th style={{ padding: '0.5rem' }}>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(selectedInvoice.items || []).map((item: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '0.5rem', fontFamily: 'monospace' }}>{item.code}</td>
+                                <td style={{ padding: '0.5rem' }}>{item.description || 'Producto'}</td>
+                                <td style={{ padding: '0.5rem' }}>{item.quantity}</td>
+                                <td style={{ padding: '0.5rem' }}>${item.price.toLocaleString('es-CO')}</td>
+                                <td style={{ padding: '0.5rem', fontWeight: '700' }}>
+                                  ${(item.quantity * item.price).toLocaleString('es-CO')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Pagos / Financiero */}
+                    <div>
+                      <h5 style={{ margin: '0 0 0.5rem', fontWeight: '700' }}>Medios de Pago Relacionados</h5>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        {(selectedInvoice.payments || []).map((pay: any, i: number) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', backgroundColor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0', color: '#15803d' }}>
+                            <span>💳 Medio de Pago ID: <strong>{pay.id}</strong> {pay.due_date && `(Vence ${pay.due_date})`}</span>
+                            <strong>${(pay.value || 0).toLocaleString('es-CO')}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Observaciones */}
+                    {selectedInvoice.observations && (
+                      <div>
+                        <h5 style={{ margin: '0 0 0.25rem', fontWeight: '700' }}>Observaciones</h5>
+                        <p style={{ margin: 0, padding: '0.5rem', backgroundColor: '#f1f5f9', borderRadius: '6px', fontStyle: 'italic', fontSize: '0.8rem', color: '#475569' }}>
+                          {selectedInvoice.observations}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Resumen Final */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '2rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.8rem' }}>Total Facturado</span>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#4f46e5' }}>
+                          ${(selectedInvoice.total || 0).toLocaleString('es-CO')}
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Footer */}
+                  <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => setShowInvoiceDetail(false)}
+                      style={{
+                        backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '6px',
+                        padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                      }}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
           </div>
         )}
 
