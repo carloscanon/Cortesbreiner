@@ -233,30 +233,79 @@ export default function FinancialControlCenter() {
     setClientInvoices(Array.isArray(data) ? data : []);
   };
 
-  // ─── sincronizar desde SIIGO ───
+  // ─── sincronizar desde SIIGO (Background Polling) ───
   const runSync = async () => {
     setSyncing(true);
     setSyncResult(null);
     try {
       const res = await fetch('/api/siigo/financial/sync', { method: 'POST' });
       const data = await res.json();
-      setSyncResult({ success: !!data.success, message: data.message || data.error, synced: data.synced });
       if (data.success) {
-        fetchCustomers();
-        fetchInvoices();
-        fetchFinancialData();
+        setSyncResult({ success: true, message: 'Sincronización masiva iniciada en segundo plano...' });
+        pollSyncProgress();
+      } else {
+        setSyncResult({ success: false, message: data.message || 'Error al iniciar' });
+        setSyncing(false);
       }
     } catch (e: any) {
       setSyncResult({ success: false, message: e.message });
-    } finally {
       setSyncing(false);
     }
+  };
+
+  const pollSyncProgress = async () => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/siigo/financial/sync');
+        const progress = await res.json();
+        
+        if (progress.isSyncRunning) {
+          setSyncResult({
+            success: true,
+            message: `Sincronizando: ${progress.status === 'syncing_customers' ? 'Clientes' : 'Facturas'} (Pág. ${progress.currentPage})`,
+            synced: {
+              customers: progress.customersProcessed,
+              invoices: progress.invoicesProcessed
+            }
+          });
+        } else {
+          clearInterval(interval);
+          setSyncing(false);
+          if (progress.status === 'completed') {
+            setSyncResult({
+              success: true,
+              message: '¡Sincronización masiva completada!',
+              synced: {
+                customers: progress.customersProcessed,
+                invoices: progress.invoicesProcessed
+              }
+            });
+            fetchCustomers();
+            fetchInvoices();
+            fetchFinancialData();
+          } else if (progress.status === 'error') {
+            setSyncResult({ success: false, message: `Error: ${progress.error}` });
+          }
+        }
+      } catch (err) {
+        console.error('Error polling sync progress:', err);
+      }
+    }, 2000);
   };
 
   useEffect(() => {
     fetchFinancialData();
     fetchCustomers();
     fetchInvoices();
+    // Validar si ya hay una sync corriendo al montar
+    fetch('/api/siigo/financial/sync')
+      .then(res => res.json())
+      .then(prog => {
+        if (prog.isSyncRunning) {
+          setSyncing(true);
+          pollSyncProgress();
+        }
+      }).catch(() => {});
   }, [fetchFinancialData, fetchCustomers, fetchInvoices]);
 
   const filteredCustomers = customers.filter(c =>
