@@ -5,6 +5,10 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('q') || '';
+    const riesgo = searchParams.get('riesgo') || '';
+    const hasDebt = searchParams.get('has_debt') === 'true';
+    const vendedor = searchParams.get('vendedor') || '';
+    const city = searchParams.get('city') || '';
 
     let query = supabaseAdmin
       .from('siigo_customers')
@@ -13,6 +17,18 @@ export async function GET(req: Request) {
 
     if (search) {
       query = query.or(`name.ilike.%${search}%,identification.ilike.%${search}%`);
+    }
+    if (riesgo) {
+      query = query.eq('riesgo', riesgo);
+    }
+    if (hasDebt) {
+      query = query.gt('saldo_mora', 0);
+    }
+    if (vendedor) {
+      query = query.ilike('vendedor_name', `%${vendedor}%`);
+    }
+    if (city) {
+      query = query.ilike('city_name', `%${city}%`);
     }
 
     const { data, error } = await query;

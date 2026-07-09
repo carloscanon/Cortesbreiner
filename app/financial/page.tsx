@@ -119,6 +119,13 @@ export default function FinancialControlCenter() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Customer | null>(null);
   const [clientInvoices, setClientInvoices] = useState<Invoice[]>([]);
+  
+  // CRM Filters
+  const [crmFilterRiesgo, setCrmFilterRiesgo] = useState('');
+  const [crmFilterDebtOnly, setCrmFilterDebtOnly] = useState(false);
+  const [crmFilterVendedor, setCrmFilterVendedor] = useState('');
+  const [crmFilterCity, setCrmFilterCity] = useState('');
+  const [showCrmFilters, setShowCrmFilters] = useState(false);
 
   // Trazabilidad
   const [invoiceQuery, setInvoiceQuery] = useState('');
@@ -141,16 +148,29 @@ export default function FinancialControlCenter() {
   }, []);
 
   // ─── fetch clientes locales ───
-  const fetchCustomers = useCallback(async (q = '') => {
+  const fetchCustomers = useCallback(async (
+    q = searchTerm,
+    riesgo = crmFilterRiesgo,
+    debtOnly = crmFilterDebtOnly,
+    vendedor = crmFilterVendedor,
+    city = crmFilterCity
+  ) => {
     setLoadingCustomers(true);
     try {
-      const res = await fetch(`/api/siigo/financial/customers?q=${encodeURIComponent(q)}`);
+      const p = new URLSearchParams({
+        q,
+        riesgo,
+        has_debt: debtOnly ? 'true' : 'false',
+        vendedor,
+        city
+      });
+      const res = await fetch(`/api/siigo/financial/customers?${p}`);
       const data = await res.json();
       setCustomers(Array.isArray(data) ? data : []);
     } finally {
       setLoadingCustomers(false);
     }
-  }, []);
+  }, [searchTerm, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, crmFilterCity]);
 
   // ─── fetch facturas locales (dashboard/trazabilidad) ───
   const fetchInvoices = useCallback(async (q = '') => {
@@ -501,31 +521,151 @@ export default function FinancialControlCenter() {
 
             {!selectedClient ? (
               <div>
-                {/* Barra de búsqueda */}
-                <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', maxWidth: '500px', alignItems: 'center' }}>
-                  <div style={{ position: 'relative', flexGrow: 1 }}>
-                    <Search size={16} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                {/* ─── Barra principal: búsqueda + pills de riesgo + toggles ─── */}
+                <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ position: 'relative', flexGrow: 1, minWidth: '220px', maxWidth: '340px' }}>
+                    <Search size={15} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                     <input
                       type="text"
-                      placeholder="Buscar por NIT o razón social..."
+                      placeholder="NIT o razón social..."
                       value={searchTerm}
-                      onChange={e => { setSearchTerm(e.target.value); fetchCustomers(e.target.value); }}
-                      style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.25rem', border: '1px solid #334155', borderRadius: '8px', backgroundColor: '#1e293b', color: 'white', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                      onChange={e => {
+                        setSearchTerm(e.target.value);
+                        fetchCustomers(e.target.value, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, crmFilterCity);
+                      }}
+                      style={{ width: '100%', padding: '0.55rem 1rem 0.55rem 2.25rem', border: '1px solid #334155', borderRadius: '8px', backgroundColor: '#1e293b', color: 'white', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
                     />
                   </div>
+
+                  {/* Pills de Riesgo */}
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    {(['', 'Bajo', 'Medio', 'Alto'] as const).map(r => {
+                      const active = crmFilterRiesgo === r;
+                      const colors: Record<string, {border:string; bg:string; text:string}> = {
+                        '':     { border: '#6366f1', bg: '#312e81', text: '#a5b4fc' },
+                        'Bajo': { border: '#10b981', bg: '#064e3b', text: '#6ee7b7' },
+                        'Medio':{ border: '#f59e0b', bg: '#451a03', text: '#fbbf24' },
+                        'Alto': { border: '#ef4444', bg: '#7f1d1d', text: '#fca5a5' }
+                      };
+                      const c = colors[r] || colors[''];
+                      return (
+                        <button
+                          key={r}
+                          onClick={() => { setCrmFilterRiesgo(r); fetchCustomers(searchTerm, r, crmFilterDebtOnly, crmFilterVendedor, crmFilterCity); }}
+                          style={{
+                            padding: '0.4rem 0.75rem', borderRadius: '20px',
+                            border: `1px solid ${active ? c.border : '#334155'}`,
+                            backgroundColor: active ? c.bg : 'transparent',
+                            color: active ? c.text : '#64748b',
+                            fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s'
+                          }}
+                        >
+                          {r === '' ? 'Todos' : `${r === 'Alto' ? '🔴' : r === 'Medio' ? '🟡' : '🟢'} ${r}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Toggle mora */}
+                  <button
+                    onClick={() => { const next = !crmFilterDebtOnly; setCrmFilterDebtOnly(next); fetchCustomers(searchTerm, crmFilterRiesgo, next, crmFilterVendedor, crmFilterCity); }}
+                    style={{ padding: '0.4rem 0.8rem', borderRadius: '20px', border: `1px solid ${crmFilterDebtOnly ? '#ef4444' : '#334155'}`, backgroundColor: crmFilterDebtOnly ? '#7f1d1d' : 'transparent', color: crmFilterDebtOnly ? '#fca5a5' : '#64748b', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    💰 Con Mora
+                  </button>
+
+                  {/* Más filtros toggle */}
+                  <button
+                    onClick={() => setShowCrmFilters(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid #334155', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: showCrmFilters ? '#4f46e5' : 'transparent', color: 'white' }}
+                  >
+                    <SlidersHorizontal size={13} /> Más {showCrmFilters ? '▲' : '▼'}
+                  </button>
+
+                  {(searchTerm || crmFilterRiesgo || crmFilterDebtOnly || crmFilterVendedor || crmFilterCity) && (
+                    <button
+                      onClick={() => { setSearchTerm(''); setCrmFilterRiesgo(''); setCrmFilterDebtOnly(false); setCrmFilterVendedor(''); setCrmFilterCity(''); fetchCustomers('', '', false, '', ''); }}
+                      style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #334155', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: '#1e293b', color: '#94a3b8' }}
+                    >
+                      <IconX size={12} style={{ display: 'inline', marginRight: '0.25rem' }} />Limpiar
+                    </button>
+                  )}
                 </div>
 
+                {/* ─── Panel Filtros Avanzados ─── */}
+                {showCrmFilters && (
+                  <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.1rem', marginBottom: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendedor</label>
+                      <input
+                        type="text"
+                        value={crmFilterVendedor}
+                        onChange={e => { setCrmFilterVendedor(e.target.value); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, e.target.value, crmFilterCity); }}
+                        placeholder="Nombre del vendedor..."
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ciudad</label>
+                      <input
+                        type="text"
+                        value={crmFilterCity}
+                        onChange={e => { setCrmFilterCity(e.target.value); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, e.target.value); }}
+                        placeholder="Bogotá, Medellín..."
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ─── Chips de filtros activos ─── */}
+                {(crmFilterVendedor || crmFilterCity) && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    {crmFilterVendedor && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.65rem', backgroundColor: '#1e3a5f', color: '#93c5fd', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700 }}>
+                        👤 {crmFilterVendedor}
+                        <button onClick={() => { setCrmFilterVendedor(''); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, '', crmFilterCity); }} style={{ background: 'none', border: 'none', color: '#93c5fd', cursor: 'pointer', padding: 0 }}>✕</button>
+                      </span>
+                    )}
+                    {crmFilterCity && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.65rem', backgroundColor: '#1e293b', color: '#a78bfa', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155' }}>
+                        📍 {crmFilterCity}
+                        <button onClick={() => { setCrmFilterCity(''); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, ''); }} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', padding: 0 }}>✕</button>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* ─── Resumen estadístico de resultados ─── */}
+                {!loadingCustomers && customers.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                    {[
+                      { icon: <Users size={13} />, label: 'Resultados', value: `${customers.length} clientes`, color: '#818cf8' },
+                      { icon: <DollarSign size={13} />, label: 'Con mora', value: `${customers.filter(c => c.saldo_mora > 0).length}`, color: '#ef4444' },
+                      { icon: <Activity size={13} />, label: 'Riesgo Alto', value: `${customers.filter(c => c.riesgo === 'Alto').length}`, color: '#f59e0b' },
+                      { icon: <DollarSign size={13} />, label: 'Mora total', value: fmtCOP(customers.reduce((s, c) => s + (c.saldo_mora || 0), 0)), color: '#f59e0b' }
+                    ].map(({ icon, label, value, color }) => (
+                      <div key={label} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '0.55rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ color }}>{icon}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{label}:</span>
+                        <strong style={{ fontSize: '0.82rem', color }}>{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ─── Grid de clientes ─── */}
                 {loadingCustomers ? (
                   <Spinner label="Cargando clientes..." />
-                ) : filteredCustomers.length === 0 ? (
+                ) : customers.length === 0 ? (
                   <EmptyState
                     icon={<Users size={40} />}
-                    title="No hay clientes sincronizados"
-                    description='Haz clic en "Sincronizar con SIIGO" en el menú lateral para traer tus clientes.'
+                    title="Sin clientes con estos filtros"
+                    description="Ajusta los filtros o sincroniza con SIIGO desde el menú lateral."
                   />
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: '1.25rem' }}>
-                    {filteredCustomers.map(c => (
+                    {customers.map(c => (
                       <CustomerCard key={c.id} customer={c} onClick={() => { setSelectedClient(c); fetchClientInvoices(c.identification); }} />
                     ))}
                   </div>
