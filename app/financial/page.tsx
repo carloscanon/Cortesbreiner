@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   TrendingUp,
   FileText,
@@ -10,12 +10,21 @@ import {
   Users,
   DollarSign,
   Activity,
-  AlertTriangle,
   RefreshCw,
   CheckCircle,
   BadgePercent,
   XCircle,
-  Search
+  Search,
+  ChevronUp,
+  ChevronDown,
+  Download,
+  ShoppingBag,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+  X as IconX
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -77,7 +86,20 @@ interface Invoice {
 
 // ─────── componente Principal ───────
 export default function FinancialControlCenter() {
-  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites'>('dashboard');
+  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites' | 'ventas'>('dashboard');
+
+  // ── Estado de Ventas ──
+  const [salesData,      setSalesData]      = useState<Invoice[]>([]);
+  const [salesLoading,   setSalesLoading]   = useState(false);
+  const [salesSummary,   setSalesSummary]   = useState<any>(null);
+  const [salesPagination,setSalesPagination]= useState({ page:1, perPage:20, totalRows:0, totalPages:0 });
+  const [salesFilters,   setSalesFilters]   = useState({
+    q: '', custId: '', dateStart: '', dateEnd: '', minTotal: '', maxTotal: ''
+  });
+  const [salesSort,      setSalesSort]      = useState<{ by: string; asc: boolean }>({ by: 'date', asc: false });
+  const [salesDetail,    setSalesDetail]    = useState<Invoice | null>(null);
+  const [showFilters,    setShowFilters]    = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Datos
   const [kpis, setKpis] = useState<any>(null);
@@ -130,17 +152,79 @@ export default function FinancialControlCenter() {
     }
   }, []);
 
-  // ─── fetch facturas locales ───
+  // ─── fetch facturas locales (dashboard/trazabilidad) ───
   const fetchInvoices = useCallback(async (q = '') => {
     setLoadingInvoices(true);
     try {
-      const res = await fetch(`/api/siigo/financial/invoices?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/siigo/financial/invoices?q=${encodeURIComponent(q)}&per_page=8`);
       const data = await res.json();
-      setInvoices(Array.isArray(data) ? data : []);
+      setInvoices(data.data ?? (Array.isArray(data) ? data : []));
     } finally {
       setLoadingInvoices(false);
     }
   }, []);
+
+  // ─── fetch ventas paginado ───
+  const fetchSales = useCallback(async (
+    filters = salesFilters,
+    page    = salesPagination.page,
+    sort    = salesSort
+  ) => {
+    setSalesLoading(true);
+    try {
+      const p = new URLSearchParams({
+        q:          filters.q,
+        customer_identification: filters.custId,
+        date_start: filters.dateStart,
+        date_end:   filters.dateEnd,
+        min_total:  filters.minTotal,
+        max_total:  filters.maxTotal,
+        page:       String(page),
+        per_page:   String(salesPagination.perPage),
+        sort_by:    sort.by,
+        sort_order: sort.asc ? 'asc' : 'desc'
+      });
+      const res  = await fetch(`/api/siigo/financial/invoices?${p}`);
+      const json = await res.json();
+      setSalesData(json.data || []);
+      setSalesSummary(json.summary || null);
+      setSalesPagination(prev => ({ ...prev, page, ...(json.pagination || {}) }));
+    } finally {
+      setSalesLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSalesFilterChange = (field: string, value: string) => {
+    const next = { ...salesFilters, [field]: value };
+    setSalesFilters(next);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSales(next, 1, salesSort), 450);
+  };
+
+  const handleSalesSort = (by: string) => {
+    const next = { by, asc: salesSort.by === by ? !salesSort.asc : false };
+    setSalesSort(next);
+    fetchSales(salesFilters, 1, next);
+  };
+
+  const clearSalesFilters = () => {
+    const empty = { q: '', custId: '', dateStart: '', dateEnd: '', minTotal: '', maxTotal: '' };
+    setSalesFilters(empty);
+    fetchSales(empty, 1, salesSort);
+  };
+
+  const exportCSV = () => {
+    const header = 'Consecutivo,Fecha,Cliente,NIT,Total,Estado DIAN\n';
+    const rows   = salesData.map(i =>
+      `${i.consecutive},${i.date},"${i.siigo_customers?.name || i.customer_identification}",${i.customer_identification},${i.total},"${i.status_dian || 'Aceptado DIAN'}"`
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `ventas_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
 
   // ─── fetch facturas por cliente ───
   const fetchClientInvoices = async (identification: string) => {
@@ -198,15 +282,20 @@ export default function FinancialControlCenter() {
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           {([
-            { key: 'dashboard', icon: <Activity size={16} />, label: 'War Room Gerencial' },
-            { key: 'crm', icon: <Users size={16} />, label: 'CRM & Clientes' },
-            { key: 'trazabilidad', icon: <FileText size={16} />, label: 'Trazabilidad 360°' },
-            { key: 'costos', icon: <BadgePercent size={16} />, label: 'Margen & Utilidad' },
-            { key: 'satelites', icon: <Scissors size={16} />, label: 'Dashboard Satélites' }
+            { key: 'dashboard',    icon: <Activity size={16} />,     label: 'War Room Gerencial' },
+            { key: 'ventas',       icon: <ShoppingBag size={16} />,  label: 'Ventas & Facturación' },
+            { key: 'crm',          icon: <Users size={16} />,        label: 'CRM & Clientes' },
+            { key: 'trazabilidad', icon: <FileText size={16} />,     label: 'Trazabilidad 360°' },
+            { key: 'costos',       icon: <BadgePercent size={16} />, label: 'Margen & Utilidad' },
+            { key: 'satelites',    icon: <Scissors size={16} />,     label: 'Dashboard Satélites' }
           ] as const).map(({ key, icon, label }) => (
             <button
               key={key}
-              onClick={() => { setActiveMenu(key); if (key === 'crm') { setSelectedClient(null); } }}
+              onClick={() => {
+                setActiveMenu(key);
+                if (key === 'crm') setSelectedClient(null);
+                if (key === 'ventas') fetchSales(salesFilters, 1, salesSort);
+              }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.7rem 0.9rem',
                 borderRadius: '8px', border: 'none',
@@ -510,6 +599,310 @@ export default function FinancialControlCenter() {
                 </ChartCard>
               </div>
             ) : <Spinner label="Calculando márgenes operativos..." />}
+          </div>
+        )}
+
+        {/* ── 6. VENTAS TAB ── */}
+        {activeMenu === 'ventas' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <PageHeader title="Ventas & Facturación (SIIGO)" subtitle="Detalle consolidado de facturas y ventas con filtros avanzados" />
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#334155',
+                    color: 'white', border: 'none', borderRadius: '8px', padding: '0.55rem 1rem',
+                    fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer'
+                  }}
+                >
+                  <SlidersHorizontal size={14} /> Filtros {showFilters ? '▲' : '▼'}
+                </button>
+                <button
+                  onClick={exportCSV}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#059669',
+                    color: 'white', border: 'none', borderRadius: '8px', padding: '0.55rem 1rem',
+                    fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer'
+                  }}
+                >
+                  <Download size={14} /> Exportar CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Ventas KPIs resumidos */}
+            {salesSummary && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Ventas del Rango</span>
+                  <strong style={{ fontSize: '1.25rem', color: '#10b981' }}>{fmtCOP(salesSummary.totalVentas)}</strong>
+                </div>
+                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Total Facturas</span>
+                  <strong style={{ fontSize: '1.25rem', color: 'white' }}>{salesSummary.totalFacturas}</strong>
+                </div>
+                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Ticket Promedio</span>
+                  <strong style={{ fontSize: '1.25rem', color: '#6366f1' }}>{fmtCOP(salesSummary.ticketPromedio)}</strong>
+                </div>
+                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Factura Máxima</span>
+                  <strong style={{ fontSize: '1.25rem', color: '#f59e0b' }}>{fmtCOP(salesSummary.maxFactura)}</strong>
+                </div>
+              </div>
+            )}
+
+            {/* Panel de Filtros Avanzados */}
+            {showFilters && (
+              <div style={{
+                backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px',
+                padding: '1.25rem', marginBottom: '1.5rem', display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem'
+              }}>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Buscador General</label>
+                  <input
+                    type="text"
+                    value={salesFilters.q}
+                    onChange={e => handleSalesFilterChange('q', e.target.value)}
+                    placeholder="Consecutivo u observaciones..."
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Identificación Cliente (NIT)</label>
+                  <input
+                    type="text"
+                    value={salesFilters.custId}
+                    onChange={e => handleSalesFilterChange('custId', e.target.value)}
+                    placeholder="Ej: 10101010..."
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Fecha Inicio</label>
+                  <input
+                    type="date"
+                    value={salesFilters.dateStart}
+                    onChange={e => handleSalesFilterChange('dateStart', e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Fecha Fin</label>
+                  <input
+                    type="date"
+                    value={salesFilters.dateEnd}
+                    onChange={e => handleSalesFilterChange('dateEnd', e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Monto Mínimo</label>
+                  <input
+                    type="number"
+                    value={salesFilters.minTotal}
+                    onChange={e => handleSalesFilterChange('minTotal', e.target.value)}
+                    placeholder="Mínimo $"
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Monto Máximo</label>
+                  <input
+                    type="number"
+                    value={salesFilters.maxTotal}
+                    onChange={e => handleSalesFilterChange('maxTotal', e.target.value)}
+                    placeholder="Máximo $"
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={clearSalesFilters}
+                    style={{
+                      padding: '0.5rem 1rem', backgroundColor: '#334155', color: 'white',
+                      border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700
+                    }}
+                  >
+                    Limpiar Filtros
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Listado de Facturas */}
+            {salesLoading ? (
+              <Spinner label="Buscando facturas de ventas..." />
+            ) : salesData.length === 0 ? (
+              <EmptyState
+                icon={<ShoppingBag size={40} />}
+                title="No se encontraron facturas"
+                description="Modifica los filtros de búsqueda o realiza una sincronización de facturas."
+              />
+            ) : (
+              <div>
+                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#0f172a', borderBottom: '2px solid #334155', color: '#94a3b8' }}>
+                        <th style={{ padding: '0.85rem 1rem', cursor: 'pointer' }} onClick={() => handleSalesSort('consecutive')}>
+                          Consecutivo {salesSort.by === 'consecutive' && (salesSort.asc ? '▲' : '▼')}
+                        </th>
+                        <th style={{ padding: '0.85rem 1rem', cursor: 'pointer' }} onClick={() => handleSalesSort('date')}>
+                          Fecha {salesSort.by === 'date' && (salesSort.asc ? '▲' : '▼')}
+                        </th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Cliente</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Identificación</th>
+                        <th style={{ padding: '0.85rem 1rem', textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSalesSort('total')}>
+                          Total {salesSort.by === 'total' && (salesSort.asc ? '▲' : '▼')}
+                        </th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Estado DIAN</th>
+                        <th style={{ padding: '0.85rem 1rem' }}>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {salesData.map(inv => (
+                        <tr key={inv.id} style={{ borderBottom: '1px solid #334155' }}>
+                          <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: '#818cf8' }}>{inv.consecutive}</td>
+                          <td style={{ padding: '0.85rem 1rem' }}>{inv.date}</td>
+                          <td style={{ padding: '0.85rem 1rem' }}>{inv.siigo_customers?.name || 'Cliente Genérico'}</td>
+                          <td style={{ padding: '0.85rem 1rem', fontFamily: 'monospace' }}>{inv.customer_identification}</td>
+                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: 700, color: '#10b981' }}>{fmtCOP(inv.total)}</td>
+                          <td style={{ padding: '0.85rem 1rem' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>✅ {inv.status_dian}</span>
+                          </td>
+                          <td style={{ padding: '0.85rem 1rem' }}>
+                            <button
+                              onClick={() => setSalesDetail(inv)}
+                              style={{
+                                backgroundColor: '#334155', color: 'white', border: 'none',
+                                borderRadius: '6px', padding: '0.35rem 0.75rem', fontSize: '0.72rem',
+                                fontWeight: 700, cursor: 'pointer'
+                              }}
+                            >
+                              Ver Detalle
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Controles de Paginación Real */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                    Mostrando facturas {((salesPagination.page - 1) * salesPagination.perPage) + 1} - {Math.min(salesPagination.page * salesPagination.perPage, salesPagination.totalRows)} de {salesPagination.totalRows}
+                  </span>
+                  
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    <button
+                      disabled={salesPagination.page <= 1}
+                      onClick={() => fetchSales(salesFilters, 1, salesSort)}
+                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                    >
+                      <ChevronsLeft size={14} />
+                    </button>
+                    <button
+                      disabled={salesPagination.page <= 1}
+                      onClick={() => fetchSales(salesFilters, salesPagination.page - 1, salesSort)}
+                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.75rem', fontSize: '0.82rem', fontWeight: 700 }}>
+                      Pág. {salesPagination.page} / {salesPagination.totalPages}
+                    </span>
+                    <button
+                      disabled={salesPagination.page >= salesPagination.totalPages}
+                      onClick={() => fetchSales(salesFilters, salesPagination.page + 1, salesSort)}
+                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                    <button
+                      disabled={salesPagination.page >= salesPagination.totalPages}
+                      onClick={() => fetchSales(salesFilters, salesPagination.totalPages, salesSort)}
+                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                    >
+                      <ChevronsRight size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Lateral (Drawer) de Detalle de Factura */}
+            {salesDetail && (
+              <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', backgroundColor: '#1e293b', borderLeft: '1px solid #334155', boxShadow: '-10px 0 30px rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', flexDirection: 'column', animation: 'slideIn 0.2s ease-out' }}>
+                <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'white' }}>{salesDetail.consecutive}</h3>
+                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>ID SIIGO: {salesDetail.siigo_id}</span>
+                  </div>
+                  <button onClick={() => setSalesDetail(null)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                    <IconX size={20} />
+                  </button>
+                </div>
+                
+                <div style={{ padding: '1.5rem', flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', fontSize: '0.82rem' }}>
+                  <div>
+                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Cliente</span>
+                    <strong>{salesDetail.siigo_customers?.name || 'Cliente Genérico'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Identificación (NIT)</span>
+                    <strong style={{ fontFamily: 'monospace' }}>{salesDetail.customer_identification}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Fecha de Factura</span>
+                    <strong>{salesDetail.date}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Valor Total</span>
+                    <strong style={{ color: '#10b981', fontSize: '1.1rem' }}>{fmtCOP(salesDetail.total)}</strong>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
+                    <h4 style={{ margin: '0 0 0.5rem', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase' }}>Ítems de Factura</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {(salesDetail.items || []).map((it: any, index: number) => (
+                        <div key={index} style={{ backgroundColor: '#0f172a', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{it.description || 'Producto'}</div>
+                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Código: {it.code} — Cant: {it.quantity}</div>
+                          </div>
+                          <span style={{ fontWeight: 700 }}>{fmtCOP((it.price || 0) * (it.quantity || 1))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {salesDetail.payments && salesDetail.payments.length > 0 && (
+                    <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
+                      <h4 style={{ margin: '0 0 0.5rem', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase' }}>Medios de Pago</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {salesDetail.payments.map((p: any, index: number) => (
+                          <div key={index} style={{ backgroundColor: '#0f172a', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
+                            <span>💳 Medio Pago ID: {p.id}</span>
+                            <strong>{fmtCOP(p.value)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {salesDetail.observations && (
+                    <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
+                      <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Observaciones</span>
+                      <p style={{ margin: '0.25rem 0 0', fontStyle: 'italic', color: '#cbd5e1' }}>{salesDetail.observations}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
