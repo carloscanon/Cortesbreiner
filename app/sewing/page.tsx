@@ -2147,7 +2147,7 @@ export default function SewingPage() {
                 });
 
 
-                const workshopAccs: { name: string; unit: string; qty: number }[] = [];
+                const workshopAccs: { name: string; unit: string; qty: number; originalAccName: string }[] = [];
                 
                 workshopItems.forEach((item: any) => {
                   const cut = printOrder.cuts?.find((c: any) => String(c.id) === String(item.cutId));
@@ -2159,7 +2159,8 @@ export default function SewingPage() {
                     return paProdName && item.productName && paProdName.toLowerCase().trim() === item.productName.toLowerCase().trim();
                   });
                   prodAccs.forEach((pa: any) => {
-                    let accName = pa.accessories?.nombre || 'Accesorio';
+                    const originalAccName = pa.accessories?.nombre || 'Accesorio';
+                    let accName = originalAccName;
                     const rawUnit = pa.accessories?.unidad_medida || '';
                     const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
                     const qtyPerProduct = Number(pa.cantidad) || 0;
@@ -2174,7 +2175,8 @@ export default function SewingPage() {
                                nameLower.includes(targetColorName.toLowerCase());
                       });
  
-                      const baseGafeteName = customGafetes[accName] || (matchingColorGafete ? matchingColorGafete.nombre : accName);
+                      // Clave: usar originalAccName (nombre base de BD) para lookup en customGafetes
+                      const baseGafeteName = customGafetes[originalAccName] || (matchingColorGafete ? matchingColorGafete.nombre : originalAccName);
                       accName = `${baseGafeteName} (${targetColorName})`;
                     }
                   
@@ -2185,6 +2187,7 @@ export default function SewingPage() {
                       } else {
                         workshopAccs.push({
                           name: accName,
+                          originalAccName, // guardar nombre original para usar como clave en customGafetes
                           unit: accUnit,
                           qty: totalRequired
                         });
@@ -2422,10 +2425,14 @@ export default function SewingPage() {
                           </thead>
                           <tbody>
                             {workshopAccs.map((wa, idx) => {
-                              const isGafete = wa.name.toLowerCase().includes('gafe') || wa.name.toLowerCase().includes('gafete') || accessories.some(a => a.nombre === wa.name && (a.nombre.toLowerCase().includes('gafe') || a.nombre.toLowerCase().includes('gafete')));
+                              const isGafete = wa.originalAccName
+                                ? (wa.originalAccName.toLowerCase().includes('gafe') || wa.originalAccName.toLowerCase().includes('gafete'))
+                                : (wa.name.toLowerCase().includes('gafe') || wa.name.toLowerCase().includes('gafete'));
                               const gafeteOptions = accessories.filter(a => 
                                 a.nombre?.toLowerCase().includes('gafe') || a.nombre?.toLowerCase().includes('gafete')
                               );
+                              // El nombre base del gafete seleccionado (sin el sufijo de color)
+                              const currentGafeteBase = wa.name.includes(' (') ? wa.name.split(' (')[0] : wa.name;
 
                               return (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
@@ -2435,12 +2442,13 @@ export default function SewingPage() {
                                         <span className="print-only">{wa.name}</span>
                                         <select
                                           className="no-print"
-                                          value={wa.name.includes(' (') ? wa.name.split(' (')[0] : wa.name}
+                                          value={currentGafeteBase}
                                           onChange={e => {
                                             const newName = e.target.value;
+                                            // Usar originalAccName como clave (nombre base de BD), no wa.name compuesto
                                             setCustomGafetes(prev => ({
                                               ...prev,
-                                              [wa.name]: newName
+                                              [wa.originalAccName || wa.name]: newName
                                             }));
                                           }}
                                           style={{ padding: '0.2rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid #cbd5e1', cursor: 'pointer', backgroundColor: 'white' }}
