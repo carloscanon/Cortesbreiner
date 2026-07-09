@@ -99,7 +99,9 @@ export default function SewingPage() {
         supabase.from('colors').select('*'),
         fetchAll(() => supabase.from('products').select('*')),
         fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')),
-        supabase.from('sewing_orders').select('*, parent_order:orders(*, fabrics(nombre_tela), cuts(*, cut_sizes(*))), products(*), workshops(*), sewing_order_sizes(*, sizes(*))')
+        supabase.from('sewing_orders')
+          .select('*, parent_order:orders(*, fabrics(nombre_tela), cuts(*, cut_sizes(*))), products(*), workshops(*), sewing_order_sizes(*, sizes(*))')
+          .order('created_at', { ascending: false })
       ]);
 
       if (ordersError) throw ordersError;
@@ -567,6 +569,7 @@ export default function SewingPage() {
       try {
         // Limpiar asignaciones previas
         await supabase.from('sewing_orders').delete().eq('parent_order_id', selectedOrder.id);
+        await supabase.from('sewing_assignments').delete().eq('order_id', selectedOrder.id);
         await supabase.from('sewing_accessories').delete().eq('order_id', selectedOrder.id);
 
         // Agrupar asignaciones por (taller_id, producto_id)
@@ -640,6 +643,11 @@ export default function SewingPage() {
           }
         }
 
+        if (assignmentsToInsert.length > 0) {
+          const { error: assDbErr } = await supabase.from('sewing_assignments').insert(assignmentsToInsert);
+          if (assDbErr) console.warn("DB assignments insert failed:", assDbErr.message);
+        }
+
         if (accessoriesToInsert.length > 0) {
           const { error: accDbErr } = await supabase.from('sewing_accessories').insert(accessoriesToInsert);
           if (accDbErr) console.warn("DB accessories insert failed:", accDbErr.message);
@@ -692,6 +700,7 @@ export default function SewingPage() {
       // Limpiar tablas relacionales
       try {
         await supabase.from('sewing_orders').delete().eq('parent_order_id', order.id);
+        await supabase.from('sewing_assignments').delete().eq('order_id', order.id);
         await supabase.from('sewing_accessories').delete().eq('order_id', order.id);
       } catch (dbErr) {
         console.warn("DB assignments delete warning:", dbErr);
@@ -1161,6 +1170,10 @@ export default function SewingPage() {
 
     const matchStatus = filterStatus === 'all' ? true : so.status === filterStatus;
     return matchSearch && matchStatus;
+  }).sort((a, b) => {
+    const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return dateB - dateA;
   });
 
   const enConfeccion = sewingOrders.filter(so => so.status === 'En Confección');
@@ -2055,6 +2068,10 @@ export default function SewingPage() {
 
                 (printOrder.cuts || []).forEach((cut: any) => {
                   const targetProdId = cut.product_id;
+                  
+                  // Si se está imprimiendo una orden de confección específica, filtrar solo sus prendas
+                  if (printSewingOrder && String(targetProdId) !== String(printSewingOrder.product_id)) return;
+
                   const layersProyec = cut.layers || 1;
                   const layersProduced = cut.layers_produced || 0;
 
@@ -2176,62 +2193,56 @@ export default function SewingPage() {
                   });
                 });
 
-                 if (printMode === 'sticker') {
-                   const stickerGrouped: {
-                     colorName: string;
+                  if (printMode === 'sticker') {
+                   const referencesGrouped: {
+                     productName: string;
                      categoryName: string;
-                     fabricName: string;
-                     sizes: { [size: string]: number };
                      totalQuantity: number;
                    }[] = [];
 
                    workshopItems.forEach((item: any) => {
-                     const existing = stickerGrouped.find(g => 
-                       g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
-                       g.colorName.toLowerCase() === item.colorName.toLowerCase()
+                     const existing = referencesGrouped.find(g => 
+                       g.productName.toLowerCase() === item.productName.toLowerCase()
                      );
                      if (existing) {
-                       existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
                        existing.totalQuantity += item.quantity;
                      } else {
-                       stickerGrouped.push({
+                       referencesGrouped.push({
+                         productName: item.productName,
                          categoryName: item.categoryName,
-                         colorName: item.colorName,
-                         fabricName: item.fabricName,
-                         sizes: { [item.sizeCode]: item.quantity },
                          totalQuantity: item.quantity
                        });
                      }
                    });
                    
-                   stickerGrouped.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                   referencesGrouped.sort((a, b) => a.productName.localeCompare(b.productName, 'es'));
                    
-                   const totalUnits = stickerGrouped.reduce((sum, item) => sum + item.totalQuantity, 0);
+                   const totalUnits = referencesGrouped.reduce((sum, item) => sum + item.totalQuantity, 0);
                    return (
                      <div className="print-stickers-page" style={{
-                       width: '100mm',
-                       height: '100mm',
-                       padding: '8mm',
+                       width: '150mm',
+                       height: '150mm',
+                       padding: '12mm',
                        boxSizing: 'border-box',
                        display: 'flex',
                        flexDirection: 'column',
                        justifyContent: 'space-between',
-                       border: '2.5px solid #000',
+                       border: '3.75px solid #000',
                        backgroundColor: 'white',
                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                        color: 'black',
                        fontFamily: 'system-ui, sans-serif'
                      }}>
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                         <div style={{ textAlign: 'center', borderBottom: '2.5px solid #000', paddingBottom: '0.35rem', marginBottom: '0.2rem' }}>
-                           <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
-                           <p style={{ fontSize: '0.6rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                         <div style={{ textAlign: 'center', borderBottom: '3.75px solid #000', paddingBottom: '0.5rem', marginBottom: '0.3rem' }}>
+                           <h2 style={{ fontSize: '1.875rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
+                           <p style={{ fontSize: '0.9rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
                          </div>
                          
-                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '1.05rem' }}>
                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                              <span><strong>ORDEN CONFECCIÓN:</strong></span>
-                             <span style={{ fontWeight: '900', color: '#7c3aed' }}>{printSewingOrder.confeccion_code}</span>
+                             <span style={{ fontWeight: '900', color: '#7c3aed', fontSize: '1.25rem' }}>{printSewingOrder.confeccion_code}</span>
                            </div>
                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                              <span><strong>TALLER SATÉLITE:</strong></span>
@@ -2251,25 +2262,22 @@ export default function SewingPage() {
                            </div>
                          </div>
 
-                         <div style={{ marginTop: '0.3rem', borderTop: '1.5px dashed #000', paddingTop: '0.3rem' }}>
-                           <p style={{ margin: '0 0 0.15rem 0', fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.625rem', maxHeight: '2.5rem', overflow: 'hidden' }}>
-                             {stickerGrouped.slice(0, 5).map((item, idx) => (
+                         <div style={{ marginTop: '0.45rem', borderTop: '2.25px dashed #000', paddingTop: '0.45rem' }}>
+                           <p style={{ margin: '0 0 0.225rem 0', fontSize: '0.95rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.95rem', maxHeight: '4.5rem', overflowY: 'auto' }}>
+                             {referencesGrouped.map((item, idx) => (
                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span style={{ fontWeight: '600' }}>• {item.categoryName} ({item.colorName})</span>
-                                 <strong style={{ fontSize: '0.68rem' }}>{item.totalQuantity} uds</strong>
-                               </div>
+                                 <span style={{ fontWeight: '600' }}>• {item.productName} ({item.categoryName})</span>
+                                 <strong style={{ fontSize: '1.05rem' }}>{item.totalQuantity} uds</strong>
+                                </div>
                              ))}
-                             {stickerGrouped.length > 5 && (
-                               <div style={{ fontSize: '0.55rem', fontStyle: 'italic', textAlign: 'center', color: '#666' }}>+ {stickerGrouped.length - 5} más categorías/colores...</div>
-                             )}
                            </div>
                          </div>
                        </div>
 
-                       <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
-                         <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
+                       <div style={{ borderTop: '3.75px solid #000', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                         <span style={{ fontSize: '0.975rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
+                         <span style={{ fontSize: '1.725rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
                        </div>
                      </div>
                    );
@@ -2500,7 +2508,7 @@ export default function SewingPage() {
         }
         @media print {
           @page {
-            size: ${printMode === 'sticker' ? '100mm 100mm' : 'auto'};
+            size: ${printMode === 'sticker' ? '150mm 150mm' : 'auto'};
             margin: 0;
           }
           body * {
