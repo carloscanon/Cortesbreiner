@@ -242,7 +242,7 @@ export default function QualityPage() {
           parent_order:orders(
             *,
             fabrics(nombre_tela),
-            workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos),
+            workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque),
             cuts(
               *,
               cut_sizes(*)
@@ -252,7 +252,7 @@ export default function QualityPage() {
             *,
             sizes(*)
           ),
-          workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos)
+          workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque)
         `)
         .eq('id', id)
         .single();
@@ -287,7 +287,7 @@ export default function QualityPage() {
     } else {
       const { data } = await supabase
         .from('orders')
-        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_saldos), cuts(*, cut_sizes(*))')
+        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque), cuts(*, cut_sizes(*))')
         .eq('id', id)
         .single();
       setOrderDetail(data);
@@ -462,10 +462,15 @@ export default function QualityPage() {
     const workshopObj = selectedSewingOrder?.workshops || selectedOrder?.workshops || orderDetail?.workshops || orderDetail?.parent_order?.workshops;
     const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
     const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
-    const rateSaldos = workshopObj ? Number(workshopObj.desc_saldos ?? 500) : 500;
+    const rateEmpaque = workshopObj ? Number(workshopObj.desc_empaque ?? 0) : 0;
 
-    const descDefectos = (cosVal * rateCosturas) + (lavVal * rateLavanderia) + (salVal * rateSaldos);
-    const valPagar = (finalApproved * valPrenda) - descDefectos;
+    const descDefectos = (cosVal * rateCosturas) + (lavVal * rateLavanderia);
+    
+    // Si empaque está activo en la orden de confección, se adiciona el costo de empaque al pago
+    const isEmpaqueEnabled = selectedSewingOrder?.empaque ?? orderDetail?.empaque ?? false;
+    const pagoEmpaque = isEmpaqueEnabled ? (finalApproved * rateEmpaque) : 0;
+
+    const valPagar = (finalApproved * valPrenda) + pagoEmpaque - descDefectos;
 
     const payload = {
       order_id: parentOrderId || null,
@@ -1253,31 +1258,31 @@ export default function QualityPage() {
                       
                       let previewCos = Number(form.costuras) || 0;
                       let previewLav = Number(form.lavanderia) || 0;
-                      let previewSal = Number(form.saldos) || 0;
 
                       if (individualGarments.length > 0) {
                         previewCos = 0;
                         previewLav = 0;
-                        previewSal = 0;
                         individualGarments.filter(g => g.status === 'Rechazada').forEach(g => {
                           const chk = g.defect_checklist || {};
                           const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
-                          const isLavado = chk['Lavado'] || chk['Mancha'];
                           if (isCostura) previewCos++;
-                          else if (isLavado) previewLav++;
-                          else previewSal++;
+                          else previewLav++;
                         });
                       }
 
                       const workshopObj = orderDetail?.workshops || orderDetail?.parent_order?.workshops;
                       const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
                       const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
-                      const rateSaldos = workshopObj ? Number(workshopObj.desc_saldos ?? 500) : 500;
+                      const rateEmpaque = workshopObj ? Number(workshopObj.desc_empaque ?? 0) : 0;
 
                       const valPrendaNum = Number(form.valor_prenda) || 3500;
                       const appValue = totalApp * valPrendaNum;
-                      const defDiscount = (previewCos * rateCosturas) + (previewLav * rateLavanderia) + (previewSal * rateSaldos);
-                      const netPayable = appValue - defDiscount;
+                      
+                      const isEmpaqueEnabled = orderDetail?.empaque || false;
+                      const pagoEmpaque = isEmpaqueEnabled ? (totalApp * rateEmpaque) : 0;
+
+                      const defDiscount = (previewCos * rateCosturas) + (previewLav * rateLavanderia);
+                      const netPayable = appValue + pagoEmpaque - defDiscount;
 
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -1305,6 +1310,12 @@ export default function QualityPage() {
                               <span>Valor Aprobado:</span>
                               <span style={{ fontWeight: '700' }}>${appValue.toLocaleString('es-CO')}</span>
                             </div>
+                            {isEmpaqueEnabled && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a' }}>
+                                <span>Adicional Empaque:</span>
+                                <span style={{ fontWeight: '700' }}>+${pagoEmpaque.toLocaleString('es-CO')}</span>
+                              </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626' }}>
                               <span>Descuento Defectos:</span>
                               <span style={{ fontWeight: '700' }}>-${defDiscount.toLocaleString('es-CO')}</span>

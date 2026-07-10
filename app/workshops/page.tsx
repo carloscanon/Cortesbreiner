@@ -14,11 +14,11 @@ const EMPTY_FORM = {
   direccion: '',
   telefono: '',
   especialidad: '',
-  capacidad_diaria: '',
+  capacidad_mensual: '',
   activo: true,
   desc_costuras: '500',
   desc_lavanderia: '500',
-  desc_saldos: '500',
+  desc_empaque: '0',
 };
 
 export default function WorkshopsPage() {
@@ -229,11 +229,11 @@ export default function WorkshopsPage() {
       direccion: w.direccion || '',
       telefono: w.telefono || '',
       especialidad: w.especialidad || '',
-      capacidad_diaria: w.capacidad_diaria || '',
+      capacidad_mensual: w.capacidad_mensual || '',
       activo: w.activo ?? true,
       desc_costuras: (w.desc_costuras ?? 500).toString(),
       desc_lavanderia: (w.desc_lavanderia ?? 500).toString(),
-      desc_saldos: (w.desc_saldos ?? 500).toString(),
+      desc_empaque: (w.desc_empaque ?? 0).toString(),
     });
     setShowModal(true);
   };
@@ -245,10 +245,11 @@ export default function WorkshopsPage() {
     const payload = {
       ...form,
       name: form.nombre_taller,
-      capacidad_diaria: form.capacidad_diaria ? parseInt(form.capacidad_diaria, 10) : null,
+      capacidad_mensual: form.capacidad_mensual ? parseInt(form.capacidad_mensual, 10) : null,
+      capacidad_diaria: null, // deprecated
       desc_costuras: form.desc_costuras ? parseFloat(form.desc_costuras) : 500,
       desc_lavanderia: form.desc_lavanderia ? parseFloat(form.desc_lavanderia) : 500,
-      desc_saldos: form.desc_saldos ? parseFloat(form.desc_saldos) : 500,
+      desc_empaque: form.desc_empaque ? parseFloat(form.desc_empaque) : 0,
     };
 
     if (editingId) {
@@ -321,17 +322,34 @@ export default function WorkshopsPage() {
     
     setSpecialCosts(prev => {
       let copy = [...prev];
-      productsInCat.forEach(prod => {
-        const idx = copy.findIndex(r => 
-          String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
-          String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
-        );
-        if (idx >= 0) {
-          copy[idx] = { ...copy[idx], special_rate: numericRate };
-        } else {
-          copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
-        }
-      });
+      
+      // Si la categoría tiene productos, actualizamos sus tarifas específicas
+      if (productsInCat.length > 0) {
+        productsInCat.forEach(prod => {
+          const idx = copy.findIndex(r => 
+            String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
+            String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+          );
+          if (idx >= 0) {
+            copy[idx] = { ...copy[idx], special_rate: numericRate };
+          } else {
+            copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
+          }
+        });
+      }
+      
+      // Siempre guardamos un registro comodín para la categoría (usando un id ficticio o mapeo)
+      // para que el input sea totalmente editable en la UI aunque no existan productos
+      const catIdx = copy.findIndex(r => 
+        String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
+        String(r.category_id).toLowerCase() === String(categoryId).toLowerCase()
+      );
+      if (catIdx >= 0) {
+        copy[catIdx] = { ...copy[catIdx], special_rate: numericRate };
+      } else {
+        copy.push({ workshop_id: workshopId, category_id: categoryId, special_rate: numericRate });
+      }
+      
       return copy;
     });
   };
@@ -339,17 +357,69 @@ export default function WorkshopsPage() {
   const handleSaveSpecials = async () => {
     setSavingSpecials(true);
     try {
-      // Filtrar y limpiar el payload asegurando que solo enviamos registros válidos
-      // Nota importante: NO enviamos en absoluto la propiedad 'id' a Supabase. 
-      // Al omitirla por completo, Supabase Postgres resolverá los registros en conflicto basándose en 
-      // la restricción UNIQUE (workshop_id, product_id) autogenerando el UUID para los registros nuevos.
-      const cleanedSpecials = specialCosts
-        .filter(item => item.workshop_id && item.product_id)
-        .map(item => ({
-          workshop_id: item.workshop_id,
-          product_id: item.product_id,
-          special_rate: Number(item.special_rate) || 0
-        }));
+      // 1. Identificar si hay comodines de categorías vacías (tienen category_id pero no product_id)
+      const emptyCatSpecials = specialCosts.filter(item => item.workshop_id && item.category_id && !item.product_id);
+      
+      const updatedSpecials = [...specialCosts];
+      
+      for (const item of emptyCatSpecials) {
+        // Verificar si la categoría sigue sin productos
+        const productsInCat = productsList.filter(p => String(p.category_id) === String(item.category_id));
+        
+        let targetProductId = productsInCat[0]?.id;
+        
+        if (!targetProductId) {
+          // Si realmente no hay productos en esa categoría, creamos uno genérico
+          const catObj = categories.find(c => String(c.id) === String(item.category_id));
+          const genericName = `Genérico - ${catObj?.categoria || 'Categoría vacía'}`;
+          
+          const refCode = `GEN-${item.category_id.substring(0, 8)}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const { data: newProd, error: prodErr } = await supabase
+            .from('products')
+            .insert([{
+              nombre_producto: genericName,
+              category_id: item.category_id,
+              codigo_referencia: refCode
+            }])
+            .select()
+            .single();
+            
+          if (prodErr) {
+            console.error('Error al crear producto genérico:', prodErr.message);
+            continue;
+          }
+          
+          if (newProd) {
+            targetProductId = newProd.id;
+            // Actualizar nuestra lista local de productos para evitar crearlo múltiples veces
+            productsList.push(newProd);
+            setProductsList([...productsList]);
+          }
+        }
+        
+        if (targetProductId) {
+          // Enlazar el comodín al product_id resuelto
+          item.product_id = targetProductId;
+        }
+      }
+
+      // 2. Filtrar, limpiar y eliminar duplicados del payload final para upsert en DB
+      const seen = new Set();
+      const cleanedSpecials = [];
+
+      for (const item of updatedSpecials) {
+        if (item.workshop_id && item.product_id) {
+          const key = `${String(item.workshop_id).toLowerCase()}_${String(item.product_id).toLowerCase()}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            cleanedSpecials.push({
+              workshop_id: item.workshop_id,
+              product_id: item.product_id,
+              special_rate: Number(item.special_rate) || 0
+            });
+          }
+        }
+      }
 
       const { error } = await supabase
         .from('workshop_special_costs')
@@ -731,9 +801,9 @@ export default function WorkshopsPage() {
                   {/* Stats */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
                     <div>
-                      <p style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Capacidad Diaria</p>
+                      <p style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Capacidad Mensual</p>
                       <p style={{ fontSize: '1rem', fontWeight: '700', marginTop: '0.25rem' }}>
-                        {w.capacidad_diaria ? `${w.capacidad_diaria} pnd` : '—'}
+                        {w.capacidad_mensual ? `${w.capacidad_mensual} pnd` : (w.capacidad_diaria ? `${w.capacidad_diaria} pnd (diaria)` : '—')}
                       </p>
                     </div>
                     <div 
@@ -945,10 +1015,21 @@ export default function WorkshopsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(265px, 1fr))', gap: '1rem', marginTop: '0.5rem' }}>
                 {categories.map(cat => {
                   const productsInCat = productsList.filter(p => String(p.category_id) === String(cat.id));
-                  const match = specialCosts.find(r => 
+                  
+                  // Intentar buscar coincidencia directa por category_id
+                  let match = specialCosts.find(r => 
                     String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && 
-                    productsInCat.some(p => String(p.id).toLowerCase() === String(r.product_id).toLowerCase())
+                    String(r.category_id).toLowerCase() === String(cat.id).toLowerCase()
                   );
+                  
+                  // Si no hay coincidencia directa, buscar por productos asociados
+                  if (!match) {
+                    match = specialCosts.find(r => 
+                      String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && 
+                      productsInCat.some(p => String(p.id).toLowerCase() === String(r.product_id).toLowerCase())
+                    );
+                  }
+                  
                   const currentRate = match ? match.special_rate : 0;
                   return (
                     <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.85rem 1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
@@ -961,7 +1042,7 @@ export default function WorkshopsPage() {
                         <input
                           type="number"
                           min="0"
-                          value={currentRate || ''}
+                          value={currentRate}
                           onChange={e => handleSpecialCostChangeForCategory(selectedSpecialWorkshopId, cat.id, e.target.value)}
                           placeholder="Tarifa especial"
                           style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', textAlign: 'right', fontWeight: '750', color: '#0f172a' }}
@@ -1035,12 +1116,12 @@ export default function WorkshopsPage() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem' }}>Capacidad Diaria (pnd)</label>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem' }}>Capacidad Mensual (pnd)</label>
                   <input
-                    type="number" min="0" placeholder="200"
+                    type="number" min="0" placeholder="5000"
                     style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border)' }}
-                    value={form.capacidad_diaria}
-                    onChange={e => setForm({ ...form, capacidad_diaria: e.target.value })}
+                    value={form.capacidad_mensual}
+                    onChange={e => setForm({ ...form, capacidad_mensual: e.target.value })}
                   />
                 </div>
                 <div>
@@ -1057,7 +1138,7 @@ export default function WorkshopsPage() {
                 
                 <div style={{ gridColumn: '1 / -1', marginTop: '0.5rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
                   <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.8rem', fontWeight: '900', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    💵 Tarifas de Descuento por Defectos ($)
+                    💵 Tarifas de Descuento por Defectos ($) y Empaque
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
                     <div>
@@ -1079,12 +1160,12 @@ export default function WorkshopsPage() {
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Saldos ($)</label>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>📦 Empaque por Prenda ($)</label>
                       <input
-                        type="number" min="0" placeholder="500"
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
-                        value={form.desc_saldos || ''}
-                        onChange={e => setForm({ ...form, desc_saldos: e.target.value })}
+                        type="number" min="0" placeholder="0"
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '0.8rem', backgroundColor: '#f0fdf4' }}
+                        value={form.desc_empaque || ''}
+                        onChange={e => setForm({ ...form, desc_empaque: e.target.value })}
                       />
                     </div>
                   </div>

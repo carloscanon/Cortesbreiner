@@ -27,7 +27,9 @@ import {
   Info,
   HelpCircle,
   BookOpen,
-  Printer
+  Printer,
+  Download,
+  ArrowUpDown
 } from 'lucide-react';
 import {
   BarChart,
@@ -308,12 +310,22 @@ export default function Dashboard() {
   const [expandedWorkshopId, setExpandedWorkshopId] = useState<string | null>(null);
   // IDs de talleres leídos directamente de auth.getUser() (siempre frescos)
   const [authWorkshopIds, setAuthWorkshopIds] = useState<string[]>([]);
-  const [adminTab, setAdminTab] = useState<'overview' | 'comparison'>('overview');
+  const [adminTab, setAdminTab] = useState<'overview' | 'comparison' | 'workshop_consolidation'>('overview');
   const [compProductId, setCompProductId] = useState<string>('all');
   const [compStartDate, setCompStartDate] = useState<string>('');
   const [compEndDate, setCompEndDate] = useState<string>('');
   const [compPage, setCompPage] = useState<number>(1);
   const [showSatelliteHelp, setShowSatelliteHelp] = useState<boolean>(false);
+
+  // Estados de filtros para consolidación de talleres
+  const [consolidationWorkshopId, setConsolidationWorkshopId] = useState<string>('all');
+  const [consolidationStatus, setConsolidationStatus] = useState<string>('all');
+  const [consolidationSearch, setConsolidationSearch] = useState<string>('');
+  const [consolidationStartDate, setConsolidationStartDate] = useState<string>('');
+  const [consolidationEndDate, setConsolidationEndDate] = useState<string>('');
+  const [consolidationPage, setConsolidationPage] = useState<number>(1);
+  const [consolidationSortField, setConsolidationSortField] = useState<string>('created_at');
+  const [consolidationSortAsc, setConsolidationSortAsc] = useState<boolean>(false);
 
   const currentTab = searchParams.get('tab') || 'dashboard';
 
@@ -352,13 +364,38 @@ export default function Dashboard() {
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
-          supabase.from('products').select('*'),
+          (async () => {
+            let all: any[] = [];
+            let fromVal = 0;
+            while (true) {
+              const { data, error } = await supabase.from('products').select('*').range(fromVal, fromVal + 999);
+              if (error || !data || data.length === 0) break;
+              all = [...all, ...data];
+              if (data.length < 1000) break;
+              fromVal += 1000;
+            }
+            return { data: all };
+          })(),
           supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'),
           supabase.from('categories').select('*'),
           supabase.from('workshop_rates').select('*'),
           supabase.from('sewing_assignments').select('*'),
           supabase.from('workshop_special_costs').select('*'),
-          supabase.from('sewing_orders').select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))'),
+          (async () => {
+            let all: any[] = [];
+            let fromVal = 0;
+            while (true) {
+              const { data, error } = await supabase
+                .from('sewing_orders')
+                .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
+                .range(fromVal, fromVal + 999);
+              if (error || !data || data.length === 0) break;
+              all = [...all, ...data];
+              if (data.length < 1000) break;
+              fromVal += 1000;
+            }
+            return { data: all };
+          })(),
           supabase.from('fabrics').select('*')
         ]);
         const ordersData = res1.data;
@@ -2607,9 +2644,24 @@ export default function Dashboard() {
         >
           <TrendingUp size={16} /> Planeado vs Real (Cortes)
         </button>
+        <button
+          onClick={() => setAdminTab('workshop_consolidation')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.65rem 1.25rem', borderRadius: '10px',
+            border: 'none', cursor: 'pointer',
+            fontSize: '0.85rem', fontWeight: '800',
+            backgroundColor: adminTab === 'workshop_consolidation' ? 'var(--primary)' : 'transparent',
+            color: adminTab === 'workshop_consolidation' ? 'white' : 'var(--text-muted)',
+            transition: 'all 0.15s ease',
+            boxShadow: adminTab === 'workshop_consolidation' ? '0 2px 8px rgba(99,102,241,0.25)' : 'none',
+          }}
+        >
+          <Factory size={16} /> Consolidado de Talleres
+        </button>
       </div>
 
-      {adminTab === 'overview' ? (
+      {adminTab === 'overview' && (
         <>
           {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
           <div className="dashboard-grid">
@@ -2779,8 +2831,9 @@ export default function Dashboard() {
             )}
           </div>
         </>
-      ) : (
-        /* Tab de Comparación */
+      )}
+
+      {adminTab === 'comparison' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           {/* Filtros de comparación */}
           <div className="card" style={{ padding: '1.25rem 1.5rem', display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-end', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
@@ -3168,6 +3221,557 @@ export default function Dashboard() {
                       <button
                         disabled={currentPage === totalPages}
                         onClick={() => setCompPage(p => Math.min(totalPages, p + 1))}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1',
+                          backgroundColor: currentPage === totalPages ? '#f1f5f9' : 'white',
+                          color: currentPage === totalPages ? '#94a3b8' : '#475569',
+                          fontWeight: '800', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {adminTab === 'workshop_consolidation' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          {(() => {
+            const baseSewingGlobal = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura')?.valor || 2500;
+            
+            const rows = sewingOrdersList.map(so => {
+              const ws = workshops.find(w => String(w.id) === String(so.workshop_id));
+              const wsName = ws ? ws.nombre_taller : 'Taller Desconocido';
+
+              // Parent order details
+              const pOrder = so.parent_order;
+              const parentCode = pOrder ? (pOrder.internal_code || `OC-${pOrder.consecutive}`) : '—';
+
+              // Rate calculation
+              const prod = so.products || productsList.find(p => String(p.id) === String(so.product_id));
+              const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+              
+              // 1. Tarifa Normal (Taller + Categoría o en su defecto base_rate de categoría, o base global)
+              let normalRate = categoryObj?.base_rate || baseSewingGlobal;
+              if (categoryObj && so.workshop_id) {
+                const rateObj = workshopRates.find(r => 
+                  String(r.workshop_id).toLowerCase().trim() === String(so.workshop_id).toLowerCase().trim() && 
+                  String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+                );
+                if (rateObj && Number(rateObj.rate) > 0) {
+                  normalRate = Number(rateObj.rate);
+                }
+              }
+
+              // 2. Tarifa Especial (Si so.tarifa_especial es true o tiene valor guardado superior a 0)
+              let specialRate = null;
+              if (so.workshop_id && so.product_id) {
+                // Intento 1: Buscar por product_id exacto
+                const specCostObj = specialCosts.find(sc => 
+                  String(sc.workshop_id).toLowerCase() === String(so.workshop_id).toLowerCase() && 
+                  String(sc.product_id).toLowerCase() === String(so.product_id).toLowerCase()
+                );
+                if (specCostObj && Number(specCostObj.special_rate) > 0) {
+                  specialRate = Number(specCostObj.special_rate);
+                } else if (categoryObj) {
+                  // Intento 2: Fallback por cualquier producto de la misma categoría
+                  const categoryProducts = productsList.filter(p => String(p.category_id) === String(categoryObj.id));
+                  const catSpecCostObj = specialCosts.find(sc => 
+                    String(sc.workshop_id).toLowerCase() === String(so.workshop_id).toLowerCase() && 
+                    categoryProducts.some(p => String(p.id).toLowerCase() === String(sc.product_id).toLowerCase())
+                  );
+                  if (catSpecCostObj && Number(catSpecCostObj.special_rate) > 0) {
+                    specialRate = Number(catSpecCostObj.special_rate);
+                  }
+                }
+              }
+
+              // Si so.tarifa_especial tiene un valor o está activo
+              const isSpecialEnabled = so.tarifa_especial !== null && so.tarifa_especial !== undefined && (so.tarifa_especial === true || Number(so.tarifa_especial) > 0);
+              let finalRate = normalRate;
+              if (isSpecialEnabled) {
+                // Priorizar tarifa especial en tabla workshop_special_costs, o el valor explícito en so.tarifa_especial si es numérico
+                if (specialRate !== null) {
+                  finalRate = specialRate;
+                } else if (typeof so.tarifa_especial === 'number' && so.tarifa_especial > 0) {
+                  finalRate = so.tarifa_especial;
+                }
+              }
+
+              // Quantities & Empaque
+              const plannedQty = so.cantidad_planeada || 0;
+              const hasEmpaque = !!so.empaque; // Flag empaque de la orden de confección
+              const rateEmpaque = ws ? Number(ws.desc_empaque ?? 0) : 0;
+              
+              // Valor Estimado incluye empaque si está habilitado
+              const estimatedValue = (plannedQty * finalRate) + (hasEmpaque ? plannedQty * rateEmpaque : 0);
+
+              // Quality inspection link
+              const orderInspections = inspections.filter(i => {
+                if (i.sewing_order_id) {
+                  return String(i.sewing_order_id) === String(so.id);
+                }
+                return String(i.order_id) === String(so.parent_order_id) && 
+                       (i.workshop_name || '').toLowerCase().trim() === (ws?.nombre_taller || '').toLowerCase().trim();
+              });
+
+              const approvedQty = orderInspections.reduce((sum, i) => sum + (Number(i.items_approved) || 0), 0);
+              const rejectedQty = orderInspections.reduce((sum, i) => sum + (Number(i.items_rejected) || 0), 0);
+              const realValueApproved = orderInspections.reduce((sum, i) => sum + (Number(i.valor_pagar) || 0), 0);
+              const hasInspections = orderInspections.length > 0;
+
+              // Fabric invoices relation
+              const cuts = pOrder?.cuts || [];
+              const fabricInvoices = cuts.map((cut: any) => {
+                const fab = fabricsList.find(f => String(f.id) === String(cut.fabric_id));
+                return fab?.factura_relacionada;
+              }).filter(Boolean) as string[];
+              const uniqueInvoices = Array.from(new Set(fabricInvoices));
+
+              return {
+                id: so.id,
+                sewingOrderCode: so.confeccion_code || '—',
+                parentCode,
+                parentOrderId: so.parent_order_id,
+                workshopId: so.workshop_id,
+                workshopName: wsName,
+                productName: prod?.nombre_producto || 'Referencia Desconocida',
+                categoryName: categoryObj?.categoria || 'Sin Categoría',
+                plannedQty,
+                approvedQty,
+                rejectedQty,
+                rate: finalRate,
+                estimatedValue,
+                realValueApproved,
+                hasInspections,
+                fabricInvoices: uniqueInvoices,
+                status: so.status || 'Pendiente',
+                isSpecialEnabled,
+                hasEmpaque,
+                rateEmpaque,
+                created_at: so.created_at
+              };
+            });
+
+            // Filter logic
+            const filtered = rows.filter(r => {
+              if (consolidationWorkshopId !== 'all' && String(r.workshopId) !== String(consolidationWorkshopId)) return false;
+              if (consolidationStatus !== 'all' && String(r.status) !== String(consolidationStatus)) return false;
+
+              // Date filter
+              if (consolidationStartDate) {
+                const start = new Date(consolidationStartDate);
+                const orderDate = new Date(r.created_at);
+                if (orderDate < start) return false;
+              }
+              if (consolidationEndDate) {
+                const end = new Date(consolidationEndDate);
+                end.setHours(23, 59, 59, 999);
+                const orderDate = new Date(r.created_at);
+                if (orderDate > end) return false;
+              }
+
+              // Search text
+              if (consolidationSearch) {
+                const query = consolidationSearch.toLowerCase().trim();
+                const matchCode = r.sewingOrderCode.toLowerCase().includes(query);
+                const matchParent = r.parentCode.toLowerCase().includes(query);
+                const matchProduct = r.productName.toLowerCase().includes(query);
+                const matchInvoice = r.fabricInvoices.some((inv: string) => inv.toLowerCase().includes(query));
+                if (!matchCode && !matchParent && !matchProduct && !matchInvoice) return false;
+              }
+
+              return true;
+            });
+
+            // Sorting logic
+            const sorted = [...filtered].sort((a, b) => {
+              let valA = a[consolidationSortField as keyof typeof a];
+              let valB = b[consolidationSortField as keyof typeof b];
+
+              if (typeof valA === 'string') {
+                valA = valA.toLowerCase();
+                valB = (valB as string || '').toLowerCase();
+              }
+
+              if (valA === undefined || valA === null) return 1;
+              if (valB === undefined || valB === null) return -1;
+
+              if (valA < valB) return consolidationSortAsc ? -1 : 1;
+              if (valA > valB) return consolidationSortAsc ? 1 : -1;
+              return 0;
+            });
+
+            // Pagination
+            const limit = 10;
+            const totalItems = sorted.length;
+            const totalPages = Math.ceil(totalItems / limit) || 1;
+            const currentPage = Math.min(consolidationPage, totalPages);
+            const startIdx = (currentPage - 1) * limit;
+            const pageItems = sorted.slice(startIdx, startIdx + limit);
+
+            // Totals
+            const totalOrders = filtered.length;
+            const totalPlannedUnits = filtered.reduce((sum, r) => sum + r.plannedQty, 0);
+            const totalApprovedUnits = filtered.reduce((sum, r) => sum + r.approvedQty, 0);
+            const totalRejectedUnits = filtered.reduce((sum, r) => sum + r.rejectedQty, 0);
+            const totalEstimatedBudget = filtered.reduce((sum, r) => sum + r.estimatedValue, 0);
+            const totalRealApprovedBudget = filtered.reduce((sum, r) => sum + r.realValueApproved, 0);
+
+            // Group by workshop for the chart
+            const chartDataMap: Record<string, { name: string; estimado: number; real: number }> = {};
+            filtered.forEach(r => {
+              if (!chartDataMap[r.workshopName]) {
+                chartDataMap[r.workshopName] = { name: r.workshopName, estimado: 0, real: 0 };
+              }
+              chartDataMap[r.workshopName].estimado += r.estimatedValue;
+              chartDataMap[r.workshopName].real += r.realValueApproved;
+            });
+            const chartData = Object.values(chartDataMap);
+
+            const requestSort = (field: string) => {
+              if (consolidationSortField === field) {
+                setConsolidationSortAsc(!consolidationSortAsc);
+              } else {
+                setConsolidationSortField(field);
+                setConsolidationSortAsc(true);
+              }
+              setConsolidationPage(1);
+            };
+
+            const exportToCSV = () => {
+              const headers = ['Taller', 'Código Confección', 'Orden Corte', 'Referencia', 'Cant. Planeada', 'Cant. Aprobada', 'Cant. Rechazada', 'Tarifa ($)', 'Valor Estimado ($)', 'Valor Real Aprobado ($)', 'Facturas Telas', 'Estado', 'Fecha Creación'];
+              const csvRows = [headers.join(',')];
+              
+              filtered.forEach(r => {
+                const row = [
+                  `"${r.workshopName}"`,
+                  `"${r.sewingOrderCode}"`,
+                  `"${r.parentCode}"`,
+                  `"${r.productName}"`,
+                  r.plannedQty,
+                  r.approvedQty,
+                  r.rejectedQty,
+                  r.rate,
+                  r.estimatedValue,
+                  r.realValueApproved,
+                  `"${r.fabricInvoices.join('; ')}"`,
+                  `"${r.status}"`,
+                  `"${new Date(r.created_at).toLocaleDateString('es-ES')}"`
+                ];
+                csvRows.push(row.join(','));
+              });
+              
+              const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
+              const encodedUri = encodeURI(csvContent);
+              const link = document.createElement("a");
+              link.setAttribute("href", encodedUri);
+              link.setAttribute("download", `Consolidado_Talleres_${new Date().toISOString().split('T')[0]}.csv`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            };
+
+            return (
+              <>
+                {/* ── Cards de Métricas ── */}
+                <div className="dashboard-grid">
+                  <StatCard
+                    label="Órdenes de Confección"
+                    value={totalOrders}
+                    sub="Filtradas para el consolidado"
+                    icon={<ClipboardCheck size={20} />}
+                    primary
+                  />
+                  <StatCard
+                    label="Presupuesto Estimado"
+                    value={`$${totalEstimatedBudget.toLocaleString('es-CO')}`}
+                    sub={`${totalPlannedUnits.toLocaleString('es-CO')} prendas proyectadas`}
+                    icon={<DollarSign size={20} />}
+                  />
+                  <StatCard
+                    label="Valor Aprobado (Real)"
+                    value={`$${totalRealApprovedBudget.toLocaleString('es-CO')}`}
+                    sub={`${totalApprovedUnits.toLocaleString('es-CO')} prendas aprobadas por calidad`}
+                    icon={<CheckCircle2 size={20} />}
+                  />
+                  <StatCard
+                    label="Cumplimiento / Eficiencia"
+                    value={totalEstimatedBudget > 0 ? `${Math.round((totalRealApprovedBudget / totalEstimatedBudget) * 100)}%` : '0%'}
+                    sub={`Defectos de calidad: ${totalRejectedUnits} unidades rechazadas`}
+                    icon={<TrendingUp size={20} />}
+                  />
+                </div>
+
+                {/* ── Graphic Comparison and Filters ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'stretch' }}>
+                  {/* Recharts Bar Chart */}
+                  <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '350px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '850', color: '#0f172a' }}>Comparación de Valor de Producción por Taller ($)</h3>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>Estimado vs Real Aprobado</span>
+                    </div>
+                    
+                    <div style={{ flex: 1, minHeight: '280px' }}>
+                      {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
+                            <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
+                            <Tooltip formatter={(value: any) => [`$${Number(value).toLocaleString('es-CO')}`, '']} />
+                            <Bar dataKey="estimado" name="Valor Estimado" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="real" name="Valor Real Aprobado" fill="#10b981" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                          Sin datos para graficar con los filtros actuales
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sidebar Filters */}
+                  <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '850', color: '#0f172a', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>Filtros</h3>
+                    
+                    {/* Taller Selector */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Taller Satélite</span>
+                      <select
+                        value={consolidationWorkshopId}
+                        onChange={e => { setConsolidationWorkshopId(e.target.value); setConsolidationPage(1); }}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white' }}
+                      >
+                        <option value="all">Todos los talleres</option>
+                        {workshops.map(w => (
+                          <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Status Selector */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Estado de Orden</span>
+                      <select
+                        value={consolidationStatus}
+                        onChange={e => { setConsolidationStatus(e.target.value); setConsolidationPage(1); }}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white' }}
+                      >
+                        <option value="all">Todos los estados</option>
+                        <option value="En Confección">En Confección</option>
+                        <option value="Terminada">Terminada</option>
+                        <option value="Enviada">Enviada</option>
+                      </select>
+                    </div>
+
+                    {/* Text Search */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Buscar código / factura / ref</span>
+                      <input
+                        type="text"
+                        placeholder="Ej: OC-XXXX, Fac-100..."
+                        value={consolidationSearch}
+                        onChange={e => { setConsolidationSearch(e.target.value); setConsolidationPage(1); }}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    {/* Dates range */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha Inicio</span>
+                      <input
+                        type="date"
+                        value={consolidationStartDate}
+                        onChange={e => { setConsolidationStartDate(e.target.value); setConsolidationPage(1); }}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha Fin</span>
+                      <input
+                        type="date"
+                        value={consolidationEndDate}
+                        onChange={e => { setConsolidationEndDate(e.target.value); setConsolidationPage(1); }}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Detalle Consolidador Table Card ── */}
+                <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '850', color: '#0f172a' }}>Desglose de Confección por Taller</h3>
+                      <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
+                        Mostrando {startIdx + 1}-{Math.min(startIdx + limit, totalItems)} de {totalItems} registros.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={exportToCSV}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.4rem',
+                        padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #10b981',
+                        backgroundColor: 'white', color: '#10b981', fontWeight: '800', cursor: 'pointer',
+                        fontSize: '0.78rem', transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Download size={14} /> Exportar CSV
+                    </button>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569' }}>
+                          <th onClick={() => requestSort('workshopName')} style={{ padding: '0.8rem', textAlign: 'left', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Taller <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('sewingOrderCode')} style={{ padding: '0.8rem', textAlign: 'left', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Código Confección <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('parentCode')} style={{ padding: '0.8rem', textAlign: 'left', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Orden Corte <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('categoryName')} style={{ padding: '0.8rem', textAlign: 'left', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Categoría <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th style={{ padding: '0.8rem', textAlign: 'left', fontWeight: '800' }}>Facturas Telas</th>
+                          <th style={{ padding: '0.8rem', textAlign: 'center', fontWeight: '800' }}>Configuración</th>
+                          <th onClick={() => requestSort('plannedQty')} style={{ padding: '0.8rem', textAlign: 'center', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Cant. Plan <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('approvedQty')} style={{ padding: '0.8rem', textAlign: 'center', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Aprobado Calidad <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('estimatedValue')} style={{ padding: '0.8rem', textAlign: 'right', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Valor Est. <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th onClick={() => requestSort('realValueApproved')} style={{ padding: '0.8rem', textAlign: 'right', fontWeight: '800', cursor: 'pointer', userSelect: 'none' }}>
+                            Aprobado ($) <ArrowUpDown size={12} style={{ display: 'inline', marginLeft: '0.2rem' }} />
+                          </th>
+                          <th style={{ padding: '0.8rem', textAlign: 'center', fontWeight: '800' }}>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageItems.length > 0 ? (
+                          pageItems.map(row => {
+                            const statusColor = row.status === 'Terminada' ? '#10b981' : row.status === 'Enviada' ? '#3b82f6' : '#ea580c';
+                            const statusBg = row.status === 'Terminada' ? '#ecfdf5' : row.status === 'Enviada' ? '#eff6ff' : '#fff7ed';
+
+                            return (
+                              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '0.8rem', fontWeight: '700', color: '#1e293b' }}>
+                                  {row.workshopName}
+                                </td>
+                                <td style={{ padding: '0.8rem', fontWeight: '750', color: '#4f46e5' }}>
+                                  {row.sewingOrderCode}
+                                </td>
+                                <td style={{ padding: '0.8rem', fontWeight: '600' }}>
+                                  {row.parentCode}
+                                </td>
+                                <td style={{ padding: '0.8rem', fontWeight: '700', color: '#334155' }}>
+                                  {row.categoryName}
+                                </td>
+                                <td style={{ padding: '0.8rem' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    {row.fabricInvoices.length > 0 ? (
+                                      <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
+                                        {row.fabricInvoices.map((inv, i) => (
+                                          <span key={i} style={{ display: 'inline-block', backgroundColor: '#e2e8f0', color: '#334155', padding: '0.1rem 0.35rem', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '750' }}>
+                                            📄 {inv}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic' }}>Sin factura de tela</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'center' }}>
+                                    {row.isSpecialEnabled ? (
+                                      <span style={{ fontSize: '0.62rem', fontWeight: '800', backgroundColor: '#faf5ff', color: '#7c3aed', padding: '0.1rem 0.3rem', borderRadius: '4px', border: '1px solid #e9d5ff' }}>
+                                        💲 Especial
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: '0.62rem', fontWeight: '700', color: '#94a3b8' }}>Estándar</span>
+                                    )}
+                                    {row.hasEmpaque ? (
+                                      <span style={{ fontSize: '0.62rem', fontWeight: '800', backgroundColor: '#f0fdf4', color: '#16a34a', padding: '0.1rem 0.3rem', borderRadius: '4px', border: '1px solid #bbf7d0' }} title={`Costo empaque: $${row.rateEmpaque}`}>
+                                        📦 Empaque (+${row.rateEmpaque})
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'center', fontWeight: '600' }}>
+                                  {row.plannedQty.toLocaleString('es-CO')}
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'center' }}>
+                                  {row.hasInspections ? (
+                                    <span style={{ fontWeight: '750', color: '#10b981' }}>
+                                      {row.approvedQty.toLocaleString('es-CO')}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Pendiente cal.</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'right', fontWeight: '600' }}>
+                                  ${row.estimatedValue.toLocaleString('es-CO')}
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'right', fontWeight: '750', color: '#10b981' }}>
+                                  ${row.realValueApproved.toLocaleString('es-CO')}
+                                </td>
+                                <td style={{ padding: '0.8rem', textAlign: 'center' }}>
+                                  <span style={{ display: 'inline-block', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '750', color: statusColor, backgroundColor: statusBg, border: `1px solid ${statusColor}22` }}>
+                                    {row.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={9} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                              No se encontraron registros de confección que coincidan con los filtros seleccionados.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination Footer */}
+                  {totalPages > 1 && (
+                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <button
+                        disabled={currentPage === 1}
+                        onClick={() => setConsolidationPage(p => Math.max(1, p - 1))}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1',
+                          backgroundColor: currentPage === 1 ? '#f1f5f9' : 'white',
+                          color: currentPage === 1 ? '#94a3b8' : '#475569',
+                          fontWeight: '800', cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        Anterior
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '750' }}>
+                        Página {currentPage} de {totalPages}
+                      </span>
+                      <button
+                        disabled={currentPage === totalPages}
+                        onClick={() => setConsolidationPage(p => Math.min(totalPages, p + 1))}
                         style={{
                           padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1',
                           backgroundColor: currentPage === totalPages ? '#f1f5f9' : 'white',

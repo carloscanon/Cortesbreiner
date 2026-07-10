@@ -1098,6 +1098,31 @@ export default function SewingPage() {
     }
   };
 
+  const handleToggleSewingOrderFlag = async (soId: string, field: 'tarifa_especial' | 'empaque' | 'lavanderia', currentVal: boolean) => {
+    const nextVal = !currentVal;
+    const dbValue = field === 'tarifa_especial' ? (nextVal ? 1 : 0) : nextVal;
+
+    // Optimistic update
+    setSewingOrders(prev => prev.map(so =>
+      so.id === soId ? { ...so, [field]: dbValue } : so
+    ));
+
+    const { error } = await supabase
+      .from('sewing_orders')
+      .update({ [field]: dbValue })
+      .eq('id', soId);
+
+    if (error) {
+      // Revert on failure
+      const revertValue = field === 'tarifa_especial' ? (currentVal ? 1 : 0) : currentVal;
+      setSewingOrders(prev => prev.map(so =>
+        so.id === soId ? { ...so, [field]: revertValue } : so
+      ));
+      console.error('Error updating flag:', error.message);
+    }
+  };
+
+
   const getConfectionDates = (order: any) => {
     let fechaGenerada = '—';
     let fechaEnviada = '—';
@@ -1310,7 +1335,7 @@ export default function SewingPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid var(--border)' }}>
-                {['Orden', 'Cliente / Tela', 'Prendas', 'Taller', 'Fechas', 'Estado', 'Acción'].map(h => (
+                {['Orden', 'Cliente / Tela', 'Prendas', 'Taller', 'Fechas', 'Estado', 'Opciones', 'Acción'].map(h => (
                   <th key={h} style={{ padding: '0.875rem 1.25rem', fontSize: '0.68rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', textAlign: h === 'Acción' ? 'right' : 'left' }}>{h}</th>
                 ))}
               </tr>
@@ -1355,6 +1380,26 @@ export default function SewingPage() {
                       <span style={{ padding: '0.3rem 0.75rem', borderRadius: '999px', fontSize: '0.65rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color }}>
                         {so.status.toUpperCase()}
                       </span>
+                    </td>
+                    {/* Opciones: checkboxes por orden */}
+                    <td style={{ padding: '0.75rem 1.25rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        {[  
+                          { field: 'tarifa_especial' as const, label: '💲 Precio Especial', color: '#7c3aed' },
+                          { field: 'empaque' as const, label: '📦 Empaque', color: '#10b981' },
+                          { field: 'lavanderia' as const, label: '🧺 Lavandería', color: '#0ea5e9' },
+                        ].map(({ field, label, color }) => (
+                          <label key={field} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', userSelect: 'none' }}>
+                            <input
+                              type="checkbox"
+                              checked={!!so[field]}
+                              onChange={() => handleToggleSewingOrderFlag(so.id, field, !!so[field])}
+                              style={{ width: '14px', height: '14px', accentColor: color, cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '0.68rem', fontWeight: '700', color: so[field] ? color : '#94a3b8', transition: 'color 0.15s' }}>{label}</span>
+                          </label>
+                        ))}
+                      </div>
                     </td>
                     <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
