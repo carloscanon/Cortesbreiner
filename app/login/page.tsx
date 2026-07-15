@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, ArrowRight, Loader2, Scissors, AlertCircle, Image as ImageIcon } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Loader2, Scissors, Layers, Package, AlertCircle, Image as ImageIcon } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -11,14 +11,48 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  
+  // Customization parameters for the title
+  const [loginTitleText, setLoginTitleText] = useState('Breiner ERP');
+  const [loginTitleColor, setLoginTitleColor] = useState('#ffffff');
+  const [loginTitleFont, setLoginTitleFont] = useState('Outfit');
+  const [loginTitleSize, setLoginTitleSize] = useState('1.75rem');
+  const [loginTitleIcon, setLoginTitleIcon] = useState('Scissors'); // 'Scissors', 'Layers', 'Package', 'None'
+  const [loginTitleWeight, setLoginTitleWeight] = useState('900'); // '900' (negrilla), '400' (normal)
+  const [loginShowMessage, setLoginShowMessage] = useState(true); // show/hide tagline message
+
   const router = useRouter();
 
   useEffect(() => {
-    const fetchLogo = async () => {
-      const { data } = await supabase.from('company_params').select('value').eq('name', 'logo_url').single();
-      if (data?.value) setLogoUrl(data.value);
+    const fetchLogoAndParams = async () => {
+      const { data: params } = await supabase.from('company_params').select('*');
+      if (params) {
+        const logo = params.find(p => p.name === 'logo_url');
+        if (logo?.value) setLogoUrl(logo.value);
+
+        const txt = params.find(p => p.name === 'login_title_text');
+        if (txt?.value) setLoginTitleText(txt.value);
+
+        const color = params.find(p => p.name === 'login_title_color');
+        if (color?.value) setLoginTitleColor(color.value);
+
+        const font = params.find(p => p.name === 'login_title_font');
+        if (font?.value) setLoginTitleFont(font.value);
+
+        const size = params.find(p => p.name === 'login_title_size');
+        if (size?.value) setLoginTitleSize(size.value);
+
+        const icon = params.find(p => p.name === 'login_title_icon');
+        if (icon?.value) setLoginTitleIcon(icon.value);
+
+        const weight = params.find(p => p.name === 'login_title_weight');
+        if (weight?.value) setLoginTitleWeight(weight.value);
+
+        const showMsg = params.find(p => p.name === 'login_show_message');
+        if (showMsg?.value !== undefined) setLoginShowMessage(showMsg.value !== 'false');
+      }
     };
-    fetchLogo();
+    fetchLogoAndParams();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -80,16 +114,80 @@ export default function LoginPage() {
               <Scissors size={60} color="white" />
             )}
           </div>
-          <h1 style={{ fontSize: '3rem', color: 'white', marginBottom: '1.5rem', lineHeight: 1.1 }}>
+          <h2 style={{ 
+            fontSize: loginTitleSize, 
+            fontWeight: loginTitleWeight, 
+            color: loginTitleColor, 
+            margin: '-1.5rem 0 2.5rem 0',
+            textTransform: 'none',
+            letterSpacing: '0.05em',
+            opacity: 0.95,
+            fontFamily: loginTitleFont === 'Outfit' ? 'Outfit, sans-serif' : 
+                        loginTitleFont === 'Inter' ? 'Inter, sans-serif' : 
+                        loginTitleFont === 'Roboto' ? 'Roboto, sans-serif' : 
+                        loginTitleFont === 'Montserrat' ? 'Montserrat, sans-serif' : 
+                        loginTitleFont === 'Playfair Display' ? '"Playfair Display", serif' :
+                        loginTitleFont === 'Merriweather' ? 'Merriweather, serif' :
+                        loginTitleFont === 'Lora' ? 'Lora, serif' :
+                        loginTitleFont === 'Caveat' ? 'Caveat, cursive' : 'inherit',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            {loginTitleIcon === 'Scissors' && <Scissors size={24} style={{ transform: 'rotate(-45deg)' }} />}
+            {loginTitleIcon === 'Layers' && <Layers size={24} />}
+            {loginTitleIcon === 'Package' && <Package size={24} />}
+            {loginTitleText}
+          </h2>
+          <h1 style={{ fontSize: '3rem', color: 'white', marginBottom: loginShowMessage ? '1.5rem' : '0', lineHeight: 1.1 }}>
             Gestiona tu producción textil con precisión quirúrgica.
           </h1>
-          <p style={{ fontSize: '1.125rem', opacity: 0.8, maxWidth: '500px' }}>
-            La plataforma líder para el control de cortes, inventarios y talleres satélite en tiempo real.
-          </p>
+          {loginShowMessage && (
+            <p style={{ fontSize: '1.125rem', opacity: 0.8, maxWidth: '500px' }}>
+              La plataforma líder para el control de cortes, inventarios y talleres satélite en tiempo real.
+            </p>
+          )}
         </div>
 
         {/* Decorative elements */}
         <div style={{ position: 'absolute', bottom: '-10%', right: '-5%', width: '400px', height: '400px', backgroundColor: 'var(--primary-light)', borderRadius: '50%', filter: 'blur(80px)', opacity: 0.5 }}></div>
+
+        {/* Designed by footer */}
+        <div style={{
+          position: 'absolute',
+          bottom: '1.5rem',
+          left: '4rem',
+          zIndex: 2
+        }}>
+          <a
+            href="https://www.consultoresexpertos.org"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              textDecoration: 'none',
+              color: 'rgba(255,255,255,0.45)',
+              fontSize: '0.7rem',
+              fontWeight: '500',
+              letterSpacing: '0.06em',
+              transition: 'color 0.2s ease, opacity 0.2s ease',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.85)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.45)')}
+          >
+            <span style={{
+              display: 'inline-block',
+              width: '1px',
+              height: '10px',
+              backgroundColor: 'rgba(255,255,255,0.3)',
+              marginRight: '0.15rem'
+            }} />
+            Designed by{' '}
+            <span style={{ fontWeight: '700', letterSpacing: '0.04em' }}>Consultores Expertos</span>
+          </a>
+        </div>
       </div>
 
       {/* Right Side: Login Form */}

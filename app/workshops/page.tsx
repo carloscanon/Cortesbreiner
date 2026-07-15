@@ -43,6 +43,7 @@ export default function WorkshopsPage() {
   const [savingSpecials, setSavingSpecials] = useState(false);
   const [productsList, setProductsList] = useState<any[]>([]);
   const [showWorkshopsHelp, setShowWorkshopsHelp] = useState<boolean>(false);
+  const [workshopProfiles, setWorkshopProfiles] = useState<any[]>([]);
 
   useEffect(() => {
     fetchWorkshops();
@@ -57,14 +58,18 @@ export default function WorkshopsPage() {
         { data: cData },
         { data: rData },
         { data: pData },
-        { data: specCostsData }
+        { data: specCostsData },
+        { data: profilesData }
       ] = await Promise.all([
         supabase.from('workshops').select('*').order('nombre_taller', { ascending: true }),
         supabase.from('categories').select('*').order('categoria', { ascending: true }),
         supabase.from('workshop_rates').select('*'),
         supabase.from('products').select('*').order('nombre_producto', { ascending: true }),
-        supabase.from('workshop_special_costs').select('*')
+        supabase.from('workshop_special_costs').select('*'),
+        supabase.from('profiles').select('id, full_name, avatar_url, workshop_id').not('workshop_id', 'is', null)
       ]);
+      
+      setWorkshopProfiles(profilesData || []);
       
       // Automigration from localStorage to Database
       if (typeof window !== 'undefined') {
@@ -535,12 +540,18 @@ export default function WorkshopsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Factory /> Talleres Satélite
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Producción Externa
+          </span>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Factory size={24} />
+            </div>
+            Talleres Satélite
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
             Administra tus talleres externos y controla la producción delegada.
           </p>
         </div>
@@ -741,17 +752,39 @@ export default function WorkshopsPage() {
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
-              {filtered.map(w => (
-                <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {/* Card header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <h3 style={{ fontSize: '1.125rem', marginBottom: '0.25rem' }}>{w.nombre_taller}</h3>
-                      {w.especialidad && (
-                        <span className="badge badge-info" style={{ fontSize: '0.625rem' }}>{w.especialidad}</span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+              {filtered.map(w => {
+                const managerProfile = workshopProfiles.find(p => p.workshop_id === w.id && p.avatar_url);
+                const avatarUrl = managerProfile?.avatar_url || null;
+
+                return (
+                  <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {/* Card header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
+                        {avatarUrl ? (
+                          <img 
+                            src={avatarUrl} 
+                            alt={w.nombre_taller} 
+                            style={{ width: '45px', height: '45px', borderRadius: '12px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                          />
+                        ) : (
+                          <div style={{ 
+                            width: '45px', height: '45px', borderRadius: '12px', 
+                            background: 'linear-gradient(135deg, #80082E 0%, #D81B60 100%)',
+                            color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.95rem', fontWeight: '950', border: '1px solid rgba(255,255,255,0.1)'
+                          }}>
+                            {w.nombre_taller ? w.nombre_taller.substring(0, 2).toUpperCase() : 'TA'}
+                          </div>
+                        )}
+                        <div>
+                          <h3 style={{ fontSize: '1.125rem', marginBottom: '0.25rem', margin: 0, fontWeight: '900', color: '#0f172a' }}>{w.nombre_taller}</h3>
+                          {w.especialidad && (
+                            <span className="badge badge-info" style={{ fontSize: '0.625rem' }}>{w.especialidad}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.25rem' }}>
                       <button
                         onClick={() => handleViewOrders(w)}
                         style={{ padding: '0.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f5f3ff', cursor: 'pointer', color: '#7c3aed' }}
@@ -828,9 +861,10 @@ export default function WorkshopsPage() {
                     </span>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
+        )}
         </>
       ) : activeTab === 'rates' ? (
         <div style={{ backgroundColor: 'white', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>

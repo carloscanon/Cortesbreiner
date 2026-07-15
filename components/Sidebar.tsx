@@ -16,7 +16,8 @@ import {
   Layers,
   Factory,
   ShieldCheck,
-  Calculator
+  Calculator,
+  DollarSign
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -26,12 +27,13 @@ const allMenuItems = [
   { icon: Layers, label: 'Mesa de Tendido', href: '/cutting', module: 'cutting' },
   { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
   { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
-  { icon: Database, label: 'Maestros', href: '/masters', module: 'masters' },
-  { icon: Package, label: 'Inventario', href: '/inventory', module: 'inventory' },
+  { icon: Package, label: 'Inventario Telas', href: '/inventory', module: 'inventory' },
+  { icon: Package, label: 'Inventario P. Terminado', href: '/inventory-finished', module: 'inventory_finished' },
+  { icon: LayoutDashboard, label: 'Punto de Venta (POS)', href: '/pos', module: 'pos' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
-  { icon: Factory, label: 'Talleres', href: '/workshops', module: 'workshops' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
+  { icon: DollarSign, label: 'Módulo Financiero', href: '/financial', module: 'financial' },
 ];
 
 const allBottomItems = [
@@ -67,6 +69,15 @@ export default function Sidebar() {
   }, [profile]);
 
   const isTaller = profile?.roles?.name === 'Taller';
+  const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
+  const isPOS = roleNameLower.includes('pos') || 
+                roleNameLower.includes('post') || 
+                roleNameLower.includes('punto') || 
+                roleNameLower.includes('tienda') || 
+                roleNameLower.includes('vendedor') || 
+                roleNameLower.includes('cajero');
+
+  const isSuperAdmin = roleNameLower.includes('super');
 
   const tallerMenuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', href: '/', module: 'dashboard' },
@@ -74,16 +85,25 @@ export default function Sidebar() {
     { icon: Truck, label: 'Entrega y Pagos', href: '/?tab=payments', module: 'sewing' },
   ];
 
+  const posMenuItems = [
+    { icon: LayoutDashboard, label: 'Punto de Venta (POS)', href: '/pos', module: 'pos' },
+    { icon: Database, label: 'Inventario de Tienda', href: '/store-admin', module: 'store_admin' },
+  ];
+
   const filteredMenuItems = isTaller
     ? tallerMenuItems
-    : allMenuItems.filter(item => 
-        allowedModules.includes(item.module) || item.module === 'dashboard'
-      );
+    : isSuperAdmin
+      ? allMenuItems
+      : allMenuItems.filter(item => 
+          allowedModules.includes(item.module) || item.module === 'dashboard'
+        );
 
   const filteredBottomItems = allBottomItems.filter(item => 
     isTaller
       ? item.module === 'help'
-      : allowedModules.includes(item.module) || item.module === 'help'
+      : isSuperAdmin
+        ? true
+        : allowedModules.includes(item.module) || item.module === 'help'
   );
 
   const logoUrl = config?.logo_url || '';
@@ -92,6 +112,8 @@ export default function Sidebar() {
 
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab') || 'dashboard';
+
+  if (pathname?.startsWith('/pos')) return null;
 
   return (
     <aside className="sidebar">
@@ -151,16 +173,29 @@ export default function Sidebar() {
               <li key={item.label}>
                 <Link 
                   href={item.href}
-                  className={`btn ${isActive ? 'btn-primary' : ''}`}
+                  className="btn"
                   style={{ 
                     width: '100%', 
                     justifyContent: 'flex-start',
-                    backgroundColor: isActive ? 'var(--primary)' : 'transparent',
+                    background: isActive ? 'linear-gradient(135deg, #80082E, #D81B60)' : 'transparent',
                     color: isActive ? 'white' : 'var(--text)',
-                    padding: '0.75rem 1rem'
+                    padding: '0.75rem 1rem',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = 'rgba(128,8,46,0.06)';
+                      e.currentTarget.style.color = '#80082E';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = 'var(--text)';
+                    }
                   }}
                 >
-                  <item.icon size={20} />
+                  <item.icon size={20} style={{ color: isActive ? 'white' : '#80082E' }} />
                   {item.label}
                 </Link>
               </li>

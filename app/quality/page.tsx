@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { syncQualityApprovalToInventory } from '@/lib/finished-goods-sync';
 import {
   CheckCircle2, XCircle, AlertCircle, Search, ClipboardCheck,
   Plus, X, Loader2, Save, ClipboardList, Package, ChevronDown, ChevronUp
@@ -106,6 +107,7 @@ export default function QualityPage() {
         sewing_orders (
           id,
           confeccion_code,
+          status,
           workshops (
             nombre_taller
           )
@@ -137,6 +139,48 @@ export default function QualityPage() {
       `)
       .order('created_at', { ascending: false });
     setSewingOrders(data || []);
+  };
+
+  const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
+
+  const handleConfirmReceivedCheck = async (inspection: any) => {
+    const novedades = prompt(
+      `¿Confirmar recepción de prendas de la orden ${inspection.sewing_orders?.confeccion_code}?\n\nIngresa cualquier novedad/discrepancia encontrada (déjalo vacío si todo llegó conforme):`,
+      ""
+    );
+    if (novedades === null) return; // User cancelled
+    
+    setReceivingCheckId(inspection.id);
+    try {
+      // 1. Update sewing order status to 'Terminada' (completed & received by quality)
+      const { error: soErr } = await supabase
+        .from('sewing_orders')
+        .update({ status: 'Terminada' })
+        .eq('id', inspection.sewing_order_id);
+
+      if (soErr) throw soErr;
+
+      // 2. Set quality inspection status to 'Pendiente' (validation stage)
+      const formattedNotes = (inspection.notes || '') + 
+        `\n[Recibido en Calidad] Novedades de recepción: ${novedades || 'Ninguna'}`;
+
+      const { error: qiErr } = await supabase
+        .from('quality_inspections')
+        .update({
+          status: 'Pendiente',
+          notes: formattedNotes
+        })
+        .eq('id', inspection.id);
+
+      if (qiErr) throw qiErr;
+
+      alert('✓ Check de recibido completado. Las novedades fueron enviadas al satélite y la orden pasó a validación.');
+      fetchInspections();
+    } catch (err: any) {
+      alert('Error al confirmar recibido: ' + err.message);
+    } finally {
+      setReceivingCheckId(null);
+    }
   };
 
   const fetchIndividualGarments = async (id: string, isSewingOrder: boolean = true) => {
@@ -524,6 +568,9 @@ export default function QualityPage() {
     if (error) {
       alert('Error al guardar: ' + error.message);
     } else {
+      if (payload.status === 'Aprobado' && savedInspectionId) {
+        await syncQualityApprovalToInventory(savedInspectionId);
+      }
       closeModal();
       fetchInspections();
     }
@@ -532,6 +579,9 @@ export default function QualityPage() {
 
   const updateStatus = async (id: string, status: string) => {
     await supabase.from('quality_inspections').update({ status }).eq('id', id);
+    if (status === 'Aprobado') {
+      await syncQualityApprovalToInventory(id);
+    }
     fetchInspections();
   };
 
@@ -696,11 +746,11 @@ export default function QualityPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>
             Etapa de Producción
           </span>
           <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ padding: '0.5rem', backgroundColor: '#7c3aed', borderRadius: '12px', color: 'white' }}>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white' }}>
               <ClipboardCheck size={24} />
             </div>
             Control de Calidad
@@ -717,7 +767,7 @@ export default function QualityPage() {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Recepcionadas Hoy', value: `${countToday} uds`, color: '#7c3aed', icon: ClipboardList, desc: `${countInInspection} en inspección` },
+          { label: 'Recepcionadas Hoy', value: `${countToday} uds`, color: '#80082E', icon: ClipboardList, desc: `${countInInspection} en inspección` },
           { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'Pendiente de aprobación' },
           { label: 'Total Descuentos Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Descontado de liquidaciones' },
           { label: 'Inspeccionadas Totales', value: `${inspections.reduce((sum, i) => sum + (i.items_inspected || 0), 0)} uds`, color: '#10b981', icon: CheckCircle2, desc: `${approved} aprobados / ${rejected} rechazados` },
@@ -788,7 +838,7 @@ export default function QualityPage() {
             {['', ...STATUS_OPTIONS].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)} className="btn" style={{
                 fontSize: '0.72rem', fontWeight: '700', padding: '0.5rem 0.875rem',
-                backgroundColor: filterStatus === s ? '#7c3aed' : 'white',
+                backgroundColor: filterStatus === s ? '#80082E' : 'white',
                 color: filterStatus === s ? 'white' : 'var(--text)',
                 border: '1px solid var(--border)', borderRadius: '8px'
               }}>{s === '' ? 'Todos' : s}</button>
@@ -798,7 +848,7 @@ export default function QualityPage() {
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {loading ? (
-            <div style={{ padding: '3rem', textAlign: 'center' }}><Loader2 className="animate-spin" style={{ margin: 'auto', color: '#7c3aed' }} size={28} /></div>
+            <div style={{ padding: '3rem', textAlign: 'center' }}><Loader2 className="animate-spin" style={{ margin: 'auto', color: '#80082E' }} size={28} /></div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               <ClipboardList size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
@@ -830,11 +880,17 @@ export default function QualityPage() {
                 {/* Info */}
                 <div style={{ flex: 1, minWidth: '200px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#7c3aed' }}>{orderCode}</span>
+                    <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</span>
                     <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0f172a' }}>{client}</span>
-                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.border}`, fontWeight: '700' }}>
-                      {item.status.toUpperCase()}
-                    </span>
+                    {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
+                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', fontWeight: '800' }}>
+                        ⚠️ ENVÍO POR RECIBIR (PENDIENTE CHECK)
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.border}`, fontWeight: '700' }}>
+                        {item.status.toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', fontSize: '0.72rem', color: '#64748b', flexWrap: 'wrap' }}>
                     <span>🏭 {workshop}</span>
@@ -858,41 +914,67 @@ export default function QualityPage() {
                     <span>📅 {date}</span>
                   </div>
                   {item.notes && item.notes !== 'Creado automáticamente al recibir de confección.' && (
-                    <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.2rem', fontStyle: 'italic' }}>{item.notes}</p>
+                    <div style={{ 
+                      fontSize: '0.78rem', 
+                      color: '#475569', 
+                      marginTop: '0.4rem', 
+                      backgroundColor: '#f8fafc', 
+                      padding: '0.5rem 0.75rem', 
+                      borderRadius: '8px', 
+                      borderLeft: '3px solid #eab308',
+                      whiteSpace: 'pre-wrap', 
+                      fontFamily: 'inherit' 
+                    }}>
+                      <strong>Relación/Novedades del Satélite:</strong>
+                      <div style={{ marginTop: '0.2rem' }}>{item.notes}</div>
+                    </div>
                   )}
                 </div>
 
                 {/* Actions */}
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
-                  <select
-                    value={item.status}
-                    onChange={e => updateStatus(item.id, e.target.value)}
-                    style={{
-                      padding: '0.4rem 0.75rem', borderRadius: '8px',
-                      border: `1.5px solid ${statusColor.border}`,
-                      fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer',
-                      backgroundColor: statusColor.bg, color: statusColor.color,
-                    }}
-                  >
-                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  {(item.status === 'Aprobado' || item.status === 'Doblado' || item.status === 'Empacado') && (
+                  {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
                     <button
                       className="btn"
-                      title="Imprimir etiquetas unitarias de esta orden"
-                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', gap: '0.25rem', alignItems: 'center' }}
-                      onClick={() => printLabelsForInspection(item)}
+                      disabled={receivingCheckId === item.id}
+                      style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '900', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)' }}
+                      onClick={() => handleConfirmReceivedCheck(item)}
                     >
-                      🖨️ Etiquetas
+                      {receivingCheckId === item.id ? 'Confirmando...' : '✓ Dar Check de Recibido'}
                     </button>
+                  ) : (
+                    <>
+                      <select
+                        value={item.status}
+                        onChange={e => updateStatus(item.id, e.target.value)}
+                        style={{
+                          padding: '0.4rem 0.75rem', borderRadius: '8px',
+                          border: `1.5px solid ${statusColor.border}`,
+                          fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer',
+                          backgroundColor: statusColor.bg, color: statusColor.color,
+                        }}
+                      >
+                        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      {(item.status === 'Aprobado' || item.status === 'Doblado' || item.status === 'Empacado') && (
+                        <button
+                          className="btn"
+                          title="Imprimir etiquetas unitarias de esta orden"
+                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', gap: '0.25rem', alignItems: 'center' }}
+                          onClick={() => printLabelsForInspection(item)}
+                        >
+                          🖨️ Etiquetas
+                        </button>
+                      )}
+                      <button
+                        className="btn"
+                        style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        onClick={() => openReview(item)}
+                      >
+                        Revisar
+                      </button>
+                    </>
                   )}
-                  <button
-                    className="btn"
-                    style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                    onClick={() => openReview(item)}
-                  >
-                    Revisar
-                  </button>
                 </div>
               </div>
             );
@@ -906,7 +988,7 @@ export default function QualityPage() {
           <div className="card" style={{ width: '100%', maxWidth: '780px', padding: 0, maxHeight: '95vh', display: 'flex', flexDirection: 'column', borderRadius: '20px', overflow: 'hidden' }}>
 
             {/* Modal header */}
-            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #80082E 0%, #D81B60 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <div>
                 <p style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   {editingId ? 'Revisar Inspección de Calidad' : 'Nueva Inspección de Calidad'}
@@ -954,27 +1036,27 @@ export default function QualityPage() {
                {orderDetail && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   {/* Context Card */}
-                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#fdf2f4', borderRadius: '12px', border: '1.5px solid #f5c6d0', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
                     <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase', margin: 0 }}>Taller</p>
+                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Taller</p>
                       <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
                         {orderDetail.workshops?.nombre_taller || orderDetail.parent_order?.workshops?.nombre_taller || '—'}
                       </p>
                     </div>
                     <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase', margin: 0 }}>Cliente</p>
+                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Cliente</p>
                       <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
                         {orderDetail.parent_order?.client_name || orderDetail.client_name || '—'}
                       </p>
                     </div>
                     <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase', margin: 0 }}>Tela</p>
+                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Tela</p>
                       <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
                         {orderDetail.parent_order?.fabrics?.nombre_tela || orderDetail.fabrics?.nombre_tela || '—'}
                       </p>
                     </div>
                     <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', textTransform: 'uppercase', margin: 0 }}>Total Esperado</p>
+                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Total Esperado</p>
                       <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>{detailRows.reduce((s, r) => s + r.quantity, 0)} prendas</p>
                     </div>
                   </div>
@@ -993,7 +1075,7 @@ export default function QualityPage() {
                           className="btn"
                           style={{
                             fontSize: '0.75rem', fontWeight: '800', padding: '0.6rem 1.25rem',
-                            backgroundColor: '#7c3aed', color: 'white', border: 'none',
+                            backgroundColor: '#80082E', color: 'white', border: 'none',
                             borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s'
                           }}
                         >
@@ -1052,9 +1134,9 @@ export default function QualityPage() {
                                 style={{
                                   fontSize: '0.62rem', fontWeight: '700', padding: '0.25rem 0.5rem',
                                   borderRadius: '6px', cursor: 'pointer',
-                                  backgroundColor: isSelected ? '#7c3aed' : badgeColor.bg,
+                                  backgroundColor: isSelected ? '#80082E' : badgeColor.bg,
                                   color: isSelected ? 'white' : badgeColor.color,
-                                  border: `1px solid ${isSelected ? '#7c3aed' : badgeColor.border}`,
+                                  border: `1px solid ${isSelected ? '#80082E' : badgeColor.border}`,
                                   transition: 'all 0.1s'
                                 }}
                               >
@@ -1069,7 +1151,7 @@ export default function QualityPage() {
                           <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>
                               <div>
-                                <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#7c3aed' }}>{selectedGarment.barcode}</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#80082E' }}>{selectedGarment.barcode}</span>
                                 <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: '0.5rem' }}>
                                   Ref: {selectedGarment.reference_name} | {selectedGarment.color_name} | Talla: {selectedGarment.size_code}
                                 </span>
@@ -1181,7 +1263,7 @@ export default function QualityPage() {
                   {individualGarments.length === 0 && !loadingDetail && detailRows.length > 0 && (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        <Package size={16} style={{ color: '#7c3aed' }} />
+                        <Package size={16} style={{ color: '#80082E' }} />
                         <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
                           Detalle de Prendas a Revisar
                         </h3>
@@ -1538,7 +1620,7 @@ export default function QualityPage() {
                   window.print();
                 }}
                 className="btn"
-                style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#7c3aed', color: 'white', fontWeight: '800' }}
+                style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#80082E', color: 'white', fontWeight: '800' }}
               >
                 🖨️ Imprimir Etiquetas
               </button>

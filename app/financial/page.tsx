@@ -336,15 +336,15 @@ export default function FinancialControlCenter() {
 
   // ─────── RENDER ───────
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif", backgroundColor: '#0f172a', color: '#f1f5f9' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif", backgroundColor: 'var(--surface-2)', color: 'var(--text)' }}>
 
       {/* ── MENÚ LATERAL ── */}
-      <aside style={{ width: '260px', flexShrink: 0, backgroundColor: '#1e293b', borderRight: '1px solid #334155', padding: '2rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <aside style={{ width: '260px', flexShrink: 0, backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)', padding: '2rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         <div>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 900, background: 'linear-gradient(135deg,#6366f1,#3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: 0 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 900, background: 'linear-gradient(135deg,var(--primary),var(--primary-light))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', margin: 0 }}>
             BRAINER ERP
           </h2>
-          <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
             Financial Control Center
           </span>
         </div>
@@ -368,8 +368,8 @@ export default function FinancialControlCenter() {
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.7rem 0.9rem',
                 borderRadius: '8px', border: 'none',
-                backgroundColor: activeMenu === key ? '#4f46e5' : 'transparent',
-                color: 'white', fontWeight: 700, cursor: 'pointer', textAlign: 'left', fontSize: '0.82rem',
+                backgroundColor: activeMenu === key ? 'var(--primary)' : 'transparent',
+                color: activeMenu === key ? 'white' : 'var(--text)', fontWeight: 700, cursor: 'pointer', textAlign: 'left', fontSize: '0.82rem',
                 transition: 'background 0.15s'
               }}
             >
@@ -385,7 +385,7 @@ export default function FinancialControlCenter() {
             disabled={syncing}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-              backgroundColor: syncing ? '#334155' : '#059669', color: 'white', border: 'none',
+              backgroundColor: syncing ? 'var(--border)' : '#059669', color: 'white', border: 'none',
               borderRadius: '8px', padding: '0.7rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: syncing ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s'
             }}
@@ -411,8 +411,8 @@ export default function FinancialControlCenter() {
             </div>
           )}
 
-          <div style={{ padding: '0.75rem', backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }}>
-            <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 700, display: 'block', textTransform: 'uppercase' }}>Estado Conexión</span>
+          <div style={{ padding: '0.75rem', backgroundColor: 'var(--surface-2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', textTransform: 'uppercase' }}>Estado Conexión</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
               <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#16a34a', flexShrink: 0 }}></span>
               <span style={{ fontSize: '0.73rem', fontWeight: 700 }}>SIIGO Live API</span>
@@ -438,7 +438,7 @@ export default function FinancialControlCenter() {
                 <KpiCard label="Ventas del Mes" value={fmtCOP(kpis?.ventasMes || 0)} sub="Consolidado SIIGO" icon={<TrendingUp size={60} />} />
                 <KpiCard label="Facturas SIIGO" value={kpis?.facturasSiigo || 0} sub={`${kpis?.facturasVencidas || 0} vencidas`} subColor="#ef4444" icon={<FileText size={60} />} />
                 <KpiCard label="Pedidos Brainer" value={kpis?.pedidosBrainer || 0} sub="Órdenes activas" icon={<Package size={60} />} />
-                <KpiCard label="Prendas en Confección" value={fmt(kpis?.prendasConfeccion || 0)} sub="En talleres satélites" subColor="#818cf8" icon={<Layers size={60} />} />
+                <KpiCard label="Prendas en Confección" value={fmt(kpis?.prendasConfeccion || 0)} sub="En talleres satélites" subColor="var(--primary)" icon={<Layers size={60} />} />
                 <KpiCard label="Satélites Activos" value={kpis?.satelitesActivos || 0} sub="Talleres en operación" icon={<Scissors size={60} />} />
                 <KpiCard label="Cartera" value={fmtCOP(kpis?.cartera || 0)} sub="Por cobrar" subColor="#f59e0b" icon={<DollarSign size={60} />} />
                 <KpiCard label="Margen Promedio" value={`${kpis?.margenPromedio || 34}%`} sub="Operación + Tela" subColor="#10b981" icon={<BadgePercent size={60} />} />
@@ -458,10 +458,10 @@ export default function FinancialControlCenter() {
                       { name: 'May', Ingresos: 125000000, Egresos: 83000000 },
                       { name: 'Jun', Ingresos: 140000000, Egresos: 92000000 }
                     ]}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                       <XAxis dataKey="name" stroke="#94a3b8" tick={{ fontSize: 11 }} />
                       <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000000).toFixed(0)}M`} />
-                      <Tooltip formatter={(v) => fmtCOP(Number(v))} contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', fontSize: 12 }} />
+                      <Tooltip formatter={(v) => fmtCOP(Number(v))} contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', fontSize: 12 }} />
                       <Area type="monotone" dataKey="Ingresos" stroke="#10b981" strokeWidth={2} fillOpacity={0.1} fill="#10b981" />
                       <Area type="monotone" dataKey="Egresos" stroke="#ef4444" strokeWidth={2} fillOpacity={0} />
                     </AreaChart>
@@ -470,7 +470,7 @@ export default function FinancialControlCenter() {
 
                 <ChartCard title="Estado de Producción">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingTop: '0.5rem' }}>
-                    <ProgressBar label="En Confección" value={fmt(kpis?.prendasConfeccion || 7920) + ' prendas'} pct={70} color="#6366f1" />
+                    <ProgressBar label="En Confección" value={fmt(kpis?.prendasConfeccion || 7920) + ' prendas'} pct={70} color="var(--primary)" />
                     <ProgressBar label="Control Calidad" value="1,840 prendas" pct={35} color="#10b981" />
                     <ProgressBar label="Listo para Despacho" value={`${kpis?.pedidosListos || 36} pedidos`} pct={50} color="#f59e0b" />
                     <ProgressBar label="Despachos Pendientes" value={`${kpis?.despachosPendientes || 12}`} pct={20} color="#ef4444" />
@@ -484,7 +484,7 @@ export default function FinancialControlCenter() {
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                       <thead>
-                        <tr style={{ borderBottom: '2px solid #334155', color: '#94a3b8' }}>
+                        <tr style={{ borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
                           <th style={{ padding: '0.6rem', textAlign: 'left' }}>Consecutivo</th>
                           <th style={{ padding: '0.6rem', textAlign: 'left' }}>Fecha</th>
                           <th style={{ padding: '0.6rem', textAlign: 'left' }}>Cliente</th>
@@ -494,9 +494,9 @@ export default function FinancialControlCenter() {
                       </thead>
                       <tbody>
                         {invoices.slice(0, 8).map((inv) => (
-                          <tr key={inv.id} style={{ borderBottom: '1px solid #1e293b', cursor: 'pointer' }}
+                          <tr key={inv.id} style={{ borderBottom: '1px solid var(--surface)', cursor: 'pointer' }}
                             onClick={() => { setSelectedInvoice(inv); setActiveMenu('trazabilidad'); }}>
-                            <td style={{ padding: '0.6rem', fontWeight: 700, color: '#818cf8' }}>{inv.consecutive}</td>
+                            <td style={{ padding: '0.6rem', fontWeight: 700, color: 'var(--primary)' }}>{inv.consecutive}</td>
                             <td style={{ padding: '0.6rem' }}>{inv.date}</td>
                             <td style={{ padding: '0.6rem' }}>{inv.siigo_customers?.name || inv.customer_identification}</td>
                             <td style={{ padding: '0.6rem', textAlign: 'right', fontWeight: 700 }}>{fmtCOP(inv.total)}</td>
@@ -524,7 +524,7 @@ export default function FinancialControlCenter() {
                 {/* ─── Barra principal: búsqueda + pills de riesgo + toggles ─── */}
                 <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ position: 'relative', flexGrow: 1, minWidth: '220px', maxWidth: '340px' }}>
-                    <Search size={15} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <Search size={15} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input
                       type="text"
                       placeholder="NIT o razón social..."
@@ -533,7 +533,7 @@ export default function FinancialControlCenter() {
                         setSearchTerm(e.target.value);
                         fetchCustomers(e.target.value, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, crmFilterCity);
                       }}
-                      style={{ width: '100%', padding: '0.55rem 1rem 0.55rem 2.25rem', border: '1px solid #334155', borderRadius: '8px', backgroundColor: '#1e293b', color: 'white', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
+                      style={{ width: '100%', padding: '0.55rem 1rem 0.55rem 2.25rem', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: '0.82rem', outline: 'none', boxSizing: 'border-box' }}
                     />
                   </div>
 
@@ -542,7 +542,7 @@ export default function FinancialControlCenter() {
                     {(['', 'Bajo', 'Medio', 'Alto'] as const).map(r => {
                       const active = crmFilterRiesgo === r;
                       const colors: Record<string, {border:string; bg:string; text:string}> = {
-                        '':     { border: '#6366f1', bg: '#312e81', text: '#a5b4fc' },
+                        '':     { border: 'var(--primary)', bg: '#312e81', text: '#a5b4fc' },
                         'Bajo': { border: '#10b981', bg: '#064e3b', text: '#6ee7b7' },
                         'Medio':{ border: '#f59e0b', bg: '#451a03', text: '#fbbf24' },
                         'Alto': { border: '#ef4444', bg: '#7f1d1d', text: '#fca5a5' }
@@ -554,7 +554,7 @@ export default function FinancialControlCenter() {
                           onClick={() => { setCrmFilterRiesgo(r); fetchCustomers(searchTerm, r, crmFilterDebtOnly, crmFilterVendedor, crmFilterCity); }}
                           style={{
                             padding: '0.4rem 0.75rem', borderRadius: '20px',
-                            border: `1px solid ${active ? c.border : '#334155'}`,
+                            border: `1px solid ${active ? c.border : 'var(--border)'}`,
                             backgroundColor: active ? c.bg : 'transparent',
                             color: active ? c.text : '#64748b',
                             fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s'
@@ -569,7 +569,7 @@ export default function FinancialControlCenter() {
                   {/* Toggle mora */}
                   <button
                     onClick={() => { const next = !crmFilterDebtOnly; setCrmFilterDebtOnly(next); fetchCustomers(searchTerm, crmFilterRiesgo, next, crmFilterVendedor, crmFilterCity); }}
-                    style={{ padding: '0.4rem 0.8rem', borderRadius: '20px', border: `1px solid ${crmFilterDebtOnly ? '#ef4444' : '#334155'}`, backgroundColor: crmFilterDebtOnly ? '#7f1d1d' : 'transparent', color: crmFilterDebtOnly ? '#fca5a5' : '#64748b', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ padding: '0.4rem 0.8rem', borderRadius: '20px', border: `1px solid ${crmFilterDebtOnly ? '#ef4444' : 'var(--border)'}`, backgroundColor: crmFilterDebtOnly ? '#7f1d1d' : 'transparent', color: crmFilterDebtOnly ? '#fca5a5' : '#64748b', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                   >
                     💰 Con Mora
                   </button>
@@ -577,7 +577,7 @@ export default function FinancialControlCenter() {
                   {/* Más filtros toggle */}
                   <button
                     onClick={() => setShowCrmFilters(v => !v)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid #334155', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: showCrmFilters ? '#4f46e5' : 'transparent', color: 'white' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: showCrmFilters ? 'var(--primary)' : 'var(--surface-2)', color: showCrmFilters ? 'white' : 'var(--text)' }}
                   >
                     <SlidersHorizontal size={13} /> Más {showCrmFilters ? '▲' : '▼'}
                   </button>
@@ -585,7 +585,7 @@ export default function FinancialControlCenter() {
                   {(searchTerm || crmFilterRiesgo || crmFilterDebtOnly || crmFilterVendedor || crmFilterCity) && (
                     <button
                       onClick={() => { setSearchTerm(''); setCrmFilterRiesgo(''); setCrmFilterDebtOnly(false); setCrmFilterVendedor(''); setCrmFilterCity(''); fetchCustomers('', '', false, '', ''); }}
-                      style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #334155', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: '#1e293b', color: '#94a3b8' }}
+                      style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', backgroundColor: 'var(--surface)', color: 'var(--text-muted)' }}
                     >
                       <IconX size={12} style={{ display: 'inline', marginRight: '0.25rem' }} />Limpiar
                     </button>
@@ -594,25 +594,25 @@ export default function FinancialControlCenter() {
 
                 {/* ─── Panel Filtros Avanzados ─── */}
                 {showCrmFilters && (
-                  <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.1rem', marginBottom: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.1rem', marginBottom: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div>
-                      <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendedor</label>
+                      <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendedor</label>
                       <input
                         type="text"
                         value={crmFilterVendedor}
                         onChange={e => { setCrmFilterVendedor(e.target.value); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, e.target.value, crmFilterCity); }}
                         placeholder="Nombre del vendedor..."
-                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ciudad</label>
+                      <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ciudad</label>
                       <input
                         type="text"
                         value={crmFilterCity}
                         onChange={e => { setCrmFilterCity(e.target.value); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, e.target.value); }}
                         placeholder="Bogotá, Medellín..."
-                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.82rem', boxSizing: 'border-box', outline: 'none' }}
                       />
                     </div>
                   </div>
@@ -628,7 +628,7 @@ export default function FinancialControlCenter() {
                       </span>
                     )}
                     {crmFilterCity && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.65rem', backgroundColor: '#1e293b', color: '#a78bfa', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700, border: '1px solid #334155' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.65rem', backgroundColor: 'var(--surface)', color: '#a78bfa', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700, border: '1px solid var(--border)' }}>
                         📍 {crmFilterCity}
                         <button onClick={() => { setCrmFilterCity(''); fetchCustomers(searchTerm, crmFilterRiesgo, crmFilterDebtOnly, crmFilterVendedor, ''); }} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', padding: 0 }}>✕</button>
                       </span>
@@ -640,14 +640,14 @@ export default function FinancialControlCenter() {
                 {!loadingCustomers && customers.length > 0 && (
                   <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
                     {[
-                      { icon: <Users size={13} />, label: 'Resultados', value: `${customers.length} clientes`, color: '#818cf8' },
+                      { icon: <Users size={13} />, label: 'Resultados', value: `${customers.length} clientes`, color: 'var(--primary)' },
                       { icon: <DollarSign size={13} />, label: 'Con mora', value: `${customers.filter(c => c.saldo_mora > 0).length}`, color: '#ef4444' },
                       { icon: <Activity size={13} />, label: 'Riesgo Alto', value: `${customers.filter(c => c.riesgo === 'Alto').length}`, color: '#f59e0b' },
                       { icon: <DollarSign size={13} />, label: 'Mora total', value: fmtCOP(customers.reduce((s, c) => s + (c.saldo_mora || 0), 0)), color: '#f59e0b' }
                     ].map(({ icon, label, value, color }) => (
-                      <div key={label} style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '10px', padding: '0.55rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div key={label} style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.55rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span style={{ color }}>{icon}</span>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{label}:</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}:</span>
                         <strong style={{ fontSize: '0.82rem', color }}>{value}</strong>
                       </div>
                     ))}
@@ -690,13 +690,13 @@ export default function FinancialControlCenter() {
             {/* Búsqueda de factura */}
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem', maxWidth: '500px' }}>
               <div style={{ position: 'relative', flexGrow: 1 }}>
-                <Search size={16} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <Search size={16} style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
                   placeholder="Número de factura (ej: FV-1-101)..."
                   value={invoiceQuery}
                   onChange={e => { setInvoiceQuery(e.target.value); fetchInvoices(e.target.value); }}
-                  style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.25rem', border: '1px solid #334155', borderRadius: '8px', backgroundColor: '#1e293b', color: 'white', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.25rem', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
             </div>
@@ -720,22 +720,22 @@ export default function FinancialControlCenter() {
                       <div
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
-                        style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.1rem 1.5rem', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '1rem', alignItems: 'center' }}
+                        style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.1rem 1.5rem', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '1rem', alignItems: 'center' }}
                       >
                         <div>
-                          <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block' }}>Consecutivo</span>
-                          <strong style={{ color: '#818cf8' }}>{inv.consecutive}</strong>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>Consecutivo</span>
+                          <strong style={{ color: 'var(--primary)' }}>{inv.consecutive}</strong>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block' }}>Fecha</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>Fecha</span>
                           <strong>{inv.date}</strong>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block' }}>Cliente</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>Cliente</span>
                           <strong>{inv.siigo_customers?.name || inv.customer_identification}</strong>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block' }}>Total</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>Total</span>
                           <strong style={{ color: '#10b981' }}>{fmtCOP(inv.total)}</strong>
                         </div>
                         <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>✅ Ver Trace</span>
@@ -757,8 +757,8 @@ export default function FinancialControlCenter() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                 <ChartCard title="Desglose de Costo de Producción Promedio">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingTop: '0.5rem' }}>
-                    <CostBar label="Costo Tela (Kilos consumidos)" value={fmtCOP(costs.tela)} pct={53} color="#3b82f6" />
-                    <CostBar label="Costo Satélite (Mano de Obra)" value={fmtCOP(costs.satelite)} pct={28} color="#6366f1" />
+                    <CostBar label="Costo Tela (Kilos consumidos)" value={fmtCOP(costs.tela)} pct={53} color="var(--primary-light)" />
+                    <CostBar label="Costo Satélite (Mano de Obra)" value={fmtCOP(costs.satelite)} pct={28} color="var(--primary)" />
                     <CostBar label="Estampado / Bordado" value={fmtCOP(costs.estampado)} pct={12} color="#f59e0b" />
                     <CostBar label="Transporte & Logística" value={fmtCOP(costs.logistica)} pct={7} color="#10b981" />
                   </div>
@@ -766,13 +766,13 @@ export default function FinancialControlCenter() {
 
                 <ChartCard title="Rentabilidad Operativa">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#0f172a', padding: '1rem', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: 'var(--surface-2)', padding: '1rem', borderRadius: '10px' }}>
                       <div>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Ingresos Estimados</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Ingresos Estimados</span>
                         <div style={{ fontSize: '1.3rem', fontWeight: 900 }}>{fmtCOP(costs.ventas)}</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Utilidad Operativa</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Utilidad Operativa</span>
                         <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#10b981' }}>{fmtCOP(costs.utilidad)}</div>
                       </div>
                     </div>
@@ -780,7 +780,7 @@ export default function FinancialControlCenter() {
                       <span>Margen Calculado:</span>
                       <strong style={{ color: '#10b981', fontSize: '1rem' }}>{Math.round((costs.utilidad / costs.ventas) * 100)}%</strong>
                     </div>
-                    <p style={{ fontSize: '0.72rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
                       * El margen cruza metros de tela consumidos en corte, liquidaciones pagadas a satélites y facturación real de SIIGO.
                       Sincroniza periódicamente para mantener el cálculo actualizado.
                     </p>
@@ -800,7 +800,7 @@ export default function FinancialControlCenter() {
                 <button
                   onClick={() => setShowFilters(!showFilters)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#334155',
+                    display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: 'var(--border)',
                     color: 'white', border: 'none', borderRadius: '8px', padding: '0.55rem 1rem',
                     fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer'
                   }}
@@ -823,20 +823,20 @@ export default function FinancialControlCenter() {
             {/* Ventas KPIs resumidos */}
             {salesSummary && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Ventas del Rango</span>
+                <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Ventas del Rango</span>
                   <strong style={{ fontSize: '1.25rem', color: '#10b981' }}>{fmtCOP(salesSummary.totalVentas)}</strong>
                 </div>
-                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Total Facturas</span>
-                  <strong style={{ fontSize: '1.25rem', color: 'white' }}>{salesSummary.totalFacturas}</strong>
+                <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Total Facturas</span>
+                  <strong style={{ fontSize: '1.25rem', color: 'var(--text)' }}>{salesSummary.totalFacturas}</strong>
                 </div>
-                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Ticket Promedio</span>
-                  <strong style={{ fontSize: '1.25rem', color: '#6366f1' }}>{fmtCOP(salesSummary.ticketPromedio)}</strong>
+                <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Ticket Promedio</span>
+                  <strong style={{ fontSize: '1.25rem', color: 'var(--primary)' }}>{fmtCOP(salesSummary.ticketPromedio)}</strong>
                 </div>
-                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1rem' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase' }}>Factura Máxima</span>
+                <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>Factura Máxima</span>
                   <strong style={{ fontSize: '1.25rem', color: '#f59e0b' }}>{fmtCOP(salesSummary.maxFactura)}</strong>
                 </div>
               </div>
@@ -845,73 +845,73 @@ export default function FinancialControlCenter() {
             {/* Panel de Filtros Avanzados */}
             {showFilters && (
               <div style={{
-                backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px',
+                backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px',
                 padding: '1.25rem', marginBottom: '1.5rem', display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem'
               }}>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Buscador General</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Buscador General</label>
                   <input
                     type="text"
                     value={salesFilters.q}
                     onChange={e => handleSalesFilterChange('q', e.target.value)}
                     placeholder="Consecutivo u observaciones..."
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Identificación Cliente (NIT)</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Identificación Cliente (NIT)</label>
                   <input
                     type="text"
                     value={salesFilters.custId}
                     onChange={e => handleSalesFilterChange('custId', e.target.value)}
                     placeholder="Ej: 10101010..."
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Fecha Inicio</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Fecha Inicio</label>
                   <input
                     type="date"
                     value={salesFilters.dateStart}
                     onChange={e => handleSalesFilterChange('dateStart', e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Fecha Fin</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Fecha Fin</label>
                   <input
                     type="date"
                     value={salesFilters.dateEnd}
                     onChange={e => handleSalesFilterChange('dateEnd', e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Monto Mínimo</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Monto Mínimo</label>
                   <input
                     type="number"
                     value={salesFilters.minTotal}
                     onChange={e => handleSalesFilterChange('minTotal', e.target.value)}
                     placeholder="Mínimo $"
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Monto Máximo</label>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Monto Máximo</label>
                   <input
                     type="number"
                     value={salesFilters.maxTotal}
                     onChange={e => handleSalesFilterChange('maxTotal', e.target.value)}
                     placeholder="Máximo $"
-                    style={{ width: '100%', padding: '0.5rem', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: 'white', fontSize: '0.8rem' }}
+                    style={{ width: '100%', padding: '0.5rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '0.8rem' }}
                   />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
                   <button
                     onClick={clearSalesFilters}
                     style={{
-                      padding: '0.5rem 1rem', backgroundColor: '#334155', color: 'white',
+                      padding: '0.5rem 1rem', backgroundColor: 'var(--primary)', color: 'white',
                       border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700
                     }}
                   >
@@ -932,10 +932,10 @@ export default function FinancialControlCenter() {
               />
             ) : (
               <div>
-                <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+                <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', overflow: 'hidden', marginBottom: '1.5rem' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', textAlign: 'left' }}>
                     <thead>
-                      <tr style={{ backgroundColor: '#0f172a', borderBottom: '2px solid #334155', color: '#94a3b8' }}>
+                      <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
                         <th style={{ padding: '0.85rem 1rem', cursor: 'pointer' }} onClick={() => handleSalesSort('consecutive')}>
                           Consecutivo {salesSort.by === 'consecutive' && (salesSort.asc ? '▲' : '▼')}
                         </th>
@@ -953,8 +953,8 @@ export default function FinancialControlCenter() {
                     </thead>
                     <tbody>
                       {salesData.map(inv => (
-                        <tr key={inv.id} style={{ borderBottom: '1px solid #334155' }}>
-                          <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: '#818cf8' }}>{inv.consecutive}</td>
+                        <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: 'var(--primary)' }}>{inv.consecutive}</td>
                           <td style={{ padding: '0.85rem 1rem' }}>{inv.date}</td>
                           <td style={{ padding: '0.85rem 1rem' }}>{inv.siigo_customers?.name || 'Cliente Genérico'}</td>
                           <td style={{ padding: '0.85rem 1rem', fontFamily: 'monospace' }}>{inv.customer_identification}</td>
@@ -966,7 +966,7 @@ export default function FinancialControlCenter() {
                             <button
                               onClick={() => setSalesDetail(inv)}
                               style={{
-                                backgroundColor: '#334155', color: 'white', border: 'none',
+                                backgroundColor: 'var(--border)', color: 'white', border: 'none',
                                 borderRadius: '6px', padding: '0.35rem 0.75rem', fontSize: '0.72rem',
                                 fontWeight: 700, cursor: 'pointer'
                               }}
@@ -982,7 +982,7 @@ export default function FinancialControlCenter() {
 
                 {/* Controles de Paginación Real */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     Mostrando facturas {((salesPagination.page - 1) * salesPagination.perPage) + 1} - {Math.min(salesPagination.page * salesPagination.perPage, salesPagination.totalRows)} de {salesPagination.totalRows}
                   </span>
                   
@@ -990,14 +990,14 @@ export default function FinancialControlCenter() {
                     <button
                       disabled={salesPagination.page <= 1}
                       onClick={() => fetchSales(salesFilters, 1, salesSort)}
-                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                      style={{ padding: '0.45rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', cursor: 'pointer' }}
                     >
                       <ChevronsLeft size={14} />
                     </button>
                     <button
                       disabled={salesPagination.page <= 1}
                       onClick={() => fetchSales(salesFilters, salesPagination.page - 1, salesSort)}
-                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                      style={{ padding: '0.45rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', cursor: 'pointer' }}
                     >
                       <ChevronLeft size={14} />
                     </button>
@@ -1007,14 +1007,14 @@ export default function FinancialControlCenter() {
                     <button
                       disabled={salesPagination.page >= salesPagination.totalPages}
                       onClick={() => fetchSales(salesFilters, salesPagination.page + 1, salesSort)}
-                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                      style={{ padding: '0.45rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', cursor: 'pointer' }}
                     >
                       <ChevronRight size={14} />
                     </button>
                     <button
                       disabled={salesPagination.page >= salesPagination.totalPages}
                       onClick={() => fetchSales(salesFilters, salesPagination.totalPages, salesSort)}
-                      style={{ padding: '0.45rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px', color: 'white', cursor: 'pointer' }}
+                      style={{ padding: '0.45rem', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', cursor: 'pointer' }}
                     >
                       <ChevronsRight size={14} />
                     </button>
@@ -1025,43 +1025,43 @@ export default function FinancialControlCenter() {
 
             {/* Modal Lateral (Drawer) de Detalle de Factura */}
             {salesDetail && (
-              <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', backgroundColor: '#1e293b', borderLeft: '1px solid #334155', boxShadow: '-10px 0 30px rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', flexDirection: 'column', animation: 'slideIn 0.2s ease-out' }}>
-                <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a' }}>
+              <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', backgroundColor: 'var(--surface)', borderLeft: '1px solid var(--border)', boxShadow: '-10px 0 30px rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', flexDirection: 'column', animation: 'slideIn 0.2s ease-out' }}>
+                <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--surface-2)' }}>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'white' }}>{salesDetail.consecutive}</h3>
-                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>ID SIIGO: {salesDetail.siigo_id}</span>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text)' }}>{salesDetail.consecutive}</h3>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>ID SIIGO: {salesDetail.siigo_id}</span>
                   </div>
-                  <button onClick={() => setSalesDetail(null)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                  <button onClick={() => setSalesDetail(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                     <IconX size={20} />
                   </button>
                 </div>
                 
                 <div style={{ padding: '1.5rem', flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', fontSize: '0.82rem' }}>
                   <div>
-                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Cliente</span>
+                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Cliente</span>
                     <strong>{salesDetail.siigo_customers?.name || 'Cliente Genérico'}</strong>
                   </div>
                   <div>
-                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Identificación (NIT)</span>
+                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Identificación (NIT)</span>
                     <strong style={{ fontFamily: 'monospace' }}>{salesDetail.customer_identification}</strong>
                   </div>
                   <div>
-                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Fecha de Factura</span>
+                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Fecha de Factura</span>
                     <strong>{salesDetail.date}</strong>
                   </div>
                   <div>
-                    <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Valor Total</span>
+                    <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Valor Total</span>
                     <strong style={{ color: '#10b981', fontSize: '1.1rem' }}>{fmtCOP(salesDetail.total)}</strong>
                   </div>
 
-                  <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase' }}>Ítems de Factura</h4>
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                    <h4 style={{ margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Ítems de Factura</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {(salesDetail.items || []).map((it: any, index: number) => (
-                        <div key={index} style={{ backgroundColor: '#0f172a', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                        <div key={index} style={{ backgroundColor: 'var(--surface-2)', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontWeight: 700 }}>{it.description || 'Producto'}</div>
-                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Código: {it.code} — Cant: {it.quantity}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Código: {it.code} — Cant: {it.quantity}</div>
                           </div>
                           <span style={{ fontWeight: 700 }}>{fmtCOP((it.price || 0) * (it.quantity || 1))}</span>
                         </div>
@@ -1070,11 +1070,11 @@ export default function FinancialControlCenter() {
                   </div>
 
                   {salesDetail.payments && salesDetail.payments.length > 0 && (
-                    <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
-                      <h4 style={{ margin: '0 0 0.5rem', color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase' }}>Medios de Pago</h4>
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                      <h4 style={{ margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Medios de Pago</h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {salesDetail.payments.map((p: any, index: number) => (
-                          <div key={index} style={{ backgroundColor: '#0f172a', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
+                          <div key={index} style={{ backgroundColor: 'var(--surface-2)', padding: '0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', color: '#10b981' }}>
                             <span>💳 Medio Pago ID: {p.id}</span>
                             <strong>{fmtCOP(p.value)}</strong>
                           </div>
@@ -1084,9 +1084,9 @@ export default function FinancialControlCenter() {
                   )}
 
                   {salesDetail.observations && (
-                    <div style={{ borderTop: '1px solid #334155', paddingTop: '1rem' }}>
-                      <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Observaciones</span>
-                      <p style={{ margin: '0.25rem 0 0', fontStyle: 'italic', color: '#cbd5e1' }}>{salesDetail.observations}</p>
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                      <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.7rem', textTransform: 'uppercase' }}>Observaciones</span>
+                      <p style={{ margin: '0.25rem 0 0', fontStyle: 'italic', color: 'var(--text)' }}>{salesDetail.observations}</p>
                     </div>
                   )}
                 </div>
@@ -1103,10 +1103,10 @@ export default function FinancialControlCenter() {
             {satellites.length === 0 ? (
               <EmptyState icon={<Scissors size={40} />} title="Sin datos de satélites" description="Las métricas de talleres se calculan automáticamente al abrir el módulo. Asegúrate de tener inspecciones de calidad registradas." />
             ) : (
-              <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', overflow: 'hidden' }}>
+              <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
                   <thead>
-                    <tr style={{ borderBottom: '2px solid #334155', color: '#94a3b8', backgroundColor: '#0f172a' }}>
+                    <tr style={{ borderBottom: '2px solid var(--border)', color: 'var(--text-muted)', backgroundColor: 'var(--surface-2)' }}>
                       {['Taller', 'Prendas Procesadas', 'Valor Liquidado', 'Tasa Rechazo', 'Eficiencia', 'Estado'].map(h => (
                         <th key={h} style={{ padding: '0.85rem 1rem', textAlign: 'left', fontWeight: 700 }}>{h}</th>
                       ))}
@@ -1114,7 +1114,7 @@ export default function FinancialControlCenter() {
                   </thead>
                   <tbody>
                     {satellites.map((sat: any) => (
-                      <tr key={sat.id} style={{ borderBottom: '1px solid #334155' }}>
+                      <tr key={sat.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>{sat.nombre}</td>
                         <td style={{ padding: '0.85rem 1rem' }}>{fmt(sat.prendas)}</td>
                         <td style={{ padding: '0.85rem 1rem', fontWeight: 700 }}>{fmtCOP(sat.valor_pagado)}</td>
@@ -1146,8 +1146,8 @@ export default function FinancialControlCenter() {
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; } 
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-track { background: var(--background); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
       `}</style>
     </div>
   );
@@ -1158,8 +1158,8 @@ export default function FinancialControlCenter() {
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div style={{ marginBottom: '2rem' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'white', margin: '0 0 0.25rem' }}>{title}</h1>
-      <p style={{ fontSize: '0.82rem', color: '#64748b', margin: 0 }}>{subtitle}</p>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', margin: '0 0 0.25rem' }}>{title}</h1>
+      <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>{subtitle}</p>
     </div>
   );
 }
@@ -1167,17 +1167,17 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 function Spinner({ label }: { label: string }) {
   return (
     <div style={{ display: 'flex', height: '60vh', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
-      <div style={{ border: '4px solid #334155', borderTop: '4px solid #6366f1', borderRadius: '50%', width: '38px', height: '38px', animation: 'spin 0.8s linear infinite' }}></div>
-      <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>{label}</p>
+      <div style={{ border: '4px solid var(--border)', borderTop: '4px solid var(--primary)', borderRadius: '50%', width: '38px', height: '38px', animation: 'spin 0.8s linear infinite' }}></div>
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>{label}</p>
     </div>
   );
 }
 
 function EmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem 2rem', color: '#64748b', textAlign: 'center', gap: '0.75rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem 2rem', color: 'var(--text-muted)', textAlign: 'center', gap: '0.75rem' }}>
       {icon}
-      <h3 style={{ color: '#94a3b8', margin: 0 }}>{title}</h3>
+      <h3 style={{ color: 'var(--text-muted)', margin: 0 }}>{title}</h3>
       <p style={{ margin: 0, fontSize: '0.85rem', maxWidth: '350px' }}>{description}</p>
     </div>
   );
@@ -1185,19 +1185,19 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 
 function KpiCard({ label, value, sub, subColor, icon }: { label: string; value: any; sub?: string; subColor?: string; icon?: React.ReactNode }) {
   return (
-    <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '14px', padding: '1.2rem', position: 'relative', overflow: 'hidden' }}>
-      <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
-      <h3 style={{ fontSize: '1.45rem', fontWeight: 900, color: 'white', margin: '0.25rem 0 0.1rem' }}>{value}</h3>
+    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '1.2rem', position: 'relative', overflow: 'hidden' }}>
+      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+      <h3 style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--text)', margin: '0.25rem 0 0.1rem' }}>{value}</h3>
       {sub && <span style={{ fontSize: '0.7rem', color: subColor || '#64748b', fontWeight: 600 }}>{sub}</span>}
-      <div style={{ position: 'absolute', right: '-8px', bottom: '-8px', opacity: 0.04, color: 'white' }}>{icon}</div>
+      <div style={{ position: 'absolute', right: '-8px', bottom: '-8px', opacity: 0.08, color: 'var(--text)' }}>{icon}</div>
     </div>
   );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem' }}>
-      <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 1.25rem', color: '#e2e8f0' }}>{title}</h3>
+    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem' }}>
+      <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 1.25rem', color: 'var(--text)' }}>{title}</h3>
       {children}
     </div>
   );
@@ -1207,10 +1207,10 @@ function ProgressBar({ label, value, pct, color }: { label: string; value: strin
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.3rem' }}>
-        <span style={{ color: '#94a3b8' }}>{label}</span>
+        <span style={{ color: 'var(--text-muted)' }}>{label}</span>
         <strong>{value}</strong>
       </div>
-      <div style={{ width: '100%', height: '7px', backgroundColor: '#334155', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ width: '100%', height: '7px', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
       </div>
     </div>
@@ -1224,7 +1224,7 @@ function CostBar({ label, value, pct, color }: { label: string; value: string; p
         <span>{label}</span>
         <strong>{value} ({pct}%)</strong>
       </div>
-      <div style={{ width: '100%', height: '7px', backgroundColor: '#334155', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ width: '100%', height: '7px', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color }}></div>
       </div>
     </div>
@@ -1248,21 +1248,21 @@ function RiskBadge({ risk }: { risk: RiskLevel }) {
 function CustomerCard({ customer: c, onClick }: { customer: Customer; onClick: () => void }) {
   return (
     <div onClick={onClick} style={{
-      backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '14px',
+      backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px',
       padding: '1.4rem', cursor: 'pointer', transition: 'border-color 0.2s'
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
         <div>
-          <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'white', margin: '0 0 0.2rem' }}>{c.name}</h3>
-          <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>NIT: {c.identification}</span>
+          <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text)', margin: '0 0 0.2rem' }}>{c.name}</h3>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>NIT: {c.identification}</span>
         </div>
         <RiskBadge risk={c.riesgo} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', fontSize: '0.78rem', borderTop: '1px solid #334155', paddingTop: '0.85rem' }}>
-        <div><span style={{ color: '#94a3b8', display: 'block' }}>Ciudad</span><strong>{c.city_name}</strong></div>
-        <div><span style={{ color: '#94a3b8', display: 'block' }}>Saldo Mora</span><strong style={{ color: c.saldo_mora > 0 ? '#ef4444' : '#10b981' }}>{fmtCOP(c.saldo_mora)}</strong></div>
-        <div><span style={{ color: '#94a3b8', display: 'block' }}>Cupo Crédito</span><strong>{fmtCOP(c.cupo_credito)}</strong></div>
-        <div><span style={{ color: '#94a3b8', display: 'block' }}>Vendedor</span><strong>{c.vendedor_name}</strong></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', fontSize: '0.78rem', borderTop: '1px solid var(--border)', paddingTop: '0.85rem' }}>
+        <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Ciudad</span><strong>{c.city_name}</strong></div>
+        <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Saldo Mora</span><strong style={{ color: c.saldo_mora > 0 ? '#ef4444' : '#10b981' }}>{fmtCOP(c.saldo_mora)}</strong></div>
+        <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Cupo Crédito</span><strong>{fmtCOP(c.cupo_credito)}</strong></div>
+        <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Vendedor</span><strong>{c.vendedor_name}</strong></div>
       </div>
     </div>
   );
@@ -1279,7 +1279,7 @@ function ClientDetail({ client: c, invoices, onBack, onViewInvoice }: {
 
   return (
     <div>
-      <button onClick={onBack} style={{ backgroundColor: '#334155', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginBottom: '1.5rem' }}>
+      <button onClick={onBack} style={{ backgroundColor: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginBottom: '1.5rem' }}>
         ← Volver
       </button>
 
@@ -1287,28 +1287,28 @@ function ClientDetail({ client: c, invoices, onBack, onViewInvoice }: {
 
         {/* Ficha del Cliente */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem' }}>
+          <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'white', margin: 0 }}>{c.name}</h2>
+              <h2 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text)', margin: 0 }}>{c.name}</h2>
               <RiskBadge risk={c.riesgo} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.8rem' }}>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>NIT</span><strong>{c.identification}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Ciudad</span><strong>{c.city_name}, {c.state_name}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Email</span><strong>{c.email || 'No registrado'}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Teléfono</span><strong>{c.phone || 'No registrado'}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Vendedor Asignado</span><strong>{c.vendedor_name}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Cupo de Crédito</span><strong>{fmtCOP(c.cupo_credito)}</strong></div>
-              <div><span style={{ color: '#94a3b8', display: 'block' }}>Saldo en Mora</span><strong style={{ color: c.saldo_mora > 0 ? '#ef4444' : '#10b981' }}>{fmtCOP(c.saldo_mora)}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>NIT</span><strong>{c.identification}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Ciudad</span><strong>{c.city_name}, {c.state_name}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Email</span><strong>{c.email || 'No registrado'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Teléfono</span><strong>{c.phone || 'No registrado'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Vendedor Asignado</span><strong>{c.vendedor_name}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Cupo de Crédito</span><strong>{fmtCOP(c.cupo_credito)}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Saldo en Mora</span><strong style={{ color: c.saldo_mora > 0 ? '#ef4444' : '#10b981' }}>{fmtCOP(c.saldo_mora)}</strong></div>
             </div>
           </div>
 
           {/* IA Comercial */}
-          <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#818cf8', margin: '0 0 0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+          <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.25rem' }}>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)', margin: '0 0 0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
               ✨ Inteligencia Comercial (IA)
             </h3>
-            <div style={{ fontSize: '0.74rem', color: '#cbd5e1', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text)', lineHeight: 1.6, display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               <p style={{ margin: 0 }}>🤖 <strong>Comportamiento:</strong> Rotación de compras <strong>{c.rotacion}</strong>. {c.saldo_mora > 0 ? `Tiene saldo en mora de ${fmtCOP(c.saldo_mora)} que requiere seguimiento.` : 'Al día con sus pagos.'}</p>
               <p style={{ margin: 0 }}>📊 <strong>Total histórico facturado:</strong> {fmtCOP(totalCompras)}</p>
               <p style={{ margin: 0 }}>💡 <strong>Recomendación:</strong> {c.riesgo === 'Alto' ? 'Enviar a proceso de cobro preventivo antes de nuevos pedidos.' : 'Cliente confiable. Evaluar incremento de cupo de crédito.'}</p>
@@ -1326,17 +1326,17 @@ function ClientDetail({ client: c, invoices, onBack, onViewInvoice }: {
           </div>
 
           {/* Lista de facturas */}
-          <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.25rem' }}>
+          <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.25rem' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 1rem' }}>Facturas SIIGO del Cliente</h3>
             {invoices.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '0.82rem', textAlign: 'center', padding: '2rem' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'center', padding: '2rem' }}>
                 No hay facturas sincronizadas para este cliente. Realiza una sincronización con SIIGO.
               </p>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                   <thead>
-                    <tr style={{ borderBottom: '2px solid #334155', color: '#94a3b8' }}>
+                    <tr style={{ borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
                       <th style={{ padding: '0.6rem', textAlign: 'left' }}>Consecutivo</th>
                       <th style={{ padding: '0.6rem', textAlign: 'left' }}>Fecha</th>
                       <th style={{ padding: '0.6rem', textAlign: 'right' }}>Total</th>
@@ -1346,13 +1346,13 @@ function ClientDetail({ client: c, invoices, onBack, onViewInvoice }: {
                   </thead>
                   <tbody>
                     {invoices.map(inv => (
-                      <tr key={inv.id} style={{ borderBottom: '1px solid #334155' }}>
-                        <td style={{ padding: '0.6rem', fontWeight: 700, color: '#818cf8' }}>{inv.consecutive}</td>
+                      <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '0.6rem', fontWeight: 700, color: 'var(--primary)' }}>{inv.consecutive}</td>
                         <td style={{ padding: '0.6rem' }}>{inv.date}</td>
                         <td style={{ padding: '0.6rem', textAlign: 'right', fontWeight: 700 }}>{fmtCOP(inv.total)}</td>
                         <td style={{ padding: '0.6rem' }}><span style={{ color: '#10b981', fontSize: '0.72rem' }}>✅ {inv.status_dian || 'Aceptado DIAN'}</span></td>
                         <td style={{ padding: '0.6rem' }}>
-                          <button onClick={() => onViewInvoice(inv)} style={{ backgroundColor: '#334155', border: 'none', color: 'white', borderRadius: '5px', padding: '0.25rem 0.65rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
+                          <button onClick={() => onViewInvoice(inv)} style={{ backgroundColor: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '5px', padding: '0.25rem 0.65rem', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
                             Ver Trace →
                           </button>
                         </td>
@@ -1374,10 +1374,10 @@ function InvoiceTrace({ invoice: inv, onClose }: { invoice: Invoice; onClose: ()
   const fmt2 = (n: number) => `$${n.toLocaleString('es-CO')}`;
 
   const steps = [
-    { emoji: '🛍️', label: 'Pedido Comercial', value: `Pedido registrado en Brainer — Cliente: ${inv.siigo_customers?.name || inv.customer_identification}`, color: '#6366f1' },
-    { emoji: '🏭', label: 'Orden de Producción', value: 'Generada desde el pedido aprobado en el módulo de órdenes', color: '#6366f1' },
-    { emoji: '✂️', label: 'Corte & Insumos', value: 'Matriz de tendido y corte aprobada. Tela consumida registrada en inventario.', color: '#6366f1' },
-    { emoji: '🧵', label: 'Confección en Satélite', value: 'Asignado al taller externo. Liquidación registrada en control de calidad.', color: '#6366f1' },
+    { emoji: '🛍️', label: 'Pedido Comercial', value: `Pedido registrado en Brainer — Cliente: ${inv.siigo_customers?.name || inv.customer_identification}`, color: 'var(--primary)' },
+    { emoji: '🏭', label: 'Orden de Producción', value: 'Generada desde el pedido aprobado en el módulo de órdenes', color: 'var(--primary)' },
+    { emoji: '✂️', label: 'Corte & Insumos', value: 'Matriz de tendido y corte aprobada. Tela consumida registrada en inventario.', color: 'var(--primary)' },
+    { emoji: '🧵', label: 'Confección en Satélite', value: 'Asignado al taller externo. Liquidación registrada en control de calidad.', color: 'var(--primary)' },
     { emoji: '✅', label: 'Control de Calidad', value: 'Prendas inspeccionadas y aprobadas. Descuentos por defecto aplicados.', color: '#10b981' },
     { emoji: '📦', label: 'Empaque & Despacho', value: 'Guía logística generada y entregada al transportador.', color: '#10b981' },
     { emoji: '📄', label: 'Factura SIIGO', value: `${inv.consecutive} — ${fmt2(inv.total)} — ${inv.date}`, color: '#f59e0b' },
@@ -1387,34 +1387,34 @@ function InvoiceTrace({ invoice: inv, onClose }: { invoice: Invoice; onClose: ()
 
   return (
     <div>
-      <button onClick={onClose} style={{ backgroundColor: '#334155', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginBottom: '1.5rem' }}>
+      <button onClick={onClose} style={{ backgroundColor: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.4rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginBottom: '1.5rem' }}>
         ← Volver
       </button>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
 
         {/* Resumen de Factura */}
-        <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem' }}>
-          <div style={{ borderBottom: '1px solid #334155', paddingBottom: '0.85rem', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>Factura de Venta</span>
-            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#818cf8', margin: '0.15rem 0' }}>{inv.consecutive}</h3>
+        <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem' }}>
+          <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.85rem', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Factura de Venta</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--primary)', margin: '0.15rem 0' }}>{inv.consecutive}</h3>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', fontSize: '0.8rem' }}>
-            <div><span style={{ color: '#94a3b8', display: 'block' }}>Cliente</span><strong>{inv.siigo_customers?.name || inv.customer_identification}</strong></div>
-            <div><span style={{ color: '#94a3b8', display: 'block' }}>NIT</span><strong>{inv.customer_identification}</strong></div>
-            <div><span style={{ color: '#94a3b8', display: 'block' }}>Fecha</span><strong>{inv.date}</strong></div>
-            <div><span style={{ color: '#94a3b8', display: 'block' }}>Total Factura</span><strong style={{ fontSize: '1.1rem', color: '#10b981' }}>{fmt2(inv.total)}</strong></div>
-            <div><span style={{ color: '#94a3b8', display: 'block' }}>Estado DIAN</span><span style={{ color: '#10b981', fontWeight: 700 }}>✅ {inv.status_dian || 'Aceptado'}</span></div>
-            {inv.cufe && <div><span style={{ color: '#94a3b8', display: 'block' }}>CUFE</span><code style={{ color: '#f59e0b', fontSize: '0.65rem', wordBreak: 'break-all' }}>{inv.cufe}</code></div>}
-            {inv.observations && <div><span style={{ color: '#94a3b8', display: 'block' }}>Observaciones</span><em style={{ color: '#cbd5e1' }}>{inv.observations}</em></div>}
+            <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Cliente</span><strong>{inv.siigo_customers?.name || inv.customer_identification}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>NIT</span><strong>{inv.customer_identification}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Fecha</span><strong>{inv.date}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Total Factura</span><strong style={{ fontSize: '1.1rem', color: '#10b981' }}>{fmt2(inv.total)}</strong></div>
+            <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Estado DIAN</span><span style={{ color: '#10b981', fontWeight: 700 }}>✅ {inv.status_dian || 'Aceptado'}</span></div>
+            {inv.cufe && <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>CUFE</span><code style={{ color: '#f59e0b', fontSize: '0.65rem', wordBreak: 'break-all' }}>{inv.cufe}</code></div>}
+            {inv.observations && <div><span style={{ color: 'var(--text-muted)', display: 'block' }}>Observaciones</span><em style={{ color: 'var(--text)' }}>{inv.observations}</em></div>}
           </div>
 
           {/* Items facturados */}
           {inv.items?.length > 0 && (
-            <div style={{ marginTop: '1.25rem', borderTop: '1px solid #334155', paddingTop: '1rem' }}>
-              <h4 style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 0 0.75rem', color: '#94a3b8' }}>Ítems Facturados</h4>
+            <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <h4 style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 0 0.75rem', color: 'var(--text-muted)' }}>Ítems Facturados</h4>
               {inv.items.map((item: any, i: number) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '0.3rem 0', borderBottom: '1px solid #334155' }}>
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '0.3rem 0', borderBottom: '1px solid var(--border)' }}>
                   <span>{item.description || item.code}</span>
                   <strong>{fmt2((item.price || 0) * (item.quantity || 1))}</strong>
                 </div>
@@ -1424,18 +1424,18 @@ function InvoiceTrace({ invoice: inv, onClose }: { invoice: Invoice; onClose: ()
         </div>
 
         {/* Trazabilidad */}
-        <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'white', margin: '0 0 1.5rem' }}>Flujo Operativo Completo</h3>
+        <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem' }}>
+          <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text)', margin: '0 0 1.5rem' }}>Flujo Operativo Completo</h3>
           <div style={{ position: 'relative', paddingLeft: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-            <div style={{ position: 'absolute', left: '5px', top: '8px', bottom: '8px', width: '2px', backgroundColor: '#334155' }}></div>
+            <div style={{ position: 'absolute', left: '5px', top: '8px', bottom: '8px', width: '2px', backgroundColor: 'var(--border)' }}></div>
             {steps.map((step, i) => (
               <div key={i} style={{ position: 'relative', paddingLeft: '0.25rem' }}>
-                <div style={{ position: 'absolute', left: '-21px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: step.color, border: '2px solid #0f172a' }}></div>
+                <div style={{ position: 'absolute', left: '-21px', top: '2px', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: step.color, border: '2px solid var(--background)' }}></div>
                 <div>
-                  <span style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     {step.emoji} {step.label}
                   </span>
-                  <strong style={{ fontSize: '0.8rem', color: '#e2e8f0' }}>{step.value}</strong>
+                  <strong style={{ fontSize: '0.8rem', color: 'var(--text)' }}>{step.value}</strong>
                 </div>
               </div>
             ))}

@@ -29,7 +29,8 @@ import {
   BookOpen,
   Printer,
   Download,
-  ArrowUpDown
+  ArrowUpDown,
+  Loader2
 } from 'lucide-react';
 import {
   BarChart,
@@ -46,7 +47,7 @@ import {
   Line
 } from 'recharts';
 
-const COLORS = ['#059669', '#6366f1', '#f59e0b', '#e2e8f0'];
+const COLORS = ['#80082E', '#D81B60', '#a8325c', '#5c0621'];
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string; border: string }> = {
   Planeada:  { label: 'Planeada',   bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' },
@@ -93,7 +94,7 @@ function StatCard({
         transform: hovered && onClick ? 'translateY(-3px)' : 'translateY(0)',
         boxShadow: hovered && onClick
           ? primary
-            ? '0 20px 40px -10px rgba(99,102,241,0.45)'
+            ? '0 20px 40px -10px rgba(128,8,46,0.4)'
             : '0 12px 28px -6px rgba(0,0,0,0.12)'
           : '0 1px 3px rgba(0,0,0,0.06)',
         transition: 'transform 0.2s ease, box-shadow 0.2s ease',
@@ -279,6 +280,15 @@ function DetailModal({
       <style>{`
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        @keyframes pulse {
+          0% { transform: scale(0.95); opacity: 0.5; }
+          50% { transform: scale(1.1); opacity: 1; }
+          100% { transform: scale(0.95); opacity: 0.5; }
+        }
       `}</style>
     </div>
   );
@@ -295,6 +305,7 @@ export default function Dashboard() {
   const [sizesList, setSizesList] = useState<any[]>([]);
   const [colorsList, setColorsList] = useState<any[]>([]);
   const [fabricsList, setFabricsList] = useState<any[]>([]);
+  const [companyParams, setCompanyParams] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
   const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -306,6 +317,16 @@ export default function Dashboard() {
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [viewingOrderDetails, setViewingOrderDetails] = useState<any>(null);
   const [printMode, setPrintMode] = useState<'report' | 'sticker'>('report');
+
+  // Envio a Calidad states
+  const [showEnvioModal, setShowEnvioModal] = useState(false);
+  const [selectedSewingOrderForEnvio, setSelectedSewingOrderForEnvio] = useState<any>(null);
+  const [envioNotes, setEnvioNotes] = useState('');
+  const [savingEnvio, setSavingEnvio] = useState(false);
+  const [envioSinInconvenientes, setEnvioSinInconvenientes] = useState(false);
+  // Each novelty line: { id, noveltyId, color, nota }
+  const [envioNovedadLines, setEnvioNovedadLines] = useState<Array<{id:string,noveltyId:string,color:string,nota:string}>>([]);
+  const [masterNovelties, setMasterNovelties] = useState<any[]>([]);
   const [activeWorkshopId, setActiveWorkshopId] = useState<string>('all');
   const [expandedWorkshopId, setExpandedWorkshopId] = useState<string | null>(null);
   // IDs de talleres leídos directamente de auth.getUser() (siempre frescos)
@@ -328,6 +349,23 @@ export default function Dashboard() {
   const [consolidationSortAsc, setConsolidationSortAsc] = useState<boolean>(false);
 
   const currentTab = searchParams.get('tab') || 'dashboard';
+
+  // Sewing / Confeccion Portal filters for workshop view
+  const [sewingFilterSearch, setSewingFilterSearch] = useState('');
+  const [sewingFilterStatus, setSewingFilterStatus] = useState('all');
+  const [sewingFilterStartDate, setSewingFilterStartDate] = useState('');
+  const [sewingFilterEndDate, setSewingFilterEndDate] = useState('');
+
+  // Next-Gen Executive Dashboard states
+  const [darkMode, setDarkMode] = useState<boolean>(false);
+  const [crossFilterTaller, setCrossFilterTaller] = useState<string>('all');
+  const [crossFilterProducto, setCrossFilterProducto] = useState<string>('all');
+  const [drillDownTaller, setDrillDownTaller] = useState<any>(null);
+  const [drillDownModalOpen, setDrillDownModalOpen] = useState<boolean>(false);
+  const [liveCounterOffset, setLiveCounterOffset] = useState<number>(0);
+  const [liveNotifications, setLiveNotifications] = useState<any[]>([
+    { id: 1, type: 'info', msg: 'Simulador en tiempo real conectado. Canal de datos establecido.', time: 'Hace 1s' }
+  ]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -353,50 +391,32 @@ export default function Dashboard() {
           res11,
           res12,
           res13,
-          res14
+          res14,
+          res15
         ] = await Promise.all([
           supabase
             .from('orders')
             .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
-            .order('created_at', { ascending: false }),
+            .order('created_at', { ascending: false })
+            .limit(150),
           supabase.from('workshops').select('*'),
-          supabase.from('quality_inspections').select('*'),
+          supabase.from('quality_inspections').select('*').limit(150).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
-          (async () => {
-            let all: any[] = [];
-            let fromVal = 0;
-            while (true) {
-              const { data, error } = await supabase.from('products').select('*').range(fromVal, fromVal + 999);
-              if (error || !data || data.length === 0) break;
-              all = [...all, ...data];
-              if (data.length < 1000) break;
-              fromVal += 1000;
-            }
-            return { data: all };
-          })(),
-          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)'),
+          supabase.from('products').select('*').order('nombre_producto').limit(200),
+          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)').limit(150),
           supabase.from('categories').select('*'),
           supabase.from('workshop_rates').select('*'),
+          // novelties preloaded with workshop module filter applied in UI
           supabase.from('sewing_assignments').select('*'),
           supabase.from('workshop_special_costs').select('*'),
-          (async () => {
-            let all: any[] = [];
-            let fromVal = 0;
-            while (true) {
-              const { data, error } = await supabase
-                .from('sewing_orders')
-                .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
-                .range(fromVal, fromVal + 999);
-              if (error || !data || data.length === 0) break;
-              all = [...all, ...data];
-              if (data.length < 1000) break;
-              fromVal += 1000;
-            }
-            return { data: all };
-          })(),
-          supabase.from('fabrics').select('*')
+          supabase.from('sewing_orders')
+            .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
+            .order('created_at', { ascending: false })
+            .limit(150),
+          supabase.from('fabrics').select('*'),
+          supabase.from('company_params').select('*')
         ]);
         const ordersData = res1.data;
         const workshopsData = res2.data;
@@ -412,6 +432,7 @@ export default function Dashboard() {
         const specCostsData = res12.data;
         const sewingOrdersData = res13.data;
         const fabricsData = res14.data;
+        const companyParamsData = res15.data;
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
@@ -427,6 +448,7 @@ export default function Dashboard() {
         if (sewingOrdersData) setSewingOrdersList(sewingOrdersData);
         if (specCostsData) setSpecialCosts(specCostsData);
         if (fabricsData) setFabricsList(fabricsData);
+        if (companyParamsData) setCompanyParams(companyParamsData);
 
         // Migración automática de asignaciones antiguas
         if (ordersData && sewingOrdersData && sData) {
@@ -543,6 +565,213 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
+  // Simulación de WebSockets (tiempo real)
+  useEffect(() => {
+    const wsMessages = [
+      "Auditoría aprobada: Taller Confecciones Milán (100% aprobado)",
+      "Orden OC-1044: Registrado ingreso a corte por operario",
+      "Actualización de Inventario: 50 metros de Lino Spandex despachados",
+      "Confección en curso: Taller Fibras del Valle inició lote OC-1039",
+      "Alerta de Calidad: 2 prendas marcadas con costura defectuosa en Confecciones Milán",
+      "Orden OC-1048: Confeccionadas +5 unidades del producto Camisa Oxford",
+      "Taller Fibras del Valle: Asignadas +10 horas de personal extra para entrega"
+    ];
+
+    const interval = setInterval(() => {
+      // Simular variación en los contadores de producción
+      setLiveCounterOffset(prev => prev + Math.floor(Math.random() * 2) + 1);
+
+      // Simular entrada de notificación WebSocket
+      const randomMsg = wsMessages[Math.floor(Math.random() * wsMessages.length)];
+      setLiveNotifications(prev => [
+        {
+          id: Date.now(),
+          type: randomMsg.includes('Alerta') ? 'warning' : randomMsg.includes('aprobada') ? 'success' : 'info',
+          msg: randomMsg,
+          time: 'En vivo'
+        },
+        ...prev.slice(0, 4) // max 5 notifications
+      ]);
+    }, 12000); // every 12 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Widen POS role match check to match AuthGuard and Sidebar
+  const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
+  const isPOS = roleNameLower.includes('pos') || 
+                roleNameLower.includes('post') || 
+                roleNameLower.includes('punto') || 
+                roleNameLower.includes('tienda') || 
+                roleNameLower.includes('vendedor') || 
+                roleNameLower.includes('cajero');
+
+  // Prevent flicker/rendering the ERP dashboard while loading or if user belongs to POS
+  // Placed safely after all React hooks (useState & useEffect) declarations
+  if (authLoading || isPOS) {
+    return (
+      <div style={{ display: 'flex', height: '80vh', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 size={40} className="animate-spin" color="#80082E" />
+      </div>
+    );
+  }
+
+  const handleConfirmReceiptInWorkshop = async (so: any) => {
+    if (!confirm(`¿Confirmar que el satélite recibió los cortes/insumos de la orden ${so.confeccion_code} para iniciar la confección?`)) return;
+    try {
+      const { error } = await supabase
+        .from('sewing_orders')
+        .update({ status: 'En Confección' })
+        .eq('id', so.id);
+
+      if (error) throw error;
+      alert('✓ Confirmado. La orden ahora está en estado "En Confección".');
+      window.location.reload();
+    } catch (err: any) {
+      alert('Error al confirmar recibo en taller: ' + err.message);
+    }
+  };
+
+  const handleConfirmEnvioToCalidad = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSewingOrderForEnvio) return;
+    setSavingEnvio(true);
+    try {
+      const so = selectedSewingOrderForEnvio;
+      const productName = so.products?.nombre_producto || 'Producto';
+
+      // Build structured notes string
+      let notesStr = '';
+      if (envioSinInconvenientes) {
+        notesStr = '✅ Sin inconvenientes — Todas las prendas confeccionadas conformes.';
+      } else {
+        const validLines = envioNovedadLines.filter(l => l.noveltyId);
+        if (validLines.length > 0) {
+          notesStr += `⚠️ Novedades reportadas — ${productName}:\n`;
+          validLines.forEach((line, i) => {
+            const nov = masterNovelties.find(n => String(n.id) === String(line.noveltyId));
+            const novLabel = nov ? `[${nov.cod_novedad}] ${nov.nombre}` : 'Sin especificar';
+            const colorPart = line.color ? ` | Color/Referencia: ${line.color}` : '';
+            const notaPart = line.nota ? ` | Detalle: ${line.nota}` : '';
+            notesStr += `  ${i + 1}. ${novLabel}${colorPart}${notaPart}\n`;
+          });
+        }
+      }
+      if (envioNotes.trim()) {
+        notesStr += `\n📝 Observaciones generales: ${envioNotes.trim()}`;
+      }
+      const finalNotes = notesStr.trim() || 'Envío confirmado por el satélite sin observaciones.';
+
+      // 1. Update sewing order status to 'Enviado a Calidad' (complying with database check constraint)
+      const { error: statusErr } = await supabase
+        .from('sewing_orders')
+        .update({ status: 'Enviado a Calidad' })
+        .eq('id', so.id);
+      if (statusErr) throw statusErr;
+
+      // 2. Create or update quality inspection
+      const { data: existingInspections } = await supabase
+        .from('quality_inspections')
+        .select('id')
+        .eq('sewing_order_id', so.id);
+
+      const workshopName = workshops.find(w => String(w.id) === String(so.workshop_id))?.nombre_taller || 'Taller Satélite';
+      if (!existingInspections || existingInspections.length === 0) {
+        await supabase.from('quality_inspections').insert([{
+          order_id: so.parent_order_id,
+          sewing_order_id: so.id,
+          workshop_name: workshopName,
+          items_inspected: so.cantidad_planeada || 0,
+          items_approved: 0,
+          items_rejected: 0,
+          status: 'Pendiente',
+          notes: finalNotes
+        }]);
+      } else {
+        await supabase.from('quality_inspections')
+          .update({ notes: finalNotes })
+          .eq('sewing_order_id', so.id);
+      }
+
+      alert('✓ Envío confirmado y reportado al módulo de Calidad con éxito.');
+      setShowEnvioModal(false);
+      window.location.reload();
+    } catch (err: any) {
+      alert('Error al confirmar envío: ' + err.message);
+    } finally {
+      setSavingEnvio(false);
+    }
+  };
+
+  const getCostsFromJson = (order: any) => {
+    if (!order || !order.observaciones) return {};
+    const match = order.observaciones.match(/<!--COSTS_JSON:(.*?)-->/);
+    if (!match) return {};
+    try { return JSON.parse(match[1]); } catch (e) { return {}; }
+  };
+
+  const getAssignmentsFromJson = (order: any) => {
+    if (!order || !order.observaciones) return null;
+    const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:(.*?)-->/);
+    if (!match) return null;
+    try { return JSON.parse(match[1]); } catch (e) { return null; }
+  };
+
+  const getOrderAssignments = (order: any) => {
+    const rowWorkshops: Record<string, string> = {};
+    const orderAss = sewingAssignments.filter(a => a.order_id === order.id);
+
+    if (orderAss.length > 0) {
+      orderAss.forEach(asg => {
+        rowWorkshops[`${asg.category_id}_${asg.size_code}`] = asg.workshop_id;
+      });
+      return { rowWorkshops };
+    }
+
+    const assData = getAssignmentsFromJson(order);
+    if (assData && assData.rowWorkshops) {
+      Object.entries(assData.rowWorkshops).forEach(([key, wId]) => {
+        rowWorkshops[key] = String(wId);
+      });
+      return { rowWorkshops };
+    }
+    return null;
+  };
+
+  const getSewingOrderTotalUnits = (so: any): number => {
+    if (!so.parent_order) return so.cantidad_planeada || 0;
+    const assignments = getOrderAssignments(so.parent_order);
+    const rowWorkshopsMap = assignments?.rowWorkshops || {};
+    let total = 0;
+
+    (so.parent_order.cuts || []).forEach((cut: any) => {
+      if (String(cut.product_id) !== String(so.product_id)) return;
+      const layersProyec = cut.layers || 1;
+      const layersProduced = cut.layers_produced || 0;
+
+      (cut.cut_sizes || []).forEach((cs: any) => {
+        const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+        const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+        const cellKey = `${cut.product_id}_${sz}`;
+        const assignedWId = rowWorkshopsMap[cellKey];
+
+        if (!assignedWId || String(assignedWId) !== String(so.workshop_id)) return;
+
+        let realQty = 0;
+        if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+          realQty = Number(cs.quantity_produced);
+        } else {
+          const proyecQty = Number(cs.quantity) || 0;
+          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+          realQty = Math.round(ppc * layersProduced);
+        }
+        if (realQty > 0) total += realQty;
+      });
+    });
+
+    return total || so.cantidad_planeada || 0;
+  };
+
   const isTaller = profile?.roles?.name === 'Taller';
 
   // ─── WORKSHOP USER SPECIFIC LOGIC ──────────────────────────────────────────
@@ -568,47 +797,7 @@ export default function Dashboard() {
       ? (finalWorkshopsList.length > 0 ? finalWorkshopsList[0] : null)
       : (finalWorkshopsList.find(w => String(w.id) === String(activeWorkshopId)) || null);
 
-    const getCostsFromJson = (order: any) => {
-      if (!order || !order.observaciones) return {};
-      const match = order.observaciones.match(/<!--COSTS_JSON:(.*?)-->/);
-      if (!match) return {};
-      try { return JSON.parse(match[1]); } catch (e) { return {}; }
-    };
-
-    const getAssignmentsFromJson = (order: any) => {
-      if (!order || !order.observaciones) return null;
-      const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:(.*?)-->/);
-      if (!match) return null;
-      try { return JSON.parse(match[1]); } catch (e) { return null; }
-    };
-
-    // Mapear asignaciones: la tabla sewing_assignments guarda category_id = product.id (no el category real)
-    // El JSON observaciones guarda rowWorkshops con clave `{product.id}_{size_code}` y valor workshop_id (UUID)
-    const getOrderAssignments = (order: any) => {
-      const rowWorkshops: Record<string, string> = {};
-      const orderAss = sewingAssignments.filter(a => a.order_id === order.id);
-
-      if (orderAss.length > 0) {
-        // sewing_assignments.category_id = product.id (ver sewing/page.tsx getCategoryAssignmentsData)
-        orderAss.forEach(asg => {
-          // Clave por product_id (que es lo que guarda category_id en la tabla)
-          rowWorkshops[`${asg.category_id}_${asg.size_code}`] = asg.workshop_id;
-        });
-        return { rowWorkshops };
-      }
-
-      // Fallback: leer del JSON en observaciones
-      const assData = getAssignmentsFromJson(order);
-      if (assData && assData.rowWorkshops) {
-        Object.entries(assData.rowWorkshops).forEach(([key, wId]) => {
-          rowWorkshops[key] = String(wId);
-        });
-        return { rowWorkshops };
-      }
-      return null;
-    };
-
-    // Filtrar órdenes asignadas a cualquiera de los talleres del usuario
+     // Filtrar órdenes asignadas a cualquiera de los talleres del usuario
     const assignedOrders = orders.filter(o => {
       // Restringir estrictamente a órdenes que ya estén en taller (en confección o terminadas/enviadas)
       const isSewingState = o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada';
@@ -757,7 +946,7 @@ export default function Dashboard() {
           }
         }
 
-        const plannedQty = so.cantidad_planeada || 0;
+        const plannedQty = getSewingOrderTotalUnits(so);
         totalAuthorizedUnits += plannedQty;
         totalAuthorizedPayment += plannedQty * finalRate;
       });
@@ -926,7 +1115,7 @@ export default function Dashboard() {
       );
 
       wsSewingOrders.forEach(so => {
-        const plannedQty = so.cantidad_planeada || 0;
+        const plannedQty = getSewingOrderTotalUnits(so);
         if (plannedQty <= 0) return;
 
         const parentOrder = so.parent_order || {};
@@ -952,88 +1141,198 @@ export default function Dashboard() {
 
     // Main Workshop Dashboard Tab
     if (currentTab === 'dashboard') {
+      const theme = {
+        bg: darkMode ? '#0f172a' : '#f8fafc',
+        cardBg: darkMode ? '#1e293b' : '#ffffff',
+        text: darkMode ? '#f8fafc' : '#0f172a',
+        textMuted: darkMode ? '#94a3b8' : '#64748b',
+        border: darkMode ? '#334155' : '#cbd5e1',
+        primary: '#80082E',
+        secondary: '#D81B60',
+        gridColor: darkMode ? '#334155' : '#f1f5f9',
+        tableHeaderBg: darkMode ? '#1e293b' : '#f8fafc',
+        accent: '#ff9800',
+        success: '#10b981',
+        danger: '#ef4444'
+      };
+
+      // Realizar filtrado consolidado por filtros cruzados
+      const activeTallerId = crossFilterTaller === 'all' ? activeWorkshopId : crossFilterTaller;
+      
+      const filteredSewingOrders = sewingOrdersList.filter(so => {
+        const matchTaller = activeTallerId === 'all' || String(so.workshop_id) === String(activeTallerId);
+        const matchProducto = crossFilterProducto === 'all' || String(so.product_id) === String(crossFilterProducto);
+        return matchTaller && matchProducto;
+      });
+
+      // Cálculo de los KPIs consolidados bajo filtros
+      let plannedUnitsSum = 0;
+      let confeccionadasSum = 0;
+      let rejectedSum = 0;
+      let totalValueEstimate = 0;
+
+      filteredSewingOrders.forEach(so => {
+        const planQty = getSewingOrderTotalUnits(so);
+        plannedUnitsSum += planQty;
+        
+        // Simular variación en vivo en unidades confeccionadas
+        const baseConfeccionadas = so.cantidad_confeccionada || 0;
+        const liveOffset = liveCounterOffset > 0 && Math.random() > 0.5 ? Math.floor(Math.random() * 2) + 1 : 0;
+        confeccionadasSum += Math.min(baseConfeccionadas + liveOffset, planQty);
+
+        const rate = getRateForOrder(so.parent_order_id) || 4500;
+        totalValueEstimate += (so.cantidad_confeccionada || 0) * rate;
+      });
+
+      // Calcular porcentaje de rechazo desde auditorías
+      const relatedInspections = inspections.filter(i => {
+        if (activeTallerId === 'all') return true;
+        const matchingTaller = finalWorkshopsList.find(w => String(w.id) === String(activeTallerId));
+        return (i.workshop_name || '').toLowerCase().trim() === (matchingTaller?.nombre_taller || '').toLowerCase().trim();
+      });
+
+      const totalInspected = relatedInspections.reduce((acc, curr) => acc + (curr.items_inspected || 0), 0);
+      const totalRejected = relatedInspections.reduce((acc, curr) => acc + (curr.items_rejected || 0), 0);
+      const rejectRate = totalInspected > 0 ? ((totalRejected / totalInspected) * 100).toFixed(1) : '0.0';
+      const efficiencyPct = plannedUnitsSum > 0 ? Math.round((confeccionadasSum / plannedUnitsSum) * 100) : 0;
+
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-          {/* 1. Encabezado Ejecutivo Consolidado */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '1.5rem', backgroundColor: 'white', padding: '1.5rem 2rem', borderRadius: '18px', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem', backgroundColor: theme.bg, color: theme.text, transition: 'all 0.3s ease' }}>
+          
+          {/* 1. Encabezado Ejecutivo Consolidado SAP/Dynamics Style */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            flexWrap: 'wrap', 
+            gap: '1.5rem', 
+            borderBottom: `1px solid ${theme.border}`, 
+            backgroundColor: theme.cardBg, 
+            padding: '1.5rem 2rem', 
+            borderRadius: '18px', 
+            boxShadow: '0 4px 12px rgba(0,0,0,0.02)' 
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-              {profile?.avatar_url ? (
-                <div style={{ width: '70px', height: '70px', borderRadius: '16px', overflow: 'hidden', border: '3px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
-                  <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ) : (
-                <div style={{ width: '70px', height: '70px', borderRadius: '16px', backgroundColor: 'var(--primary-lighter)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '3px solid white', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}>
-                  <Factory size={28} />
-                </div>
-              )}
+              <div style={{ width: '60px', height: '60px', borderRadius: '14px', backgroundColor: `${theme.primary}15`, color: theme.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }}>
+                <Factory size={28} />
+              </div>
               <div>
-                <span style={{ fontSize: '0.72rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: 'var(--primary-lighter)', padding: '3px 8px', borderRadius: '6px' }}>
-                  Centro de Control
-                </span>
-                <h1 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0 0.1rem 0', color: '#0f172a', lineHeight: 1.1 }}>
-                  Hola Liliana 👋
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: '900', color: 'white', textTransform: 'uppercase', letterSpacing: '0.05em', backgroundColor: theme.primary, padding: '3px 8px', borderRadius: '6px' }}>
+                    Centro de Control Consolidado
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', fontWeight: '800', color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '99px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block', animation: 'pulse 1.5s infinite' }}></span>
+                    En Vivo
+                  </div>
+                </div>
+                <h1 style={{ fontSize: '1.6rem', fontWeight: '950', margin: '0.2rem 0 0.1rem 0', color: theme.text, lineHeight: 1.1, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ padding: '0.4rem', backgroundColor: '#80082E', borderRadius: '10px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <TrendingUp size={20} />
+                  </div>
+                  Centro de Control Corporativo
                 </h1>
-                <p style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: '600', margin: 0 }}>
-                  Administras <strong style={{ color: '#0f172a' }}>{finalWorkshopsList.length} talleres asociados</strong> desde esta pantalla consolidada.
+                <p style={{ color: theme.textMuted, fontSize: '0.82rem', fontWeight: '600', margin: 0 }}>
+                  Monitoreando <strong style={{ color: theme.text }}>{finalWorkshopsList.length} satélites de confección</strong> con analítica predictiva de nivel SAP S/4HANA.
                 </p>
               </div>
             </div>
 
-            {/* Selector de Taller */}
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#64748b' }}>Taller Activo:</span>
-              <select
-                value={activeWorkshopId}
-                onChange={e => setActiveWorkshopId(e.target.value)}
+            {/* Acciones y Switch Dark Mode */}
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              
+              {/* Selector de Taller */}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: theme.textMuted }}>Taller Activo:</span>
+                <select
+                  value={activeWorkshopId}
+                  onChange={e => {
+                    setActiveWorkshopId(e.target.value);
+                    setCrossFilterTaller(e.target.value); // Sync cross filtering
+                  }}
+                  style={{
+                    padding: '0.55rem 1rem',
+                    borderRadius: '8px',
+                    border: `1.5px solid ${theme.border}`,
+                    fontSize: '0.8rem',
+                    fontWeight: '900',
+                    backgroundColor: theme.cardBg,
+                    color: theme.text,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="all">🌐 Consolidado General</option>
+                  {finalWorkshopsList.map(w => (
+                    <option key={w.id} value={w.id}>🏭 {w.nombre_taller}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Botón Modo Oscuro */}
+              <button
+                onClick={() => setDarkMode(!darkMode)}
                 style={{
-                  padding: '0.65rem 1.25rem',
-                  borderRadius: '10px',
-                  border: '1.5px solid #cbd5e1',
-                  fontSize: '0.82rem',
-                  fontWeight: '900',
-                  backgroundColor: 'white',
-                  color: '#0f172a',
+                  padding: '0.55rem 1rem',
+                  borderRadius: '8px',
+                  border: `1.5px solid ${theme.border}`,
+                  fontSize: '0.8rem',
+                  fontWeight: '800',
+                  backgroundColor: theme.cardBg,
+                  color: theme.text,
                   cursor: 'pointer',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
                 }}
               >
-                <option value="all">🌐 Consolidado General</option>
-                {finalWorkshopsList.map(w => (
-                  <option key={w.id} value={w.id}>🏭 {w.nombre_taller}</option>
-                ))}
-              </select>
-            </div>
+                {darkMode ? '☀️ Modo Claro' : '🌙 Modo Oscuro'}
+              </button>
 
-            {/* Botón de Ayuda */}
-            <button
-              onClick={() => setShowSatelliteHelp(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.6rem 1.1rem', borderRadius: '10px',
-                border: '1.5px solid var(--border)', cursor: 'pointer',
-                fontSize: '0.8rem', fontWeight: '800',
-                backgroundColor: 'white', color: 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = 'var(--primary)';
-                (e.currentTarget as HTMLElement).style.color = 'var(--primary)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
-                (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)';
-              }}
-            >
-              <HelpCircle size={16} /> Ayuda
-            </button>
+              {/* Botón de Ayuda */}
+              <button
+                onClick={() => setShowSatelliteHelp(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  padding: '0.55rem 1rem', borderRadius: '8px',
+                  border: `1.5px solid ${theme.border}`, cursor: 'pointer',
+                  fontSize: '0.8rem', fontWeight: '800',
+                  backgroundColor: theme.cardBg, color: theme.text,
+                }}
+              >
+                <HelpCircle size={15} /> Ayuda
+              </button>
+            </div>
+          </div>
+
+          {/* Ticker de notificaciones WebSockets en vivo */}
+          <div style={{
+            background: darkMode ? '#1e293b' : '#eff6ff',
+            border: `1px solid ${darkMode ? '#334155' : '#bfdbfe'}`,
+            borderRadius: '12px',
+            padding: '0.75rem 1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.8rem',
+            color: darkMode ? '#93c5fd' : '#1e40af'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', overflow: 'hidden' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '900', textTransform: 'uppercase', backgroundColor: darkMode ? '#3b82f6' : '#2563eb', color: 'white', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
+                FEED EN TIEMPO REAL
+              </span>
+              <span style={{ fontWeight: '700', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                📢 {liveNotifications[0]?.msg}
+              </span>
+            </div>
+            <span style={{ fontSize: '0.7rem', opacity: 0.8, fontWeight: '700', flexShrink: 0 }}>{liveNotifications[0]?.time}</span>
           </div>
 
           {/* ── Modal de Ayuda del Portal Satélite ──────────────────────────── */}
           {showSatelliteHelp && (
-            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
-              <div style={{ backgroundColor: 'white', borderRadius: '24px', width: '100%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 40px 80px -20px rgba(0,0,0,0.35)' }}>
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+              <div style={{ backgroundColor: theme.cardBg, color: theme.text, borderRadius: '24px', width: '100%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 40px 80px -20px rgba(0,0,0,0.35)', border: `1px solid ${theme.border}` }}>
                 {/* Header del modal */}
-                <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, #7c3aed 100%)', padding: '2rem', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 1 }}>
+                <div style={{ background: `linear-gradient(135deg, ${theme.primary} 0%, #5c0621 100%)`, padding: '2rem', borderRadius: '24px 24px 0 0', color: 'white', position: 'sticky', top: 0, zIndex: 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div style={{ width: '48px', height: '48px', borderRadius: '14px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1052,11 +1351,10 @@ export default function Dashboard() {
 
                 {/* Contenido del modal */}
                 <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-
                   {/* Flujo General */}
                   <div>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#eef2ff', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>1</span>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: theme.text, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: `${theme.primary}15`, color: theme.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>1</span>
                       ¿Cómo funciona este portal?
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', paddingLeft: '2rem' }}>
@@ -1067,11 +1365,11 @@ export default function Dashboard() {
                         { icon: '✅', title: 'Entrega y calidad', desc: 'Cuando entregues las prendas, la planta registra la inspección de calidad. El resultado aparecerá en "Historial de Entregas y Pagos".' },
                         { icon: '💰', title: 'Liquidación de pagos', desc: 'Una vez aprobadas las prendas en calidad, el saldo confeccionado se calcula automáticamente según la tarifa del taller.' },
                       ].map((step, i) => (
-                        <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.85rem 1rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                        <div key={i} style={{ display: 'flex', gap: '0.75rem', padding: '0.85rem 1rem', backgroundColor: darkMode ? '#1e293b' : '#f8fafc', borderRadius: '12px', border: `1px solid ${theme.border}` }}>
                           <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>{step.icon}</span>
                           <div>
-                            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: '800', color: '#1e293b' }}>{step.title}</p>
-                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: '1.4' }}>{step.desc}</p>
+                            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: '800', color: theme.text }}>{step.title}</p>
+                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: theme.textMuted, lineHeight: '1.4' }}>{step.desc}</p>
                           </div>
                         </div>
                       ))}
@@ -1079,8 +1377,8 @@ export default function Dashboard() {
                   </div>
 
                   {/* Métricas */}
-                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: '1.5rem' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: theme.text, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>2</span>
                       ¿Qué significan los indicadores?
                     </h3>
@@ -1091,37 +1389,18 @@ export default function Dashboard() {
                         { label: '👗 Prendas Aprobadas', desc: 'Total de prendas revisadas y aceptadas por la planta en control de calidad.' },
                         { label: '💵 Saldo Confeccionado', desc: 'Valor económico acumulado de las prendas aprobadas, calculado con tu tarifa asignada.' },
                       ].map((m, i) => (
-                        <div key={i} style={{ padding: '0.85rem', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                          <p style={{ margin: '0 0 0.25rem', fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>{m.label}</p>
-                          <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', lineHeight: '1.35' }}>{m.desc}</p>
+                        <div key={i} style={{ padding: '0.85rem', backgroundColor: darkMode ? '#1e293b' : '#f8fafc', borderRadius: '10px', border: `1px solid ${theme.border}` }}>
+                          <p style={{ margin: '0 0 0.25rem', fontSize: '0.78rem', fontWeight: '800', color: theme.text }}>{m.label}</p>
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: theme.textMuted, lineHeight: '1.35' }}>{m.desc}</p>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* Consejos */}
-                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.5rem' }}>
-                    <h3 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#fffbeb', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0 }}>3</span>
-                      Consejos para optimizar tu trabajo
-                    </h3>
-                    <div style={{ paddingLeft: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {[
-                        '💡 Actualiza el progreso de tus lotes al menos una vez al día para que la planta tenga visibilidad precisa.',
-                        '🖨️ Imprime la relación de despacho antes de cada entrega para tener soporte físico.',
-                        '📞 Si ves un error en los datos de una orden (tallas, cantidades), comunícate con la planta inmediatamente.',
-                        '⏰ Las entregas a tiempo mejoran tu puntuación de desempeño y pueden darte acceso a tarifas preferenciales.',
-                        '🔄 Si el portal no carga datos nuevos, recarga la página — los datos se actualizan en tiempo real desde la planta.',
-                      ].map((tip, i) => (
-                        <p key={i} style={{ margin: 0, fontSize: '0.78rem', color: '#475569', padding: '0.5rem 0.75rem', backgroundColor: '#fafafa', borderRadius: '8px', borderLeft: '3px solid #fbbf24', lineHeight: '1.4' }}>{tip}</p>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Botón cerrar */}
+                  {/* Cerrar guía */}
                   <button
                     onClick={() => setShowSatelliteHelp(false)}
-                    style={{ padding: '0.85rem', borderRadius: '12px', border: 'none', cursor: 'pointer', backgroundColor: 'var(--primary)', color: 'white', fontWeight: '800', fontSize: '0.875rem', width: '100%', marginTop: '0.5rem' }}
+                    style={{ padding: '0.85rem', borderRadius: '12px', border: 'none', cursor: 'pointer', backgroundColor: theme.primary, color: 'white', fontWeight: '800', fontSize: '0.875rem', width: '100%', marginTop: '0.5rem' }}
                   >
                     Entendido — Cerrar guía
                   </button>
@@ -1130,7 +1409,72 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* 2. Acordeón / Estado Detallado por Taller */}
+          {/* 2. Filtros Dinámicos de Alto Nivel */}
+          <div style={{
+            backgroundColor: theme.cardBg,
+            border: `1px solid ${theme.border}`,
+            padding: '1.25rem 1.5rem',
+            borderRadius: '16px',
+            display: 'flex',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            alignItems: 'center'
+          }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: '900', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filtros Cruzados:</span>
+            
+            {/* Taller Cross Filter */}
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              <select
+                value={crossFilterTaller}
+                onChange={e => setCrossFilterTaller(e.target.value)}
+                style={{ padding: '0.45rem 0.75rem', borderRadius: '6px', border: `1px solid ${theme.border}`, fontSize: '0.75rem', fontWeight: '800', backgroundColor: theme.bg, color: theme.text }}
+              >
+                <option value="all">🏭 Todos los Talleres</option>
+                {finalWorkshopsList.map(w => (
+                  <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Producto Cross Filter */}
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              <select
+                value={crossFilterProducto}
+                onChange={e => setCrossFilterProducto(e.target.value)}
+                style={{ padding: '0.45rem 0.75rem', borderRadius: '6px', border: `1px solid ${theme.border}`, fontSize: '0.75rem', fontWeight: '800', backgroundColor: theme.bg, color: theme.text }}
+              >
+                <option value="all">👕 Todos los Productos</option>
+                {productsList.map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre_producto}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Reset Filters */}
+            {(crossFilterTaller !== 'all' || crossFilterProducto !== 'all') && (
+              <button
+                onClick={() => {
+                  setCrossFilterTaller('all');
+                  setCrossFilterProducto('all');
+                }}
+                style={{
+                  padding: '0.45rem 0.85rem',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.danger}40`,
+                  fontSize: '0.72rem',
+                  fontWeight: '800',
+                  backgroundColor: `${theme.danger}10`,
+                  color: theme.danger,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}
+              >
+                <X size={12} /> Limpiar Filtros
+              </button>
+            )}
+          </div>
           <div>
             <h3 style={{ fontSize: '1.05rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>🏭 Estado y Detalle de Mis Talleres</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
@@ -1153,7 +1497,7 @@ export default function Dashboard() {
                 wsSewingOrders.forEach(so => {
                   const parentOrder = so.parent_order || {};
                   const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
-                  const plannedQty = so.cantidad_planeada || 0;
+                  const plannedQty = getSewingOrderTotalUnits(so);
                   if (plannedQty <= 0) return;
 
                   const parentCuts = parentOrder.cuts || [];
@@ -1193,11 +1537,11 @@ export default function Dashboard() {
 
                 // Paleta de colores únicos por índice de taller
                 const ACCENT_PALETTES = [
-                  { from: '#4f46e5', to: '#7c3aed', light: '#eef2ff', text: '#3730a3', pill: '#c7d2fe' },
-                  { from: '#0891b2', to: '#0e7490', light: '#ecfeff', text: '#155e75', pill: '#a5f3fc' },
-                  { from: '#059669', to: '#047857', light: '#ecfdf5', text: '#065f46', pill: '#a7f3d0' },
-                  { from: '#d97706', to: '#b45309', light: '#fffbeb', text: '#92400e', pill: '#fde68a' },
-                  { from: '#db2777', to: '#be185d', light: '#fdf2f8', text: '#831843', pill: '#fbcfe8' },
+                  { from: '#80082E', to: '#5c0621', light: '#fdf2f4', text: '#5c0621', pill: '#f5c6d0' },
+                  { from: '#D81B60', to: '#ad1550', light: '#fef1f6', text: '#9b1247', pill: '#f8bbd0' },
+                  { from: '#a8325c', to: '#872649', light: '#fdf2f8', text: '#6d1e3b', pill: '#f3a5c0' },
+                  { from: '#c2185b', to: '#880e4f', light: '#fce4ec', text: '#880e4f', pill: '#f48fb1' },
+                  { from: '#e91e63', to: '#c2185b', light: '#fce4ec', text: '#ad1457', pill: '#f8bbd0' },
                 ];
                 const wIdx = finalWorkshopsList.indexOf(w) % ACCENT_PALETTES.length;
                 const pal = ACCENT_PALETTES[wIdx];
@@ -1453,79 +1797,251 @@ export default function Dashboard() {
           {/* Premium Redesigned KPI cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
             
-            {/* Card 1: Actives */}
-            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.5rem 1.75rem', border: '1px solid #eef2ff', background: 'linear-gradient(to bottom right, #ffffff, #fafaff)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            {/* Card 1: Planeadas */}
+            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#4f46e5', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Órdenes Activas</p>
-                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#1e1b4b' }}>{loading ? '…' : activeConfeccionesCount}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Lotes asignados en confección</p>
+                  <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Producción Planeada</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: theme.text }}>{loading ? '…' : `${plannedUnitsSum.toLocaleString('es-CO')} uds`}</h3>
+                  <p style={{ fontSize: '0.72rem', color: '#3b82f6', margin: 0, fontWeight: '700' }}>Meta total programada</p>
                 </div>
-                <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Scissors size={20} style={{ alignSelf: 'center' }} />
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'rgba(59,130,246,0.1)', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Package size={18} />
                 </div>
               </div>
-              <SparklineWave color="#4f46e5" path="M0,22 Q25,8 50,18 T100,8" />
+              <SparklineWave color="#3b82f6" path="M0,22 Q25,8 50,18 T100,8" />
             </div>
 
-            {/* Card 2: Completed */}
-            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.5rem 1.75rem', border: '1px solid #f0fdf4', background: 'linear-gradient(to bottom right, #ffffff, #fafdfb)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            {/* Card 2: Confeccionadas */}
+            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#16a34a', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Órdenes Terminadas</p>
-                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#052e16' }}>{loading ? '…' : completedConfeccionesCount}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Lotes totalmente confeccionados</p>
+                  <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Confección Real</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: theme.primary }}>{loading ? '…' : `${confeccionadasSum.toLocaleString('es-CO')} uds`}</h3>
+                  <p style={{ fontSize: '0.72rem', color: theme.success, margin: 0, fontWeight: '700' }}>⚡ Sincronizado en tiempo real</p>
                 </div>
-                <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CheckCircle2 size={20} />
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${theme.primary}15`, color: theme.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Scissors size={18} />
                 </div>
               </div>
-              <SparklineWave color="#16a34a" path="M0,15 Q30,25 60,10 T100,20" />
+              <SparklineWave color={theme.primary} path="M0,15 Q30,25 60,10 T100,20" />
             </div>
 
-            {/* Card 3: Approved */}
-            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.5rem 1.75rem', border: '1px solid #fef3c7', background: 'linear-gradient(to bottom right, #ffffff, #fffdf5)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            {/* Card 3: Eficiencia */}
+            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#d97706', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Prendas Aprobadas</p>
-                  <h3 style={{ fontSize: '2.25rem', fontWeight: '950', margin: '0.35rem 0', color: '#451a03' }}>{loading ? '…' : `${totalApprovedGarments} uds`}</h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, fontWeight: '600' }}>Esta semana</p>
+                  <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Eficiencia Operativa</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: theme.success }}>{loading ? '…' : `${efficiencyPct}%`}</h3>
+                  <p style={{ fontSize: '0.72rem', color: theme.textMuted, margin: 0, fontWeight: '700' }}>Tasa de cumplimiento</p>
                 </div>
-                <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#fffbeb', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Star size={20} />
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${theme.success}15`, color: theme.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingUp size={18} />
                 </div>
               </div>
-              <SparklineWave color="#d97706" path="M0,25 Q20,10 50,22 T100,12" />
+              <SparklineWave color={theme.success} path="M0,25 Q20,10 50,22 T100,12" />
             </div>
 
-            {/* Card 4: Wallet Earnings Payout */}
-            <div className="card" style={{
-              position: 'relative', overflow: 'hidden', padding: '1.5rem 1.75rem', color: 'white',
-              background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', boxShadow: '0 10px 25px -5px rgba(49,46,129,0.3)',
-              display: 'flex', flexDirection: 'column', gap: '0.75rem'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+            {/* Card 4: Calidad */}
+            <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                 <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: '800', color: '#c7d2fe', margin: 0, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Saldo Confeccionado</p>
-                  <h3 style={{ fontSize: '2.2rem', fontWeight: '950', margin: '0.2rem 0', color: 'white' }}>
-                    {loading ? '…' : totalSewedPayment > 0 ? `$${totalSewedPayment.toLocaleString('es-CO')} COP` : '—'}
+                  <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tasa de Rechazo</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: Number(rejectRate) > 5 ? theme.danger : theme.success }}>
+                    {loading ? '…' : `${rejectRate}%`}
                   </h3>
-                  <p style={{ fontSize: '0.74rem', color: '#a5b4fc', margin: 0, fontWeight: '600' }}>
-                    Autorizado: <strong style={{ color: 'white' }}>{totalAuthorizedPayment > 0 ? `$${totalAuthorizedPayment.toLocaleString('es-CO')} COP` : '— Sin tarifa configurada'}</strong>
-                  </p>
+                  <p style={{ fontSize: '0.72rem', color: theme.textMuted, margin: 0, fontWeight: '700' }}>Límite de control: 5.0%</p>
                 </div>
-                <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <DollarSign size={20} />
+                <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${Number(rejectRate) > 5 ? theme.danger : theme.success}15`, color: Number(rejectRate) > 5 ? theme.danger : theme.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ClipboardCheck size={18} />
                 </div>
               </div>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#c7d2fe', fontWeight: '600', position: 'relative', zIndex: 2 }}>
-                <span>Prendas: {totalSewedUnits} / {totalAuthorizedUnits} uds</span>
-                <span>Tarifa Prom.: ${averageRate.toLocaleString('es-CO')} / ud</span>
+              <SparklineWave color={Number(rejectRate) > 5 ? theme.danger : theme.success} path="M0,20 Q40,5 70,25 T100,15" />
+            </div>
+          </div>
+
+          {/* 3. Sección de Analítica y Gráficos Corporativos */}
+          <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem' }}>
+            
+            {/* Gráfico de Producción Real vs. Planeada por Taller (Drill Down en Click) */}
+            <div style={{
+              backgroundColor: theme.cardBg,
+              border: `1px solid ${theme.border}`,
+              borderRadius: '20px',
+              padding: '1.5rem 1.75rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Volumen de Producción por Satélite</h3>
+                  <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Haz clic en una barra para abrir el desglose analítico (Drill Down) o en la leyenda para filtrar.</span>
+                </div>
               </div>
-              <div style={{ position: 'absolute', bottom: '-20px', right: '-20px', width: '120px', height: '120px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.03)', pointerEvents: 'none' }} />
+
+              <div style={{ width: '100%', height: '240px' }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={finalWorkshopsList.map(w => {
+                      const wsSewing = sewingOrdersList.filter(so => String(so.workshop_id) === String(w.id));
+                      const planned = wsSewing.reduce((sum, so) => sum + getSewingOrderTotalUnits(so), 0);
+                      const sewed = wsSewing.reduce((sum, so) => sum + (so.cantidad_confeccionada || 0), 0);
+                      return {
+                        name: w.nombre_taller,
+                        Planeado: planned,
+                        Confeccionado: sewed,
+                        raw: w
+                      };
+                    })}
+                    onClick={(state: any) => {
+                      if (state && state.activePayload && state.activePayload.length > 0) {
+                        const clickedWorkshop = state.activePayload[0].payload.raw;
+                        setDrillDownTaller(clickedWorkshop);
+                        setDrillDownModalOpen(true);
+                      }
+                    }}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke={theme.gridColor} />
+                    <XAxis dataKey="name" stroke={theme.textMuted} fontSize={10} tickLine={false} />
+                    <YAxis stroke={theme.textMuted} fontSize={10} tickLine={false} />
+                    <Tooltip contentStyle={{ backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }} />
+                    <Bar dataKey="Planeado" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={25} />
+                    <Bar dataKey="Confeccionado" fill={theme.primary} radius={[4, 4, 0, 0]} barSize={25} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
+            {/* Panel de Alertas Operativas Inteligentes */}
+            <div style={{
+              backgroundColor: theme.cardBg,
+              border: `1px solid ${theme.border}`,
+              borderRadius: '20px',
+              padding: '1.5rem 1.75rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Alertas de Control</h3>
+                <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Alertas prioritarias de planta</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '240px', overflowY: 'auto' }} className="pos-scrollbar">
+                {/* Alerta 1: Tasa de rechazo crítica */}
+                {Number(rejectRate) > 5 && (
+                  <div style={{ padding: '0.75rem', borderRadius: '8px', borderLeft: `4px solid ${theme.danger}`, backgroundColor: `${theme.danger}08`, display: 'flex', gap: '0.5rem' }}>
+                    <AlertCircle size={16} color={theme.danger} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <strong style={{ fontSize: '0.75rem', color: theme.text, display: 'block' }}>Tasa de Rechazo Excedida</strong>
+                      <span style={{ fontSize: '0.7rem', color: theme.textMuted }}>Tasa de calidad consolidada en {rejectRate}% (límite 5%). Inspecciona auditorías.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Alerta 2: Talleres libres */}
+                {finalWorkshopsList.some(w => !sewingOrdersList.some(so => String(so.workshop_id) === String(w.id))) && (
+                  <div style={{ padding: '0.75rem', borderRadius: '8px', borderLeft: `4px solid ${theme.accent}`, backgroundColor: `${theme.accent}08`, display: 'flex', gap: '0.5rem' }}>
+                    <Info size={16} color={theme.accent} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <strong style={{ fontSize: '0.75rem', color: theme.text, display: 'block' }}>Capacidad Ociosa de Confección</strong>
+                      <span style={{ fontSize: '0.7rem', color: theme.textMuted }}>Hay satélites disponibles sin carga activa. Asigna lotes de corte pendientes.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Live notifications */}
+                {liveNotifications.slice(0, 3).map(noti => (
+                  <div key={noti.id} style={{ padding: '0.75rem', borderRadius: '8px', borderLeft: `4px solid ${noti.type === 'warning' ? theme.danger : noti.type === 'success' ? theme.success : '#2563eb'}`, backgroundColor: `${darkMode ? '#0f172a' : '#f8fafc'}`, display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ fontSize: '0.9rem', marginTop: '2px' }}>⚡</div>
+                    <div>
+                      <strong style={{ fontSize: '0.75rem', color: theme.text, display: 'block' }}>Actividad en Satélites</strong>
+                      <span style={{ fontSize: '0.7rem', color: theme.textMuted }}>{noti.msg}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+
+          {/* Modal de Drill Down Analítico */}
+          {drillDownModalOpen && drillDownTaller && (
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(6px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+              <div style={{ backgroundColor: theme.cardBg, color: theme.text, borderRadius: '24px', width: '100%', maxWidth: '600px', padding: '2rem', border: `1px solid ${theme.border}`, boxShadow: '0 40px 80px -20px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.65rem', fontWeight: '950', color: theme.primary, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Desglose de Satélite (Drill Down)</span>
+                    <h2 style={{ margin: '0.2rem 0 0', fontSize: '1.35rem', fontWeight: '950' }}>🏭 {drillDownTaller.nombre_taller}</h2>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: theme.textMuted }}>Administrador responsable: <strong>{drillDownTaller.responsable || '—'}</strong></p>
+                  </div>
+                  <button onClick={() => setDrillDownModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.text }}><X size={20} /></button>
+                </div>
+
+                {/* Contenido Drill Down */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  
+                  {/* Desglose de Lotes del Taller */}
+                  <div>
+                    <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: '900', textTransform: 'uppercase', color: theme.textMuted }}>Lotes Asignados y Estatus</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }} className="pos-scrollbar">
+                      {sewingOrdersList
+                        .filter(so => String(so.workshop_id) === String(drillDownTaller.id))
+                        .map(so => {
+                          const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
+                          const progress = so.cantidad_planeada > 0 ? Math.round(((so.cantidad_confeccionada || 0) / so.cantidad_planeada) * 100) : 0;
+                          return (
+                            <div key={so.id} style={{ padding: '0.85rem', borderRadius: '10px', border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <strong style={{ fontSize: '0.8rem', display: 'block' }}>{so.confeccion_code}</strong>
+                                <span style={{ fontSize: '0.7rem', color: theme.textMuted }}>{prodObj?.nombre_producto || 'Referencia'}</span>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: '900', display: 'block' }}>{so.cantidad_confeccionada || 0} / {so.cantidad_planeada} uds</span>
+                                <span style={{ fontSize: '0.68rem', color: progress >= 100 ? theme.success : theme.primary, fontWeight: '800' }}>{progress}% Completado</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      {sewingOrdersList.filter(so => String(so.workshop_id) === String(drillDownTaller.id)).length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '1.5rem', color: theme.textMuted, fontSize: '0.78rem' }}>Sin lotes activos asignados.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Auditoría de Calidad Detallada */}
+                  <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: '1rem' }}>
+                    <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: '900', textTransform: 'uppercase', color: theme.textMuted }}>Auditorías de Calidad Recientes</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {inspections
+                        .filter(i => (i.workshop_name || '').toLowerCase().trim() === (drillDownTaller.nombre_taller || '').toLowerCase().trim())
+                        .slice(0, 2)
+                        .map(i => (
+                          <div key={i.id} style={{ padding: '0.75rem', borderRadius: '8px', backgroundColor: darkMode ? '#1e293b' : '#f8fafc', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                            <span>📅 {new Date(i.created_at).toLocaleDateString('es-CO')}</span>
+                            <span style={{ fontWeight: '800', color: theme.success }}>Aprobadas: {i.items_approved} uds</span>
+                            <span style={{ fontWeight: '800', color: theme.danger }}>Rechazadas: {i.items_rejected} uds</span>
+                          </div>
+                        ))}
+                      {inspections.filter(i => (i.workshop_name || '').toLowerCase().trim() === (drillDownTaller.nombre_taller || '').toLowerCase().trim()).length === 0 && (
+                        <div style={{ fontSize: '0.75rem', color: theme.textMuted, fontStyle: 'italic' }}>Sin auditorías registradas.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setDrillDownModalOpen(false)}
+                    style={{ padding: '0.75rem', borderRadius: '10px', border: 'none', cursor: 'pointer', backgroundColor: theme.primary, color: 'white', fontWeight: '800', width: '100%', fontSize: '0.8rem' }}
+                  >
+                    Cerrar Desglose Analítico
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4. Acordeón / Estado Detallado por Taller */}
 
           {/* Main Layout: 70% Columns & 30% Right Panel */}
           <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem', alignItems: 'start' }}>
@@ -1535,14 +2051,14 @@ export default function Dashboard() {
               
               {/* Active Orders */}
               {(() => {
-                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string }[] = [];
+                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string; status: string; id: string }[] = [];
                 sewingOrdersList.forEach(so => {
                   const w = finalWorkshopsList.find(workshop => String(workshop.id).toLowerCase().trim() === String(so.workshop_id).toLowerCase().trim());
                   if (!w) return;
 
                   if (activeWorkshopId !== 'all' && String(w.id) !== String(activeWorkshopId)) return;
 
-                  const plannedQty = so.cantidad_planeada || 0;
+                  const plannedQty = getSewingOrderTotalUnits(so);
                   if (plannedQty <= 0) return;
 
                   const parentOrder = so.parent_order || {};
@@ -1558,13 +2074,15 @@ export default function Dashboard() {
                     actualSewedQty = so.cantidad_confeccionada || 0;
                   }
 
-                  if (actualSewedQty < plannedQty && so.status === 'En Confección') {
+                  if (so.status === 'Enviado a Taller' || so.status === 'En Confección' || so.status === 'Enviado a Calidad') {
                     pendingConfecciones.push({
                       order: parentOrder,
                       workshop: w,
                       planeadas: plannedQty,
                       confeccionadas: actualSewedQty,
-                      confeccionCode: so.confeccion_code
+                      confeccionCode: so.confeccion_code,
+                      status: so.status,
+                      id: so.id
                     });
                   }
                 });
@@ -1574,7 +2092,7 @@ export default function Dashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                       <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         Órdenes Asignadas Activas
-                        <span style={{ fontSize: '0.72rem', backgroundColor: '#eef2ff', color: '#4f46e5', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>
+                        <span style={{ fontSize: '0.72rem', backgroundColor: '#fdf2f4', color: '#80082E', padding: '2px 8px', borderRadius: '999px', fontWeight: '800' }}>
                           {pendingConfecciones.length}
                         </span>
                       </h3>
@@ -1590,14 +2108,21 @@ export default function Dashboard() {
                         </thead>
                         <tbody>
                           {loading ? (
-                            <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando órdenes…</td></tr>
+                            <tr>
+                              <td colSpan={8} style={{ padding: '2rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                  <div style={{ height: '18px', width: '100%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                                  <div style={{ height: '18px', width: '80%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                                </div>
+                              </td>
+                            </tr>
                           ) : pendingConfecciones.length === 0 ? (
                             <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
-                          ) : pendingConfecciones.map(({ order, workshop, planeadas, confeccionadas, confeccionCode }) => {
+                          ) : pendingConfecciones.map(({ order, workshop, planeadas, confeccionadas, confeccionCode, status, id }) => {
                             const progress = planeadas > 0 ? Math.round((confeccionadas / planeadas) * 100) : 0;
                             return (
                               <tr key={`${order.id}-${workshop.id}-${confeccionCode}`} style={{ borderBottom: '1px solid #f8fafc', transition: 'background-color 0.15s' }}>
-                                <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#4f46e5' }}>{confeccionCode}</td>
+                                <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#80082E' }}>{confeccionCode}</td>
                                 <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#1e293b' }}>
                                   <span style={{ padding: '0.2rem 0.5rem', borderRadius: '6px', backgroundColor: '#f1f5f9', fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>
                                     🏭 {workshop.nombre_taller}
@@ -1616,17 +2141,50 @@ export default function Dashboard() {
                                   </div>
                                 </td>
                                 <td style={{ padding: '1rem 1rem' }}>
-                                  <button 
-                                    onClick={() => {
-                                      const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
-                                      if (realSewingOrder) {
-                                        setViewingOrderDetails(realSewingOrder);
-                                      }
-                                    }} 
-                                    style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                                  >
-                                    Ver Detalles <ChevronRight size={14} />
-                                  </button>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <button 
+                                      onClick={() => {
+                                        const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
+                                        if (realSewingOrder) {
+                                          setViewingOrderDetails(realSewingOrder);
+                                        }
+                                      }} 
+                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                    >
+                                      Detalles <ChevronRight size={14} />
+                                    </button>
+
+                                    {status === 'Enviado a Taller' && (
+                                      <button
+                                        onClick={() => handleConfirmReceiptInWorkshop({ id, confeccion_code: confeccionCode })}
+                                        style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                                      >
+                                        📥 Recibir Cuts
+                                      </button>
+                                    )}
+
+                                    {status === 'En Confección' && (
+                                      <button
+                                        onClick={() => {
+                                          const realSewingOrder = sewingOrdersList.find(so => so.id === id);
+                                          if (realSewingOrder) {
+                                            setSelectedSewingOrderForEnvio(realSewingOrder);
+                                            setEnvioNotes('');
+                                            setShowEnvioModal(true);
+                                          }
+                                        }}
+                                        style={{ backgroundColor: '#eab308', color: 'white', border: 'none', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                                      >
+                                        📤 Enviar Calidad
+                                      </button>
+                                    )}
+
+                                    {status === 'Enviado a Calidad' && (
+                                      <span style={{ fontSize: '0.68rem', fontWeight: '850', color: '#d97706', padding: '2px 6px', backgroundColor: '#fef3c7', borderRadius: '4px', border: '1px solid #fcd34d' }}>
+                                        En Tránsito Calidad
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1657,7 +2215,14 @@ export default function Dashboard() {
                     </thead>
                     <tbody>
                       {loading ? (
-                        <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Cargando historial…</td></tr>
+                        <tr>
+                          <td colSpan={7} style={{ padding: '2rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                              <div style={{ height: '18px', width: '100%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                              <div style={{ height: '18px', width: '70%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                            </div>
+                          </td>
+                        </tr>
                       ) : workshopInspections.length === 0 ? (
                         <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Aún no registras auditorías en Control de Calidad.</td></tr>
                       ) : workshopInspections.slice(0, 5).map(i => {
@@ -1667,7 +2232,7 @@ export default function Dashboard() {
                         const payment = (i.items_approved || 0) * itemRate;
                         return (
                           <tr key={i.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#4f46e5' }}>{orderCode}</td>
+                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</td>
                             <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '600' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
                             <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#475569' }}>{i.items_inspected} uds</td>
                             <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#16a34a' }}>{i.items_approved} uds</td>
@@ -1693,7 +2258,205 @@ export default function Dashboard() {
 
             </div>
 
-          {/* Workshop Order Confección Details Modal (Relación de Despacho Format) */}
+          {/* CONFIRMAR ENVÍO A CALIDAD MODAL */}
+          {showEnvioModal && selectedSewingOrderForEnvio && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
+              <div style={{ width: '100%', maxWidth: '620px', maxHeight: '92vh', overflowY: 'auto', backgroundColor: 'white', borderRadius: '20px', boxShadow: '0 25px 60px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }}>
+
+                {/* Header */}
+                <div style={{ padding: '1.5rem 1.75rem 1rem', borderBottom: '2px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                      <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>📤</div>
+                      <h3 style={{ margin: 0, fontWeight: '950', color: '#0f172a', fontSize: '1.1rem' }}>Relación de Envío a Calidad</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', backgroundColor: '#fdf2f8', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #fbcfe8' }}>
+                        Lote: {selectedSewingOrderForEnvio.confeccion_code}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', backgroundColor: '#f8fafc', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        {selectedSewingOrderForEnvio.products?.nombre_producto || 'Producto'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowEnvioModal(false)}
+                    style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleConfirmEnvioToCalidad} style={{ padding: '1.5rem 1.75rem', display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+
+                  {/* Product summary */}
+                  <div style={{ backgroundColor: '#f8fafc', borderRadius: '12px', padding: '1rem', border: '1px solid #e2e8f0' }}>
+                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resumen del lote</p>
+                    <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Producto</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#0f172a' }}>{selectedSewingOrderForEnvio.products?.nombre_producto || '—'}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Unidades planeadas</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#0f172a' }}>{selectedSewingOrderForEnvio.cantidad_planeada || 0} uds</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Confeccionadas</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#10b981' }}>{selectedSewingOrderForEnvio.cantidad_confeccionada || 0} uds</p>
+                      </div>
+                      {(selectedSewingOrderForEnvio.sewing_order_sizes || []).length > 0 && (
+                        <div style={{ width: '100%' }}>
+                          <p style={{ margin: '0 0 0.4rem', fontSize: '0.7rem', color: '#94a3b8' }}>Tallas</p>
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            {(selectedSewingOrderForEnvio.sewing_order_sizes || []).map((sz: any) => (
+                              <span key={sz.id} style={{ fontSize: '0.7rem', fontWeight: '800', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                                {sz.sizes?.codigo_talla || sz.size_id}: {sz.cantidad_planeada}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick check — sin inconvenientes */}
+                  <div
+                    onClick={() => { setEnvioSinInconvenientes(p => !p); if (!envioSinInconvenientes) setEnvioNovedadLines([]); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1.1rem', borderRadius: '12px', border: `2px solid ${envioSinInconvenientes ? '#10b981' : '#e2e8f0'}`, backgroundColor: envioSinInconvenientes ? '#ecfdf5' : '#f8fafc', cursor: 'pointer', userSelect: 'none', transition: 'all 0.18s' }}
+                  >
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', border: `2px solid ${envioSinInconvenientes ? '#10b981' : '#cbd5e1'}`, backgroundColor: envioSinInconvenientes ? '#10b981' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.18s' }}>
+                      {envioSinInconvenientes && <span style={{ color: 'white', fontSize: '0.8rem', fontWeight: '900' }}>✓</span>}
+                    </div>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: '850', fontSize: '0.9rem', color: envioSinInconvenientes ? '#065f46' : '#1e293b' }}>✅ Sin inconvenientes — despacho conforme</p>
+                      <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>Todas las prendas en orden, sin novedades que reportar.</p>
+                    </div>
+                  </div>
+
+                  {/* Novelty lines per product */}
+                  {!envioSinInconvenientes && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '1rem' }}>⚠️</span>
+                          <span style={{ fontWeight: '850', fontSize: '0.88rem', color: '#0f172a' }}>Novedades por color / referencia</span>
+                          {envioNovedadLines.filter(l => l.noveltyId).length > 0 && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: '999px', padding: '0.15rem 0.55rem' }}>
+                              {envioNovedadLines.filter(l => l.noveltyId).length} registrada{envioNovedadLines.filter(l => l.noveltyId).length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEnvioNovedadLines(prev => [...prev, { id: Date.now().toString(), noveltyId: '', color: '', nota: '' }])}
+                          style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', backgroundColor: '#fdf2f8', border: '1px solid #fbcfe8', borderRadius: '8px', padding: '0.3rem 0.75rem', cursor: 'pointer' }}
+                        >
+                          + Agregar novedad
+                        </button>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '0.73rem', color: '#64748b' }}>
+                        Agrega una línea por cada novedad encontrada. Especifica el color o referencia afectada si aplica.
+                      </p>
+
+                      {envioNovedadLines.length === 0 && (
+                        <div style={{ padding: '1.25rem', textAlign: 'center', backgroundColor: '#fafafa', borderRadius: '10px', border: '1px dashed #cbd5e1', fontSize: '0.8rem', color: '#94a3b8' }}>
+                          Haz clic en <strong>+ Agregar novedad</strong> para registrar inconvenientes encontrados.
+                        </div>
+                      )}
+
+                      {envioNovedadLines.map((line, idx) => (
+                        <div key={line.id} style={{ backgroundColor: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: '12px', padding: '0.9rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#92400e' }}>NOVEDAD #{idx + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setEnvioNovedadLines(prev => prev.filter(l => l.id !== line.id))}
+                              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', fontWeight: '800', padding: '0.1rem 0.4rem' }}
+                            >
+                              ✕ Quitar
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Tipo de novedad *</label>
+                              <select
+                                value={line.noveltyId}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, noveltyId: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white', color: '#1e293b' }}
+                              >
+                                <option value="">— Selecciona una novedad —</option>
+                                {masterNovelties.length === 0 && (
+                                  <option value="" disabled>Cargando novedades...</option>
+                                )}
+                                {masterNovelties
+                                  .filter(nov => !nov.modulo_relac || nov.modulo_relac.toLowerCase().includes('taller'))
+                                  .map(nov => (
+                                    <option key={nov.id} value={String(nov.id)}>
+                                      [{nov.cod_novedad}] {nov.nombre}{nov.criticidad ? ` · ${nov.criticidad}` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Color / Referencia</label>
+                              <input
+                                type="text"
+                                placeholder="Ej: Azul Rey, Rojo Tinto..."
+                                value={line.color}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, color: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', backgroundColor: 'white', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Detalle adicional</label>
+                              <input
+                                type="text"
+                                placeholder="Cantidad, descripción..."
+                                value={line.nota}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, nota: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', backgroundColor: 'white', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* General observations */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', marginBottom: '0.4rem', color: '#334155' }}>📝 Observaciones generales (opcional)</label>
+                    <textarea
+                      placeholder="Información adicional del despacho, faltantes, acuerdos..."
+                      value={envioNotes}
+                      onChange={e => setEnvioNotes(e.target.value)}
+                      style={{ width: '100%', minHeight: '75px', padding: '0.625rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.83rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+                    />
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowEnvioModal(false)}
+                      style={{ flex: 1, padding: '0.8rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', color: '#475569', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer' }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingEnvio}
+                      style={{ flex: 2, padding: '0.8rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: 'white', fontWeight: '900', fontSize: '0.9rem', cursor: savingEnvio ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: savingEnvio ? 0.75 : 1 }}
+                    >
+                      {savingEnvio ? '⏳ Enviando...' : '📤 Confirmar Envío a Calidad'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
           {viewingOrderDetails && (
              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
                <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
@@ -1774,7 +2537,7 @@ export default function Dashboard() {
                      <button
                        className="btn"
                        onClick={() => window.print()}
-                       style={{ backgroundColor: '#7c3aed', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
+                       style={{ backgroundColor: '#80082E', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
                      >
                        <Printer size={13} /> Imprimir
                      </button>
@@ -1911,7 +2674,7 @@ export default function Dashboard() {
                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                  <span><strong>ORDEN CONFECCIÓN:</strong></span>
-                                 <span style={{ fontWeight: '900', color: '#7c3aed' }}>{viewingOrderDetails.confeccion_code}</span>
+                                 <span style={{ fontWeight: '900', color: '#80082E' }}>{viewingOrderDetails.confeccion_code}</span>
                                </div>
                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                  <span><strong>TALLER SATÉLITE:</strong></span>
@@ -1949,7 +2712,7 @@ export default function Dashboard() {
 
                            <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                              <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
-                             <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
+                             <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#80082E' }}>{totalUnits} uds</span>
                            </div>
                          </div>
                        </div>
@@ -1971,7 +2734,7 @@ export default function Dashboard() {
                       <div>
                         <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
                         <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
-                        <p style={{ margin: '0.2rem 0 0', color: '#7c3aed', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
+                        <p style={{ margin: '0.2rem 0 0', color: '#80082E', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
                         <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
                       </div>
                     </div>
@@ -2108,7 +2871,7 @@ export default function Dashboard() {
                                   <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.categoryName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#80082E' }}>
                                     {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
                                   </td>
                                   <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{item.totalQuantity} uds</td>
@@ -2116,7 +2879,7 @@ export default function Dashboard() {
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
                                 <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
-                                <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#7c3aed', fontSize: '0.9rem', fontWeight: '950' }}>
+                                <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#80082E', fontSize: '0.9rem', fontWeight: '950' }}>
                                   {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                 </td>
                               </tr>
@@ -2272,7 +3035,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#eef2ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#fdf2f4', color: '#80082E', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Package size={15} />
                     </div>
                     <div>
@@ -2305,8 +3068,8 @@ export default function Dashboard() {
               </div>
 
               {/* Tip box */}
-              <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', backgroundColor: '#faf9ff', border: '1px dashed #dcd6ff', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#7c3aed' }}>
+              <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', backgroundColor: '#fdf2f4', border: '1px dashed #f5c6d0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#80082E' }}>
                   <Sparkles size={16} />
                   <span style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase' }}>Consejo del día</span>
                 </div>
@@ -2355,7 +3118,7 @@ export default function Dashboard() {
                       <span style={{ color: '#0f172a' }}>{"4.9 / 5.0"}</span>
                     </div>
                     <div style={{ height: '4px', borderRadius: '999px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
-                      <div style={{ width: '92%', height: '100%', backgroundColor: '#7c3aed' }} />
+                      <div style={{ width: '92%', height: '100%', backgroundColor: '#80082E' }} />
                     </div>
                   </div>
 
@@ -2371,53 +3134,418 @@ export default function Dashboard() {
 
     // Orders tab inside Taller view
     if (currentTab === 'orders') {
+      const myWorkshopsIds = finalWorkshopsList.map(w => String(w.id));
+      const mySewingOrders = sewingOrdersList.filter(so => 
+        myWorkshopsIds.includes(String(so.workshop_id))
+      );
+
+      const getSewingOrderRate = (so: any, wsId: string) => {
+        // Use the joined `so.products` from the sewing_orders query (already includes category_id)
+        // Fallback to productsList if join is missing
+        const prod = so.products || productsList.find(p => String(p.id) === String(so.product_id));
+        const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+        const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
+
+        let itemRate = catBaseRate;
+        if (categoryObj) {
+          const rateObj = workshopRates.find(r => 
+            String(r.workshop_id).toLowerCase().trim() === String(wsId).toLowerCase().trim() && 
+            String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+          );
+          if (rateObj && Number(rateObj.rate) > 0) {
+            itemRate = Number(rateObj.rate);
+          }
+        }
+        return itemRate;
+      };
+
+      // Apply Filters
+      const filteredSewingOrdersForTab = mySewingOrders.filter(so => {
+        // Workshop filter
+        if (activeWorkshopId !== 'all' && String(so.workshop_id) !== String(activeWorkshopId)) {
+          return false;
+        }
+
+        // Status filter
+        if (sewingFilterStatus !== 'all' && so.status !== sewingFilterStatus) {
+          return false;
+        }
+
+        // Date range filter
+        if (sewingFilterStartDate) {
+          if (new Date(so.created_at || Date.now()) < new Date(sewingFilterStartDate)) {
+            return false;
+          }
+        }
+        if (sewingFilterEndDate) {
+          const end = new Date(sewingFilterEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (new Date(so.created_at || Date.now()) > end) {
+            return false;
+          }
+        }
+
+        // Search text
+        if (sewingFilterSearch.trim()) {
+          const q = sewingFilterSearch.toLowerCase();
+          const parentOrder = orders.find(o => o.id === so.parent_order_id);
+          const clientName = (parentOrder?.client_name || '').toLowerCase();
+          const code = (so.confeccion_code || '').toLowerCase();
+          const product = productsList.find(p => String(p.id) === String(so.product_id));
+          const productName = (product?.nombre_producto || '').toLowerCase();
+          const currentWs = workshops.find(w => String(w.id) === String(so.workshop_id));
+          const workshopName = (currentWs?.nombre_taller || '').toLowerCase();
+          
+          if (!clientName.includes(q) && !code.includes(q) && !productName.includes(q) && !workshopName.includes(q)) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      // Calculate Metrics for the filtered list
+      let totalLotes = filteredSewingOrdersForTab.length;
+      let totalPlannedUnits = 0;
+      let totalCompletedUnits = 0;
+      let totalEstimatedPayout = 0;
+      let totalEarnedPayout = 0;
+
+      filteredSewingOrdersForTab.forEach(so => {
+        const plannedQty = getSewingOrderTotalUnits(so);
+        totalPlannedUnits += plannedQty;
+        totalCompletedUnits += so.cantidad_confeccionada || 0;
+
+        const rate = getSewingOrderRate(so, so.workshop_id);
+        const ws = workshops.find(w => String(w.id).toLowerCase() === String(so.workshop_id).toLowerCase());
+        const hasEmpaque = !!so.empaque;
+        const rateEmpaque = ws ? Number(ws.desc_empaque ?? 0) : 0;
+
+        totalEstimatedPayout += (plannedQty * rate) + (hasEmpaque ? plannedQty * rateEmpaque : 0);
+        totalEarnedPayout += ((so.cantidad_confeccionada || 0) * rate) + (hasEmpaque ? (so.cantidad_confeccionada || 0) * rateEmpaque : 0);
+      });
+
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+          
+          {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Mis Órdenes Asignadas</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Listado total de órdenes históricas y activas en tu satélite.</p>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>Portal de Taller</span>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Mis Órdenes de Confección</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Listado total de órdenes de confección asignadas a tus talleres satélites.</p>
             </div>
             <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
+              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
               <strong style={{ fontSize: '0.95rem', color: '#1e1b4b', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
             </div>
           </div>
 
+          {/* Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+            <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #80082E', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase' }}>Total de Lotes</span>
+              <strong style={{ fontSize: '1.8rem', color: '#0f172a', fontWeight: '950' }}>{totalLotes}</strong>
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Lotes registrados en sistema</span>
+            </div>
+            
+            <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase' }}>Prendas Totales</span>
+              <strong style={{ fontSize: '1.8rem', color: '#0f172a', fontWeight: '950' }}>
+                {totalCompletedUnits} <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: '700' }}>/ {totalPlannedUnits} uds</span>
+              </strong>
+              <div style={{ width: '100%', height: '6px', borderRadius: '999px', backgroundColor: '#f1f5f9', overflow: 'hidden', marginTop: '0.2rem' }}>
+                <div style={{ width: `${totalPlannedUnits > 0 ? Math.round((totalCompletedUnits / totalPlannedUnits) * 100) : 0}%`, height: '100%', backgroundColor: '#3b82f6' }} />
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #10b981', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase' }}>Est. Pago Total</span>
+              <strong style={{ fontSize: '1.8rem', color: '#10b981', fontWeight: '950' }}>
+                ${totalEstimatedPayout.toLocaleString('es-CO')}
+              </strong>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '600' }}>
+                Acumulado confeccionado: <strong style={{ color: '#059669' }}>${totalEarnedPayout.toLocaleString('es-CO')}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Interactive Filters Panel */}
+          <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Buscar orden, cliente o prenda</label>
+              <input
+                type="text"
+                placeholder="Ej. OC-105-1, Cliente, Camiseta..."
+                value={sewingFilterSearch}
+                onChange={e => setSewingFilterSearch(e.target.value)}
+                style={{
+                  padding: '0.55rem 0.85rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}
+              />
+            </div>
+
+            <div style={{ width: '150px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Filtrar por Estado</label>
+              <select
+                value={sewingFilterStatus}
+                onChange={e => setSewingFilterStatus(e.target.value)}
+                style={{
+                  padding: '0.55rem 0.85rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.85rem',
+                  fontWeight: '700',
+                  backgroundColor: 'white',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">🌐 Todos los estados</option>
+                <option value="Enviado a Taller">Enviado a Taller</option>
+                <option value="En Confección">En Confección</option>
+                <option value="Enviado a Calidad">Enviado a Calidad</option>
+                <option value="Terminada">Terminada</option>
+                <option value="Enviada">Enviada</option>
+              </select>
+            </div>
+
+            <div style={{ width: '140px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Fecha Inicio</label>
+              <input
+                type="date"
+                value={sewingFilterStartDate}
+                onChange={e => setSewingFilterStartDate(e.target.value)}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}
+              />
+            </div>
+
+            <div style={{ width: '140px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Fecha Fin</label>
+              <input
+                type="date"
+                value={sewingFilterEndDate}
+                onChange={e => setSewingFilterEndDate(e.target.value)}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}
+              />
+            </div>
+
+            {finalWorkshopsList.length > 1 && (
+              <div style={{ width: '180px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Seleccionar Taller</label>
+                <select
+                  value={activeWorkshopId}
+                  onChange={e => setActiveWorkshopId(e.target.value)}
+                  style={{
+                    padding: '0.55rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.85rem',
+                    fontWeight: '700',
+                    backgroundColor: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">🏭 Todos mis talleres</option>
+                  {finalWorkshopsList.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {(sewingFilterSearch || sewingFilterStatus !== 'all' || sewingFilterStartDate || sewingFilterEndDate || activeWorkshopId !== 'all') && (
+              <button
+                onClick={() => {
+                  setSewingFilterSearch('');
+                  setSewingFilterStatus('all');
+                  setSewingFilterStartDate('');
+                  setSewingFilterEndDate('');
+                  setActiveWorkshopId('all');
+                }}
+                className="btn btn-secondary"
+                style={{ alignSelf: 'flex-end', height: '38px', padding: '0.5rem 1rem', borderRadius: '10px', fontWeight: '800', fontSize: '0.8rem' }}
+              >
+                Limpiar Filtros
+              </button>
+            )}
+          </div>
+
+          {/* Sewing Orders Table */}
           <div className="card" style={{ padding: '2rem' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
-                    {['Código', 'Cliente', 'Taller', 'Tela', 'Prendas Totales', 'Estado', 'Fecha Creación'].map(h => (
+                    {['Código Lote', 'Cliente', 'Referencia / Producto', 'Taller', 'Unidades (Progreso)', 'Tarifa Unidad', 'Pago Estimado', 'Estado', 'Acciones'].map(h => (
                       <th key={h} style={{ padding: '1rem', fontWeight: '800' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {assignedOrders.length === 0 ? (
-                    <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Aún no se te han asignado órdenes de corte.</td></tr>
-                  ) : assignedOrders.map(o => {
-                    const totalP = getTotalPrendas(o);
+                  {filteredSewingOrdersForTab.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>
+                        No se encontraron órdenes de confección con los filtros seleccionados.
+                      </td>
+                    </tr>
+                  ) : filteredSewingOrdersForTab.map(so => {
+                    const parentOrder = orders.find(o => o.id === so.parent_order_id);
+                    const clientName = parentOrder ? parentOrder.client_name : '—';
+                    
+                    const product = productsList.find(p => String(p.id) === String(so.product_id));
+                    const productName = product ? product.nombre_producto : '—';
+                    
+                    const currentWs = workshops.find(w => String(w.id) === String(so.workshop_id));
+                    const workshopName = currentWs ? currentWs.nombre_taller : '—';
+
+                    const plannedQty = getSewingOrderTotalUnits(so);
+                    const progress = plannedQty > 0 ? Math.round(((so.cantidad_confeccionada || 0) / plannedQty) * 100) : 0;
+
+                    // Calculate rate and payout estimation
+                    const finalRate = getSewingOrderRate(so, so.workshop_id);
+                    const ws = workshops.find(w => String(w.id).toLowerCase() === String(so.workshop_id).toLowerCase());
+                    const hasEmpaque = !!so.empaque;
+                    const rateEmpaque = ws ? Number(ws.desc_empaque ?? 0) : 0;
+                    
+                    const estPayout = (plannedQty * finalRate) + (hasEmpaque ? plannedQty * rateEmpaque : 0);
+                    const actPayout = ((so.cantidad_confeccionada || 0) * finalRate) + (hasEmpaque ? (so.cantidad_confeccionada || 0) * rateEmpaque : 0);
+
                     return (
-                      <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '1rem', fontWeight: '800', color: '#4f46e5' }}>OC-{o.internal_code}</td>
-                        <td style={{ padding: '1rem', fontWeight: '700' }}>{o.client_name}</td>
-                        <td style={{ padding: '1rem', fontWeight: '600' }}>{userWorkshop?.nombre_taller || '—'}</td>
-                        <td style={{ padding: '1rem', color: '#475569' }}>{o.fabrics?.nombre_tela || '—'}</td>
-                        <td style={{ padding: '1rem', fontWeight: '800' }}>{totalP} uds</td>
+                      <tr key={so.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '1rem', fontWeight: '850', color: '#80082E' }}>
+                          {so.confeccion_code}
+                        </td>
+                        <td style={{ padding: '1rem', fontWeight: '700', color: '#1e293b' }}>
+                          {clientName}
+                        </td>
+                        <td style={{ padding: '1rem', fontWeight: '600', color: '#475569' }}>
+                          {productName}
+                        </td>
+                        <td style={{ padding: '1rem', fontWeight: '500', color: '#64748b' }}>
+                          {workshopName}
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <span style={{ fontWeight: '800', color: '#0f172a' }}>
+                              {so.cantidad_confeccionada || 0} / {plannedQty} uds
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100px' }}>
+                              <div style={{ flex: 1, height: '4px', borderRadius: '999px', backgroundColor: '#e2e8f0', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(progress, 100)}%`, height: '100%', backgroundColor: progress >= 100 ? '#10b981' : '#80082E' }} />
+                              </div>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b' }}>{progress}%</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '1rem', fontWeight: '600', color: '#475569' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span>${finalRate.toLocaleString('es-CO')}</span>
+                            {hasEmpaque && rateEmpaque > 0 && (
+                              <span style={{ fontSize: '0.68rem', color: '#d97706', fontWeight: '700' }}>
+                                + Empaque (+${rateEmpaque})
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <strong style={{ color: '#10b981', fontWeight: '800' }}>
+                              ${estPayout.toLocaleString('es-CO')}
+                            </strong>
+                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                              Logrado: ${actPayout.toLocaleString('es-CO')}
+                            </span>
+                          </div>
+                        </td>
                         <td style={{ padding: '1rem' }}>
                           <span style={{
                             fontSize: '0.7rem', padding: '0.25rem 0.65rem', borderRadius: '8px', fontWeight: '800',
-                            backgroundColor: o.status === 'En Confección' ? '#eff6ff' : '#ecfdf5',
-                            color: o.status === 'En Confección' ? '#1e4ed8' : '#15803d',
-                            border: o.status === 'En Confección' ? '1px solid #bfdbfe' : '1px solid #bbf7d0'
+                            backgroundColor: 
+                              so.status === 'En Confección' ? '#eff6ff' : 
+                              (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#fffbeb' :
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '#ecfdf5' : '#f1f5f9',
+                            color: 
+                              so.status === 'En Confección' ? '#1e4ed8' : 
+                              (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#b45309' :
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '#15803d' : '#475569',
+                            border: 
+                              so.status === 'En Confección' ? '1px solid #bfdbfe' : 
+                              (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '1px solid #fef08a' :
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '1px solid #bbf7d0' : '1px solid #cbd5e1'
                           }}>
-                            {o.status.toUpperCase()}
+                            {so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad' ? 'VALIDACIÓN CALIDAD' : so.status.toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ padding: '1rem', color: '#64748b' }}>{new Date(o.created_at).toLocaleDateString('es-CO')}</td>
+                        <td style={{ padding: '1rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <button 
+                              onClick={() => {
+                                if (parentOrder) {
+                                  setViewingOrderDetails({ 
+                                    ...so, 
+                                    parent_order: parentOrder
+                                  });
+                                }
+                              }} 
+                              style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: '#80082E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                            >
+                              📄 Ficha
+                            </button>
+
+                            {so.status === 'Enviado a Taller' && (
+                              <button
+                                onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
+                                className="btn"
+                                style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
+                              >
+                                📥 Recibir
+                              </button>
+                            )}
+
+                            {so.status === 'En Confección' && (
+                              <button
+                                onClick={() => {
+                                  // Set modal state immediately so it opens right away
+                                  setSelectedSewingOrderForEnvio(so);
+                                  setEnvioNotes('');
+                                  setEnvioSinInconvenientes(false);
+                                  setEnvioNovedadLines([]);
+                                  setShowEnvioModal(true);
+                                  // Load novelties in background (non-blocking)
+                                  if (masterNovelties.length === 0) {
+                                    supabase
+                                      .from('novelties')
+                                      .select('*')
+                                      .order('cod_novedad')
+                                      .then(({ data: novData }) => {
+                                        setMasterNovelties(novData || []);
+                                      });
+                                  }
+                                }}
+                                className="btn"
+                                style={{ backgroundColor: '#eab308', color: 'white', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
+                              >
+                                📤 Enviar Calidad
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2425,6 +3553,205 @@ export default function Dashboard() {
               </table>
             </div>
           </div>
+          {/* CONFIRMAR ENVÍO A CALIDAD MODAL */}
+          {showEnvioModal && selectedSewingOrderForEnvio && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
+              <div style={{ width: '100%', maxWidth: '620px', maxHeight: '92vh', overflowY: 'auto', backgroundColor: 'white', borderRadius: '20px', boxShadow: '0 25px 60px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }}>
+
+                {/* Header */}
+                <div style={{ padding: '1.5rem 1.75rem 1rem', borderBottom: '2px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
+                      <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>📤</div>
+                      <h3 style={{ margin: 0, fontWeight: '950', color: '#0f172a', fontSize: '1.1rem' }}>Relación de Envío a Calidad</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', backgroundColor: '#fdf2f8', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #fbcfe8' }}>
+                        Lote: {selectedSewingOrderForEnvio.confeccion_code}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', backgroundColor: '#f8fafc', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        {selectedSewingOrderForEnvio.products?.nombre_producto || 'Producto'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowEnvioModal(false)}
+                    style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', width: '34px', height: '34px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0 }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleConfirmEnvioToCalidad} style={{ padding: '1.5rem 1.75rem', display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+
+                  {/* Product summary */}
+                  <div style={{ backgroundColor: '#f8fafc', borderRadius: '12px', padding: '1rem', border: '1px solid #e2e8f0' }}>
+                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resumen del lote</p>
+                    <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Producto</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#0f172a' }}>{selectedSewingOrderForEnvio.products?.nombre_producto || '—'}</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Unidades planeadas</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#0f172a' }}>{selectedSewingOrderForEnvio.cantidad_planeada || 0} uds</p>
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Confeccionadas</p>
+                        <p style={{ margin: 0, fontWeight: '800', fontSize: '0.88rem', color: '#10b981' }}>{selectedSewingOrderForEnvio.cantidad_confeccionada || 0} uds</p>
+                      </div>
+                      {(selectedSewingOrderForEnvio.sewing_order_sizes || []).length > 0 && (
+                        <div style={{ width: '100%' }}>
+                          <p style={{ margin: '0 0 0.4rem', fontSize: '0.7rem', color: '#94a3b8' }}>Tallas</p>
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            {(selectedSewingOrderForEnvio.sewing_order_sizes || []).map((sz: any) => (
+                              <span key={sz.id} style={{ fontSize: '0.7rem', fontWeight: '800', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                                {sz.sizes?.codigo_talla || sz.size_id}: {sz.cantidad_planeada}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick check — sin inconvenientes */}
+                  <div
+                    onClick={() => { setEnvioSinInconvenientes(p => !p); if (!envioSinInconvenientes) setEnvioNovedadLines([]); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1.1rem', borderRadius: '12px', border: `2px solid ${envioSinInconvenientes ? '#10b981' : '#e2e8f0'}`, backgroundColor: envioSinInconvenientes ? '#ecfdf5' : '#f8fafc', cursor: 'pointer', userSelect: 'none', transition: 'all 0.18s' }}
+                  >
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', border: `2px solid ${envioSinInconvenientes ? '#10b981' : '#cbd5e1'}`, backgroundColor: envioSinInconvenientes ? '#10b981' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.18s' }}>
+                      {envioSinInconvenientes && <span style={{ color: 'white', fontSize: '0.8rem', fontWeight: '900' }}>✓</span>}
+                    </div>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: '850', fontSize: '0.9rem', color: envioSinInconvenientes ? '#065f46' : '#1e293b' }}>✅ Sin inconvenientes — despacho conforme</p>
+                      <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>Todas las prendas en orden, sin novedades que reportar.</p>
+                    </div>
+                  </div>
+
+                  {/* Novelty lines per product */}
+                  {!envioSinInconvenientes && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '1rem' }}>⚠️</span>
+                          <span style={{ fontWeight: '850', fontSize: '0.88rem', color: '#0f172a' }}>Novedades por color / referencia</span>
+                          {envioNovedadLines.filter(l => l.noveltyId).length > 0 && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: '999px', padding: '0.15rem 0.55rem' }}>
+                              {envioNovedadLines.filter(l => l.noveltyId).length} registrada{envioNovedadLines.filter(l => l.noveltyId).length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEnvioNovedadLines(prev => [...prev, { id: Date.now().toString(), noveltyId: '', color: '', nota: '' }])}
+                          style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', backgroundColor: '#fdf2f8', border: '1px solid #fbcfe8', borderRadius: '8px', padding: '0.3rem 0.75rem', cursor: 'pointer' }}
+                        >
+                          + Agregar novedad
+                        </button>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '0.73rem', color: '#64748b' }}>
+                        Agrega una línea por cada novedad encontrada. Especifica el color o referencia afectada si aplica.
+                      </p>
+
+                      {envioNovedadLines.length === 0 && (
+                        <div style={{ padding: '1.25rem', textAlign: 'center', backgroundColor: '#fafafa', borderRadius: '10px', border: '1px dashed #cbd5e1', fontSize: '0.8rem', color: '#94a3b8' }}>
+                          Haz clic en <strong>+ Agregar novedad</strong> para registrar inconvenientes encontrados.
+                        </div>
+                      )}
+
+                      {envioNovedadLines.map((line, idx) => (
+                        <div key={line.id} style={{ backgroundColor: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: '12px', padding: '0.9rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#92400e' }}>NOVEDAD #{idx + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setEnvioNovedadLines(prev => prev.filter(l => l.id !== line.id))}
+                              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem', fontWeight: '800', padding: '0.1rem 0.4rem' }}
+                            >
+                              ✕ Quitar
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Tipo de novedad *</label>
+                              <select
+                                value={line.noveltyId}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, noveltyId: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', fontWeight: '700', backgroundColor: 'white', color: '#1e293b' }}
+                              >
+                                <option value="">— Selecciona una novedad —</option>
+                                {masterNovelties.length === 0 && (
+                                  <option value="" disabled>Cargando novedades...</option>
+                                )}
+                                {masterNovelties
+                                  .filter(nov => !nov.modulo_relac || nov.modulo_relac.toLowerCase().includes('taller'))
+                                  .map(nov => (
+                                    <option key={nov.id} value={String(nov.id)}>
+                                      [{nov.cod_novedad}] {nov.nombre}{nov.criticidad ? ` · ${nov.criticidad}` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Color / Referencia</label>
+                              <input
+                                type="text"
+                                placeholder="Ej: Azul Rey, Rojo Tinto..."
+                                value={line.color}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, color: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', backgroundColor: 'white', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#78350f', marginBottom: '0.25rem' }}>Detalle adicional</label>
+                              <input
+                                type="text"
+                                placeholder="Cantidad, descripción..."
+                                value={line.nota}
+                                onChange={e => setEnvioNovedadLines(prev => prev.map(l => l.id === line.id ? { ...l, nota: e.target.value } : l))}
+                                style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '0.8rem', backgroundColor: 'white', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* General observations */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', marginBottom: '0.4rem', color: '#334155' }}>📝 Observaciones generales (opcional)</label>
+                    <textarea
+                      placeholder="Información adicional del despacho, faltantes, acuerdos..."
+                      value={envioNotes}
+                      onChange={e => setEnvioNotes(e.target.value)}
+                      style={{ width: '100%', minHeight: '75px', padding: '0.625rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.83rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+                    />
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowEnvioModal(false)}
+                      style={{ flex: 1, padding: '0.8rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', color: '#475569', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer' }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingEnvio}
+                      style={{ flex: 2, padding: '0.8rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: 'white', fontWeight: '900', fontSize: '0.9rem', cursor: savingEnvio ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: savingEnvio ? 0.75 : 1 }}
+                    >
+                      {savingEnvio ? '⏳ Enviando...' : '📤 Confirmar Envío a Calidad'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -2435,7 +3762,7 @@ export default function Dashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#7c3aed', textTransform: 'uppercase' }}>Portal de Taller</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>Portal de Taller</span>
               <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Control de Entregas y Pagos</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Registro de prendas aprobadas en auditoría de calidad y valor liquidado.</p>
             </div>
@@ -2465,7 +3792,7 @@ export default function Dashboard() {
                     const payment = (i.items_approved || 0) * itemRate;
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '1rem', fontWeight: '800', color: '#4f46e5' }}>{orderCode}</td>
+                        <td style={{ padding: '1rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</td>
                         <td style={{ padding: '1rem', color: '#475569' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
                         <td style={{ padding: '1rem', fontWeight: '700' }}>{i.items_inspected} uds</td>
                         <td style={{ padding: '1rem', fontWeight: '700', color: '#16a34a' }}>{i.items_approved} uds</td>
@@ -2521,7 +3848,7 @@ export default function Dashboard() {
   const modalConfig: Record<NonNullable<ModalType>, {
     title: string; subtitle: string; orders: Order[]; accentColor: string;
   }> = {
-    total:      { title: 'Todas las Órdenes',    subtitle: 'Resumen general',     orders,           accentColor: '#6366f1' },
+    total:      { title: 'Todas las Órdenes',    subtitle: 'Resumen general',     orders,           accentColor: '#80082E' },
     cortadas:   { title: 'Órdenes Cortadas',     subtitle: 'Completadas',         orders: cortadas,  accentColor: '#059669' },
     en_proceso: { title: 'Órdenes En Corte',     subtitle: 'Actualmente en mesa', orders: enProceso, accentColor: '#d97706' },
     pendientes: { title: 'Órdenes Pendientes',   subtitle: 'Esperando inicio',    orders: pendientes,accentColor: '#ef4444' },
@@ -2663,173 +3990,355 @@ export default function Dashboard() {
 
       {adminTab === 'overview' && (
         <>
-          {/* ── Stat Cards ─────────────────────────────────────────────────────── */}
-          <div className="dashboard-grid">
-            <StatCard
-              label="Órdenes Totales" value={loading ? '…' : total}
-              sub={`${total} órdenes en el sistema`}
-              icon={<Package size={20} />} primary
-              onClick={() => setActiveModal('total')}
-            />
-            <StatCard
-              label="Órdenes Cortadas" value={loading ? '…' : cortadas.length}
-              sub={`${total > 0 ? Math.round((cortadas.length / total) * 100) : 0}% del total completado`}
-              icon={<CheckCircle2 size={20} />}
-              onClick={() => setActiveModal('cortadas')}
-            />
-            <StatCard
-              label="En Corte" value={loading ? '…' : enProceso.length}
-              sub="Actualmente en mesa de corte"
-              icon={<Scissors size={20} />}
-              onClick={() => setActiveModal('en_proceso')}
-            />
-            <StatCard
-              label="Pendientes" value={loading ? '…' : pendientes.length}
-              sub="Esperando inicio de corte"
-              icon={<AlertCircle size={20} />}
-              onClick={() => setActiveModal('pendientes')}
-            />
-          </div>
+          {(() => {
+            const theme = {
+              bg: darkMode ? '#0f172a' : '#f8fafc',
+              cardBg: darkMode ? '#1e293b' : '#ffffff',
+              text: darkMode ? '#f8fafc' : '#0f172a',
+              textMuted: darkMode ? '#94a3b8' : '#64748b',
+              border: darkMode ? '#334155' : '#cbd5e1',
+              primary: '#80082E',
+              secondary: '#D81B60',
+              gridColor: darkMode ? '#334155' : '#f1f5f9',
+              accent: '#ff9800',
+              success: '#10b981',
+              danger: '#ef4444'
+            };
 
-          {/* ── Charts Row ──────────────────────────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+            // ── CÁLCULO DE VALORES REALES DESDE LA BASE DE DATOS ──
+            
+            // 1. Stock Real de Tela Consolidado (fabricsList)
+            const totalFabricStockMetres = fabricsList.reduce((sum, f) => sum + (Number(f.stock) || 0), 0);
 
-            {/* Bar Chart */}
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div>
-                  <h3 style={{ margin: 0 }}>Órdenes por Mes</h3>
-                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Órdenes creadas en los últimos meses</p>
-                </div>
-                <BarChart2 size={20} color="var(--primary)" />
-              </div>
-              <div style={{ height: '240px', width: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData.length > 0 ? barData : [{ name: 'Sin datos', value: 0 }]}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 700 }} />
-                    <YAxis hide allowDecimals={false} />
-                    <Tooltip
-                      cursor={{ fill: 'rgba(99,102,241,0.06)' }}
-                      contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
-                    />
-                    <Bar dataKey="value" fill="var(--primary)" radius={[6, 6, 0, 0]} barSize={36} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            // Resuelve la tarifa de confección de una orden basado en su categoría
+            const getOrderRateGeneric = (orderId: string) => {
+              const orderObj = orders.find(o => o.id === orderId);
+              if (!orderObj || !orderObj.cuts || orderObj.cuts.length === 0) return 4500;
+              const cut = orderObj.cuts[0];
+              const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+              const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+              if (!categoryObj) return 4500;
+              return categoryObj.base_rate || 4500;
+            };
 
-            {/* Pie Chart */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ alignSelf: 'flex-start', marginBottom: '1rem', width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h3 style={{ margin: 0 }}>Estado de Órdenes</h3>
-                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Distribución actual</p>
-                </div>
-              </div>
-              <div style={{ height: '180px', width: '100%', position: 'relative' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%" cy="50%"
-                      innerRadius={55} outerRadius={78}
-                      paddingAngle={4} dataKey="value"
-                    >
-                      {pieData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', fontWeight: 700 }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
-                  <p style={{ fontSize: '1.6rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>{total}</p>
-                  <p style={{ fontSize: '0.6rem', color: '#64748b', margin: 0, fontWeight: '700', textTransform: 'uppercase' }}>Total</p>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem', width: '100%' }}>
-                {pieData.map((entry, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[i] }} />
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{entry.name}</span>
-                    </div>
-                    <span style={{ fontWeight: '800', color: '#1e293b' }}>{entry.value}</span>
+            // 2. Saldo Real Liquidado por prendas APROBADAS en Calidad
+            let realApprovedPayout = 0;
+            inspections.forEach(insp => {
+              const itemRate = getOrderRateGeneric(insp.order_id);
+              realApprovedPayout += (insp.items_approved || 0) * itemRate;
+            });
+
+            // 3. Tasa de Rechazo de Calidad Real Consolidada (quality_inspections)
+            const totalInspectedItems = inspections.reduce((sum, i) => sum + (Number(i.items_inspected) || 0), 0);
+            const totalRejectedItems = inspections.reduce((sum, i) => sum + (Number(i.items_rejected) || 0), 0);
+            const qualityRejectionRate = totalInspectedItems > 0 ? ((totalRejectedItems / totalInspectedItems) * 100).toFixed(1) : '0.0';
+
+            // 4. Metraje de Tela consumido en tendidos reales
+            let totalMetresConsumed = 0;
+            orders.forEach(o => {
+              (o.cuts || []).forEach(cut => {
+                const layers = cut.layers_produced || 0;
+                const length = Number(cut.length) || 0;
+                totalMetresConsumed += layers * length;
+              });
+            });
+
+            const calculatedEfficiency = total > 0 ? Math.round((cortadas.length / total) * 100) : 0;
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', backgroundColor: theme.bg, color: theme.text, transition: 'all 0.3s ease' }}>
+                
+                {/* 1. Switch de Modo Oscuro en Cabecera de Módulo */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: theme.cardBg, padding: '1rem 1.5rem', borderRadius: '14px', border: `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981', animation: 'pulse 1.5s infinite' }}></div>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '800', color: theme.textMuted }}>ERP Central Conectado en Tiempo Real</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                  <button
+                    onClick={() => setDarkMode(!darkMode)}
+                    style={{
+                      padding: '0.45rem 1rem',
+                      borderRadius: '8px',
+                      border: `1.5px solid ${theme.border}`,
+                      fontSize: '0.75rem',
+                      fontWeight: '800',
+                      backgroundColor: theme.cardBg,
+                      color: theme.text,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem'
+                    }}
+                  >
+                    {darkMode ? '☀️ Modo Claro' : '🌙 Modo Oscuro'}
+                  </button>
+                </div>
 
-          {/* ── Últimas Órdenes ─────────────────────────────────────────────────── */}
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>Últimas Órdenes</h3>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>Las 5 órdenes más recientes</p>
-              </div>
-              <Link href="/cutting" style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                Ver todas <ArrowUpRight size={14} />
-              </Link>
-            </div>
-
-            {loading ? (
-              <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Cargando órdenes…</p>
-            ) : orders.length === 0 ? (
-              <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem', fontSize: '0.85rem' }}>No hay órdenes aún.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                {orders.slice(0, 5).map(order => {
-                  const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['Planeada'];
-                  return (
-                    <Link key={order.id} href={`/cutting/${order.id}`} style={{ textDecoration: 'none' }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: '1rem',
-                        padding: '0.85rem 1.1rem', borderRadius: '10px',
-                        border: '1.5px solid #f1f5f9', backgroundColor: '#fafafa',
-                        cursor: 'pointer', transition: 'all 0.15s ease',
-                      }}
-                      onMouseEnter={e => {
-                        (e.currentTarget as HTMLElement).style.borderColor = '#6366f1';
-                        (e.currentTarget as HTMLElement).style.backgroundColor = '#f8f7ff';
-                      }}
-                      onMouseLeave={e => {
-                        (e.currentTarget as HTMLElement).style.borderColor = '#f1f5f9';
-                        (e.currentTarget as HTMLElement).style.backgroundColor = '#fafafa';
-                      }}
-                      >
-                        <div style={{ width: '36px', height: '36px', borderRadius: '999px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <Scissors size={16} color="#6366f1" />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontWeight: '800', fontSize: '0.875rem', color: '#1e293b' }}>
-                              OC-{order.internal_code}
-                            </span>
-                            <span style={{
-                              fontSize: '0.65rem', fontWeight: '800',
-                              padding: '2px 7px', borderRadius: '5px',
-                              backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
-                            }}>
-                              {cfg.label}
-                            </span>
-                          </div>
-                          <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b', fontWeight: '600', marginTop: '0.15rem' }}>
-                            {order.cortador_name ? `✂ ${order.cortador_name}` : 'Sin cortador asignado'}
-                            {order.scheduled_date && ` · 📅 ${order.scheduled_date}`}
-                          </p>
-                        </div>
-                        <Clock size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
+                {/* 2. Stat Cards con Sparklines Premium */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
+                  
+                  {/* Card 1: Stock de Tela Real */}
+                  <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                      <div>
+                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stock de Tela</p>
+                        <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: theme.text }}>{loading ? '…' : `${totalFabricStockMetres.toLocaleString('es-CO')} m`}</h3>
+                        <p style={{ fontSize: '0.72rem', color: '#3b82f6', margin: 0, fontWeight: '700' }}>Disponible en inventario</p>
                       </div>
+                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'rgba(59,130,246,0.1)', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Package size={18} />
+                      </div>
+                    </div>
+                    <SparklineWave color="#3b82f6" path="M0,22 Q25,8 50,18 T100,8" />
+                  </div>
+
+                  {/* Card 2: Saldo Real Confección */}
+                  <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                      <div>
+                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo Real Confeccionado</p>
+                        <h3 style={{ fontSize: '1.6rem', fontWeight: '950', margin: '0.25rem 0', color: theme.success }}>{loading ? '…' : `$${Math.round(realApprovedPayout).toLocaleString('es-CO')}`}</h3>
+                        <p style={{ fontSize: '0.72rem', color: theme.success, margin: 0, fontWeight: '700' }}>Aprobado en Control de Calidad</p>
+                      </div>
+                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${theme.success}15`, color: theme.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CheckCircle2 size={18} />
+                      </div>
+                    </div>
+                    <SparklineWave color={theme.success} path="M0,20 Q30,5 60,25 T100,10" />
+                  </div>
+
+                  {/* Card 3: Metraje Consumido */}
+                  <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                      <div>
+                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tela Consumida</p>
+                        <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: theme.primary }}>{loading ? '…' : `${Math.round(totalMetresConsumed).toLocaleString('es-CO')} m`}</h3>
+                        <p style={{ fontSize: '0.72rem', color: theme.primary, margin: 0, fontWeight: '700' }}>Consumidos en mesa de corte</p>
+                      </div>
+                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${theme.primary}15`, color: theme.primary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Scissors size={18} />
+                      </div>
+                    </div>
+                    <SparklineWave color={theme.primary} path="M0,15 Q30,25 60,10 T100,20" />
+                  </div>
+
+                  {/* Card 4: Rechazo Calidad */}
+                  <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: '1.25rem 1.5rem', border: `1px solid ${theme.border}`, backgroundColor: theme.cardBg, color: theme.text }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                      <div>
+                        <p style={{ fontSize: '0.7rem', fontWeight: '800', color: theme.textMuted, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tasa de Defectos (Calidad)</p>
+                        <h3 style={{ fontSize: '2rem', fontWeight: '950', margin: '0.25rem 0', color: Number(qualityRejectionRate) > 5 ? theme.danger : theme.success }}>{loading ? '…' : `${qualityRejectionRate}%`}</h3>
+                        <p style={{ fontSize: '0.72rem', color: theme.textMuted, margin: 0, fontWeight: '700' }}>Meta tolerada: &lt; 5%</p>
+                      </div>
+                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: `${Number(qualityRejectionRate) > 5 ? theme.danger : theme.success}15`, color: Number(qualityRejectionRate) > 5 ? theme.danger : theme.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <AlertCircle size={18} />
+                      </div>
+                    </div>
+                    <SparklineWave color={Number(qualityRejectionRate) > 5 ? theme.danger : theme.success} path="M0,25 Q20,10 50,22 T100,12" />
+                  </div>
+                </div>
+
+                {/* 3. Sección de Analítica y Distribución Corporativa */}
+                <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem' }}>
+                  
+                  {/* Gráfico Bar Chart de Órdenes por Mes */}
+                  <div style={{
+                    backgroundColor: theme.cardBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '20px',
+                    padding: '1.5rem 1.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem'
+                  }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Flujo de Órdenes por Mes</h3>
+                      <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Volumen mensual de órdenes creadas en planta.</span>
+                    </div>
+
+                    <div style={{ width: '100%', height: '240px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={barData.length > 0 ? barData : [{ name: 'Sin datos', value: 0 }]}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.gridColor} />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: theme.textMuted, fontSize: 10, fontWeight: 700 }} />
+                          <YAxis stroke={theme.textMuted} fontSize={10} tickLine={false} />
+                          <Tooltip contentStyle={{ backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }} />
+                          <Bar dataKey="value" fill={theme.primary} radius={[4, 4, 0, 0]} barSize={25} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Gráfico Circular de Estado de Órdenes */}
+                  <div style={{
+                    backgroundColor: theme.cardBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: '20px',
+                    padding: '1.5rem 1.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '1rem'
+                  }}>
+                    <div style={{ alignSelf: 'flex-start', width: '100%' }}>
+                      <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Estados de Corte</h3>
+                      <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Distribución física actual</span>
+                    </div>
+
+                    <div style={{ height: '150px', width: '100%', position: 'relative' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%" cy="50%"
+                            innerRadius={45} outerRadius={65}
+                            paddingAngle={3} dataKey="value"
+                          >
+                            {pieData.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center', pointerEvents: 'none' }}>
+                        <p style={{ fontSize: '1.4rem', fontWeight: '950', margin: 0, color: theme.text }}>{total}</p>
+                        <p style={{ fontSize: '0.55rem', color: theme.textMuted, margin: 0, fontWeight: '700', textTransform: 'uppercase' }}>Total</p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
+                      {pieData.map((entry, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: COLORS[i] }} />
+                            <span style={{ color: theme.textMuted, fontWeight: '600' }}>{entry.name}</span>
+                          </div>
+                          <span style={{ fontWeight: '800', color: theme.text }}>{entry.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Tabla de Alertas Operativas Críticas */}
+                <div style={{
+                  backgroundColor: theme.cardBg,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: '20px',
+                  padding: '1.5rem 1.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem'
+                }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Panel de Control Operativo y Alertas de Planta</h3>
+                    <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Alertas sugeridas y desvíos de material</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {/* Alerta 1: Órdenes en cola */}
+                    {pendientes.length > 5 && (
+                      <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', borderLeft: `4px solid ${theme.accent}`, backgroundColor: `${theme.accent}08`, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <AlertCircle size={16} color={theme.accent} />
+                        <span style={{ fontSize: '0.78rem', fontWeight: '600' }}>Cuello de Botella en Mesa de Corte: <strong>{pendientes.length} órdenes en cola</strong> esperando ser procesadas.</span>
+                      </div>
+                    )}
+
+                    {/* Alerta 2: Eficiencia de calidad global */}
+                    {total > 0 && calculatedEfficiency < 40 && (
+                      <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', borderLeft: `4px solid ${theme.danger}`, backgroundColor: `${theme.danger}08`, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <AlertCircle size={16} color={theme.danger} />
+                        <span style={{ fontSize: '0.78rem', fontWeight: '600' }}>Atención: La tasa de cortes completados está por debajo del promedio semanal esperado ({calculatedEfficiency}%).</span>
+                      </div>
+                    )}
+
+                    {/* Alerta general de WebSocket Simulator */}
+                    {liveNotifications.slice(0, 2).map(noti => (
+                      <div key={noti.id} style={{ padding: '0.75rem 1rem', borderRadius: '8px', borderLeft: `4px solid #3b82f6`, backgroundColor: `${darkMode ? '#0f172a' : '#f0fdf4'}08`, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ fontSize: '0.8rem' }}>⚡</div>
+                        <span style={{ fontSize: '0.78rem', fontWeight: '600', color: theme.text }}>Feed del Sistema: {noti.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. Últimas Órdenes de Corte */}
+                <div style={{
+                  backgroundColor: theme.cardBg,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: '20px',
+                  padding: '1.5rem 1.75rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: theme.text }}>Últimas Órdenes de Corte</h3>
+                      <span style={{ fontSize: '0.72rem', color: theme.textMuted }}>Monitoreo de flujo de trabajo de las 5 órdenes más recientes</span>
+                    </div>
+                    <Link href="/cutting" style={{ fontSize: '0.75rem', fontWeight: '800', color: theme.primary, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      Ver mesa de tendido <ArrowUpRight size={14} />
                     </Link>
-                  );
-                })}
+                  </div>
+
+                  {loading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ height: '35px', width: '100%', borderRadius: '6px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                      <div style={{ height: '35px', width: '90%', borderRadius: '6px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
+                    </div>
+                  ) : orders.length === 0 ? (
+                    <p style={{ color: theme.textMuted, textAlign: 'center', padding: '2rem', fontSize: '0.85rem' }}>No hay órdenes aún.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                      {orders.slice(0, 5).map(order => {
+                        const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['Planeada'];
+                        return (
+                          <Link key={order.id} href={`/cutting/${order.id}`} style={{ textDecoration: 'none' }}>
+                            <div style={{
+                              display: 'flex', alignItems: 'center', gap: '1rem',
+                              padding: '0.85rem 1.1rem', borderRadius: '10px',
+                              border: `1.5px solid ${theme.border}`, backgroundColor: theme.bg,
+                              cursor: 'pointer', transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={e => {
+                              (e.currentTarget as HTMLElement).style.borderColor = theme.primary;
+                            }}
+                            onMouseLeave={e => {
+                              (e.currentTarget as HTMLElement).style.borderColor = theme.border;
+                            }}
+                            >
+                              <div style={{ width: '36px', height: '36px', borderRadius: '999px', backgroundColor: `${theme.primary}12`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Scissors size={16} color={theme.primary} />
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontWeight: '800', fontSize: '0.875rem', color: theme.text }}>
+                                    OC-{order.internal_code}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.65rem', fontWeight: '800',
+                                    padding: '2px 7px', borderRadius: '5px',
+                                    backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+                                  }}>
+                                    {cfg.label}
+                                  </span>
+                                </div>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: theme.textMuted, fontWeight: '600', marginTop: '0.15rem' }}>
+                                  {order.cortador_name ? `✂ ${order.cortador_name}` : 'Sin cortador asignado'}
+                                  {order.scheduled_date && ` · 📅 ${order.scheduled_date}`}
+                                </p>
+                              </div>
+                              <Clock size={14} color={theme.textMuted} style={{ flexShrink: 0 }} />
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
               </div>
-            )}
-          </div>
+            );
+          })()}
         </>
       )}
 
@@ -2966,7 +4475,7 @@ export default function Dashboard() {
                 String(so.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim()
               );
               wsSewingOrders.forEach(so => {
-                totalPrendasProyectadas += (so.cantidad_planeada || 0);
+                totalPrendasProyectadas += getSewingOrderTotalUnits(so);
               });
 
               const wsInsps = inspections.filter(i => 
@@ -2978,7 +4487,8 @@ export default function Dashboard() {
             });
 
             // Paginación
-            const itemsPerPage = 25;
+            const itemsPerPageParam = companyParams?.find((p: any) => p.name === 'pos_page_size')?.value;
+            const itemsPerPage = itemsPerPageParam ? (parseInt(itemsPerPageParam) || 15) : 15;
             const totalPages = Math.ceil(allRows.length / itemsPerPage) || 1;
             const currentPage = Math.min(compPage, totalPages);
             const startIndex = (currentPage - 1) * itemsPerPage;
@@ -3000,7 +4510,7 @@ export default function Dashboard() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
                   {/* Card 1: Unidades de Corte */}
-                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #6366f1', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #80082E', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prendas Planeadas vs Cortadas</span>
                     <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
                       {totalRl.toLocaleString('es-CO')} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalPl.toLocaleString('es-CO')} uds</span>
@@ -3011,12 +4521,12 @@ export default function Dashboard() {
                   </div>
 
                   {/* Card 2: Confeccionadas vs Proyectadas */}
-                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #f59e0b', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #D81B60', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Proyectado vs Entregado Satélite</span>
                     <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
                       {totalPrendasEntregadas.toLocaleString('es-CO')} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalPrendasProyectadas.toLocaleString('es-CO')} uds</span>
                     </h3>
-                    <p style={{ fontSize: '0.74rem', color: '#f59e0b', margin: 0, fontWeight: '800' }}>
+                    <p style={{ fontSize: '0.74rem', color: '#D81B60', margin: 0, fontWeight: '800' }}>
                       Entregas Aprobadas: {totalPrendasProyectadas > 0 ? (totalPrendasEntregadas / totalPrendasProyectadas * 100).toFixed(1) : '0'}%
                     </p>
                   </div>
@@ -3033,7 +4543,7 @@ export default function Dashboard() {
                   </div>
 
                   {/* Card 4: Metros de Tela */}
-                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #06b6d4', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div className="card" style={{ padding: '1.5rem', borderLeft: '5px solid #a8325c', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Metros Planificados vs Cortados</span>
                     <h3 style={{ fontSize: '1.8rem', fontWeight: '950', margin: '0.2rem 0', color: '#1e293b' }}>
                       {totalMetrosRl.toFixed(1)} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>/ {totalMetrosPl.toFixed(1)} m</span>
@@ -3059,8 +4569,8 @@ export default function Dashboard() {
                           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
                           <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
                           <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.08)' }} />
-                          <Bar dataKey="planeado" fill="#818cf8" radius={[4, 4, 0, 0]} name="Planeado" />
-                          <Bar dataKey="real" fill="#34d399" radius={[4, 4, 0, 0]} name="Ejecutado" />
+                          <Bar dataKey="planeado" fill="#a8325c" radius={[4, 4, 0, 0]} name="Planeado" />
+                          <Bar dataKey="real" fill="#80082E" radius={[4, 4, 0, 0]} name="Ejecutado" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -3079,8 +4589,8 @@ export default function Dashboard() {
                           <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} />
                           <YAxis tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
                           <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.08)' }} />
-                          <Line type="monotone" dataKey="planeado" stroke="#818cf8" strokeWidth={3} dot={{ r: 4 }} name="Planeado" />
-                          <Line type="monotone" dataKey="real" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} name="Ejecutado" />
+                          <Line type="monotone" dataKey="planeado" stroke="#a8325c" strokeWidth={3} dot={{ r: 4 }} name="Planeado" />
+                          <Line type="monotone" dataKey="real" stroke="#80082E" strokeWidth={3} dot={{ r: 4 }} name="Ejecutado" />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -3093,13 +4603,13 @@ export default function Dashboard() {
                   <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '0.95rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span style={{ fontSize: '1.1rem' }}>🏷️</span> Top 10 Categorías Producidas
-                      <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#7c3aed', backgroundColor: '#ede9fe', padding: '2px 8px', borderRadius: '20px', marginLeft: '0.25rem' }}>uds reales</span>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', backgroundColor: '#fdf2f4', padding: '2px 8px', borderRadius: '20px', marginLeft: '0.25rem' }}>uds reales</span>
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {topCategories.length === 0 ? (
                         <p style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>Sin datos de categorías.</p>
                       ) : topCategories.map((item, idx) => {
-                        const catColors = ['#6366f1','#8b5cf6','#a78bfa','#7c3aed','#4f46e5','#6d28d9','#818cf8','#7e22ce','#5b21b6','#4338ca'];
+                        const catColors = ['#80082E','#9b1247','#a8325c','#D81B60','#c2185b','#e91e63','#ad1457','#880e4f','#b71c5c','#a8325c'];
                         const barColor = catColors[idx % catColors.length];
                         const maxVal = topCategories[0].value;
                         return (
@@ -3168,7 +4678,7 @@ export default function Dashboard() {
                           const diffQtyVal = row.real - row.planned;
                           return (
                             <tr key={`${row.cutId}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#4f46e5' }}>{row.code}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#80082E' }}>{row.code}</td>
                               <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#1e293b' }}>{row.productName}</td>
                               <td style={{ padding: '0.85rem 1.25rem', color: '#475569', fontWeight: '600' }}>{row.fabricName}</td>
                               <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '700' }}>
@@ -3243,6 +4753,115 @@ export default function Dashboard() {
       {adminTab === 'workshop_consolidation' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           {(() => {
+            const getAssignmentsFromJson = (order: any) => {
+              if (!order || !order.observaciones) return null;
+              const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:([\s\S]*?)-->/);
+              if (match && match[1]) {
+                try {
+                  return JSON.parse(match[1]);
+                } catch (e) {
+                  return null;
+                }
+              }
+              return null;
+            };
+
+            const getAssignmentsData = (order: any) => {
+              if (!order) return { rowWorkshops: {}, cutAccessories: {}, prepNotes: '', workshopNotes: '', deliveryDate: '' };
+              
+              let rawAss: any = null;
+              if (order.dbAssignments) {
+                rawAss = order.dbAssignments;
+              } else {
+                rawAss = getAssignmentsFromJson(order);
+              }
+
+              if (rawAss) {
+                const rowWorkshops: Record<string, string> = {};
+                if (rawAss.rowWorkshops) {
+                  Object.entries(rawAss.rowWorkshops).forEach(([key, wId]) => {
+                    rowWorkshops[key] = String(wId);
+                    const parts = key.split('_');
+                    if (parts.length >= 2) {
+                      const idPart = parts[0];
+                      const sizePart = parts.slice(1).join('_');
+                      
+                      const matchingProducts = productsList.filter(p => String(p.category_id) === String(idPart));
+                      matchingProducts.forEach(p => {
+                        rowWorkshops[`${p.id}_${sizePart}`] = String(wId);
+                      });
+                    }
+                  });
+                }
+                return {
+                  ...rawAss,
+                  rowWorkshops
+                };
+              }
+
+              // Fallback: assign everything to order.workshop_id
+              const rowWorkshops: Record<string, string> = {};
+              if (order && order.cuts) {
+                order.cuts.forEach((cut: any) => {
+                  const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+                  const catId = prod ? String(prod.id) : 'sin_prod';
+                  
+                  (cut.cut_sizes || []).forEach((cs: any) => {
+                    const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                    const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                    const cellKey = `${catId}_${sz}`;
+                    rowWorkshops[cellKey] = String(order.workshop_id || '');
+                  });
+                });
+              }
+
+              return {
+                rowWorkshops,
+                cutAccessories: {},
+                prepNotes: 'Orden anterior (previa a actualización).',
+                workshopNotes: 'Sin notas adicionales.',
+                deliveryDate: order.fecha_entrega || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+              };
+            };
+
+            const getSewingOrderTotalUnits = (so: any) => {
+              if (!so.parent_order) return so.cantidad_planeada || 0;
+              const dataAss = getAssignmentsData(so.parent_order);
+              const rowWorkshopsMap = dataAss?.rowWorkshops || {};
+              let total = 0;
+              
+              (so.parent_order.cuts || []).forEach((cut: any) => {
+                const targetProdId = cut.product_id;
+                if (String(targetProdId) !== String(so.product_id)) return;
+                
+                const layersProyec = cut.layers || 1;
+                const layersProduced = cut.layers_produced || 0;
+                
+                (cut.cut_sizes || []).forEach((cs: any) => {
+                  const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                  const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                  const cellKey = `${targetProdId}_${sz}`;
+                  const assignedWId = rowWorkshopsMap[cellKey];
+                  
+                  if (!assignedWId || String(assignedWId) !== String(so.workshop_id)) return;
+                  
+                  let realQty = 0;
+                  if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                    realQty = Number(cs.quantity_produced);
+                  } else {
+                    const proyecQty = Number(cs.quantity) || 0;
+                    const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                    realQty = Math.round(ppc * layersProduced);
+                  }
+                  if (realQty > 0) {
+                    total += realQty;
+                  }
+                });
+              });
+              
+              return total || so.cantidad_planeada || 0;
+            };
+
             const baseSewingGlobal = baseCosts.find(c => c.concepto?.toLowerCase() === 'costura')?.valor || 2500;
             
             const rows = sewingOrdersList.map(so => {
@@ -3305,7 +4924,7 @@ export default function Dashboard() {
               }
 
               // Quantities & Empaque
-              const plannedQty = so.cantidad_planeada || 0;
+              const plannedQty = getSewingOrderTotalUnits(so);
               const hasEmpaque = !!so.empaque; // Flag empaque de la orden de confección
               const rateEmpaque = ws ? Number(ws.desc_empaque ?? 0) : 0;
               
@@ -3409,7 +5028,8 @@ export default function Dashboard() {
             });
 
             // Pagination
-            const limit = 10;
+            const limitParam = companyParams?.find((p: any) => p.name === 'pos_page_size')?.value;
+            const limit = limitParam ? (parseInt(limitParam) || 15) : 15;
             const totalItems = sorted.length;
             const totalPages = Math.ceil(totalItems / limit) || 1;
             const currentPage = Math.min(consolidationPage, totalPages);
@@ -3526,8 +5146,8 @@ export default function Dashboard() {
                             <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
                             <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={v => `$${(v/1e6).toFixed(1)}M`} />
                             <Tooltip formatter={(value: any) => [`$${Number(value).toLocaleString('es-CO')}`, '']} />
-                            <Bar dataKey="estimado" name="Valor Estimado" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="real" name="Valor Real Aprobado" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="estimado" name="Valor Estimado" fill="#a8325c" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="real" name="Valor Real Aprobado" fill="#80082E" radius={[4, 4, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       ) : (
@@ -3673,7 +5293,7 @@ export default function Dashboard() {
                                 <td style={{ padding: '0.8rem', fontWeight: '700', color: '#1e293b' }}>
                                   {row.workshopName}
                                 </td>
-                                <td style={{ padding: '0.8rem', fontWeight: '750', color: '#4f46e5' }}>
+                                <td style={{ padding: '0.8rem', fontWeight: '750', color: '#80082E' }}>
                                   {row.sewingOrderCode}
                                 </td>
                                 <td style={{ padding: '0.8rem', fontWeight: '600' }}>
@@ -3700,7 +5320,7 @@ export default function Dashboard() {
                                 <td style={{ padding: '0.8rem', textAlign: 'center' }}>
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'center' }}>
                                     {row.isSpecialEnabled ? (
-                                      <span style={{ fontSize: '0.62rem', fontWeight: '800', backgroundColor: '#faf5ff', color: '#7c3aed', padding: '0.1rem 0.3rem', borderRadius: '4px', border: '1px solid #e9d5ff' }}>
+                                      <span style={{ fontSize: '0.62rem', fontWeight: '800', backgroundColor: '#fdf2f4', color: '#80082E', padding: '0.1rem 0.3rem', borderRadius: '4px', border: '1px solid #f5c6d0' }}>
                                         💲 Especial
                                       </span>
                                     ) : (

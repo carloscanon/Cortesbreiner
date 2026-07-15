@@ -1,10 +1,40 @@
 'use client';
 
-import { Search, Bell, Mail, User, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { Search, Bell, Mail, User, Loader2, Store, Settings, Factory } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export default function Navbar() {
   const { user, profile, loading } = useAuth();
+  const pathname = usePathname();
+  const [allowedModules, setAllowedModules] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchPermissions = async () => {
+      if (profile?.role_id) {
+        try {
+          const { data: rolePerms } = await supabase
+            .from('role_permissions')
+            .select('permissions(module)')
+            .eq('role_id', profile.role_id);
+
+          if (rolePerms) {
+            const modules = rolePerms.map((rp: any) => rp.permissions?.module).filter(Boolean);
+            setAllowedModules(modules);
+          }
+        } catch (err) {
+          console.error('Error fetching navbar permissions:', err);
+        }
+      }
+    };
+
+    fetchPermissions();
+  }, [profile]);
+
+  if (pathname?.startsWith('/pos')) return null;
 
   return (
     <header style={{ 
@@ -54,7 +84,69 @@ export default function Navbar() {
         }}>⌘ K</div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+        {(() => {
+          const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
+          const isSuperAdmin = roleNameLower.includes('super');
+          
+          const hasStoreAccess = isSuperAdmin || allowedModules.includes('store_admin');
+          const hasWorkshopsAccess = isSuperAdmin || allowedModules.includes('workshops');
+
+          if (!hasStoreAccess && !hasWorkshopsAccess) return null;
+
+          return (
+            <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+              {hasStoreAccess && (
+                <Link 
+                  href="/store-admin" 
+                  style={{
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    color: 'white',
+                    background: 'linear-gradient(135deg, #80082E, #D81B60)',
+                    boxShadow: '0 2px 6px rgba(128,8,46,0.2)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.03)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1.0)'}
+                >
+                  <Store size={14} /> Tiendas POS
+                </Link>
+              )}
+
+              {hasWorkshopsAccess && (
+                <Link 
+                  href="/workshops" 
+                  style={{
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    color: 'white',
+                    background: 'linear-gradient(135deg, #80082E, #D81B60)',
+                    boxShadow: '0 2px 6px rgba(128,8,46,0.2)',
+                    transition: 'transform 0.15s ease',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.03)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1.0)'}
+                >
+                  <Factory size={14} /> Satélites / Talleres
+                </Link>
+              )}
+            </div>
+          );
+        })()}
+
         <button className="btn-icon" style={{ position: 'relative' }}>
           <Mail size={20} color="var(--text-muted)" />
         </button>
@@ -72,7 +164,11 @@ export default function Navbar() {
           }}></span>
         </button>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '1.5rem', borderLeft: '1px solid var(--border)' }}>
+        <Link href="/settings" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'transform 0.15s' }} onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'} onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
+          <Settings size={20} color="var(--text-muted)" />
+        </Link>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: '1.25rem', borderLeft: '1px solid var(--border)' }}>
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                <Loader2 size={16} className="animate-spin" color="var(--primary)" />

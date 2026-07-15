@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { applyTheme } from '@/components/ThemeProvider';
+import MastersPage from '../masters/page';
 import { 
   Settings as SettingsIcon, 
   Users, 
@@ -117,7 +118,10 @@ export default function SettingsPage() {
           { module: 'orders', name: 'Órdenes', description: 'Gestión de órdenes de producción' },
           { module: 'cutting', name: 'Mesa de Corte', description: 'Gestión de cortes y trazos' },
           { module: 'masters', name: 'Maestros', description: 'Configuración de telas, colores y tallas' },
-          { module: 'inventory', name: 'Inventario', description: 'Control de stock de insumos' },
+          { module: 'inventory', name: 'Inventario Telas', description: 'Control de stock de telas y rollos' },
+          { module: 'inventory_finished', name: 'Inventario P. Terminado', description: 'Inventario de prendas confeccionadas aprobadas' },
+          { module: 'store_admin', name: 'Administración de Tiendas', description: 'Gestión de sucursales, cajas y promociones' },
+          { module: 'pos', name: 'Punto de Venta (POS)', description: 'Terminal de facturación táctil offline/online' },
           { module: 'costs', name: 'Costos', description: 'Módulo de costeo de producción' },
           { module: 'tracking', name: 'Seguimiento', description: 'Estado de envíos a talleres' },
           { module: 'workshops', name: 'Talleres', description: 'Gestión de talleres satélite' },
@@ -151,11 +155,19 @@ export default function SettingsPage() {
         setRoles(rolesWithPerms);
         setPermissions(permsData || []);
       } else if (activeTab === 'users') {
-        const res = await fetch('/api/users/list');
-        if (res.ok) {
-          const result = await res.json();
-          setUsers(result.users || []);
-        } else {
+        let userLoaded = false;
+        try {
+          const res = await fetch('/api/users/list');
+          if (res.ok) {
+            const result = await res.json();
+            setUsers(result.users || []);
+            userLoaded = true;
+          }
+        } catch (e) {
+          console.warn("Failed to fetch users list via API, falling back to direct profiles query:", e);
+        }
+
+        if (!userLoaded) {
           const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name), workshops(id, nombre_taller)');
           setUsers(profiles || []);
         }
@@ -176,7 +188,8 @@ export default function SettingsPage() {
             { name: 'min_wage', value: '1300000', description: 'Salario Mínimo' },
             { name: 'iva_percent', value: '19', description: 'IVA (%)' },
             { name: 'max_marcaciones', value: '7', description: 'Máximo número de marcación' },
-            { name: 'admin_revert_obs', value: 'false', description: 'Permitir al administrador reversar avances de tendido' }
+            { name: 'admin_revert_obs', value: 'false', description: 'Permitir al administrador reversar avances de tendido' },
+            { name: 'pos_page_size', value: '15', description: 'Tamaño de paginación de listas (POS/ERP)' }
           ];
           setCompanyParams(defaults);
         }
@@ -490,7 +503,8 @@ export default function SettingsPage() {
               { id: 'roles', label: 'Roles & Accesos', icon: ShieldCheck },
               { id: 'users', label: 'Usuarios', icon: Users },
               { id: 'company', label: 'Identidad Empresa', icon: Building2 },
-              { id: 'parametrization', label: 'Parametrización', icon: Database },
+              { id: 'masters', label: 'Tablas Maestras', icon: Database },
+              { id: 'parametrization', label: 'Parametrización', icon: SettingsIcon },
               { id: 'notifications', label: 'Notificaciones', icon: Bell },
               { id: 'database', label: 'Base de Datos', icon: Database },
             ].map((item) => (
@@ -755,6 +769,213 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
+                  {/* ── Personalización de Título de Inicio de Sesión (Login) ────────────────────────── */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Building2 size={18} /> Título de Login (Identidad de Empresa)
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Personaliza el texto, color, tipografía, tamaño e ícono que aparece en la pantalla de inicio de sesión abajo del logo principal.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Texto del Título</label>
+                        <input 
+                          type="text" 
+                          className="input"
+                          style={{ width: '100%' }}
+                          value={companyParams.find(p => p.name === 'login_title_text')?.value || 'Breiner ERP'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_text');
+                              if (exists) return prev.map(p => p.name === 'login_title_text' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_text', value: val }];
+                            });
+                          }}
+                          onBlur={e => handleUpdateParam('login_title_text', e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Color del Texto</label>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <input 
+                            type="color" 
+                            style={{ width: '40px', height: '40px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', padding: 0 }}
+                            value={companyParams.find(p => p.name === 'login_title_color')?.value || '#ffffff'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'login_title_color');
+                                if (exists) return prev.map(p => p.name === 'login_title_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'login_title_color', value: val }];
+                              });
+                              if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current);
+                              colorDebounceRef.current = setTimeout(() => {
+                                handleUpdateParam('login_title_color', val);
+                              }, 500);
+                            }}
+                          />
+                          <input 
+                            type="text" 
+                            className="input" 
+                            style={{ flex: 1, textTransform: 'uppercase', fontFamily: 'monospace', fontSize: '0.85rem' }} 
+                            value={companyParams.find(p => p.name === 'login_title_color')?.value || '#ffffff'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'login_title_color');
+                                if (exists) return prev.map(p => p.name === 'login_title_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'login_title_color', value: val }];
+                              });
+                            }}
+                            onBlur={e => handleUpdateParam('login_title_color', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tipo de Letra</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_font')?.value || 'Outfit'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_font');
+                              if (exists) return prev.map(p => p.name === 'login_title_font' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_font', value: val }];
+                            });
+                            handleUpdateParam('login_title_font', val);
+                          }}
+                        >
+                          <option value="Outfit">Outfit (Moderna)</option>
+                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Roboto">Roboto (Limpia)</option>
+                          <option value="Montserrat">Montserrat (Elegante)</option>
+                          <option value="Playfair Display">Playfair Display (Serif Elegante)</option>
+                          <option value="Merriweather">Merriweather (Serif Lectura)</option>
+                          <option value="Lora">Lora (Serif Suave)</option>
+                          <option value="Caveat">Caveat (Manuscrita)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Grosor (Negrilla)</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_weight')?.value || '900'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_weight');
+                              if (exists) return prev.map(p => p.name === 'login_title_weight' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_weight', value: val }];
+                            });
+                            handleUpdateParam('login_title_weight', val);
+                          }}
+                        >
+                          <option value="900">Negrilla (Extra Bold - 900)</option>
+                          <option value="700">Negrita (Bold - 700)</option>
+                          <option value="500">Medio (Medium - 500)</option>
+                          <option value="400">Normal (Regular - 400)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_size')?.value || '1.75rem'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_size');
+                              if (exists) return prev.map(p => p.name === 'login_title_size' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_size', value: val }];
+                            });
+                            handleUpdateParam('login_title_size', val);
+                          }}
+                        >
+                          <option value="1.25rem">Pequeño (1.25rem)</option>
+                          <option value="1.5rem">Mediano (1.5rem)</option>
+                          <option value="1.75rem">Estándar (1.75rem)</option>
+                          <option value="2.25rem">Grande (2.25rem)</option>
+                          <option value="3rem">Gigante (3rem)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Ícono del Título</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_icon')?.value || 'Scissors'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_icon');
+                              if (exists) return prev.map(p => p.name === 'login_title_icon' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_icon', value: val }];
+                            });
+                            handleUpdateParam('login_title_icon', val);
+                          }}
+                        >
+                          <option value="None">Ninguno</option>
+                          <option value="Scissors">Tijeras (Scissors)</option>
+                          <option value="Layers">Capas (Layers)</option>
+                          <option value="Package">Caja (Package)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Toggle: mostrar/ocultar mensaje de bienvenida */}
+                    <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div>
+                        <p style={{ fontWeight: '700', fontSize: '0.8rem', margin: 0 }}>Mostrar mensaje de bienvenida</p>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                          Muestra u oculta el texto descriptivo debajo del título en la pantalla de inicio de sesión.
+                        </p>
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                          {companyParams.find(p => p.name === 'login_show_message')?.value === 'false' ? 'Oculto' : 'Visible'}
+                        </span>
+                        <div
+                          onClick={() => {
+                            const currentVal = companyParams.find(p => p.name === 'login_show_message')?.value;
+                            const newVal = currentVal === 'false' ? 'true' : 'false';
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_show_message');
+                              if (exists) return prev.map(p => p.name === 'login_show_message' ? { ...p, value: newVal } : p);
+                              return [...prev, { name: 'login_show_message', value: newVal }];
+                            });
+                            handleUpdateParam('login_show_message', newVal);
+                          }}
+                          style={{
+                            width: '44px', height: '24px', borderRadius: '999px', cursor: 'pointer',
+                            backgroundColor: companyParams.find(p => p.name === 'login_show_message')?.value === 'false'
+                              ? '#cbd5e1' : 'var(--primary)',
+                            position: 'relative', transition: 'background-color 0.25s ease',
+                            flexShrink: 0
+                          }}
+                        >
+                          <div style={{
+                            position: 'absolute', top: '3px',
+                            left: companyParams.find(p => p.name === 'login_show_message')?.value === 'false' ? '3px' : '23px',
+                            width: '18px', height: '18px', borderRadius: '50%',
+                            backgroundColor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                            transition: 'left 0.25s ease'
+                          }} />
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
                   {/* ── Color de Tema ──────────────────────────────── */}
                   <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
                     <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -847,6 +1068,127 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* ── Tipografía y Dimensiones (ERP) ────────────────────────── */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', marginTop: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Tipografía y Visualización ERP
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Define la tipografía predeterminada y tamaño de los textos de la plataforma.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Familia Tipográfica</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_font_family')?.value || 'Outfit'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_font_family');
+                              if (exists) return prev.map(p => p.name === 'theme_font_family' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_font_family', value: val, description: 'Tipografía del sistema' }];
+                            });
+                            document.documentElement.style.setProperty('--font-family', val);
+                            handleUpdateParam('theme_font_family', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="Outfit">Outfit (Moderna)</option>
+                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Roboto">Roboto (Limpia)</option>
+                          <option value="Montserrat">Montserrat (Elegante)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra Base</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_font_size')?.value || '14px'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_font_size');
+                              if (exists) return prev.map(p => p.name === 'theme_font_size' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_font_size', value: val, description: 'Tamaño de letra' }];
+                            });
+                            document.documentElement.style.setProperty('--font-size', val);
+                            handleUpdateParam('theme_font_size', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="12px">Pequeño (12px)</option>
+                          <option value="13px">Mediano-Pequeño (13px)</option>
+                          <option value="14px">Estándar (14px)</option>
+                          <option value="15px">Grande (15px)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Ventanas Modales y Bordes ────────────────────────────── */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', marginTop: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Estilos de Modales y Bordes
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Personaliza los redondeos de tarjetas y la intensidad del desenfoque (blur) de fondo en ventanas flotantes.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Redondeo de Bordes (Cards & Modales)</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_modal_radius')?.value || '12px'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_modal_radius');
+                              if (exists) return prev.map(p => p.name === 'theme_modal_radius' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_modal_radius', value: val, description: 'Bordes redondeados' }];
+                            });
+                            document.documentElement.style.setProperty('--radius', val);
+                            handleUpdateParam('theme_modal_radius', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="0px">Sin Redondeo (Recto)</option>
+                          <option value="6px">Suave (6px)</option>
+                          <option value="12px">Estándar (12px)</option>
+                          <option value="16px">Boutique (16px)</option>
+                          <option value="24px">Muy Redondeado (24px)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Desenfoque de Fondo (Modals Backdrop Blur)</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_modal_blur')?.value || 'blur(6px)'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_modal_blur');
+                              if (exists) return prev.map(p => p.name === 'theme_modal_blur' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_modal_blur', value: val, description: 'Desenfoque de modales' }];
+                            });
+                            document.documentElement.style.setProperty('--modal-blur', val);
+                            handleUpdateParam('theme_modal_blur', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="none">Sin Desenfoque (Sin blur)</option>
+                          <option value="blur(4px)">Suave (blur 4px)</option>
+                          <option value="blur(8px)">Medio (blur 8px)</option>
+                          <option value="blur(16px)">Intenso (blur 16px)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'masters' && (
+                <div style={{ margin: '-1.5rem', padding: '1rem', backgroundColor: 'white', borderRadius: '16px' }}>
+                  <MastersPage isEmbed={true} />
                 </div>
               )}
 
@@ -946,6 +1288,33 @@ export default function SettingsPage() {
                           </select>
                         </div>
                         <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Si se activa, los administradores tendrán la opción en el historial de notas.</p>
+                      </div>
+
+                      <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>📄 Registros por Página (Listados)</label>
+                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Define cuántos registros mostrar por tanda en las tablas del POS y ERP.</p>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <input 
+                            type="number"
+                            min="5"
+                            max="100"
+                            className="input"
+                            style={{ width: '100%', fontWeight: '800', fontSize: '1.1rem', color: '#4338ca', border: '2px solid #a5b4fc' }}
+                            value={companyParams.find(p => p.name === 'pos_page_size')?.value || '15'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'pos_page_size');
+                                if (exists) return prev.map(p => p.name === 'pos_page_size' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'pos_page_size', value: val, description: 'Tamaño de paginación de listas (POS/ERP)' }];
+                              });
+                            }}
+                            onBlur={(e) => handleUpdateParam('pos_page_size', e.target.value)}
+                          />
+                        </div>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Por defecto: <strong>15</strong> registros. Evita cargar listados innecesariamente largos.</p>
                       </div>
                     </div>
 
@@ -1253,6 +1622,14 @@ export default function SettingsPage() {
                   <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={() => document.getElementById('edit-avatar-upload')?.click()}>
                     Cambiar Foto
                   </button>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="email" value={editingUser?.email || ''} readOnly style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500', backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }} />
                 </div>
               </div>
 

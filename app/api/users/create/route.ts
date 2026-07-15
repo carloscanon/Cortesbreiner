@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: Request) {
   try {
-    const { email, password, full_name, role_id, workshop_id, avatarBase64, avatarName } = await request.json();
+    const { email, password, full_name, role_id, workshop_id, pos_role_id, avatarBase64, avatarName } = await request.json();
 
     if (!email || !password || !full_name) {
       return NextResponse.json({ error: 'Email, contraseña y nombre son obligatorios.' }, { status: 400 });
@@ -24,6 +24,17 @@ export async function POST(request: Request) {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let validatedRoleId = (role_id && uuidRegex.test(role_id)) ? role_id : null;
+
+    if (!validatedRoleId) {
+      // Fallback: search for first available role in public.roles to keep trigger happy
+      const { data: dbRoles } = await supabaseAdmin.from('roles').select('id');
+      if (dbRoles && dbRoles.length > 0) {
+        validatedRoleId = dbRoles[0].id;
+      }
+    }
+
     let avatar_url = undefined;
 
     // Crear usuario en Auth (sin requerir confirmación de email)
@@ -31,7 +42,7 @@ export async function POST(request: Request) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name, role_id: role_id || null, workshop_id: workshop_id || null }
+      user_metadata: { full_name, role_id: validatedRoleId, workshop_id: workshop_id || null, pos_role_id: pos_role_id || null }
     });
 
     if (authError) {

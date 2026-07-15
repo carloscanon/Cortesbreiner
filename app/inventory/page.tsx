@@ -434,12 +434,18 @@ export default function InventoryPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.75rem', fontWeight: '950' }}>
-            <Package size={32} style={{ color: 'var(--primary)' }} /> Inventario de Telas
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Inventario & Materias Primas
+          </span>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Package size={24} />
+            </div>
+            Inventario de Telas
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Control de rollos, kilos, metros y movimientos por orden de corte.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>Control de rollos, kilos, metros y movimientos por orden de corte.</p>
         </div>
         {activeTab === 'rollos' && (
           <div style={{ display: 'flex', gap: '1rem' }}>

@@ -80,7 +80,8 @@ const MASTER_CONFIG: any = {
       { name: 'genero', label: 'Género', type: 'select', options: ['M', 'F'] },
       { name: 'iva', label: 'IVA (%)', type: 'number', disabled: true },
       { name: 'precio', label: 'Precio ($)', type: 'number' },
-      { name: 'precio_con_iva', label: 'Precio con IVA ($)', type: 'number', disabled: true }
+      { name: 'precio_con_iva', label: 'Precio con IVA ($)', type: 'number', disabled: true },
+      { name: 'imagen_url', label: 'Imagen del Producto', type: 'image' }
     ]
   },
   categories: {
@@ -237,7 +238,7 @@ const fetchAll = async (queryFn: () => any) => {
   return allData;
 };
 
-export default function MastersPage() {
+export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) {
   const [activeTab, setActiveTab] = useState<string>('categories');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -533,7 +534,7 @@ export default function MastersPage() {
   };
 
   return (
-    <div style={{ display: 'flex', gap: '2rem', height: 'calc(100vh - 120px)' }}>
+    <div style={{ display: 'flex', gap: '2rem', height: isEmbed ? 'auto' : 'calc(100vh - 120px)', minHeight: isEmbed ? '500px' : 'none' }}>
       {/* Sidebar de Maestros */}
       <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRight: '1px solid var(--border)', paddingRight: '1.5rem', overflowY: 'auto' }}>
         <h2 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--text-muted)' }}>Módulos Maestros</h2>
@@ -558,10 +559,18 @@ export default function MastersPage() {
 
       {/* Contenido Principal */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h1>{config.title}</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Gestión de datos técnicos del sistema.</p>
+            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Base de Datos
+            </span>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Settings size={24} />
+              </div>
+              {config.title}
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>Gestión de datos técnicos del sistema.</p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {activeTab === 'products' && (
@@ -641,19 +650,32 @@ export default function MastersPage() {
                           flexShrink: 0
                         }}></div>
                       ) : (
-                        <div style={{ 
-                          width: '40px', 
-                          height: '40px', 
-                          borderRadius: '10px', 
-                          backgroundColor: 'var(--primary-light)', 
-                          color: 'var(--primary)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0
-                        }}>
-                          <config.icon size={20} />
-                        </div>
+                        item.imagen_url ? (
+                          <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '10px',
+                            overflow: 'hidden',
+                            border: '1px solid var(--border)',
+                            flexShrink: 0
+                          }}>
+                            <img src={item.imagen_url} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : (
+                          <div style={{ 
+                            width: '40px', 
+                            height: '40px', 
+                            borderRadius: '10px', 
+                            backgroundColor: 'var(--primary-light)', 
+                            color: 'var(--primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}>
+                            <config.icon size={20} />
+                          </div>
+                        )
                       )}
 
                       {/* Info Content */}
@@ -857,6 +879,44 @@ export default function MastersPage() {
                         ))
                       )}
                     </select>
+                  ) : field.type === 'image' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                      {formData[field.name] && (
+                        <div style={{ width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                          <img src={formData[field.name]} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ fontSize: '0.8rem' }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          
+                          const reader = new FileReader();
+                          reader.onload = async () => {
+                            try {
+                              const base64String = (reader.result as string).split(',')[1];
+                              const fileExt = file.name.split('.').pop();
+                              const fileName = `${Math.random()}.${fileExt}`;
+                              
+                              const res = await fetch('/api/products/upload-image', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ fileBase64: base64String, fileName })
+                              });
+                              const json = await res.json();
+                              if (json.error) throw new Error(json.error);
+                              setFormData({ ...formData, [field.name]: json.publicUrl });
+                            } catch (err: any) {
+                              alert('Error al subir imagen: ' + err.message);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </div>
                   ) : (
                     <input 
                       type={field.type}

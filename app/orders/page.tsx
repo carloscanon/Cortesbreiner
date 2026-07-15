@@ -31,6 +31,7 @@ function getRelativeTime(dateString: string) {
 export default function OrdersPage() {
   const { profile, user } = useAuth();
   const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
+  const isSuperAdmin = profile?.roles?.name?.toLowerCase().includes('super') || isAdmin;
 
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -786,6 +787,126 @@ export default function OrdersPage() {
     }
   };
 
+  const handleRevertToPlaneada = async (id: number, code: string) => {
+    // Fetch current status first to show appropriate message
+    const { data: statusCheck } = await supabase.from('orders').select('status').eq('id', id).single();
+    const currentStatus = statusCheck?.status;
+    const isAlreadyPlaneada = currentStatus === 'Planeada';
+
+    const confirmMsg = isAlreadyPlaneada
+      ? `¿Limpiar todos los datos residuales de la orden OC-${code || id}? Se eliminarán cortes, asignaciones y observaciones de proceso, y se restaurará el inventario de tela si aplica.`
+      : `¿Revertir la orden OC-${code || id} al estado 'Planeada'? Esto eliminará todos los registros de corte, asignaciones de confección, y restaurará el inventario de tela (capas y metros).`;
+
+    if (!confirm(confirmMsg)) return;
+    
+    try {
+      // 1. Obtener la orden actual
+      const { data: orderData, error: fetchError } = await supabase
+        .from('orders')
+        .select('status, observaciones')
+        .eq('id', id)
+        .single();
+        
+      if (fetchError) throw fetchError;
+
+      // 2. Obtener los cortes de la orden para saber qué telas y cantidades restaurar
+      const { data: orderCuts, error: cutsError } = await supabase
+        .from('cuts')
+        .select('id, fabric_id, layers, stroke_length')
+        .eq('order_id', id);
+        
+      if (cutsError) throw cutsError;
+
+      if (orderCuts && orderCuts.length > 0) {
+        // Agrupar por fabric_id y stroke_length para evitar duplicar capas si hay múltiples cortes en la misma tendida
+        const layoutGroups: Record<string, { fabric_id: string, layers: number, stroke_length: number }> = {};
+        
+        orderCuts.forEach((cut: any) => {
+          if (!cut.fabric_id) return;
+          const key = `${cut.fabric_id}_${cut.stroke_length}`;
+          if (!layoutGroups[key]) {
+            layoutGroups[key] = {
+              fabric_id: cut.fabric_id,
+              layers: Number(cut.layers || 0),
+              stroke_length: Number(cut.stroke_length || 0)
+            };
+          } else {
+            layoutGroups[key].layers = Math.max(layoutGroups[key].layers, Number(cut.layers || 0));
+          }
+        });
+
+        // Calcular la acumulación de restauración por tela
+        const restoreUsage: Record<string, { capas: number, metros: number }> = {};
+        Object.values(layoutGroups).forEach(group => {
+          if (!restoreUsage[group.fabric_id]) {
+            restoreUsage[group.fabric_id] = { capas: 0, metros: 0 };
+          }
+          restoreUsage[group.fabric_id].capas += group.layers;
+          restoreUsage[group.fabric_id].metros += (group.layers * group.stroke_length);
+        });
+
+        // 3. Ejecutar la restauración de capas y metros en la tabla fabrics
+        for (const [fabricId, usage] of Object.entries(restoreUsage)) {
+          const { data: fab } = await supabase
+            .from('fabrics')
+            .select('capas, metros')
+            .eq('id', fabricId)
+            .single();
+            
+          if (fab) {
+            const restoredCapas = (Number(fab.capas) || 0) + usage.capas;
+            const restoredMetros = (Number(fab.metros) || 0) + usage.metros;
+            await supabase
+              .from('fabrics')
+              .update({ capas: restoredCapas, metros: restoredMetros })
+              .eq('id', fabricId);
+          }
+        }
+
+        // 4. Eliminar los registros relacionados en cut_sizes y cuts
+        const allCutIds = orderCuts.map((c: any) => c.id);
+        await supabase.from('cut_sizes').delete().in('cut_id', allCutIds);
+        await supabase.from('cuts').delete().in('id', allCutIds);
+      }
+
+      // 5. Limpiar las observaciones de reportes de corte y asignaciones
+      let cleanedObservations = orderData?.observaciones || '';
+      const idxReporte = cleanedObservations.indexOf('=== REPORTE DE CORTE');
+      if (idxReporte !== -1) {
+        cleanedObservations = cleanedObservations.substring(0, idxReporte).trim();
+      }
+      const idxAssignments = cleanedObservations.indexOf('<!--ASSIGNMENTS_JSON:');
+      if (idxAssignments !== -1) {
+        cleanedObservations = cleanedObservations.substring(0, idxAssignments).trim();
+      }
+      const idxCosts = cleanedObservations.indexOf('<!--COSTS_JSON:');
+      if (idxCosts !== -1) {
+        cleanedObservations = cleanedObservations.substring(0, idxCosts).trim();
+      }
+
+      // También eliminar de la tabla sewing_assignments si existe
+      await supabase.from('sewing_assignments').delete().eq('order_id', id);
+
+      // 6. Actualizar orden al estado 'Planeada'
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          status: 'Planeada',
+          observaciones: cleanedObservations,
+          cortador_name: null,
+          largo_trazo: null
+        })
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+
+      alert('La orden ha sido revertida al estado "Planeada" exitosamente.');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al revertir la orden a Planeada: ' + err.message);
+    }
+  };
+
   const handleEdit = async (order: any) => {
     setEditingId(order.id);
     
@@ -1385,7 +1506,7 @@ export default function OrdersPage() {
       {/* Dashboard Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
         {[
-          { label: 'Total Órdenes', value: stats.total, color: 'var(--primary)', icon: Package },
+          { label: 'Total Órdenes', value: stats.total, color: '#80082E', icon: Package },
           { label: 'Planeadas', value: stats.planeada, color: '#64748b', icon: Info },
           { label: 'En Proceso', value: stats.enCorte, color: '#f59e0b', icon: Activity },
           { label: 'Completadas', value: stats.cortado, color: '#10b981', icon: CheckCircle }
@@ -1402,12 +1523,18 @@ export default function OrdersPage() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.75rem', fontWeight: '950' }}>
-            <Scissors size={32} style={{ color: 'var(--primary)' }} /> Módulo de Corte Industrial
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Etapa de Producción
+          </span>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Scissors size={24} style={{ transform: 'rotate(-45deg)' }} />
+            </div>
+            Órdenes de Corte
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Gestión, trazabilidad y control de consumo textil.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>Gestión, trazabilidad y control de consumo textil.</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button className="btn btn-secondary" onClick={fetchData}><Activity size={18} /> Actualizar</button>
@@ -1593,6 +1720,28 @@ export default function OrdersPage() {
                             }}
                           >
                             <RotateCcw size={14} /> Revertir
+                          </button>
+                        )}
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleRevertToPlaneada(order.id, order.internal_code)}
+                            title={order.status === 'Planeada' ? 'Limpiar planificación (Superadmin)' : 'Revertir a Planeada (Superadmin)'}
+                            style={{
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '8px',
+                              border: '1.5px solid #c4b5fd',
+                              backgroundColor: '#f5f3ff',
+                              color: '#7c3aed',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '700',
+                              flexShrink: 0
+                            }}
+                          >
+                            <RotateCcw size={14} /> {order.status === 'Planeada' ? 'Limpiar' : 'A Planeada'}
                           </button>
                         )}
                       </div>

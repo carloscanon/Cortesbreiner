@@ -296,12 +296,14 @@ export default function CorteDashboard() {
       {/* Header */}
       {!selectedOrder ? (
         <div>
-          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Etapa de Producción
           </span>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Scissors size={28} style={{ transform: 'rotate(-45deg)', color: 'var(--primary)' }} />
-            Proceso de Corte Final
+          <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Scissors size={24} style={{ transform: 'rotate(-45deg)' }} />
+            </div>
+            Proceso de Corte
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
             Valida los tendidos completados, soluciona novedades críticas de tela y envía las órdenes a confección.
@@ -313,7 +315,7 @@ export default function CorteDashboard() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Proceso de Corte
             </span>
             <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>
