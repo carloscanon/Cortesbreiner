@@ -2051,7 +2051,7 @@ export default function Dashboard() {
               
               {/* Active Orders */}
               {(() => {
-                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string; status: string; id: string }[] = [];
+                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string; status: string; id: string; createdAt: string }[] = [];
                 sewingOrdersList.forEach(so => {
                   const w = finalWorkshopsList.find(workshop => String(workshop.id).toLowerCase().trim() === String(so.workshop_id).toLowerCase().trim());
                   if (!w) return;
@@ -2082,9 +2082,17 @@ export default function Dashboard() {
                       confeccionadas: actualSewedQty,
                       confeccionCode: so.confeccion_code,
                       status: so.status,
-                      id: so.id
+                      id: so.id,
+                      createdAt: so.created_at || parentOrder.created_at || ''
                     });
                   }
+                });
+
+                // Ordenar por fecha más reciente primero
+                pendingConfecciones.sort((a: any, b: any) => {
+                  const da = new Date(a.createdAt).getTime() || 0;
+                  const db = new Date(b.createdAt).getTime() || 0;
+                  return db - da;
                 });
 
                 return (
@@ -2797,6 +2805,7 @@ export default function Dashboard() {
                             const prodObj = productsList.find(p => String(p.id) === String(targetProdId));
                             const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
                             const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+                            const fichaTecnicaUrl = categoryObj?.ficha_tecnica_url || '';
                             const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
                             const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
                             const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
@@ -2822,6 +2831,7 @@ export default function Dashboard() {
                               seenKeys.add(key);
                               itemsList.push({
                                 categoryName,
+                                fichaTecnicaUrl,
                                 colorName: displayColorName,
                                 fabricName: displayFabricName,
                                 sizeCode: sizeName,
@@ -2837,6 +2847,7 @@ export default function Dashboard() {
                           const groupedItems: {
                             colorName: string;
                             categoryName: string;
+                            fichaTecnicaUrl: string;
                             fabricName: string;
                             sizes: { [size: string]: number };
                             totalQuantity: number;
@@ -2854,6 +2865,7 @@ export default function Dashboard() {
                             } else {
                               groupedItems.push({
                                 categoryName: item.categoryName,
+                                fichaTecnicaUrl: item.fichaTecnicaUrl || '',
                                 colorName: item.colorName,
                                 fabricName: item.fabricName,
                                 sizes: { [item.sizeCode]: item.quantity },
@@ -2868,7 +2880,21 @@ export default function Dashboard() {
                             <>
                               {groupedItems.map((item, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.categoryName}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                      <span>{item.categoryName}</span>
+                                      {item.fichaTecnicaUrl && (
+                                        <a
+                                          href={item.fichaTecnicaUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.68rem', fontWeight: '700', color: '#0369a1', backgroundColor: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: '5px', padding: '0.15rem 0.45rem', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                                        >
+                                          📄 Ficha Técnica
+                                        </a>
+                                      )}
+                                    </div>
+                                  </td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
                                   <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#80082E' }}>

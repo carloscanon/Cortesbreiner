@@ -2400,7 +2400,7 @@ export default function SewingPage() {
                 });
 
 
-                const workshopAccs: { name: string; unit: string; qty: number; originalAccName: string }[] = [];
+                const workshopAccs: { name: string; unit: string; qty: number; originalAccName: string; colorName: string }[] = [];
                 
                 workshopItems.forEach((item: any) => {
                   const cut = printOrder.cuts?.find((c: any) => String(c.id) === String(item.cutId));
@@ -2420,27 +2420,29 @@ export default function SewingPage() {
                     const totalRequired = item.quantity * qtyPerProduct;
                     
                     const isGafete = accName.toLowerCase().includes('gafe') || accName.toLowerCase().includes('gafete');
+                    const targetColorName = item.colorName;
                     if (isGafete) {
-                      const targetColorName = item.colorName;
+                      // Clave compuesta: por accesorio base + color de tela → selección independiente por color
+                      const customKey = `${originalAccName}__${targetColorName}`;
                       const matchingColorGafete = accessories.find(a => {
                         const nameLower = (a.nombre || '').toLowerCase();
                         return (nameLower.includes('gafe') || nameLower.includes('gafete')) && 
                                nameLower.includes(targetColorName.toLowerCase());
                       });
  
-                      // Clave: usar originalAccName (nombre base de BD) para lookup en customGafetes
-                      const baseGafeteName = customGafetes[originalAccName] || (matchingColorGafete ? matchingColorGafete.nombre : originalAccName);
+                      const baseGafeteName = customGafetes[customKey] || (matchingColorGafete ? matchingColorGafete.nombre : originalAccName);
                       accName = `${baseGafeteName} (${targetColorName})`;
                     }
                   
                     if (totalRequired > 0) {
-                      const existing = workshopAccs.find(wa => wa.name === accName);
+                      const existing = workshopAccs.find(wa => wa.name === accName && wa.colorName === targetColorName);
                       if (existing) {
                         existing.qty += totalRequired;
                       } else {
                         workshopAccs.push({
                           name: accName,
-                          originalAccName, // guardar nombre original para usar como clave en customGafetes
+                          originalAccName, // nombre base de BD
+                          colorName: targetColorName, // color de tela para esta fila
                           unit: accUnit,
                           qty: totalRequired
                         });
@@ -2684,7 +2686,8 @@ export default function SewingPage() {
                               const gafeteOptions = accessories.filter(a => 
                                 a.nombre?.toLowerCase().includes('gafe') || a.nombre?.toLowerCase().includes('gafete')
                               );
-                              // El nombre base del gafete seleccionado (sin el sufijo de color)
+                              // Clave compuesta por color para selección independiente
+                              const customKey = `${wa.originalAccName || wa.name}__${wa.colorName || ''}`;
                               const currentGafeteBase = wa.name.includes(' (') ? wa.name.split(' (')[0] : wa.name;
 
                               return (
@@ -2698,10 +2701,10 @@ export default function SewingPage() {
                                           value={currentGafeteBase}
                                           onChange={e => {
                                             const newName = e.target.value;
-                                            // Usar originalAccName como clave (nombre base de BD), no wa.name compuesto
+                                            // Clave compuesta: por accesorio + color
                                             setCustomGafetes(prev => ({
                                               ...prev,
-                                              [wa.originalAccName || wa.name]: newName
+                                              [customKey]: newName
                                             }));
                                           }}
                                           style={{ padding: '0.2rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid #cbd5e1', cursor: 'pointer', backgroundColor: 'white' }}

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Plus, Search, Tag, Briefcase, Palette, Droplets, MoreVertical, X, Loader2, 
   Ruler, LayoutGrid, Factory, Truck, Warehouse, Monitor, AlertTriangle, 
-  CheckCircle, Activity, DollarSign, Settings, User, Printer
+  CheckCircle, Activity, DollarSign, Settings, User, Printer, Download, ExternalLink
 } from 'lucide-react';
 
 // Configuration for all masters
@@ -92,7 +92,8 @@ const MASTER_CONFIG: any = {
     fields: [
       { name: 'cod_categoria', label: 'Cód. Categoría (Auto)', type: 'text', disabled: true },
       { name: 'categoria', label: 'Nombre Categoría', type: 'text', required: true },
-      { name: 'linea', label: 'Línea', type: 'text' }
+      { name: 'linea', label: 'Línea', type: 'text' },
+      { name: 'ficha_tecnica_url', label: 'URL Ficha Técnica (PDF/Link)', type: 'text' }
     ]
   },
   workshops: {
@@ -574,13 +575,46 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {activeTab === 'products' && (
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowPrintModal(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border)', backgroundColor: 'white', color: 'var(--text)', cursor: 'pointer' }}
-              >
-                <Printer size={16} /> Exportar Catálogo PDF
-              </button>
+              <>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    // Export products as Excel-compatible CSV
+                    const BOM = '\uFEFF';
+                    const headers = ['Referencia', 'Nombre Producto', 'Categoría', 'Género', 'IVA (%)', 'Precio', 'Precio con IVA'];
+                    const rows = data.map((p: any) => {
+                      const cat = categories.find((c: any) => c.id === p.category_id);
+                      return [
+                        p.codigo_referencia || '',
+                        p.nombre_producto || '',
+                        cat ? cat.categoria : '',
+                        p.genero || '',
+                        p.iva || '',
+                        p.precio || '',
+                        p.precio_con_iva || ''
+                      ].map((v: any) => `"${String(v).replace(/"/g, '""')}"`).join(';');
+                    });
+                    const csv = BOM + [headers.join(';'), ...rows].join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `maestro_productos_${new Date().toISOString().slice(0,10)}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border)', backgroundColor: 'white', color: 'var(--text)', cursor: 'pointer' }}
+                >
+                  <Download size={16} /> Exportar Excel
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowPrintModal(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border)', backgroundColor: 'white', color: 'var(--text)', cursor: 'pointer' }}
+                >
+                  <Printer size={16} /> Exportar Catálogo PDF
+                </button>
+              </>
             )}
             <button className="btn btn-primary" onClick={handleAdd}>
               <Plus size={18} /> Nuevo Registro
@@ -692,18 +726,34 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                         {/* Dynamic Tags / Extra Info */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {activeTab === 'categories' && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap', width: '100%', marginBottom: '0.25rem' }}>
-                              <span style={{ fontWeight: '600' }}>Insumos por defecto:</span>
-                              {(() => {
-                                const accs = categoryAccessoriesList.filter(ca => ca.category_id === item.id);
-                                if (accs.length === 0) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Ninguno</span>;
-                                return accs.map(ca => (
-                                  <span key={ca.id} style={{ backgroundColor: '#f5f3ff', color: '#6d28d9', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', border: '1px solid #ddd6fe', fontSize: '0.7rem' }}>
-                                    {ca.accessories?.nombre || 'Accesorio'}
-                                  </span>
-                                ));
-                              })()}
-                            </div>
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap', width: '100%', marginBottom: '0.25rem' }}>
+                                <span style={{ fontWeight: '600' }}>Insumos por defecto:</span>
+                                {(() => {
+                                  const accs = categoryAccessoriesList.filter(ca => ca.category_id === item.id);
+                                  if (accs.length === 0) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Ninguno</span>;
+                                  return accs.map(ca => (
+                                    <span key={ca.id} style={{ backgroundColor: '#f5f3ff', color: '#6d28d9', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: '600', border: '1px solid #ddd6fe', fontSize: '0.7rem' }}>
+                                      {ca.accessories?.nombre || 'Accesorio'}
+                                    </span>
+                                  ));
+                                })()}
+                              </div>
+                              {item.ficha_tecnica_url && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                                  <a
+                                    href={item.ficha_tecnica_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#0369a1', backgroundColor: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: '6px', padding: '0.2rem 0.6rem', textDecoration: 'none', transition: 'background 0.15s' }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#bae6fd')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#e0f2fe')}
+                                  >
+                                    <ExternalLink size={11} /> Ver Ficha Técnica
+                                  </a>
+                                </div>
+                              )}
+                            </>
                           )}
                           {activeTab === 'products' && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap', width: '100%', marginBottom: '0.25rem' }}>

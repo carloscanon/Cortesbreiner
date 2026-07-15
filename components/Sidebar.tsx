@@ -75,7 +75,8 @@ export default function Sidebar() {
                 roleNameLower.includes('punto') || 
                 roleNameLower.includes('tienda') || 
                 roleNameLower.includes('vendedor') || 
-                roleNameLower.includes('cajero');
+                roleNameLower.includes('cajero') ||
+                !!user?.user_metadata?.pos_role_id;
 
   const isSuperAdmin = roleNameLower.includes('super');
 
@@ -92,11 +93,13 @@ export default function Sidebar() {
 
   const filteredMenuItems = isTaller
     ? tallerMenuItems
-    : isSuperAdmin
-      ? allMenuItems
-      : allMenuItems.filter(item => 
-          allowedModules.includes(item.module) || item.module === 'dashboard'
-        );
+    : isPOS
+      ? posMenuItems
+      : isSuperAdmin
+        ? allMenuItems
+        : allMenuItems.filter(item => 
+            allowedModules.includes(item.module) || item.module === 'dashboard'
+          );
 
   const filteredBottomItems = allBottomItems.filter(item => 
     isTaller
