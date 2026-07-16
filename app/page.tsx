@@ -355,6 +355,8 @@ export default function Dashboard() {
   const [sewingFilterStatus, setSewingFilterStatus] = useState('all');
   const [sewingFilterStartDate, setSewingFilterStartDate] = useState('');
   const [sewingFilterEndDate, setSewingFilterEndDate] = useState('');
+  const [sewingPage, setSewingPage] = useState(0);
+  const SEWING_PAGE_SIZE = 15;
 
   // Next-Gen Executive Dashboard states
   const [darkMode, setDarkMode] = useState<boolean>(false);
@@ -377,6 +379,40 @@ export default function Dashboard() {
         const parsedWorkshopIds = rawWorkshopId.split(',').map((id: string) => id.trim()).filter(Boolean);
         setAuthWorkshopIds(parsedWorkshopIds);
 
+        const fetchAllProducts = async () => {
+          let allProds: any[] = [];
+          let page = 0;
+          const pageSize = 1000;
+          while (true) {
+            const { data, error } = await supabase
+              .from('products')
+              .select('*')
+              .range(page * pageSize, (page + 1) * pageSize - 1);
+            if (error || !data || data.length === 0) break;
+            allProds = allProds.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          return allProds;
+        };
+
+        const fetchAllProductAccessories = async () => {
+          let allAccs: any[] = [];
+          let page = 0;
+          const pageSize = 1000;
+          while (true) {
+            const { data, error } = await supabase
+              .from('product_accessories')
+              .select('*, accessories(nombre, unidad_medida), products(nombre_producto)')
+              .range(page * pageSize, (page + 1) * pageSize - 1);
+            if (error || !data || data.length === 0) break;
+            allAccs = allAccs.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          return allAccs;
+        };
+
         const [
           res1,
           res2,
@@ -384,8 +420,8 @@ export default function Dashboard() {
           res4,
           res5,
           res6,
-          res7,
-          res8,
+          pData,
+          paData,
           res9,
           res10,
           res11,
@@ -404,8 +440,8 @@ export default function Dashboard() {
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
-          supabase.from('products').select('*').order('nombre_producto').limit(200),
-          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)').limit(150),
+          fetchAllProducts(),
+          fetchAllProductAccessories(),
           supabase.from('categories').select('*'),
           supabase.from('workshop_rates').select('*'),
           // novelties preloaded with workshop module filter applied in UI
@@ -424,8 +460,6 @@ export default function Dashboard() {
         const baseCostsData = res4.data;
         const sData = res5.data;
         const cData = res6.data;
-        const pData = res7.data;
-        const paData = res8.data;
         const catsData = res9.data;
         const ratesData = res10.data;
         const sewingAssData = res11.data;
@@ -1992,9 +2026,31 @@ export default function Dashboard() {
                           const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
                           const progress = so.cantidad_planeada > 0 ? Math.round(((so.cantidad_confeccionada || 0) / so.cantidad_planeada) * 100) : 0;
                           return (
-                            <div key={so.id} style={{ padding: '0.85rem', borderRadius: '10px', border: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div 
+                              key={so.id} 
+                              onClick={() => {
+                                const realSewingOrder = sewingOrdersList.find(s => s.id === so.id || s.confeccion_code === so.confeccion_code) || so;
+                                const pOrder = realSewingOrder.parent_order || orders.find(o => o.id === realSewingOrder.parent_order_id);
+                                setViewingOrderDetails({
+                                  ...realSewingOrder,
+                                  parent_order: pOrder
+                                });
+                              }}
+                              style={{ 
+                                padding: '0.85rem', 
+                                borderRadius: '10px', 
+                                border: `1px solid ${theme.border}`, 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = theme.primary; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = theme.border; }}
+                            >
                               <div>
-                                <strong style={{ fontSize: '0.8rem', display: 'block' }}>{so.confeccion_code}</strong>
+                                <strong style={{ fontSize: '0.8rem', display: 'block', color: '#80082E', textDecoration: 'underline' }}>{so.confeccion_code}</strong>
                                 <span style={{ fontSize: '0.7rem', color: theme.textMuted }}>{prodObj?.nombre_producto || 'Referencia'}</span>
                               </div>
                               <div style={{ textAlign: 'right' }}>
@@ -2051,7 +2107,7 @@ export default function Dashboard() {
               
               {/* Active Orders */}
               {(() => {
-                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string; status: string; id: string; createdAt: string }[] = [];
+                const pendingConfecciones: { order: any; workshop: any; planeadas: number; confeccionadas: number; confeccionCode: string; status: string; id: string; createdAt: string; sewingOrder: any }[] = [];
                 sewingOrdersList.forEach(so => {
                   const w = finalWorkshopsList.find(workshop => String(workshop.id).toLowerCase().trim() === String(so.workshop_id).toLowerCase().trim());
                   if (!w) return;
@@ -2083,7 +2139,8 @@ export default function Dashboard() {
                       confeccionCode: so.confeccion_code,
                       status: so.status,
                       id: so.id,
-                      createdAt: so.created_at || parentOrder.created_at || ''
+                      createdAt: so.created_at || parentOrder.created_at || '',
+                      sewingOrder: so
                     });
                   }
                 });
@@ -2126,11 +2183,27 @@ export default function Dashboard() {
                             </tr>
                           ) : pendingConfecciones.length === 0 ? (
                             <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No tienes órdenes activas asignadas.</td></tr>
-                          ) : pendingConfecciones.map(({ order, workshop, planeadas, confeccionadas, confeccionCode, status, id }) => {
+                          ) : pendingConfecciones.map(({ order, workshop, planeadas, confeccionadas, confeccionCode, status, id, sewingOrder }) => {
                             const progress = planeadas > 0 ? Math.round((confeccionadas / planeadas) * 100) : 0;
                             return (
                               <tr key={`${order.id}-${workshop.id}-${confeccionCode}`} style={{ borderBottom: '1px solid #f8fafc', transition: 'background-color 0.15s' }}>
-                                <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#80082E' }}>{confeccionCode}</td>
+                                <td 
+                                  onClick={() => {
+                                    setViewingOrderDetails({
+                                      ...sewingOrder,
+                                      parent_order: order
+                                    });
+                                  }}
+                                  style={{ 
+                                    padding: '1rem 1rem', 
+                                    fontWeight: '850', 
+                                    color: '#80082E', 
+                                    cursor: 'pointer',
+                                    textDecoration: 'underline' 
+                                  }}
+                                >
+                                  {confeccionCode}
+                                </td>
                                 <td style={{ padding: '1rem 1rem', fontWeight: '700', color: '#1e293b' }}>
                                   <span style={{ padding: '0.2rem 0.5rem', borderRadius: '6px', backgroundColor: '#f1f5f9', fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>
                                     🏭 {workshop.nombre_taller}
@@ -2152,10 +2225,10 @@ export default function Dashboard() {
                                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                     <button 
                                       onClick={() => {
-                                        const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
-                                        if (realSewingOrder) {
-                                          setViewingOrderDetails(realSewingOrder);
-                                        }
+                                        setViewingOrderDetails({
+                                          ...sewingOrder,
+                                          parent_order: order
+                                        });
                                       }} 
                                       style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                                     >
@@ -2562,7 +2635,7 @@ export default function Dashboard() {
                      const currentWs = workshops.find(w => String(w.id) === String(workshopId));
 
                      const qtyByCutSize: Record<string, number> = {};
-                     (parentOrder.cuts || []).forEach((cut: any) => {
+                     (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
                        const targetProdId = cut.product_id;
                        const layersProyec = cut.layers || 1;
                        const layersProduced = cut.layers_produced || 0;
@@ -2588,9 +2661,9 @@ export default function Dashboard() {
 
                      const itemsList: any[] = [];
                      const seenKeys = new Set<string>();
-                     (parentOrder.cuts || []).forEach((cut: any) => {
+                     (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
                        const targetProdId = cut.product_id;
-                       const prodObj = productsList.find(p => String(p.id) === String(targetProdId));
+                       const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
                        const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
                        const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
                        const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
@@ -2774,7 +2847,7 @@ export default function Dashboard() {
                           const workshopId = viewingOrderDetails.workshop_id;
 
                           const qtyByCutSize: Record<string, number> = {};
-                          (parentOrder.cuts || []).forEach((cut: any) => {
+                          (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
                             const targetProdId = cut.product_id;
                             const layersProyec = cut.layers || 1;
                             const layersProduced = cut.layers_produced || 0;
@@ -2800,9 +2873,9 @@ export default function Dashboard() {
 
                           const itemsList: any[] = [];
                           const seenKeys = new Set<string>();
-                          (parentOrder.cuts || []).forEach((cut: any) => {
+                          (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
                             const targetProdId = cut.product_id;
-                            const prodObj = productsList.find(p => String(p.id) === String(targetProdId));
+                            const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
                             const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
                             const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
                             const fichaTecnicaUrl = categoryObj?.ficha_tecnica_url || '';
@@ -2924,11 +2997,12 @@ export default function Dashboard() {
                     {(() => {
                       const computedAccs: { name: string; unit: string; qty: number }[] = [];
                       const itemsList: any[] = [];
-                      const assignments = getOrderAssignments(viewingOrderDetails);
+                      const parentOrder = viewingOrderDetails.parent_order || {};
+                      const assignments = getOrderAssignments(parentOrder);
                       const workshopId = viewingOrderDetails.workshop_id;
                       const targetWorkshopId = workshopId || userWorkshop?.id;
 
-                      viewingOrderDetails.cuts?.forEach((cut: any) => {
+                      (parentOrder.cuts || []).forEach((cut: any) => {
                         const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
                         const prodId = prod ? String(prod.id) : 'sin_prod';
 
@@ -3230,6 +3304,10 @@ export default function Dashboard() {
         return true;
       });
 
+      // Paginated slice (15 per page)
+      const sewingTotalPages = Math.ceil(filteredSewingOrdersForTab.length / SEWING_PAGE_SIZE);
+      const pagedSewingOrders = filteredSewingOrdersForTab.slice(sewingPage * SEWING_PAGE_SIZE, (sewingPage + 1) * SEWING_PAGE_SIZE);
+
       // Calculate Metrics for the filtered list
       let totalLotes = filteredSewingOrdersForTab.length;
       let totalPlannedUnits = 0;
@@ -3304,7 +3382,7 @@ export default function Dashboard() {
                 type="text"
                 placeholder="Ej. OC-105-1, Cliente, Camiseta..."
                 value={sewingFilterSearch}
-                onChange={e => setSewingFilterSearch(e.target.value)}
+                onChange={e => { setSewingFilterSearch(e.target.value); setSewingPage(0); }}
                 style={{
                   padding: '0.55rem 0.85rem',
                   borderRadius: '10px',
@@ -3403,6 +3481,7 @@ export default function Dashboard() {
                   setSewingFilterStartDate('');
                   setSewingFilterEndDate('');
                   setActiveWorkshopId('all');
+                  setSewingPage(0);
                 }}
                 className="btn btn-secondary"
                 style={{ alignSelf: 'flex-end', height: '38px', padding: '0.5rem 1rem', borderRadius: '10px', fontWeight: '800', fontSize: '0.8rem' }}
@@ -3430,7 +3509,7 @@ export default function Dashboard() {
                         No se encontraron órdenes de confección con los filtros seleccionados.
                       </td>
                     </tr>
-                  ) : filteredSewingOrdersForTab.map(so => {
+                  ) : pagedSewingOrders.map(so => {
                     const parentOrder = orders.find(o => o.id === so.parent_order_id);
                     const clientName = parentOrder ? parentOrder.client_name : '—';
                     
@@ -3454,8 +3533,29 @@ export default function Dashboard() {
 
                     return (
                       <tr key={so.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' }}>
-                        <td style={{ padding: '1rem', fontWeight: '850', color: '#80082E' }}>
-                          {so.confeccion_code}
+                        <td 
+                          onClick={() => {
+                            const pOrder = so.parent_order || orders.find(o => o.id === so.parent_order_id);
+                            setViewingOrderDetails({
+                              ...so,
+                              parent_order: pOrder
+                            });
+                          }}
+                          style={{ 
+                            padding: '1rem', 
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <span
+                            style={{ 
+                              fontWeight: '850', 
+                              color: '#80082E', 
+                              textDecoration: 'underline',
+                              display: 'inline-block'
+                            }}
+                          >
+                            {so.confeccion_code}
+                          </span>
                         </td>
                         <td style={{ padding: '1rem', fontWeight: '700', color: '#1e293b' }}>
                           {clientName}
@@ -3520,40 +3620,91 @@ export default function Dashboard() {
                         </td>
                         <td style={{ padding: '1rem' }}>
                           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                            <button 
+                            {/* 1. Botón Ficha */}
+                            {(() => {
+                              const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
+                              const catObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                              const fichaUrl = catObj?.ficha_tecnica_url;
+                              return (
+                                <button
+                                  className="btn"
+                                  style={{ 
+                                    fontSize: '0.72rem', 
+                                    fontWeight: '800', 
+                                    padding: '0.45rem 0.85rem', 
+                                    backgroundColor: fichaUrl ? '#4f46e5' : '#94a3b8', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    borderRadius: '8px', 
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  onClick={() => {
+                                    if (fichaUrl) {
+                                      window.open(fichaUrl, '_blank');
+                                    } else {
+                                      alert('Este producto no tiene una ficha técnica configurada en su categoría.');
+                                    }
+                                  }}
+                                  title={fichaUrl ? "Ver Ficha Técnica" : "Sin Ficha Técnica"}
+                                >
+                                  📄 Ficha
+                                </button>
+                              );
+                            })()}
+
+                            {/* 2. Botón Ver Orden */}
+                            <button
+                              className="btn"
+                              style={{ 
+                                fontSize: '0.72rem', 
+                                fontWeight: '800', 
+                                padding: '0.45rem 0.85rem', 
+                                backgroundColor: '#7c3aed', 
+                                color: 'white', 
+                                border: 'none', 
+                                borderRadius: '8px', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '0.25rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
                               onClick={() => {
-                                if (parentOrder) {
-                                  setViewingOrderDetails({ 
-                                    ...so, 
-                                    parent_order: parentOrder
-                                  });
-                                }
-                              }} 
-                              style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', fontWeight: '800', color: '#80082E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                const pOrder = so.parent_order || orders.find(o => o.id === so.parent_order_id);
+                                setViewingOrderDetails({ ...so, parent_order: pOrder });
+                              }}
                             >
-                              📄 Ficha
+                              🔍 Ver Orden
                             </button>
 
-                            {so.status === 'Enviado a Taller' && (
+                            {/* 3. Botón Enviar a Calidad */}
+                            {so.status === 'En Confección' ? (
                               <button
-                                onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
                                 className="btn"
-                                style={{ backgroundColor: '#3b82f6', color: 'white', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
-                              >
-                                📥 Recibir
-                              </button>
-                            )}
-
-                            {so.status === 'En Confección' && (
-                              <button
+                                style={{ 
+                                  fontSize: '0.72rem', 
+                                  fontWeight: '800', 
+                                  padding: '0.45rem 0.85rem', 
+                                  backgroundColor: '#ea580c', 
+                                  color: 'white', 
+                                  border: 'none', 
+                                  borderRadius: '8px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s'
+                                }}
                                 onClick={() => {
-                                  // Set modal state immediately so it opens right away
                                   setSelectedSewingOrderForEnvio(so);
                                   setEnvioNotes('');
                                   setEnvioSinInconvenientes(false);
                                   setEnvioNovedadLines([]);
                                   setShowEnvioModal(true);
-                                  // Load novelties in background (non-blocking)
                                   if (masterNovelties.length === 0) {
                                     supabase
                                       .from('novelties')
@@ -3564,10 +3715,49 @@ export default function Dashboard() {
                                       });
                                   }
                                 }}
-                                className="btn"
-                                style={{ backgroundColor: '#eab308', color: 'white', border: 'none', padding: '0.3rem 0.5rem', borderRadius: '6px', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
                               >
                                 📤 Enviar Calidad
+                              </button>
+                            ) : (
+                              <button
+                                className="btn"
+                                disabled
+                                style={{ 
+                                  fontSize: '0.72rem', 
+                                  fontWeight: '800', 
+                                  padding: '0.45rem 0.85rem', 
+                                  backgroundColor: '#e2e8f0', 
+                                  color: '#94a3b8', 
+                                  border: 'none', 
+                                  borderRadius: '8px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  cursor: 'not-allowed'
+                                }}
+                              >
+                                📤 Enviar Calidad
+                              </button>
+                            )}
+
+                            {/* 4. Botón Recibir */}
+                            {so.status === 'Enviado a Taller' && (
+                              <button
+                                onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
+                                className="btn"
+                                style={{ 
+                                  backgroundColor: '#3b82f6', 
+                                  color: 'white', 
+                                  border: 'none', 
+                                  padding: '0.45rem 0.85rem', 
+                                  borderRadius: '8px', 
+                                  fontSize: '0.72rem', 
+                                  fontWeight: '800', 
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s'
+                                }}
+                              >
+                                📥 Recibir
                               </button>
                             )}
                           </div>
@@ -3577,6 +3767,24 @@ export default function Dashboard() {
                   })}
                 </tbody>
               </table>
+              {/* Pagination Controls */}
+              {sewingTotalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', padding: '1rem 1.5rem', borderTop: '1px solid #f1f5f9' }}>
+                  <button
+                    onClick={() => setSewingPage(p => Math.max(0, p - 1))}
+                    disabled={sewingPage === 0}
+                    style={{ padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: sewingPage === 0 ? '#f8fafc' : 'white', color: sewingPage === 0 ? '#94a3b8' : '#334155', fontWeight: '700', cursor: sewingPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.8rem' }}
+                  >← Anterior</button>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#475569' }}>
+                    Página {sewingPage + 1} de {sewingTotalPages} · {filteredSewingOrdersForTab.length} órdenes
+                  </span>
+                  <button
+                    onClick={() => setSewingPage(p => Math.min(sewingTotalPages - 1, p + 1))}
+                    disabled={sewingPage >= sewingTotalPages - 1}
+                    style={{ padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', background: sewingPage >= sewingTotalPages - 1 ? '#f8fafc' : 'white', color: sewingPage >= sewingTotalPages - 1 ? '#94a3b8' : '#334155', fontWeight: '700', cursor: sewingPage >= sewingTotalPages - 1 ? 'not-allowed' : 'pointer', fontSize: '0.8rem' }}
+                  >Siguiente →</button>
+                </div>
+              )}
             </div>
           </div>
           {/* CONFIRMAR ENVÍO A CALIDAD MODAL */}

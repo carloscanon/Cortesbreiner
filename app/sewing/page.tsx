@@ -1509,7 +1509,24 @@ export default function SewingPage() {
                   : { bg: '#f5f3ff', color: '#7c3aed' };
                 return (
                   <tr key={so.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '1rem 1.25rem', fontWeight: '900', color: '#7c3aed', fontSize: '0.9rem' }}>
+                    <td 
+                      onClick={() => {
+                        const pOrder = so.parent_order || orders.find(o => o.id === so.parent_order_id);
+                        if (pOrder) {
+                          handleOpenPrintModal(pOrder, so.id);
+                        } else {
+                          alert('No se encontró la orden base para este lote');
+                        }
+                      }}
+                      style={{ 
+                        padding: '1rem 1.25rem', 
+                        fontWeight: '900', 
+                        color: '#7c3aed', 
+                        fontSize: '0.9rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline'
+                      }}
+                    >
                       {so.confeccion_code || '—'}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
@@ -1562,44 +1579,132 @@ export default function SewingPage() {
                       </div>
                     </td>
                     <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* 1. Botón Ficha */}
+                        {(() => {
+                          const prodObj = products.find(p => String(p.id) === String(so.product_id));
+                          const catObj = prodObj ? categoriesMaster.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                          const fichaUrl = catObj?.ficha_tecnica_url;
+                          return (
+                            <button
+                              className="btn"
+                              style={{ 
+                                fontSize: '0.72rem', 
+                                fontWeight: '800', 
+                                padding: '0.45rem 0.85rem', 
+                                backgroundColor: fichaUrl ? '#4f46e5' : '#94a3b8', 
+                                color: 'white', 
+                                border: 'none', 
+                                borderRadius: '8px', 
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                transition: 'all 0.2s'
+                              }}
+                              onClick={() => {
+                                if (fichaUrl) {
+                                  window.open(fichaUrl, '_blank');
+                                } else {
+                                  alert('Este producto no tiene una ficha técnica configurada en su categoría.');
+                                }
+                              }}
+                              title={fichaUrl ? "Ver Ficha Técnica" : "Sin Ficha Técnica"}
+                            >
+                              📄 Ficha
+                            </button>
+                          );
+                        })()}
+
+                        {/* 2. Botón Ver Orden */}
                         {so.parent_order && (
                           <button
                             className="btn"
-                            style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: '800', 
+                              padding: '0.45rem 0.85rem', 
+                              backgroundColor: '#7c3aed', 
+                              color: 'white', 
+                              border: 'none', 
+                              borderRadius: '8px', 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              gap: '0.25rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
                             onClick={() => handleOpenPrintModal(so.parent_order, so.id)}
                           >
-                            <Printer size={13} /> Órdenes Taller
+                            🔍 Ver Orden
                           </button>
                         )}
-                        {so.status === 'Enviado a Taller' && (
-                          <>
-                            <span style={{
-                              padding: '0.4rem 0.75rem',
+
+                        {/* 3. Botón Enviar a Calidad */}
+                        {so.status === 'En Confección' ? (
+                          <button
+                            className="btn"
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: '800', 
+                              padding: '0.45rem 0.85rem', 
+                              backgroundColor: '#ea580c', 
+                              color: 'white', 
+                              border: 'none', 
                               borderRadius: '8px',
-                              fontSize: '0.75rem',
-                              fontWeight: '800',
-                              backgroundColor: '#eff6ff',
-                              color: '#1d4ed8',
-                              border: '1px solid #bfdbfe'
-                            }}>
-                              Enviado a Taller
-                            </span>
-                            <button
-                              className="btn"
-                              style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px' }}
-                              onClick={() => handleConfirmReceiptInWorkshop(so)}
-                            >
-                              📥 Confirmar Recibido (Taller)
-                            </button>
-                          </>
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onClick={() => {
+                              setSelectedSewingOrderForEnvio(so);
+                              setEnvioNotes('');
+                              setShowEnvioModal(true);
+                            }}
+                          >
+                            📤 Enviar a Calidad
+                          </button>
+                        ) : (
+                          <button
+                            className="btn"
+                            disabled
+                            style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: '800', 
+                              padding: '0.45rem 0.85rem', 
+                              backgroundColor: '#e2e8f0', 
+                              color: '#94a3b8', 
+                              border: 'none', 
+                              borderRadius: '8px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              cursor: 'not-allowed'
+                            }}
+                          >
+                            📤 Enviar a Calidad
+                          </button>
                         )}
+
+                        {/* Otros botones del flujo de trabajo de la confección */}
+                        {so.status === 'Enviado a Taller' && (
+                          <button
+                            className="btn"
+                            style={{ fontSize: '0.72rem', fontWeight: '800', padding: '0.45rem 0.85rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                            onClick={() => handleConfirmReceiptInWorkshop(so)}
+                          >
+                            📥 Recibir en Taller
+                          </button>
+                        )}
+
                         {so.status === 'En Confección' && (
                           <>
                             {so.parent_order && (
                               <button
                                 className="btn"
-                                style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px' }}
+                                style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.45rem 0.85rem', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                                 onClick={() => handleRevertToCortado(so.parent_order)}
                               >
                                 Revertir a Cortado
@@ -1607,35 +1712,26 @@ export default function SewingPage() {
                             )}
                             <button
                               className="btn"
-                              style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#eab308', color: 'white', border: 'none', borderRadius: '8px' }}
-                              onClick={() => {
-                                setSelectedSewingOrderForEnvio(so);
-                                setEnvioNotes('');
-                                setShowEnvioModal(true);
-                              }}
-                            >
-                              Confirmar Envío a Calidad
-                            </button>
-                            <button
-                              className="btn"
-                              style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.45rem 0.875rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px' }}
+                              style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.45rem 0.85rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                               onClick={() => handleReceiveSewingOrder(so)}
                             >
                               Recibir de Taller
                             </button>
                           </>
                         )}
+
                         {so.status === 'Enviado a Calidad' && (
                           <span style={{
                             padding: '0.4rem 0.75rem',
                             borderRadius: '8px',
-                            fontSize: '0.75rem',
+                            fontSize: '0.7rem',
                             fontWeight: '800',
                             backgroundColor: '#fef3c7',
                             color: '#d97706',
-                            border: '1px solid #fcd34d'
+                            border: '1px solid #fcd34d',
+                            whiteSpace: 'nowrap'
                           }}>
-                            Enviado a Calidad (Pendiente de Check)
+                            En Calidad
                           </span>
                         )}
                       </div>
