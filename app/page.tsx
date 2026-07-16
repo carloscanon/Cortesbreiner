@@ -3986,6 +3986,146 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+          {/* VIEW ORDER DETAILS MODAL — also available from orders tab */}
+          {viewingOrderDetails && (
+             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
+               <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
+                 width: '100%',
+                 maxWidth: '650px',
+                 maxHeight: '90vh',
+                 overflowY: 'auto',
+                 padding: '3rem',
+                 borderRadius: '16px',
+                 backgroundColor: '#f1f5f9',
+                 border: '1px solid #e2e8f0',
+                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+               } : {
+                 width: '100%',
+                 maxWidth: '850px',
+                 maxHeight: '90vh',
+                 overflowY: 'auto',
+                 padding: '3rem',
+                 borderRadius: '16px',
+                 backgroundColor: 'white',
+                 border: '1px solid #cbd5e1',
+                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+               }}>
+                 
+                 {/* Print relation header */}
+                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                     <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
+                       <Factory size={22} />
+                     </div>
+                     <div>
+                       <h2 style={{ fontSize: '1.1rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
+                         Orden de Confección
+                       </h2>
+                       <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px', marginTop: '0.25rem' }}>
+                         <button
+                           onClick={() => setPrintMode('report')}
+                           style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', border: 'none', fontWeight: '800', fontSize: '0.72rem', cursor: 'pointer', backgroundColor: printMode === 'report' ? '#0f172a' : 'transparent', color: printMode === 'report' ? 'white' : '#64748b' }}
+                         >📋 Relación</button>
+                         <button
+                           onClick={() => setPrintMode('sticker')}
+                           style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', border: 'none', fontWeight: '800', fontSize: '0.72rem', cursor: 'pointer', backgroundColor: printMode === 'sticker' ? '#0f172a' : 'transparent', color: printMode === 'sticker' ? 'white' : '#64748b' }}
+                         >🏷️ Sticker</button>
+                       </div>
+                     </div>
+                   </div>
+                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                     <button onClick={() => window.print()} style={{ background: '#0f172a', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem 1rem', fontWeight: '700', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}><Printer size={15} /> Imprimir</button>
+                     <button onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+                   </div>
+                 </div>
+
+                 {/* Modal content identical to dashboard modal */}
+                 {(() => {
+                   const parentOrder = viewingOrderDetails.parent_order || {};
+                   const workshopId = viewingOrderDetails.workshop_id;
+                   const currentWsModal = workshops.find(w => String(w.id) === String(workshopId));
+                   const sizeBreakdowns: Record<string, { ordered: number; confeccionada: number }> = {};
+                   (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
+                     const targetProdId = cut.product_id || viewingOrderDetails.product_id;
+                     const prodObj2 = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
+                     const color = prodObj2?.color || prodObj2?.nombre || 'Sin Color';
+                     (cut.size_breakdown || []).forEach((sb: any) => {
+                       const key = `${color}|${sb.size}`;
+                       if (!sizeBreakdowns[key]) sizeBreakdowns[key] = { ordered: 0, confeccionada: 0 };
+                       sizeBreakdowns[key].ordered += Number(sb.quantity || 0);
+                     });
+                   });
+                   const confEntries = Object.entries(sizeBreakdowns);
+
+                   return (
+                     <>
+                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.2rem', border: '1px solid #e2e8f0' }}>
+                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Código Confección</p>
+                           <span style={{ fontWeight: '900', color: '#80082E' }}>{viewingOrderDetails.confeccion_code}</span>
+                         </div>
+                         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.2rem', border: '1px solid #e2e8f0' }}>
+                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</p>
+                           <span style={{ fontWeight: '700', color: '#1e293b' }}>{viewingOrderDetails.status}</span>
+                         </div>
+                       </div>
+
+                       {/* Taller Info */}
+                       <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem', color: 'white' }}>
+                         <p style={{ margin: 0, fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>Taller Asignado</p>
+                         <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#f1f5f9', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
+                         <p style={{ margin: '0.2rem 0 0', color: '#f59e0b', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
+                         <p style={{ margin: '0.15rem 0 0', color: '#94a3b8' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
+                       </div>
+
+                       {/* Size table */}
+                       {confEntries.length > 0 && (
+                         <div style={{ marginBottom: '1.5rem' }}>
+                           <p style={{ margin: '0 0 0.75rem', fontWeight: '800', fontSize: '0.85rem', color: '#0f172a' }}>Desglose por Color y Talla</p>
+                           <div style={{ overflowX: 'auto' }}>
+                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                               <thead>
+                                 <tr style={{ backgroundColor: '#f8fafc' }}>
+                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Talla</th>
+                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>Unidades</th>
+                                 </tr>
+                               </thead>
+                               <tbody>
+                                 {confEntries.map(([key, vals]) => {
+                                   const [colorKey, sizeKey] = key.split('|');
+                                   return (
+                                     <tr key={key} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                       <td style={{ padding: '0.5rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{colorKey}</td>
+                                       <td style={{ padding: '0.5rem 0.75rem', color: '#475569' }}>{sizeKey}</td>
+                                       <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '700', color: '#0f172a' }}>{vals.ordered}</td>
+                                     </tr>
+                                   );
+                                 })}
+                               </tbody>
+                             </table>
+                           </div>
+                         </div>
+                       )}
+
+                       {/* Workshop info box */}
+                       {currentWsModal && (
+                         <div style={{ background: '#f0fdf4', borderRadius: '10px', padding: '1rem', border: '1px solid #bbf7d0', marginBottom: '1rem' }}>
+                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase' }}>Taller Satélite</p>
+                           <p style={{ margin: '0.25rem 0 0', fontWeight: '700', color: '#14532d' }}>{currentWsModal.nombre_taller}</p>
+                           {currentWsModal.contacto && <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: '#166534' }}>📞 {currentWsModal.contacto}</p>}
+                         </div>
+                       )}
+                     </>
+                   );
+                 })()}
+
+                 <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
+                   <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
+                 </div>
+               </div>
+             </div>
+          )}
         </div>
       );
     }
