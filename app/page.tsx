@@ -2944,12 +2944,18 @@ export default function Dashboard() {
                     }}
                     margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                   >
+                    <defs>
+                      <linearGradient id="colorConfeccionado" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#D81B60" stopOpacity={0.95}/>
+                        <stop offset="95%" stopColor="#80082E" stopOpacity={0.95}/>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={theme.gridColor} />
                     <XAxis dataKey="name" stroke={theme.textMuted} fontSize={10} tickLine={false} />
                     <YAxis stroke={theme.textMuted} fontSize={10} tickLine={false} />
                     <Tooltip contentStyle={{ backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.text }} />
                     <Bar dataKey="Planeado" fill="#cbd5e1" radius={[4, 4, 0, 0]} barSize={25} />
-                    <Bar dataKey="Confeccionado" fill={theme.primary} radius={[4, 4, 0, 0]} barSize={25} />
+                    <Bar dataKey="Confeccionado" fill="url(#colorConfeccionado)" radius={[4, 4, 0, 0]} barSize={25} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
