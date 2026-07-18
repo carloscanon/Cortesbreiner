@@ -30,7 +30,12 @@ import {
   Printer,
   Download,
   ArrowUpDown,
-  Loader2
+  Loader2,
+  Bell,
+  MessageSquare,
+  Send,
+  Search,
+  FileText
 } from 'lucide-react';
 import {
   BarChart,
@@ -296,8 +301,26 @@ function DetailModal({
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, config } = useAuth();
   const searchParams = useSearchParams();
+  const workshopAvatarSize = config?.['workshop_avatar_size'] || 'normal';
+  let wsAvatarWidth = '46px';
+  let wsAvatarFontSize = '1.35rem';
+  let wsAvatarBorderRadius = '14px';
+
+  if (workshopAvatarSize === 'small') {
+    wsAvatarWidth = '32px';
+    wsAvatarFontSize = '0.9rem';
+    wsAvatarBorderRadius = '10px';
+  } else if (workshopAvatarSize === 'large') {
+    wsAvatarWidth = '64px';
+    wsAvatarFontSize = '1.8rem';
+    wsAvatarBorderRadius = '18px';
+  } else if (workshopAvatarSize === 'xlarge') {
+    wsAvatarWidth = '80px';
+    wsAvatarFontSize = '2.2rem';
+    wsAvatarBorderRadius = '22px';
+  }
   const [orders, setOrders] = useState<Order[]>([]);
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [inspections, setInspections] = useState<any[]>([]);
@@ -338,6 +361,19 @@ export default function Dashboard() {
   const [compPage, setCompPage] = useState<number>(1);
   const [showSatelliteHelp, setShowSatelliteHelp] = useState<boolean>(false);
 
+  // Workshop Alerts / Comunicados
+  const [workshopAlerts, setWorkshopAlerts] = useState<any[]>([]);
+  const [showWorkshopAlertsModal, setShowWorkshopAlertsModal] = useState(false);
+  const [unreadWorkshopAlerts, setUnreadWorkshopAlerts] = useState(0);
+
+  // Live Chat Workshop States
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatRoom, setChatRoom] = useState<any>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatInputValue, setChatInputValue] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+
   // Estados de filtros para consolidación de talleres
   const [consolidationWorkshopId, setConsolidationWorkshopId] = useState<string>('all');
   const [consolidationStatus, setConsolidationStatus] = useState<string>('all');
@@ -370,6 +406,38 @@ export default function Dashboard() {
   ]);
 
   useEffect(() => {
+    const handleOpenChat = () => setShowChatModal(true);
+    const handleOpenAlerts = () => {
+      setShowWorkshopAlertsModal(true);
+      setUnreadWorkshopAlerts(0);
+      localStorage.setItem('workshop_last_read_alerts', new Date().toISOString());
+    };
+
+    window.addEventListener('open-workshop-chat', handleOpenChat);
+    window.addEventListener('open-workshop-alerts', handleOpenAlerts);
+
+    if (searchParams.get('open_chat') === 'true') {
+      setShowChatModal(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('open_chat');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+    if (searchParams.get('open_alerts') === 'true') {
+      setShowWorkshopAlertsModal(true);
+      setUnreadWorkshopAlerts(0);
+      localStorage.setItem('workshop_last_read_alerts', new Date().toISOString());
+      const url = new URL(window.location.href);
+      url.searchParams.delete('open_alerts');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+
+    return () => {
+      window.removeEventListener('open-workshop-chat', handleOpenChat);
+      window.removeEventListener('open-workshop-alerts', handleOpenAlerts);
+    };
+  }, [searchParams]);
+
+  useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -378,6 +446,19 @@ export default function Dashboard() {
         const rawWorkshopId = authData?.user?.user_metadata?.workshop_id || '';
         const parsedWorkshopIds = rawWorkshopId.split(',').map((id: string) => id.trim()).filter(Boolean);
         setAuthWorkshopIds(parsedWorkshopIds);
+
+        // Fetch general admin alerts (same as POS page)
+        {
+          const { data: alertsData } = await supabase
+            .from('novelties')
+            .select('*')
+            .eq('modulo_relac', 'alerta_general')
+            .order('created_at', { ascending: false });
+          setWorkshopAlerts(alertsData || []);
+          const lastRead = localStorage.getItem('workshop_last_read_alerts') || '1970-01-01T00:00:00.000Z';
+          const unread = (alertsData || []).filter((a: any) => new Date(a.created_at) > new Date(lastRead)).length;
+          setUnreadWorkshopAlerts(unread);
+        }
 
         const fetchAllProducts = async () => {
           let allProds: any[] = [];
@@ -599,6 +680,133 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
+  // Initialize/Fetch workshop Chat Room
+  const initWorkshopChatRoom = async (workshopId: string, workshopName: string) => {
+    if (!workshopId) return;
+    try {
+      let { data: room, error } = await supabase
+        .from('workshop_chat_rooms')
+        .select('*')
+        .eq('workshop_id', workshopId)
+        .maybeSingle();
+
+      if (!room) {
+        const { data: newRoom, error: createError } = await supabase
+          .from('workshop_chat_rooms')
+          .insert({
+            workshop_id: workshopId,
+            name: workshopName || 'Taller Satélite',
+            last_message: 'Chat iniciado.',
+            unread_count_erp: 0,
+            unread_count_workshop: 0
+          })
+          .select()
+          .single();
+        if (createError) throw createError;
+        room = newRoom;
+      }
+
+      setChatRoom(room);
+      if (room) {
+        const { data: messages } = await supabase
+          .from('workshop_chat_messages')
+          .select('*')
+          .eq('room_id', room.id)
+          .order('created_at', { ascending: true });
+        setChatMessages(messages || []);
+        setUnreadChatCount(room.unread_count_workshop || 0);
+      }
+    } catch (e) {
+      console.error('Error initializing workshop chat room:', e);
+    }
+  };
+
+  // Sync Chat Room when selected/showChatModal changes
+  useEffect(() => {
+    if (!chatRoom) return;
+
+    const channelMessages = supabase
+      .channel(`workshop_chat_messages_${chatRoom.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshop_chat_messages', filter: `room_id=eq.${chatRoom.id}` }, (payload) => {
+        setChatMessages((prev) => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+      })
+      .subscribe();
+
+    const channelRoomSync = supabase
+      .channel(`workshop_chat_room_sync_${chatRoom.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshop_chat_rooms', filter: `id=eq.${chatRoom.id}` }, (payload) => {
+        if (!showChatModal) {
+          setUnreadChatCount(payload.new.unread_count_workshop || 0);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channelMessages);
+      supabase.removeChannel(channelRoomSync);
+    };
+  }, [chatRoom, showChatModal]);
+
+  const handleSendWorkshopMessage = async () => {
+    if (!chatInputValue.trim() || !chatRoom || sendingMessage) return;
+    const msgText = chatInputValue.trim();
+    setSendingMessage(true);
+    setChatInputValue('');
+    try {
+      const { data: insertedMsg, error } = await supabase
+        .from('workshop_chat_messages')
+        .insert({
+          room_id: chatRoom.id,
+          sender_name: profile?.full_name || 'Taller Satélite',
+          sender_role: 'workshop',
+          message: msgText
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await supabase
+        .from('workshop_chat_rooms')
+        .update({
+          last_message: msgText,
+          last_message_time: new Date().toISOString(),
+          unread_count_erp: (chatRoom.unread_count_erp || 0) + 1
+        })
+        .eq('id', chatRoom.id);
+
+      setChatMessages((prev) => [...prev, insertedMsg]);
+    } catch (e) {
+      console.error('Error sending message:', e);
+      setChatInputValue(msgText);
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // Load workshop chat room if this is a workshop user
+  useEffect(() => {
+    const isTallerUser = profile?.roles?.name === 'Taller';
+    if (isTallerUser && workshops.length > 0) {
+      const userWorkshopIds = authWorkshopIds.length > 0
+        ? authWorkshopIds
+        : (profile?.workshop_id || '').split(',').map((id: string) => id.trim()).filter(Boolean);
+      const associatedWorkshops = workshops.filter((w: any) => {
+        const byId = userWorkshopIds.includes(String(w.id));
+        const byName = (w.nombre_taller || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim() ||
+                       (w.responsable || '').toLowerCase().trim() === (profile?.full_name || '').toLowerCase().trim();
+        return byId || byName;
+      });
+      const userWorkshop = associatedWorkshops.length > 0 ? associatedWorkshops[0] : null;
+      if (userWorkshop) {
+        initWorkshopChatRoom(userWorkshop.id, userWorkshop.nombre_taller);
+      }
+    }
+  }, [profile, workshops, authWorkshopIds]);
+
   // Simulación de WebSockets (tiempo real)
   useEffect(() => {
     const wsMessages = [
@@ -806,6 +1014,8 @@ export default function Dashboard() {
     return total || so.cantidad_planeada || 0;
   };
 
+
+
   const isTaller = profile?.roles?.name === 'Taller';
 
   // ─── WORKSHOP USER SPECIFIC LOGIC ──────────────────────────────────────────
@@ -830,6 +1040,802 @@ export default function Dashboard() {
     const userWorkshop = activeWorkshopId === 'all'
       ? (finalWorkshopsList.length > 0 ? finalWorkshopsList[0] : null)
       : (finalWorkshopsList.find(w => String(w.id) === String(activeWorkshopId)) || null);
+
+  const renderWorkshopModals = () => {
+    return (
+      <>
+        {/* ── Workshop Alerts Modal ───────────────────────────────────────────── */}
+        {showWorkshopAlertsModal && (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, backdropFilter: 'blur(8px)', padding: '1rem' }}>
+            <div style={{
+              width: '90%',
+              maxWidth: '500px',
+              padding: '2rem',
+              background: 'white',
+              border: '1px solid #cbd5e1',
+              borderRadius: '24px',
+              boxShadow: '0 20px 45px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1.25rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0f172a' }}>
+                  <Bell size={20} color="#0891b2" />
+                  Comunicados de Administración
+                </h3>
+                <button onClick={() => setShowWorkshopAlertsModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                {workshopAlerts.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b', fontSize: '0.85rem' }}>
+                    <Bell size={36} style={{ opacity: 0.15, margin: '0 auto 0.75rem', display: 'block' }} />
+                    No hay comunicados de administración en este momento.
+                  </div>
+                ) : (
+                  workshopAlerts.map((item: any, idx: number) => {
+                    const isHigh = item.criticidad === 'Alta';
+                    const isMed = item.criticidad === 'Media';
+                    return (
+                      <div
+                        key={item.id || idx}
+                        style={{
+                          padding: '1rem',
+                          borderRadius: '12px',
+                          borderLeft: `5px solid ${isHigh ? '#ef4444' : isMed ? '#f59e0b' : '#3b82f6'}`,
+                          backgroundColor: isHigh ? '#fef2f2' : isMed ? '#fffbeb' : '#eff6ff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.35rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.625rem', fontWeight: '900', textTransform: 'uppercase', color: isHigh ? '#b91c1c' : isMed ? '#b45309' : '#1d4ed8' }}>
+                            {isHigh ? '🔴' : isMed ? '🟡' : '🔵'} Prioridad {item.criticidad}
+                          </span>
+                          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                            {new Date(item.created_at).toLocaleDateString('es-CO')}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#1e293b' }}>{item.cod_novedad}</span>
+                        <p style={{ fontSize: '0.78rem', color: '#475569', margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{item.nombre}</p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <button
+                onClick={() => setShowWorkshopAlertsModal(false)}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  backgroundColor: '#0891b2',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: '800',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Cerrar Bandeja
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Workshop Chat Drawer ──────────────────────────────────────────────── */}
+        {showChatModal && chatRoom && (
+          <div 
+            style={{ 
+              position: 'fixed', 
+              inset: 0, 
+              backgroundColor: 'rgba(15,23,42,0.4)', 
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              zIndex: 3000, 
+              backdropFilter: 'blur(5px)' 
+            }} 
+            onClick={() => setShowChatModal(false)}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '440px',
+                height: '100%',
+                backgroundColor: '#efeae2',
+                backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
+                backgroundRepeat: 'repeat',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '-10px 0 30px rgba(0,0,0,0.15)',
+                borderLeft: '1px solid #cbd5e1'
+              }}
+            >
+              {/* Header */}
+              <div style={{ 
+                padding: '1rem 1.25rem', 
+                backgroundColor: '#075e54', 
+                color: 'white', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                boxShadow: '0 2px 5px rgba(0,0,0,0.1)' 
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                    🏢
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900' }}>Soporte Administrativo ERP</h4>
+                    <span style={{ fontSize: '0.68rem', color: '#128c7e', fontWeight: '800', backgroundColor: '#dcf8c6', padding: '1px 6px', borderRadius: '4px' }}>Canal Oficial Abierto</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowChatModal(false)} 
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'white', display: 'flex' }}
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Messages body */}
+              <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {chatMessages.length === 0 ? (
+                  <div style={{ alignSelf: 'center', backgroundColor: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '0.6rem 1rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', textAlign: 'center', maxWidth: '85%' }}>
+                    💡 Envía un mensaje aquí para comunicarte directamente con el personal administrativo de Cortes Breiner.
+                  </div>
+                ) : (
+                  chatMessages.map((msg, i) => {
+                    const isMe = msg.sender_role === 'workshop';
+                    return (
+                      <div key={i} style={{
+                        alignSelf: isMe ? 'flex-end' : 'flex-start',
+                        maxWidth: '80%',
+                        backgroundColor: isMe ? '#dcf8c6' : '#ffffff',
+                        color: '#303030',
+                        padding: '0.5rem 0.85rem',
+                        borderRadius: isMe ? '10px 0 10px 10px' : '0 10px 10px 10px',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.15rem'
+                      }}>
+                        <span style={{ fontSize: '0.6rem', fontWeight: '900', color: isMe ? '#25d366' : '#075e54' }}>{msg.sender_name}</span>
+                        <span style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap', lineHeight: '1.3' }}>{msg.message}</span>
+                        <span style={{ fontSize: '0.55rem', color: '#859095', alignSelf: 'flex-end', fontFamily: 'monospace', marginTop: '0.15rem' }}>
+                          {new Date(msg.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Input area */}
+              <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid #cbd5e1' }}>
+                <input
+                  type="text"
+                  placeholder="Escribe tu mensaje para administración..."
+                  value={chatInputValue}
+                  onChange={e => setChatInputValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSendWorkshopMessage(); }}
+                  style={{
+                    flex: 1,
+                    padding: '0.6rem 1rem',
+                    borderRadius: '20px',
+                    border: '1px solid #cbd5e1',
+                    outline: 'none',
+                    fontSize: '0.85rem'
+                  }}
+                />
+                <button
+                  onClick={handleSendWorkshopMessage}
+                  disabled={sendingMessage || !chatInputValue.trim()}
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '50%',
+                    backgroundColor: sendingMessage || !chatInputValue.trim() ? '#cccccc' : '#128c7e',
+                    color: 'white',
+                    border: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {sendingMessage ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Send size={16} />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Viewing Order Details Modal ────────────────────────────────────────── */}
+        {viewingOrderDetails && (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
+            <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
+              width: '100%',
+              maxWidth: '650px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '3rem',
+              borderRadius: '16px',
+              backgroundColor: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+            } : {
+              width: '100%',
+              maxWidth: '850px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '3rem',
+              borderRadius: '16px',
+              backgroundColor: 'white',
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+            }}>
+              
+              {/* Print relation header */}
+              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
+                    <Factory size={22} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.1rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
+                      Relación de Despacho
+                    </h2>
+                    <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px', marginTop: '0.25rem' }}>
+                      <button
+                        onClick={() => setPrintMode('report')}
+                        style={{
+                          border: 'none',
+                          backgroundColor: printMode === 'report' ? 'white' : 'transparent',
+                          color: printMode === 'report' ? '#0f172a' : '#475569',
+                          padding: '0.25rem 0.6rem',
+                          borderRadius: '6px',
+                          fontSize: '0.68rem',
+                          fontWeight: '850',
+                          cursor: 'pointer',
+                          boxShadow: printMode === 'report' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                        }}
+                      >
+                        📄 Reporte
+                      </button>
+                      <button
+                        onClick={() => setPrintMode('sticker')}
+                        style={{
+                          border: 'none',
+                          backgroundColor: printMode === 'sticker' ? 'white' : 'transparent',
+                          color: printMode === 'sticker' ? '#0f172a' : '#475569',
+                          padding: '0.25rem 0.6rem',
+                          borderRadius: '6px',
+                          fontSize: '0.68rem',
+                          fontWeight: '850',
+                          cursor: 'pointer',
+                          boxShadow: printMode === 'sticker' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                        }}
+                      >
+                        🏷️ Stickers
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div>
+                    <p style={{ fontSize: '0.75rem', margin: 0, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Orden de Confección</p>
+                    <p style={{ fontSize: '1.1rem', fontWeight: '950', color: 'var(--primary)', margin: 0 }}>
+                      {viewingOrderDetails.confeccion_code}
+                    </p>
+                  </div>
+                  <button
+                    className="btn"
+                    onClick={() => window.print()}
+                    style={{ backgroundColor: '#80082E', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
+                  >
+                    <Printer size={13} /> Imprimir
+                  </button>
+                  <button onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+                </div>
+              </div>
+
+              {printMode === 'sticker' ? (
+                (() => {
+                  const parentOrder = viewingOrderDetails.parent_order || {};
+                  const assignments = getOrderAssignments(parentOrder);
+                  const rowWorkshopsMap = assignments?.rowWorkshops || {};
+                  const workshopId = viewingOrderDetails.workshop_id;
+                  const currentWs = workshops.find(w => String(w.id) === String(workshopId));
+
+                  const qtyByCutSize: Record<string, number> = {};
+                  (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
+                    const targetProdId = cut.product_id;
+                    const layersProyec = cut.layers || 1;
+                    const layersProduced = cut.layers_produced || 0;
+                    (cut.cut_sizes || []).forEach((cs: any) => {
+                      const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                      const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                      const cellKey = `${targetProdId}_${sz}`;
+                      const assignedWId = rowWorkshopsMap[cellKey];
+                      if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
+                      let realQty = 0;
+                      if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                        realQty = Number(cs.quantity_produced);
+                      } else {
+                        const proyecQty = Number(cs.quantity) || 0;
+                        const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                        realQty = Math.round(ppc * layersProduced);
+                      }
+                      if (realQty <= 0) return;
+                      const key = `${cut.id}_${sz}`;
+                      qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
+                    });
+                  });
+
+                  const itemsList: any[] = [];
+                  const seenKeys = new Set<string>();
+                  (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
+                    const targetProdId = cut.product_id;
+                    const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
+                    const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                    const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+                    const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
+                    const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+                    const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
+                    const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
+
+                    let displayFabricName = fabricName;
+                    let displayColorName = colorName;
+                    if (fabricName.includes(',')) {
+                      const commaIdx = fabricName.indexOf(',');
+                      displayFabricName = fabricName.substring(0, commaIdx).trim();
+                      const extractedColor = fabricName.substring(commaIdx + 1).trim();
+                      if (extractedColor) {
+                        displayColorName = extractedColor;
+                      }
+                    }
+
+                    (cut.cut_sizes || []).forEach((cs: any) => {
+                      const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                      const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+                      const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                      const key = `${cut.id}_${sz}`;
+                      if (!qtyByCutSize[key] || seenKeys.has(key)) return;
+                      seenKeys.add(key);
+                      itemsList.push({
+                        categoryName,
+                        colorName: displayColorName,
+                        fabricName: displayFabricName,
+                        sizeCode: sizeName,
+                        quantity: qtyByCutSize[key]
+                      });
+                    });
+                  });
+
+                  const groupedItems: {
+                    colorName: string;
+                    categoryName: string;
+                    fabricName: string;
+                    sizes: { [size: string]: number };
+                    totalQuantity: number;
+                  }[] = [];
+
+                  itemsList.forEach((item: any) => {
+                    const existing = groupedItems.find(g => 
+                      g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                      g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
+                      g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
+                    );
+                    if (existing) {
+                      existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                      existing.totalQuantity += item.quantity;
+                    } else {
+                      groupedItems.push({
+                        categoryName: item.categoryName,
+                        colorName: item.colorName,
+                        fabricName: item.fabricName,
+                        sizes: { [item.sizeCode]: item.quantity },
+                        totalQuantity: item.quantity
+                      });
+                    }
+                  });
+
+                  groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                  const totalUnits = groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0);
+
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem', backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
+                      <div className="print-stickers-page" style={{
+                        width: '100mm',
+                        height: '100mm',
+                        padding: '8mm',
+                        boxSizing: 'border-box',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        border: '2.5px solid #000',
+                        backgroundColor: 'white',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        color: 'black',
+                        fontFamily: 'system-ui, sans-serif'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          <div style={{ textAlign: 'center', borderBottom: '2.5px solid #000', paddingBottom: '0.35rem', marginBottom: '0.2rem' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
+                            <p style={{ fontSize: '0.6rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span><strong>ORDEN CONFECCIÓN:</strong></span>
+                              <span style={{ fontWeight: '900', color: '#80082E' }}>{viewingOrderDetails.confeccion_code}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span><strong>TALLER SATÉLITE:</strong></span>
+                              <span style={{ fontWeight: '800' }}>{currentWs?.nombre_taller || '—'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span><strong>CLIENTE:</strong></span>
+                              <span>{viewingOrderDetails.parent_order?.client_name || '—'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span><strong>TELA PRINCIPAL:</strong></span>
+                              <span>{viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span><strong>FECHA PROGRAMADA:</strong></span>
+                              <span><strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></span>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: '0.3rem', borderTop: '1.5px dashed #000', paddingTop: '0.3rem' }}>
+                            <p style={{ margin: '0 0 0.15rem 0', fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.625rem', maxHeight: '2.5rem', overflow: 'hidden' }}>
+                              {groupedItems.slice(0, 5).map((item, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{ fontWeight: '600' }}>• {item.categoryName} ({item.colorName})</span>
+                                  <strong style={{ fontSize: '0.68rem' }}>{item.totalQuantity} uds</strong>
+                                </div>
+                              ))}
+                              {groupedItems.length > 5 && (
+                                <div style={{ fontSize: '0.55rem', fontStyle: 'italic', textAlign: 'center', color: '#666' }}>+ {groupedItems.length - 5} más categorías/colores...</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
+                          <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#80082E' }}>{totalUnits} uds</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <>
+                  {/* Workshop Info */}
+                  {(() => {
+                    const currentWs = workshops.find(w => String(w.id) === String(viewingOrderDetails.workshop_id));
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.825rem', marginBottom: '2rem' }}>
+                        <div>
+                          <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Taller Satélite Destinatario</p>
+                          <p style={{ margin: 0, fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>{currentWs?.nombre_taller || 'Taller Asignado'}</p>
+                          <p style={{ margin: '0.2rem 0 0', color: '#334155', fontWeight: '600' }}>Responsable: <span style={{ color: '#0f172a', fontWeight: '800' }}>{currentWs?.responsable || '—'}</span></p>
+                          <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Teléfono: {currentWs?.telefono || '—'}</p>
+                        </div>
+                        <div>
+                          <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
+                          <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
+                          <p style={{ margin: '0.2rem 0 0', color: '#80082E', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
+                          <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    
+                    {/* Items Table */}
+                    <div>
+                      <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>📋</span> Prendas y Cantidades a Armar
+                      </h3>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Distribución Tallas</th>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const parentOrder = viewingOrderDetails.parent_order || {};
+                            const assignments = getOrderAssignments(parentOrder);
+                            const rowWorkshopsMap = assignments?.rowWorkshops || {};
+                            const workshopId = viewingOrderDetails.workshop_id;
+
+                            const qtyByCutSize: Record<string, number> = {};
+                            (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
+                              const targetProdId = cut.product_id;
+                              const layersProyec = cut.layers || 1;
+                              const layersProduced = cut.layers_produced || 0;
+                              (cut.cut_sizes || []).forEach((cs: any) => {
+                                const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                                const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                                const cellKey = `${targetProdId}_${sz}`;
+                                const assignedWId = rowWorkshopsMap[cellKey];
+                                if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
+                                let realQty = 0;
+                                if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                                  realQty = Number(cs.quantity_produced);
+                                } else {
+                                  const proyecQty = Number(cs.quantity) || 0;
+                                  const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+                                  realQty = Math.round(ppc * layersProduced);
+                                }
+                                if (realQty <= 0) return;
+                                const key = `${cut.id}_${sz}`;
+                                qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
+                              });
+                            });
+
+                            const itemsList: any[] = [];
+                            const seenKeys = new Set<string>();
+                            (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
+                              const targetProdId = cut.product_id;
+                              const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
+                              const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
+                              const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
+                              const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
+                              const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
+                              const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
+                              const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
+
+                              let displayFabricName = fabricName;
+                              let displayColorName = colorName;
+                              if (fabricName.includes(',')) {
+                                const commaIdx = fabricName.indexOf(',');
+                                displayFabricName = fabricName.substring(0, commaIdx).trim();
+                                const extractedColor = fabricName.substring(commaIdx + 1).trim();
+                                if (extractedColor) {
+                                  displayColorName = extractedColor;
+                                }
+                              }
+
+                              (cut.cut_sizes || []).forEach((cs: any) => {
+                                const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                                const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
+                                const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                                const key = `${cut.id}_${sz}`;
+                                if (!qtyByCutSize[key] || seenKeys.has(key)) return;
+                                seenKeys.add(key);
+                                itemsList.push({
+                                  categoryName,
+                                  colorName: displayColorName,
+                                  fabricName: displayFabricName,
+                                  sizeCode: sizeName,
+                                  quantity: qtyByCutSize[key]
+                                });
+                              });
+                            });
+
+                            const groupedItems: {
+                              colorName: string;
+                              categoryName: string;
+                              fabricName: string;
+                              sizes: { [size: string]: number };
+                              totalQuantity: number;
+                            }[] = [];
+
+                            itemsList.forEach((item: any) => {
+                              const existing = groupedItems.find(g => 
+                                g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                                g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
+                                g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
+                              );
+                              if (existing) {
+                                existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
+                                existing.totalQuantity += item.quantity;
+                              } else {
+                                groupedItems.push({
+                                  categoryName: item.categoryName,
+                                  colorName: item.colorName,
+                                  fabricName: item.fabricName,
+                                  sizes: { [item.sizeCode]: item.quantity },
+                                  totalQuantity: item.quantity
+                                });
+                              }
+                            });
+
+                            groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+
+                            return (
+                              <>
+                                {groupedItems.map((item, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                    <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.categoryName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center' }}>
+                                      <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                        {Object.entries(item.sizes).map(([sz, qty]) => (
+                                          <span key={sz} style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontWeight: '700' }}>
+                                            {sz}: <strong style={{ color: '#80082E' }}>{qty}</strong>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '850', color: '#0f172a', fontSize: '0.85rem' }}>{item.totalQuantity} uds</td>
+                                  </tr>
+                                ))}
+                                <tr style={{ borderTop: '2px solid #cbd5e1', fontWeight: '800', backgroundColor: '#f8fafc' }}>
+                                  <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
+                                  <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#80082E', fontSize: '0.9rem', fontWeight: '950' }}>
+                                    {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
+                                  </td>
+                                </tr>
+                              </>
+                            );
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Accessories Table */}
+                    <div>
+                      <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>🔗</span> Accesorios e Insumos Entregados
+                      </h3>
+                      {(() => {
+                        const computedAccs: { name: string; unit: string; qty: number }[] = [];
+                        const itemsList: any[] = [];
+                        const parentOrder = viewingOrderDetails.parent_order || {};
+                        const assignments = getOrderAssignments(parentOrder);
+                        const workshopId = viewingOrderDetails.workshop_id;
+                        const targetWorkshopId = workshopId || userWorkshop?.id;
+
+                        (parentOrder.cuts || []).forEach((cut: any) => {
+                          const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
+                          const prodId = prod ? String(prod.id) : 'sin_prod';
+
+                          cut.cut_sizes?.forEach((szQty: any) => {
+                            const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
+                            const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+                            const cellKey = `${prodId}_${sz}`;
+                            const assignedTo = assignments?.rowWorkshops?.[cellKey];
+
+                            if (targetWorkshopId && assignedTo && String(assignedTo).toLowerCase().trim() === String(targetWorkshopId).toLowerCase().trim()) {
+                              const layersProyec = cut.layers || 1;
+                              const layersProduced = cut.layers_produced || 0;
+                              const plannedQty = Number(szQty.quantity) || 0;
+                              const ppc = plannedQty / layersProyec;
+                              const actualQty = Math.round(ppc * layersProduced);
+
+                              if (actualQty > 0) {
+                                itemsList.push({
+                                  cutId: cut.id,
+                                  productId: cut.product_id,
+                                  quantity: actualQty
+                                });
+                              }
+                            }
+                          });
+                        });
+
+                        itemsList.forEach((item: any) => {
+                          if (!item.productId) return;
+                          const prodObj = productsList.find(p => String(p.id) === String(item.productId));
+                          const prodName = prodObj?.nombre_producto;
+                          const prodAccs = productAccessoriesList.filter(pa => {
+                            if (String(pa.product_id) === String(item.productId)) return true;
+                            const paProdName = pa.products?.nombre_producto;
+                            return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
+                          });
+
+                          prodAccs.forEach(pa => {
+                            const accName = pa.accessories?.nombre || 'Accesorio';
+                            const rawUnit = pa.accessories?.unidad_medida || '';
+                            const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
+                            const qtyPerProduct = Number(pa.cantidad) || 0;
+                            const totalRequired = item.quantity * qtyPerProduct;
+
+                            if (totalRequired > 0) {
+                              const existing = computedAccs.find(wa => wa.name === accName);
+                              if (existing) {
+                                existing.qty += totalRequired;
+                              } else {
+                                computedAccs.push({
+                                  name: accName,
+                                  unit: accUnit,
+                                  qty: totalRequired
+                                });
+                              }
+                            }
+                          });
+                        });
+
+                        if (computedAccs.length === 0) {
+                          return <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0, fontStyle: 'italic', padding: '0.5rem 0' }}>No se relacionan accesorios para este lote.</p>;
+                        }
+
+                        return (
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                                <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Insumo / Accesorio</th>
+                                <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569', width: '100px' }}>Unidad</th>
+                                <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '150px' }}>Cantidad Proporcional</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {computedAccs.map((wa, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{wa.name}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{wa.unit}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{Math.round(wa.qty)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Special Notes & Observations */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', fontSize: '0.78rem' }}>
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem', backgroundColor: '#faf9ff' }}>
+                        <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.4rem 0', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Observaciones y Detalles de Costura</p>
+                        <p style={{ margin: 0, color: '#475569', lineHeight: '1.5', fontSize: '0.825rem', fontWeight: '500' }}>
+                          {(() => {
+                            const rawObs = viewingOrderDetails.observaciones || '';
+                            return rawObs.replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '').trim() || 'Sin observaciones adicionales de preparación.';
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Signature Block */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', marginTop: '2rem', paddingTop: '1.5rem' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
+                        <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Entregado por (Planta)</p>
+                        <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>Cortesbreiner Producción</p>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
+                        <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Recibido por Taller Satélite</p>
+                        <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>{userWorkshop?.nombre_taller || 'Taller Satélite'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
 
      // Filtrar órdenes asignadas a cualquiera de los talleres del usuario
     const assignedOrders = orders.filter(o => {
@@ -1231,7 +2237,8 @@ export default function Dashboard() {
       const efficiencyPct = plannedUnitsSum > 0 ? Math.round((confeccionadasSum / plannedUnitsSum) * 100) : 0;
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem', backgroundColor: theme.bg, color: theme.text, transition: 'all 0.3s ease' }}>
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem', backgroundColor: theme.bg, color: theme.text, transition: 'all 0.3s ease' }}>
           
           {/* 1. Encabezado Ejecutivo Consolidado SAP/Dynamics Style */}
           <div style={{ 
@@ -1625,14 +2632,14 @@ export default function Dashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', position: 'relative', zIndex: 1 }}>
                         {/* Avatar con inicial del taller */}
                         <div style={{
-                          width: '46px', height: '46px', borderRadius: '14px',
+                          width: wsAvatarWidth, height: wsAvatarWidth, borderRadius: wsAvatarBorderRadius,
                           background: 'rgba(255,255,255,0.2)',
                           backdropFilter: 'blur(8px)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           border: '1.5px solid rgba(255,255,255,0.35)',
                           flexShrink: 0,
                         }}>
-                          <span style={{ fontSize: '1.35rem', fontWeight: '900', color: 'white', lineHeight: 1 }}>{initial}</span>
+                          <span style={{ fontSize: wsAvatarFontSize, fontWeight: '900', color: 'white', lineHeight: 1 }}>{initial}</span>
                         </div>
                         <div>
                           <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', color: 'white', lineHeight: 1.2 }}>{w.nombre_taller}</h4>
@@ -2538,594 +3545,6 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-          {viewingOrderDetails && (
-             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
-               <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
-                 width: '100%',
-                 maxWidth: '650px',
-                 maxHeight: '90vh',
-                 overflowY: 'auto',
-                 padding: '3rem',
-                 borderRadius: '16px',
-                 backgroundColor: '#f1f5f9',
-                 border: '1px solid #cbd5e1',
-                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-               } : {
-                 width: '100%',
-                 maxWidth: '850px',
-                 maxHeight: '90vh',
-                 overflowY: 'auto',
-                 padding: '3rem',
-                 borderRadius: '16px',
-                 backgroundColor: 'white',
-                 border: '1px solid #cbd5e1',
-                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-               }}>
-                 
-                 {/* Print relation header */}
-                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                     <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
-                       <Factory size={22} />
-                     </div>
-                     <div>
-                       <h2 style={{ fontSize: '1.1rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
-                         Relación de Despacho
-                       </h2>
-                       <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px', marginTop: '0.25rem' }}>
-                         <button
-                           onClick={() => setPrintMode('report')}
-                           style={{
-                             border: 'none',
-                             backgroundColor: printMode === 'report' ? 'white' : 'transparent',
-                             color: printMode === 'report' ? '#0f172a' : '#475569',
-                             padding: '0.25rem 0.6rem',
-                             borderRadius: '6px',
-                             fontSize: '0.68rem',
-                             fontWeight: '850',
-                             cursor: 'pointer',
-                             boxShadow: printMode === 'report' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                           }}
-                         >
-                           📄 Reporte
-                         </button>
-                         <button
-                           onClick={() => setPrintMode('sticker')}
-                           style={{
-                             border: 'none',
-                             backgroundColor: printMode === 'sticker' ? 'white' : 'transparent',
-                             color: printMode === 'sticker' ? '#0f172a' : '#475569',
-                             padding: '0.25rem 0.6rem',
-                             borderRadius: '6px',
-                             fontSize: '0.68rem',
-                             fontWeight: '850',
-                             cursor: 'pointer',
-                             boxShadow: printMode === 'sticker' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                           }}
-                         >
-                           🏷️ Sticker 10x10
-                         </button>
-                       </div>
-                     </div>
-                   </div>
-                   <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                     <div>
-                       <p style={{ fontSize: '0.75rem', margin: 0, fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Orden de Confección</p>
-                       <p style={{ fontSize: '1.1rem', fontWeight: '950', color: 'var(--primary)', margin: 0 }}>
-                         {viewingOrderDetails.confeccion_code}
-                       </p>
-                     </div>
-                     <button
-                       className="btn"
-                       onClick={() => window.print()}
-                       style={{ backgroundColor: '#80082E', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}
-                     >
-                       <Printer size={13} /> Imprimir
-                     </button>
-                     <button onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-                   </div>
-                 </div>
- 
-                 {printMode === 'sticker' ? (
-                   (() => {
-                     const parentOrder = viewingOrderDetails.parent_order || {};
-                     const assignments = getOrderAssignments(parentOrder);
-                     const rowWorkshopsMap = assignments?.rowWorkshops || {};
-                     const workshopId = viewingOrderDetails.workshop_id;
-                     const currentWs = workshops.find(w => String(w.id) === String(workshopId));
-
-                     const qtyByCutSize: Record<string, number> = {};
-                     (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
-                       const targetProdId = cut.product_id;
-                       const layersProyec = cut.layers || 1;
-                       const layersProduced = cut.layers_produced || 0;
-                       (cut.cut_sizes || []).forEach((cs: any) => {
-                         const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-                         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                         const cellKey = `${targetProdId}_${sz}`;
-                         const assignedWId = rowWorkshopsMap[cellKey];
-                         if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
-                         let realQty = 0;
-                         if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
-                           realQty = Number(cs.quantity_produced);
-                         } else {
-                           const proyecQty = Number(cs.quantity) || 0;
-                           const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-                           realQty = Math.round(ppc * layersProduced);
-                         }
-                         if (realQty <= 0) return;
-                         const key = `${cut.id}_${sz}`;
-                         qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
-                       });
-                     });
-
-                     const itemsList: any[] = [];
-                     const seenKeys = new Set<string>();
-                     (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
-                       const targetProdId = cut.product_id;
-                       const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
-                       const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
-                       const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
-                       const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
-                       const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
-                       const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
-                       const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
-
-                       let displayFabricName = fabricName;
-                       let displayColorName = colorName;
-                       if (fabricName.includes(',')) {
-                         const commaIdx = fabricName.indexOf(',');
-                         displayFabricName = fabricName.substring(0, commaIdx).trim();
-                         const extractedColor = fabricName.substring(commaIdx + 1).trim();
-                         if (extractedColor) {
-                           displayColorName = extractedColor;
-                         }
-                       }
-
-                       (cut.cut_sizes || []).forEach((cs: any) => {
-                         const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-                         const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
-                         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                         const key = `${cut.id}_${sz}`;
-                         if (!qtyByCutSize[key] || seenKeys.has(key)) return;
-                         seenKeys.add(key);
-                         itemsList.push({
-                           categoryName,
-                           colorName: displayColorName,
-                           fabricName: displayFabricName,
-                           sizeCode: sizeName,
-                           quantity: qtyByCutSize[key]
-                         });
-                       });
-                     });
-
-                     const groupedItems: {
-                       colorName: string;
-                       categoryName: string;
-                       fabricName: string;
-                       sizes: { [size: string]: number };
-                       totalQuantity: number;
-                     }[] = [];
-
-                     itemsList.forEach((item: any) => {
-                       const existing = groupedItems.find(g => 
-                         g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
-                         g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
-                         g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
-                       );
-                       if (existing) {
-                         existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
-                         existing.totalQuantity += item.quantity;
-                       } else {
-                         groupedItems.push({
-                           categoryName: item.categoryName,
-                           colorName: item.colorName,
-                           fabricName: item.fabricName,
-                           sizes: { [item.sizeCode]: item.quantity },
-                           totalQuantity: item.quantity
-                         });
-                       }
-                     });
-
-                     groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
-                     const totalUnits = groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0);
-
-                     return (
-                       <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem', backgroundColor: '#f1f5f9', borderRadius: '12px' }}>
-                         <div className="print-stickers-page" style={{
-                           width: '100mm',
-                           height: '100mm',
-                           padding: '8mm',
-                           boxSizing: 'border-box',
-                           display: 'flex',
-                           flexDirection: 'column',
-                           justifyContent: 'space-between',
-                           border: '2.5px solid #000',
-                           backgroundColor: 'white',
-                           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                           color: 'black',
-                           fontFamily: 'system-ui, sans-serif'
-                         }}>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                             <div style={{ textAlign: 'center', borderBottom: '2.5px solid #000', paddingBottom: '0.35rem', marginBottom: '0.2rem' }}>
-                               <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
-                               <p style={{ fontSize: '0.6rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
-                             </div>
-                             
-                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem' }}>
-                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span><strong>ORDEN CONFECCIÓN:</strong></span>
-                                 <span style={{ fontWeight: '900', color: '#80082E' }}>{viewingOrderDetails.confeccion_code}</span>
-                               </div>
-                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span><strong>TALLER SATÉLITE:</strong></span>
-                                 <span style={{ fontWeight: '800' }}>{currentWs?.nombre_taller || '—'}</span>
-                               </div>
-                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span><strong>CLIENTE:</strong></span>
-                                 <span>{viewingOrderDetails.parent_order?.client_name || '—'}</span>
-                               </div>
-                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span><strong>TELA PRINCIPAL:</strong></span>
-                                 <span>{viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</span>
-                               </div>
-                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span><strong>FECHA PROGRAMADA:</strong></span>
-                                 <span><strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></span>
-                               </div>
-                             </div>
-
-                             <div style={{ marginTop: '0.3rem', borderTop: '1.5px dashed #000', paddingTop: '0.3rem' }}>
-                               <p style={{ margin: '0 0 0.15rem 0', fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
-                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.625rem', maxHeight: '2.5rem', overflow: 'hidden' }}>
-                                 {groupedItems.slice(0, 5).map((item, idx) => (
-                                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                     <span style={{ fontWeight: '600' }}>• {item.categoryName} ({item.colorName})</span>
-                                     <strong style={{ fontSize: '0.68rem' }}>{item.totalQuantity} uds</strong>
-                                   </div>
-                                 ))}
-                                 {groupedItems.length > 5 && (
-                                   <div style={{ fontSize: '0.55rem', fontStyle: 'italic', textAlign: 'center', color: '#666' }}>+ {groupedItems.length - 5} más categorías/colores...</div>
-                                 )}
-                                </div>
-                             </div>
-                           </div>
-
-                           <div style={{ borderTop: '2.5px solid #000', paddingTop: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                             <span style={{ fontSize: '0.65rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
-                             <span style={{ fontSize: '1.15rem', fontWeight: '950', color: '#80082E' }}>{totalUnits} uds</span>
-                           </div>
-                         </div>
-                       </div>
-                     );
-                   })()
-                 ) : (
-                   <>
-                {/* Workshop Info */}
-                {(() => {
-                  const currentWs = workshops.find(w => String(w.id) === String(viewingOrderDetails.workshop_id));
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.825rem', marginBottom: '2rem' }}>
-                      <div>
-                        <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Taller Satélite Destinatario</p>
-                        <p style={{ margin: 0, fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>{currentWs?.nombre_taller || 'Taller Asignado'}</p>
-                        <p style={{ margin: '0.2rem 0 0', color: '#334155', fontWeight: '600' }}>Responsable: <span style={{ color: '#0f172a', fontWeight: '800' }}>{currentWs?.responsable || '—'}</span></p>
-                        <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Teléfono: {currentWs?.telefono || '—'}</p>
-                      </div>
-                      <div>
-                        <p style={{ margin: '0 0 0.35rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Detalle de Entrega</p>
-                        <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
-                        <p style={{ margin: '0.2rem 0 0', color: '#80082E', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
-                        <p style={{ margin: '0.15rem 0 0', color: '#475569' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                  
-                  {/* Items Table */}
-                  <div>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>📋</span> Prendas y Cantidades a Armar
-                    </h3>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#475569' }}>Distribución Tallas</th>
-                          <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '120px' }}>Cantidad Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const parentOrder = viewingOrderDetails.parent_order || {};
-                          const assignments = getOrderAssignments(parentOrder);
-                          const rowWorkshopsMap = assignments?.rowWorkshops || {};
-                          const workshopId = viewingOrderDetails.workshop_id;
-
-                          const qtyByCutSize: Record<string, number> = {};
-                          (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
-                            const targetProdId = cut.product_id;
-                            const layersProyec = cut.layers || 1;
-                            const layersProduced = cut.layers_produced || 0;
-                            (cut.cut_sizes || []).forEach((cs: any) => {
-                              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-                              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                              const cellKey = `${targetProdId}_${sz}`;
-                              const assignedWId = rowWorkshopsMap[cellKey];
-                              if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
-                              let realQty = 0;
-                              if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
-                                realQty = Number(cs.quantity_produced);
-                              } else {
-                                const proyecQty = Number(cs.quantity) || 0;
-                                const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-                                realQty = Math.round(ppc * layersProduced);
-                              }
-                              if (realQty <= 0) return;
-                              const key = `${cut.id}_${sz}`;
-                              qtyByCutSize[key] = (qtyByCutSize[key] || 0) + realQty;
-                            });
-                          });
-
-                          const itemsList: any[] = [];
-                          const seenKeys = new Set<string>();
-                          (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
-                            const targetProdId = cut.product_id;
-                            const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
-                            const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
-                            const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
-                            const fichaTecnicaUrl = categoryObj?.ficha_tecnica_url || '';
-                            const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
-                            const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
-                            const fabricObj = cut ? fabricsList?.find((f: any) => String(f.id) === String(cut.fabric_id)) : null;
-                            const fabricName = fabricObj ? fabricObj.nombre_tela : (parentOrder.fabrics?.nombre_tela || '—');
-
-                            let displayFabricName = fabricName;
-                            let displayColorName = colorName;
-                            if (fabricName.includes(',')) {
-                              const commaIdx = fabricName.indexOf(',');
-                              displayFabricName = fabricName.substring(0, commaIdx).trim();
-                              const extractedColor = fabricName.substring(commaIdx + 1).trim();
-                              if (extractedColor) {
-                                displayColorName = extractedColor;
-                              }
-                            }
-
-                            (cut.cut_sizes || []).forEach((cs: any) => {
-                              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-                              const sizeName = sizeObj ? sizeObj.nombre_talla : '—';
-                              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                              const key = `${cut.id}_${sz}`;
-                              if (!qtyByCutSize[key] || seenKeys.has(key)) return;
-                              seenKeys.add(key);
-                              itemsList.push({
-                                categoryName,
-                                fichaTecnicaUrl,
-                                colorName: displayColorName,
-                                fabricName: displayFabricName,
-                                sizeCode: sizeName,
-                                quantity: qtyByCutSize[key]
-                              });
-                            });
-                          });
-
-                          if (itemsList.length === 0) {
-                            return <tr><td colSpan={5} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>No se relacionan prendas en este lote.</td></tr>;
-                          }
-
-                          const groupedItems: {
-                            colorName: string;
-                            categoryName: string;
-                            fichaTecnicaUrl: string;
-                            fabricName: string;
-                            sizes: { [size: string]: number };
-                            totalQuantity: number;
-                          }[] = [];
-
-                          itemsList.forEach((item: any) => {
-                            const existing = groupedItems.find(g => 
-                              g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
-                              g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
-                              g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
-                            );
-                            if (existing) {
-                              existing.sizes[item.sizeCode] = (existing.sizes[item.sizeCode] || 0) + item.quantity;
-                              existing.totalQuantity += item.quantity;
-                            } else {
-                              groupedItems.push({
-                                categoryName: item.categoryName,
-                                fichaTecnicaUrl: item.fichaTecnicaUrl || '',
-                                colorName: item.colorName,
-                                fabricName: item.fabricName,
-                                sizes: { [item.sizeCode]: item.quantity },
-                                totalQuantity: item.quantity
-                              });
-                            }
-                          });
-
-                          groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
-
-                          return (
-                            <>
-                              {groupedItems.map((item, idx) => (
-                                <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                      <span>{item.categoryName}</span>
-                                      {item.fichaTecnicaUrl && (
-                                        <a
-                                          href={item.fichaTecnicaUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.68rem', fontWeight: '700', color: '#0369a1', backgroundColor: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: '5px', padding: '0.15rem 0.45rem', textDecoration: 'none', whiteSpace: 'nowrap' }}
-                                        >
-                                          📄 Ficha Técnica
-                                        </a>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#80082E' }}>
-                                    {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
-                                  </td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{item.totalQuantity} uds</td>
-                                </tr>
-                              ))}
-                              <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
-                                <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
-                                <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#80082E', fontSize: '0.9rem', fontWeight: '950' }}>
-                                  {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
-                                </td>
-                              </tr>
-                            </>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Accessories Table */}
-                  <div>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', margin: '0 0 0.75rem', borderBottom: '1.5px solid #cbd5e1', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>🔗</span> Accesorios e Insumos Entregados
-                    </h3>
-                    {(() => {
-                      const computedAccs: { name: string; unit: string; qty: number }[] = [];
-                      const itemsList: any[] = [];
-                      const parentOrder = viewingOrderDetails.parent_order || {};
-                      const assignments = getOrderAssignments(parentOrder);
-                      const workshopId = viewingOrderDetails.workshop_id;
-                      const targetWorkshopId = workshopId || userWorkshop?.id;
-
-                      (parentOrder.cuts || []).forEach((cut: any) => {
-                        const prod = productsList?.find(p => String(p.id) === String(cut.product_id));
-                        const prodId = prod ? String(prod.id) : 'sin_prod';
-
-                        cut.cut_sizes?.forEach((szQty: any) => {
-                          const sizeObj = sizesList.find(s => String(s.id) === String(szQty.size_id));
-                          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-
-                          const cellKey = `${prodId}_${sz}`;
-                          const assignedTo = assignments?.rowWorkshops?.[cellKey];
-
-                          if (targetWorkshopId && assignedTo && String(assignedTo).toLowerCase().trim() === String(targetWorkshopId).toLowerCase().trim()) {
-                            const layersProyec = cut.layers || 1;
-                            const layersProduced = cut.layers_produced || 0;
-                            const plannedQty = Number(szQty.quantity) || 0;
-                            const ppc = plannedQty / layersProyec;
-                            const actualQty = Math.round(ppc * layersProduced);
-
-                            if (actualQty > 0) {
-                              itemsList.push({
-                                cutId: cut.id,
-                                productId: cut.product_id,
-                                quantity: actualQty
-                              });
-                            }
-                          }
-                        });
-                      });
-
-                      itemsList.forEach((item: any) => {
-                        if (!item.productId) return;
-                        const prodObj = productsList.find(p => String(p.id) === String(item.productId));
-                        const prodName = prodObj?.nombre_producto;
-                        const prodAccs = productAccessoriesList.filter(pa => {
-                          if (String(pa.product_id) === String(item.productId)) return true;
-                          const paProdName = pa.products?.nombre_producto;
-                          return paProdName && prodName && paProdName.toLowerCase().trim() === prodName.toLowerCase().trim();
-                        });
-
-                        prodAccs.forEach(pa => {
-                          const accName = pa.accessories?.nombre || 'Accesorio';
-                          const rawUnit = pa.accessories?.unidad_medida || '';
-                          const accUnit = rawUnit && isNaN(Number(rawUnit)) ? rawUnit : 'Unidad';
-                          const qtyPerProduct = Number(pa.cantidad) || 0;
-                          const totalRequired = item.quantity * qtyPerProduct;
-
-                          if (totalRequired > 0) {
-                            const existing = computedAccs.find(wa => wa.name === accName);
-                            if (existing) {
-                              existing.qty += totalRequired;
-                            } else {
-                              computedAccs.push({
-                                name: accName,
-                                unit: accUnit,
-                                qty: totalRequired
-                              });
-                            }
-                          }
-                        });
-                      });
-
-                      if (computedAccs.length === 0) {
-                        return <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0, fontStyle: 'italic', padding: '0.5rem 0' }}>No se relacionan accesorios para este lote.</p>;
-                      }
-
-                      return (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                          <thead>
-                            <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Insumo / Accesorio</th>
-                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569', width: '100px' }}>Unidad</th>
-                              <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', width: '150px' }}>Cantidad Proporcional</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {computedAccs.map((wa, idx) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{wa.name}</td>
-                                <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{wa.unit}</td>
-                                <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#059669' }}>{Math.round(wa.qty)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Special Notes & Observations */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', fontSize: '0.78rem' }}>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem', backgroundColor: '#faf9ff' }}>
-                      <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.4rem 0', textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.05em' }}>Observaciones y Detalles de Costura</p>
-                      <p style={{ margin: 0, color: '#475569', lineHeight: '1.5', fontSize: '0.825rem', fontWeight: '500' }}>
-                        {(() => {
-                          const rawObs = viewingOrderDetails.observaciones || '';
-                          return rawObs.replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '').trim() || 'Sin observaciones adicionales de preparación.';
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Signature Block */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', marginTop: '2rem', paddingTop: '1.5rem' }}>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
-                      <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Entregado por (Planta)</p>
-                      <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>Cortesbreiner Producción</p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ borderBottom: '1px solid #0f172a', width: '100%', marginBottom: '0.4rem' }}></div>
-                      <p style={{ fontSize: '0.625rem', fontWeight: '800', textTransform: 'uppercase', margin: 0 }}>Recibido por Taller Satélite</p>
-                      <p style={{ fontSize: '0.58rem', color: '#64748b', margin: '0.1rem 0 0' }}>{userWorkshop?.nombre_taller || 'Taller Satélite'}</p>
-                    </div>
-                  </div>
-                 </div>
-                 </>
-                )}
-
-                <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Right Side Panel */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -3228,7 +3647,9 @@ export default function Dashboard() {
             </div>
 
           </div>
-        </div>
+          </div>
+          {renderWorkshopModals()}
+        </>
       );
     }
 
@@ -3330,7 +3751,8 @@ export default function Dashboard() {
       });
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -3339,9 +3761,102 @@ export default function Dashboard() {
               <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Mis Órdenes de Confección</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Listado total de órdenes de confección asignadas a tus talleres satélites.</p>
             </div>
-            <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
-              <strong style={{ fontSize: '0.95rem', color: '#1e1b4b', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              {/* Workshop Alerts Bell */}
+              <button
+                onClick={() => {
+                  setShowWorkshopAlertsModal(true);
+                  setUnreadWorkshopAlerts(0);
+                  localStorage.setItem('workshop_last_read_alerts', new Date().toISOString());
+                }}
+                style={{
+                  position: 'relative',
+                  padding: '0.6rem 1rem',
+                  borderRadius: '12px',
+                  border: unreadWorkshopAlerts > 0 ? '2px solid #ef4444' : '1.5px solid #cbd5e1',
+                  background: unreadWorkshopAlerts > 0 ? '#fef2f2' : 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontWeight: '800',
+                  fontSize: '0.8rem',
+                  color: unreadWorkshopAlerts > 0 ? '#b91c1c' : '#475569',
+                  transition: 'all 0.2s'
+                }}
+                title="Ver mensajes y comunicados de administración"
+              >
+                <Bell size={16} />
+                Comunicados
+                {unreadWorkshopAlerts > 0 && (
+                  <span style={{
+                    backgroundColor: '#ef4444',
+                    color: 'white',
+                    borderRadius: '999px',
+                    fontSize: '0.6rem',
+                    fontWeight: '900',
+                    padding: '0.1rem 0.35rem',
+                    minWidth: '18px',
+                    textAlign: 'center',
+                    lineHeight: '1.4'
+                  }}>
+                    {unreadWorkshopAlerts}
+                  </span>
+                )}
+              </button>
+
+              {/* Workshop Live Chat Button */}
+              {chatRoom && (
+                <button
+                  onClick={() => {
+                    setShowChatModal(true);
+                    setUnreadChatCount(0);
+                    supabase
+                      .from('workshop_chat_rooms')
+                      .update({ unread_count_workshop: 0 })
+                      .eq('id', chatRoom.id)
+                      .then();
+                  }}
+                  style={{
+                    position: 'relative',
+                    padding: '0.6rem 1rem',
+                    borderRadius: '12px',
+                    border: unreadChatCount > 0 ? '2px solid #22c55e' : '1.5px solid #cbd5e1',
+                    background: unreadChatCount > 0 ? '#f0fdf4' : 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontWeight: '800',
+                    fontSize: '0.8rem',
+                    color: unreadChatCount > 0 ? '#15803d' : '#475569',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Chat en vivo con administración"
+                >
+                  <MessageSquare size={16} />
+                  Chat Admin
+                  {unreadChatCount > 0 && (
+                    <span style={{
+                      backgroundColor: '#22c55e',
+                      color: 'white',
+                      borderRadius: '999px',
+                      fontSize: '0.6rem',
+                      fontWeight: '900',
+                      padding: '0.1rem 0.35rem',
+                      minWidth: '18px',
+                      textAlign: 'center',
+                      lineHeight: '1.4'
+                    }}>
+                      {unreadChatCount}
+                    </span>
+                  )}
+                </button>
+              )}
+              <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f5f3ff', borderRadius: '12px', border: '1.5px solid #ddd6fe' }}>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
+                <strong style={{ fontSize: '0.95rem', color: '#1e1b4b', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+              </div>
             </div>
           </div>
 
@@ -3629,18 +4144,18 @@ export default function Dashboard() {
                                 <button
                                   className="btn"
                                   style={{ 
-                                    fontSize: '0.72rem', 
-                                    fontWeight: '800', 
-                                    padding: '0.45rem 0.85rem', 
-                                    backgroundColor: fichaUrl ? '#4f46e5' : '#94a3b8', 
+                                    padding: '0.45rem', 
+                                    backgroundColor: fichaUrl ? '#64748b' : '#cbd5e1', 
                                     color: 'white', 
                                     border: 'none', 
                                     borderRadius: '8px', 
-                                    cursor: 'pointer',
+                                    cursor: fichaUrl ? 'pointer' : 'not-allowed',
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '0.25rem',
-                                    transition: 'all 0.2s'
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    width: '32px',
+                                    height: '32px'
                                   }}
                                   onClick={() => {
                                     if (fichaUrl) {
@@ -3651,7 +4166,7 @@ export default function Dashboard() {
                                   }}
                                   title={fichaUrl ? "Ver Ficha Técnica" : "Sin Ficha Técnica"}
                                 >
-                                  📄 Ficha
+                                  <FileText size={16} />
                                 </button>
                               );
                             })()}
@@ -3660,29 +4175,30 @@ export default function Dashboard() {
                             <button
                               className="btn"
                               style={{ 
-                                fontSize: '0.72rem', 
-                                fontWeight: '800', 
-                                padding: '0.45rem 0.85rem', 
+                                padding: '0.45rem', 
                                 backgroundColor: '#7c3aed', 
                                 color: 'white', 
                                 border: 'none', 
                                 borderRadius: '8px', 
                                 display: 'inline-flex', 
                                 alignItems: 'center', 
-                                gap: '0.25rem',
+                                justifyContent: 'center',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s'
+                                transition: 'all 0.2s',
+                                width: '32px',
+                                height: '32px'
                               }}
                               onClick={() => {
                                 const pOrder = so.parent_order || orders.find(o => o.id === so.parent_order_id);
                                 setViewingOrderDetails({ ...so, parent_order: pOrder });
                               }}
+                              title="Ver Orden"
                             >
-                              🔍 Ver Orden
+                              <Search size={16} />
                             </button>
 
                             {/* 3. Botón Enviar a Calidad */}
-                            {so.status === 'En Confección' ? (
+                            {so.status === 'En Confección' && (
                               <button
                                 className="btn"
                                 style={{ 
@@ -3714,26 +4230,6 @@ export default function Dashboard() {
                                         setMasterNovelties(novData || []);
                                       });
                                   }
-                                }}
-                              >
-                                📤 Enviar Calidad
-                              </button>
-                            ) : (
-                              <button
-                                className="btn"
-                                disabled
-                                style={{ 
-                                  fontSize: '0.72rem', 
-                                  fontWeight: '800', 
-                                  padding: '0.45rem 0.85rem', 
-                                  backgroundColor: '#e2e8f0', 
-                                  color: '#94a3b8', 
-                                  border: 'none', 
-                                  borderRadius: '8px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.25rem',
-                                  cursor: 'not-allowed'
                                 }}
                               >
                                 📤 Enviar Calidad
@@ -3987,162 +4483,119 @@ export default function Dashboard() {
             </div>
           )}
           {/* VIEW ORDER DETAILS MODAL — also available from orders tab */}
-          {viewingOrderDetails && (
-             <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500, padding: '2rem' }}>
-               <div className="card printable-workshop-order" style={printMode === 'sticker' ? {
-                 width: '100%',
-                 maxWidth: '650px',
-                 maxHeight: '90vh',
-                 overflowY: 'auto',
-                 padding: '3rem',
-                 borderRadius: '16px',
-                 backgroundColor: '#f1f5f9',
-                 border: '1px solid #e2e8f0',
-                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-               } : {
-                 width: '100%',
-                 maxWidth: '850px',
-                 maxHeight: '90vh',
-                 overflowY: 'auto',
-                 padding: '3rem',
-                 borderRadius: '16px',
-                 backgroundColor: 'white',
-                 border: '1px solid #cbd5e1',
-                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-               }}>
-                 
-                 {/* Print relation header */}
-                 <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2.5px solid #0f172a', paddingBottom: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                     <div style={{ backgroundColor: '#0f172a', padding: '0.5rem', borderRadius: '8px', color: 'white' }}>
-                       <Factory size={22} />
-                     </div>
-                     <div>
-                       <h2 style={{ fontSize: '1.1rem', fontWeight: '950', margin: 0, letterSpacing: '-0.02em', textTransform: 'uppercase', color: '#0f172a' }}>
-                         Orden de Confección
-                       </h2>
-                       <div style={{ display: 'inline-flex', backgroundColor: '#e2e8f0', padding: '0.2rem', borderRadius: '8px', marginTop: '0.25rem' }}>
-                         <button
-                           onClick={() => setPrintMode('report')}
-                           style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', border: 'none', fontWeight: '800', fontSize: '0.72rem', cursor: 'pointer', backgroundColor: printMode === 'report' ? '#0f172a' : 'transparent', color: printMode === 'report' ? 'white' : '#64748b' }}
-                         >📋 Relación</button>
-                         <button
-                           onClick={() => setPrintMode('sticker')}
-                           style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', border: 'none', fontWeight: '800', fontSize: '0.72rem', cursor: 'pointer', backgroundColor: printMode === 'sticker' ? '#0f172a' : 'transparent', color: printMode === 'sticker' ? 'white' : '#64748b' }}
-                         >🏷️ Sticker</button>
-                       </div>
-                     </div>
-                   </div>
-                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                     <button onClick={() => window.print()} style={{ background: '#0f172a', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem 1rem', fontWeight: '700', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}><Printer size={15} /> Imprimir</button>
-                     <button onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }} style={{ background: '#f1f5f9', border: 'none', color: '#475569', cursor: 'pointer', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-                   </div>
-                 </div>
-
-                 {/* Modal content identical to dashboard modal */}
-                 {(() => {
-                   const parentOrder = viewingOrderDetails.parent_order || {};
-                   const workshopId = viewingOrderDetails.workshop_id;
-                   const currentWsModal = workshops.find(w => String(w.id) === String(workshopId));
-                   const sizeBreakdowns: Record<string, { ordered: number; confeccionada: number }> = {};
-                   (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
-                     const targetProdId = cut.product_id || viewingOrderDetails.product_id;
-                     const prodObj2 = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
-                     const color = prodObj2?.color || prodObj2?.nombre || 'Sin Color';
-                     (cut.size_breakdown || []).forEach((sb: any) => {
-                       const key = `${color}|${sb.size}`;
-                       if (!sizeBreakdowns[key]) sizeBreakdowns[key] = { ordered: 0, confeccionada: 0 };
-                       sizeBreakdowns[key].ordered += Number(sb.quantity || 0);
-                     });
-                   });
-                   const confEntries = Object.entries(sizeBreakdowns);
-
-                   return (
-                     <>
-                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.2rem', border: '1px solid #e2e8f0' }}>
-                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Código Confección</p>
-                           <span style={{ fontWeight: '900', color: '#80082E' }}>{viewingOrderDetails.confeccion_code}</span>
-                         </div>
-                         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '1.2rem', border: '1px solid #e2e8f0' }}>
-                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</p>
-                           <span style={{ fontWeight: '700', color: '#1e293b' }}>{viewingOrderDetails.status}</span>
-                         </div>
-                       </div>
-
-                       {/* Taller Info */}
-                       <div style={{ background: 'linear-gradient(135deg,#0f172a,#1e293b)', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem', color: 'white' }}>
-                         <p style={{ margin: 0, fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>Taller Asignado</p>
-                         <p style={{ margin: 0, fontWeight: '600' }}>Cliente: <strong style={{ color: '#f1f5f9', fontWeight: '800' }}>{viewingOrderDetails.parent_order?.client_name || '—'}</strong></p>
-                         <p style={{ margin: '0.2rem 0 0', color: '#f59e0b', fontWeight: '750' }}>Fecha Programada: <strong>{viewingOrderDetails.parent_order?.created_at ? new Date(viewingOrderDetails.parent_order.created_at).toLocaleDateString('es-CO') : '—'}</strong></p>
-                         <p style={{ margin: '0.15rem 0 0', color: '#94a3b8' }}>Tela Principal: {viewingOrderDetails.parent_order?.fabrics?.nombre_tela || '—'}</p>
-                       </div>
-
-                       {/* Size table */}
-                       {confEntries.length > 0 && (
-                         <div style={{ marginBottom: '1.5rem' }}>
-                           <p style={{ margin: '0 0 0.75rem', fontWeight: '800', fontSize: '0.85rem', color: '#0f172a' }}>Desglose por Color y Talla</p>
-                           <div style={{ overflowX: 'auto' }}>
-                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                               <thead>
-                                 <tr style={{ backgroundColor: '#f8fafc' }}>
-                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
-                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Talla</th>
-                                   <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>Unidades</th>
-                                 </tr>
-                               </thead>
-                               <tbody>
-                                 {confEntries.map(([key, vals]) => {
-                                   const [colorKey, sizeKey] = key.split('|');
-                                   return (
-                                     <tr key={key} style={{ borderTop: '1px solid #f1f5f9' }}>
-                                       <td style={{ padding: '0.5rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{colorKey}</td>
-                                       <td style={{ padding: '0.5rem 0.75rem', color: '#475569' }}>{sizeKey}</td>
-                                       <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '700', color: '#0f172a' }}>{vals.ordered}</td>
-                                     </tr>
-                                   );
-                                 })}
-                               </tbody>
-                             </table>
-                           </div>
-                         </div>
-                       )}
-
-                       {/* Workshop info box */}
-                       {currentWsModal && (
-                         <div style={{ background: '#f0fdf4', borderRadius: '10px', padding: '1rem', border: '1px solid #bbf7d0', marginBottom: '1rem' }}>
-                           <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase' }}>Taller Satélite</p>
-                           <p style={{ margin: '0.25rem 0 0', fontWeight: '700', color: '#14532d' }}>{currentWsModal.nombre_taller}</p>
-                           {currentWsModal.contacto && <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: '#166534' }}>📞 {currentWsModal.contacto}</p>}
-                         </div>
-                       )}
-                     </>
-                   );
-                 })()}
-
-                 <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
-                   <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
-                 </div>
-               </div>
-             </div>
-          )}
         </div>
-      );
-    }
+        {renderWorkshopModals()}
+      </>
+    );
+  }
 
     // Payments tab inside Taller view
     if (currentTab === 'payments') {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>Portal de Taller</span>
               <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a' }}>Control de Entregas y Pagos</h1>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Registro de prendas aprobadas en auditoría de calidad y valor liquidado.</p>
             </div>
-            <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #bbf7d0' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
-              <strong style={{ fontSize: '0.95rem', color: '#14532d', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              {/* Workshop Alerts Bell */}
+              <button
+                onClick={() => {
+                  setShowWorkshopAlertsModal(true);
+                  setUnreadWorkshopAlerts(0);
+                  localStorage.setItem('workshop_last_read_alerts', new Date().toISOString());
+                }}
+                style={{
+                  position: 'relative',
+                  padding: '0.6rem 1rem',
+                  borderRadius: '12px',
+                  border: unreadWorkshopAlerts > 0 ? '2px solid #ef4444' : '1.5px solid #cbd5e1',
+                  background: unreadWorkshopAlerts > 0 ? '#fef2f2' : 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontWeight: '800',
+                  fontSize: '0.8rem',
+                  color: unreadWorkshopAlerts > 0 ? '#b91c1c' : '#475569',
+                  transition: 'all 0.2s'
+                }}
+                title="Ver mensajes y comunicados de administración"
+              >
+                <Bell size={16} />
+                Comunicados
+                {unreadWorkshopAlerts > 0 && (
+                  <span style={{
+                    backgroundColor: '#ef4444',
+                    color: 'white',
+                    borderRadius: '999px',
+                    fontSize: '0.6rem',
+                    fontWeight: '900',
+                    padding: '0.1rem 0.35rem',
+                    minWidth: '18px',
+                    textAlign: 'center',
+                    lineHeight: '1.4'
+                  }}>
+                    {unreadWorkshopAlerts}
+                  </span>
+                )}
+              </button>
+
+              {/* Workshop Live Chat Button */}
+              {chatRoom && (
+                <button
+                  onClick={() => {
+                    setShowChatModal(true);
+                    setUnreadChatCount(0);
+                    supabase
+                      .from('workshop_chat_rooms')
+                      .update({ unread_count_workshop: 0 })
+                      .eq('id', chatRoom.id)
+                      .then();
+                  }}
+                  style={{
+                    position: 'relative',
+                    padding: '0.6rem 1rem',
+                    borderRadius: '12px',
+                    border: unreadChatCount > 0 ? '2px solid #22c55e' : '1.5px solid #cbd5e1',
+                    background: unreadChatCount > 0 ? '#f0fdf4' : 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontWeight: '800',
+                    fontSize: '0.8rem',
+                    color: unreadChatCount > 0 ? '#15803d' : '#475569',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Chat en vivo con administración"
+                >
+                  <MessageSquare size={16} />
+                  Chat Admin
+                  {unreadChatCount > 0 && (
+                    <span style={{
+                      backgroundColor: '#22c55e',
+                      color: 'white',
+                      borderRadius: '999px',
+                      fontSize: '0.6rem',
+                      fontWeight: '900',
+                      padding: '0.1rem 0.35rem',
+                      minWidth: '18px',
+                      textAlign: 'center',
+                      lineHeight: '1.4'
+                    }}>
+                      {unreadChatCount}
+                    </span>
+                  )}
+                </button>
+              )}
+              <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #bbf7d0' }}>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
+                <strong style={{ fontSize: '0.95rem', color: '#14532d', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+              </div>
             </div>
           </div>
 
@@ -4191,8 +4644,10 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      );
-    }
+        {renderWorkshopModals()}
+      </>
+    );
+  }
   }
 
   // ─── ADMIN / GENERAL USER DASHBOARD LOGIC ────────────────────────────────────
@@ -5782,6 +6237,221 @@ export default function Dashboard() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* ── Workshop Alerts Modal ───────────────────────────────────────────── */}
+      {showWorkshopAlertsModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, backdropFilter: 'blur(8px)', padding: '1rem' }}>
+          <div style={{
+            width: '90%',
+            maxWidth: '500px',
+            padding: '2rem',
+            background: 'white',
+            border: '1px solid #cbd5e1',
+            borderRadius: '24px',
+            boxShadow: '0 20px 45px rgba(0,0,0,0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0f172a' }}>
+                <Bell size={20} color="#0891b2" />
+                Comunicados de Administración
+              </h3>
+              <button onClick={() => setShowWorkshopAlertsModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+              {workshopAlerts.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b', fontSize: '0.85rem' }}>
+                  <Bell size={36} style={{ opacity: 0.15, margin: '0 auto 0.75rem', display: 'block' }} />
+                  No hay comunicados de administración en este momento.
+                </div>
+              ) : (
+                workshopAlerts.map((item: any, idx: number) => {
+                  const isHigh = item.criticidad === 'Alta';
+                  const isMed = item.criticidad === 'Media';
+                  return (
+                    <div
+                      key={item.id || idx}
+                      style={{
+                        padding: '1rem',
+                        borderRadius: '12px',
+                        borderLeft: `5px solid ${isHigh ? '#ef4444' : isMed ? '#f59e0b' : '#3b82f6'}`,
+                        backgroundColor: isHigh ? '#fef2f2' : isMed ? '#fffbeb' : '#eff6ff',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.35rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: '900', textTransform: 'uppercase', color: isHigh ? '#b91c1c' : isMed ? '#b45309' : '#1d4ed8' }}>
+                          {isHigh ? '🔴' : isMed ? '🟡' : '🔵'} Prioridad {item.criticidad}
+                        </span>
+                        <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                          {new Date(item.created_at).toLocaleDateString('es-CO')}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#1e293b' }}>{item.cod_novedad}</span>
+                      <p style={{ fontSize: '0.78rem', color: '#475569', margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{item.nombre}</p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowWorkshopAlertsModal(false)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                backgroundColor: '#0891b2',
+                color: 'white',
+                border: 'none',
+                borderRadius: '10px',
+                fontWeight: '800',
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+            >
+              Cerrar Bandeja
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Workshop Chat Drawer ──────────────────────────────────────────────── */}
+      {showChatModal && chatRoom && (
+        <div 
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            backgroundColor: 'rgba(15,23,42,0.4)', 
+            display: 'flex', 
+            justifyContent: 'flex-end', 
+            zIndex: 3000, 
+            backdropFilter: 'blur(5px)' 
+          }} 
+          onClick={() => setShowChatModal(false)}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              height: '100%',
+              backgroundColor: '#efeae2',
+              backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
+              backgroundRepeat: 'repeat',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '-10px 0 30px rgba(0,0,0,0.15)',
+              borderLeft: '1px solid #cbd5e1'
+            }}
+          >
+            {/* Header */}
+            <div style={{ 
+              padding: '1rem 1.25rem', 
+              backgroundColor: '#075e54', 
+              color: 'white', 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              boxShadow: '0 2px 5px rgba(0,0,0,0.1)' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                  🏢
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900' }}>Soporte Administrativo ERP</h4>
+                  <span style={{ fontSize: '0.68rem', color: '#128c7e', fontWeight: '800', backgroundColor: '#dcf8c6', padding: '1px 6px', borderRadius: '4px' }}>Canal Oficial Abierto</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowChatModal(false)} 
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'white', display: 'flex' }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Messages body */}
+            <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {chatMessages.length === 0 ? (
+                <div style={{ alignSelf: 'center', backgroundColor: '#fff3cd', border: '1px solid #ffeeba', color: '#856404', padding: '0.6rem 1rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', textAlign: 'center', maxWidth: '85%' }}>
+                  💡 Envía un mensaje aquí para comunicarte directamente con el personal administrativo de Cortes Breiner.
+                </div>
+              ) : (
+                chatMessages.map((msg, i) => {
+                  const isMe = msg.sender_role === 'workshop';
+                  return (
+                    <div key={i} style={{
+                      alignSelf: isMe ? 'flex-end' : 'flex-start',
+                      maxWidth: '80%',
+                      backgroundColor: isMe ? '#dcf8c6' : '#ffffff',
+                      color: '#303030',
+                      padding: '0.5rem 0.85rem',
+                      borderRadius: isMe ? '10px 0 10px 10px' : '0 10px 10px 10px',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.15rem'
+                    }}>
+                      <span style={{ fontSize: '0.6rem', fontWeight: '900', color: isMe ? '#25d366' : '#075e54' }}>{msg.sender_name}</span>
+                      <span style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap', lineHeight: '1.3' }}>{msg.message}</span>
+                      <span style={{ fontSize: '0.55rem', color: '#859095', alignSelf: 'flex-end', fontFamily: 'monospace', marginTop: '0.15rem' }}>
+                        {new Date(msg.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Input area */}
+            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid #cbd5e1' }}>
+              <input
+                type="text"
+                placeholder="Escribe tu mensaje para administración..."
+                value={chatInputValue}
+                onChange={e => setChatInputValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSendWorkshopMessage(); }}
+                style={{
+                  flex: 1,
+                  padding: '0.6rem 1rem',
+                  borderRadius: '20px',
+                  border: '1px solid #cbd5e1',
+                  outline: 'none',
+                  fontSize: '0.85rem'
+                }}
+              />
+              <button
+                onClick={handleSendWorkshopMessage}
+                disabled={sendingMessage || !chatInputValue.trim()}
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  backgroundColor: sendingMessage || !chatInputValue.trim() ? '#cccccc' : '#128c7e',
+                  color: 'white',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                {sendingMessage ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Send size={16} />
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

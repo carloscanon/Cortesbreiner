@@ -27,9 +27,7 @@ const allMenuItems = [
   { icon: Layers, label: 'Mesa de Tendido', href: '/cutting', module: 'cutting' },
   { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
   { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
-  { icon: Package, label: 'Inventario Telas', href: '/inventory', module: 'inventory' },
-  { icon: Package, label: 'Inventario P. Terminado', href: '/inventory-finished', module: 'inventory_finished' },
-  { icon: LayoutDashboard, label: 'Punto de Venta (POS)', href: '/pos', module: 'pos' },
+  { icon: Package, label: 'Inventario General', href: '/inventory', module: 'inventory' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
@@ -97,9 +95,12 @@ export default function Sidebar() {
       ? posMenuItems
       : isSuperAdmin
         ? allMenuItems
-        : allMenuItems.filter(item => 
-            allowedModules.includes(item.module) || item.module === 'dashboard'
-          );
+        : allMenuItems.filter(item => {
+            if (item.module === 'inventory') {
+              return allowedModules.includes('inventory') || allowedModules.includes('inventory_finished');
+            }
+            return allowedModules.includes(item.module) || item.module === 'dashboard';
+          });
 
   const filteredBottomItems = allBottomItems.filter(item => 
     isTaller

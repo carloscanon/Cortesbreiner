@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Plus, MapPin, Phone, Star, Users, Search,
   Trash2, X, Loader2, Edit2, Factory, Save, BarChart3, Coins, Layers,
-  HelpCircle, BookOpen
+  HelpCircle, BookOpen, MessageSquare
 } from 'lucide-react';
 
 const EMPTY_FORM = {
@@ -22,6 +23,21 @@ const EMPTY_FORM = {
 };
 
 export default function WorkshopsPage() {
+  const { config } = useAuth();
+  const avatarSize = config?.['workshop_avatar_size'] || 'normal';
+  let avatarWidth = '45px';
+  let avatarFontSize = '0.95rem';
+  if (avatarSize === 'small') {
+    avatarWidth = '32px';
+    avatarFontSize = '0.75rem';
+  } else if (avatarSize === 'large') {
+    avatarWidth = '64px';
+    avatarFontSize = '1.35rem';
+  } else if (avatarSize === 'xlarge') {
+    avatarWidth = '80px';
+    avatarFontSize = '1.7rem';
+  }
+
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -33,7 +49,22 @@ export default function WorkshopsPage() {
   const [selectedWorkshopForOrders, setSelectedWorkshopForOrders] = useState<any>(null);
   const [workshopOrders, setWorkshopOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
-  const [activeTab, setActiveTab] = useState<'workshops' | 'rates' | 'special_rates'>('workshops');
+  const [activeTab, setActiveTab] = useState<'workshops' | 'rates' | 'special_rates' | 'chat'>('workshops');
+  // Chat Workshop States
+  const [chatRooms, setChatRooms] = useState<any[]>([]);
+  const [activeRoom, setActiveRoom] = useState<any>(null);
+  const [activeRoomMessages, setActiveRoomMessages] = useState<any[]>([]);
+  const [adminChatInput, setAdminChatInput] = useState('');
+  const [sendingAdminMsg, setSendingAdminMsg] = useState(false);
+  const [chatSubTab, setChatSubTab] = useState<'rooms' | 'alerts'>('rooms');
+
+  // ERP Alerts/Anuncios States
+  const [erpAlertsList, setErpAlertsList] = useState<any[]>([]);
+  const [newAlertTitle, setNewAlertTitle] = useState('');
+  const [newAlertMessage, setNewAlertMessage] = useState('');
+  const [newAlertCriticidad, setNewAlertCriticidad] = useState('Media');
+  const [savingAlert, setSavingAlert] = useState(false);
+
   const [categories, setCategories] = useState<any[]>([]);
   const [workshopRates, setWorkshopRates] = useState<any[]>([]);
   const [savingRates, setSavingRates] = useState(false);
@@ -49,6 +80,209 @@ export default function WorkshopsPage() {
     fetchWorkshops();
     fetchOrderCounts();
   }, []);
+
+  // Load Workshop Chat Rooms
+  const fetchChatRooms = async () => {
+    try {
+      const { data } = await supabase
+        .from('workshop_chat_rooms')
+        .select('*')
+        .order('last_message_time', { ascending: false });
+      setChatRooms(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Select a Chat Room and load messages + clear unread
+  const selectChatRoom = async (room: any) => {
+    setActiveRoom(room);
+    try {
+      const { data: messages } = await supabase
+        .from('workshop_chat_messages')
+        .select('*')
+        .eq('room_id', room.id)
+        .order('created_at', { ascending: true });
+      setActiveRoomMessages(messages || []);
+
+      // Reset ERP unread count
+      await supabase
+        .from('workshop_chat_rooms')
+        .update({ unread_count_erp: 0 })
+        .eq('id', room.id);
+      
+      // Update local rooms list
+      setChatRooms(prev => prev.map(r => r.id === room.id ? { ...r, unread_count_erp: 0 } : r));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const selectWorkshopChat = async (workshop: any) => {
+    try {
+      let { data: room } = await supabase
+        .from('workshop_chat_rooms')
+        .select('*')
+        .eq('workshop_id', workshop.id)
+        .maybeSingle();
+
+      if (!room) {
+        const { data: newRoom, error: createError } = await supabase
+          .from('workshop_chat_rooms')
+          .insert({
+            workshop_id: workshop.id,
+            name: workshop.nombre_taller,
+            last_message: 'Chat iniciado.',
+            unread_count_erp: 0,
+            unread_count_workshop: 0
+          })
+          .select()
+          .single();
+        if (createError) throw createError;
+        room = newRoom;
+      }
+
+      await selectChatRoom(room);
+    } catch (e) {
+      console.error('Error selecting workshop chat:', e);
+    }
+  };
+
+  // Send admin chat message to workshop
+  const handleSendAdminMessage = async () => {
+    if (!adminChatInput.trim() || !activeRoom || sendingAdminMsg) return;
+    setSendingAdminMsg(true);
+    const text = adminChatInput.trim();
+    setAdminChatInput('');
+    try {
+      const { data: newMsg, error } = await supabase
+        .from('workshop_chat_messages')
+        .insert({
+          room_id: activeRoom.id,
+          sender_name: 'Administración ERP',
+          sender_role: 'admin',
+          message: text
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      const { data: freshRoom } = await supabase
+        .from('workshop_chat_rooms')
+        .select('unread_count_workshop')
+        .eq('id', activeRoom.id)
+        .single();
+
+      const newUnreadCount = ((freshRoom?.unread_count_workshop || 0) + 1);
+
+      await supabase
+        .from('workshop_chat_rooms')
+        .update({
+          last_message: text,
+          last_message_time: new Date().toISOString(),
+          unread_count_workshop: newUnreadCount
+        })
+        .eq('id', activeRoom.id);
+
+      setActiveRoomMessages((prev: any[]) => [...prev, newMsg]);
+      setActiveRoom((prev: any) => prev ? { ...prev, unread_count_workshop: newUnreadCount } : null);
+      fetchChatRooms();
+    } catch (e) {
+      console.error('Error sending erp message:', e);
+      setAdminChatInput(text);
+    } finally {
+      setSendingAdminMsg(false);
+    }
+  };
+
+  // Workshop Alerts/Anuncios Handlers
+  const fetchErpAlertsList = async () => {
+    try {
+      const { data } = await supabase
+        .from('novelties')
+        .select('*')
+        .eq('modulo_relac', 'alerta_general')
+        .order('created_at', { ascending: false });
+      setErpAlertsList(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCreateAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAlertTitle.trim() || !newAlertMessage.trim() || savingAlert) return;
+    setSavingAlert(true);
+    try {
+      const { error } = await supabase
+        .from('novelties')
+        .insert({
+          cod_novedad: newAlertTitle.trim(),
+          nombre: newAlertMessage.trim(),
+          modulo_relac: 'alerta_general',
+          criticidad: newAlertCriticidad,
+          estado: 'pendiente'
+        });
+      if (error) throw error;
+      
+      setNewAlertTitle('');
+      setNewAlertMessage('');
+      setNewAlertCriticidad('Media');
+      alert('✓ Alerta formal general publicada a todos los talleres satélite.');
+      fetchErpAlertsList();
+    } catch (err: any) {
+      alert('Error publicando alerta: ' + err.message);
+    } finally {
+      setSavingAlert(false);
+    }
+  };
+
+  const handleDeleteAlert = async (alertId: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta alerta general? Desaparecerá de todos los talleres.')) return;
+    try {
+      const { error } = await supabase
+        .from('novelties')
+        .delete()
+        .eq('id', alertId);
+      if (error) throw error;
+      fetchErpAlertsList();
+    } catch (err: any) {
+      alert('Error eliminando alerta: ' + err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      fetchChatRooms();
+      fetchErpAlertsList();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!activeRoom) return;
+    const channelMessages = supabase
+      .channel('workshop_chat_messages_global')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshop_chat_messages', filter: `room_id=eq.${activeRoom.id}` }, (payload) => {
+        setActiveRoomMessages(prev => {
+          if (prev.some(m => m.id === payload.new.id)) return prev;
+          return [...prev, payload.new];
+        });
+        fetchChatRooms();
+      })
+      .subscribe();
+
+    const channelRooms = supabase
+      .channel('workshop_chat_rooms_global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_chat_rooms' }, () => {
+        fetchChatRooms();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channelMessages);
+      supabase.removeChannel(channelRooms);
+    };
+  }, [activeRoom]);
 
   const fetchWorkshops = async () => {
     setLoading(true);
@@ -725,6 +959,18 @@ export default function WorkshopsPage() {
         >
           <Star size={16} /> Costos Especiales por Producto
         </button>
+        <button 
+          onClick={() => setActiveTab('chat')}
+          style={{
+            padding: '0.75rem 0.5rem', border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: '0.875rem', fontWeight: '800',
+            color: activeTab === 'chat' ? 'var(--primary)' : 'var(--text-muted)',
+            borderBottom: activeTab === 'chat' ? '3px solid var(--primary)' : '3px solid transparent',
+            display: 'flex', alignItems: 'center', gap: '0.5rem'
+          }}
+        >
+          <MessageSquare size={16} /> Chat Talleres
+        </button>
       </div>
 
       {activeTab === 'workshops' ? (
@@ -765,14 +1011,14 @@ export default function WorkshopsPage() {
                           <img 
                             src={avatarUrl} 
                             alt={w.nombre_taller} 
-                            style={{ width: '45px', height: '45px', borderRadius: '12px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                            style={{ width: avatarWidth, height: avatarWidth, borderRadius: '12px', objectFit: 'cover', border: '1px solid #cbd5e1' }}
                           />
                         ) : (
                           <div style={{ 
-                            width: '45px', height: '45px', borderRadius: '12px', 
+                            width: avatarWidth, height: avatarWidth, borderRadius: '12px', 
                             background: 'linear-gradient(135deg, #80082E 0%, #D81B60 100%)',
                             color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '0.95rem', fontWeight: '950', border: '1px solid rgba(255,255,255,0.1)'
+                            fontSize: avatarFontSize, fontWeight: '950', border: '1px solid rgba(255,255,255,0.1)'
                           }}>
                             {w.nombre_taller ? w.nombre_taller.substring(0, 2).toUpperCase() : 'TA'}
                           </div>
@@ -1089,7 +1335,450 @@ export default function WorkshopsPage() {
             )}
           </div>
         </div>
-      ) : null}
+      ) : (
+        /* CHAT CON TALLERES SATÉLITE (ESTILO WHATSAPP WEB) */
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '340px 1fr',
+          backgroundColor: 'white',
+          border: '1px solid var(--border)',
+          borderRadius: '16px',
+          height: 'calc(100vh - 220px)',
+          overflow: 'hidden',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+          marginTop: '0.5rem'
+        }}>
+          {/* Left Column: Workshops & Announcements Menu */}
+          <div style={{
+            borderRight: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#f8fafc',
+            height: '100%',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '1rem 1.25rem',
+              borderBottom: '1px solid var(--border)',
+              backgroundColor: 'white'
+            }}>
+              <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '0.95rem', fontWeight: '900', color: '#0f172a' }}>Mensajería y Comunicados</h3>
+              
+              {/* Tabs selector */}
+              <div style={{ display: 'flex', backgroundColor: '#f1f5f9', borderRadius: '8px', padding: '0.2rem', gap: '0.2rem' }}>
+                <button
+                  onClick={() => setChatSubTab('rooms')}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    backgroundColor: chatSubTab === 'rooms' ? 'white' : 'transparent',
+                    color: chatSubTab === 'rooms' ? '#0f172a' : '#64748b',
+                    boxShadow: chatSubTab === 'rooms' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none'
+                  }}
+                >
+                  🏭 Talleres
+                </button>
+                <button
+                  onClick={() => {
+                    setChatSubTab('alerts');
+                    fetchErpAlertsList();
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    backgroundColor: chatSubTab === 'alerts' ? 'white' : 'transparent',
+                    color: chatSubTab === 'alerts' ? '#0f172a' : '#64748b',
+                    boxShadow: chatSubTab === 'alerts' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none'
+                  }}
+                >
+                  📢 Alertas Oficiales
+                </button>
+              </div>
+            </div>
+
+            {/* List Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem' }}>
+              {chatSubTab === 'rooms' ? (
+                workshops.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    No hay talleres satélite registrados.
+                  </div>
+                ) : (
+                  (() => {
+                    const workshopRoomsMap = workshops.map(w => {
+                      const room = chatRooms.find(r => r.workshop_id === w.id);
+                      return {
+                        workshop: w,
+                        room: room,
+                        unread_count_erp: room?.unread_count_erp || 0,
+                        last_message: room?.last_message || 'Inicia una conversación...',
+                        last_message_time: room?.last_message_time || null
+                      };
+                    }).sort((a, b) => {
+                      const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+                      const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+                      return timeB - timeA;
+                    });
+
+                    return workshopRoomsMap.map(({ workshop, room, unread_count_erp, last_message, last_message_time }) => (
+                      <div
+                        key={workshop.id}
+                        onClick={() => selectWorkshopChat(workshop)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          padding: '0.85rem',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                          backgroundColor: activeRoom?.workshop_id === workshop.id ? '#f1f5f9' : 'transparent',
+                          transition: 'background-color 0.2s',
+                          marginBottom: '0.25rem'
+                        }}
+                      >
+                        <div style={{
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '50%',
+                          backgroundColor: '#fce7f3',
+                          color: '#80082E',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: '900',
+                          fontSize: '1rem',
+                          flexShrink: 0
+                        }}>
+                          🏭
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                            <span style={{ fontSize: '0.825rem', fontWeight: '850', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {workshop.nombre_taller}
+                            </span>
+                            <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                              {last_message_time ? new Date(last_message_time).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
+                              {last_message}
+                            </span>
+                            {unread_count_erp > 0 && (
+                              <span style={{
+                                backgroundColor: '#22c55e',
+                                color: 'white',
+                                fontSize: '0.6rem',
+                                fontWeight: '900',
+                                borderRadius: '50%',
+                                width: '16px',
+                                height: '16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>{unread_count_erp}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ));
+                  })()
+                )
+              ) : (
+                /* Alerts column list view */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', padding: '0.25rem 0.5rem', textTransform: 'uppercase' }}>
+                    Alertas Publicadas
+                  </div>
+                  {erpAlertsList.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      Sin anuncios publicados.
+                    </div>
+                  ) : (
+                    erpAlertsList.map(item => (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '0.75rem',
+                          borderRadius: '8px',
+                          backgroundColor: 'white',
+                          border: '1px solid var(--border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.25rem',
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{
+                            fontSize: '0.55rem',
+                            fontWeight: '900',
+                            padding: '0.15rem 0.4rem',
+                            borderRadius: '4px',
+                            color: 'white',
+                            backgroundColor: item.criticidad === 'Alta' ? '#ef4444' : item.criticidad === 'Media' ? '#f59e0b' : '#3b82f6'
+                          }}>{item.criticidad}</span>
+                          <button
+                            onClick={() => handleDeleteAlert(item.id)}
+                            style={{ border: 'none', backgroundColor: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '0.1rem' }}
+                            title="Eliminar comunicado"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <span style={{ fontSize: '0.78rem', fontWeight: '850', color: '#0f172a' }}>{item.cod_novedad}</span>
+                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.3' }}>{item.nombre}</p>
+                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                          {new Date(item.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Messages View or Publish Alerts Form */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            background: '#efeae2 url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png") repeat',
+            height: '100%',
+            overflow: 'hidden'
+          }}>
+            {chatSubTab === 'alerts' ? (
+              /* Alerts creation form view */
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'rgba(255,255,255,0.7)',
+                backdropFilter: 'blur(5px)',
+                padding: '2rem'
+              }}>
+                <div style={{
+                  width: '100%',
+                  maxWidth: '450px',
+                  backgroundColor: 'white',
+                  padding: '2rem',
+                  borderRadius: '16px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
+                  border: '1px solid var(--border)'
+                }}>
+                  <h3 style={{ margin: '0 0 1.25rem 0', fontWeight: '900', fontSize: '1.1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    📢 Crear Alerta / Comunicado Oficial
+                  </h3>
+                  
+                  <form onSubmit={handleCreateAlert} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Título del Comunicado</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej: Ajuste de Tarifas Confección"
+                        value={newAlertTitle}
+                        onChange={e => setNewAlertTitle(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', outline: 'none' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Criticidad / Nivel</label>
+                      <select
+                        value={newAlertCriticidad}
+                        onChange={e => setNewAlertCriticidad(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', outline: 'none' }}
+                      >
+                        <option value="Alta">Alta (Roja - Emergencia)</option>
+                        <option value="Media">Media (Amarilla - Advertencia)</option>
+                        <option value="Baja">Baja (Azul - Informativa)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Mensaje del Anuncio</label>
+                      <textarea
+                        required
+                        rows={4}
+                        placeholder="Escribe el comunicado oficial para que aparezca en la campana de todos los talleres y puntos de venta..."
+                        value={newAlertMessage}
+                        onChange={e => setNewAlertMessage(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', outline: 'none', resize: 'none', fontFamily: 'inherit' }}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={savingAlert}
+                      style={{
+                        padding: '0.75rem',
+                        backgroundColor: 'var(--primary, #80082E)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontWeight: '850',
+                        fontSize: '0.825rem',
+                        cursor: 'pointer',
+                        transition: 'opacity 0.2s'
+                      }}
+                    >
+                      {savingAlert ? 'Publicando...' : '📢 Emitir Alerta General'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              /* Regular Chat room selector view */
+              !activeRoom ? (
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#64748b',
+                  gap: '0.5rem',
+                  backgroundColor: 'rgba(255,255,255,0.7)',
+                  backdropFilter: 'blur(5px)'
+                }}>
+                  <div style={{ fontSize: '3rem' }}>💬</div>
+                  <h4 style={{ margin: 0, fontWeight: '850', fontSize: '1rem', color: '#0f172a' }}>Módulo de Chat con Talleres Satélite</h4>
+                  <p style={{ margin: 0, fontSize: '0.8rem', opacity: 0.8 }}>Selecciona un taller de la lista para ver el chat en vivo.</p>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                  {/* Active Header */}
+                  <div style={{
+                    padding: '0.85rem 1.25rem',
+                    backgroundColor: 'white',
+                    borderBottom: '1px solid var(--border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                  }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                      🏭
+                    </div>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: '900', color: '#0f172a' }}>{activeRoom.name}</h4>
+                      <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: '750' }}>Taller satélite conectado</span>
+                    </div>
+                  </div>
+
+                  {/* Messages Body */}
+                  <div style={{
+                    flex: 1,
+                    padding: '1.5rem',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.85rem'
+                  }}>
+                    {activeRoomMessages.length === 0 ? (
+                      <div style={{ alignSelf: 'center', backgroundColor: '#e1f5fe', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.75rem', color: '#0288d1', fontWeight: '700', textAlign: 'center' }}>
+                        Comienza a escribir. Tu mensaje aparecerá inmediatamente en el portal del taller.
+                      </div>
+                    ) : (
+                      activeRoomMessages.map((msg, i) => {
+                        const isMe = msg.sender_role === 'admin';
+                        return (
+                          <div key={i} style={{
+                            alignSelf: isMe ? 'flex-end' : 'flex-start',
+                            maxWidth: '75%',
+                            backgroundColor: isMe ? '#d9fdd3' : '#ffffff',
+                            color: '#0f172a',
+                            padding: '0.5rem 0.85rem',
+                            borderRadius: isMe ? '10px 0px 10px 10px' : '0px 10px 10px 10px',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.15rem'
+                          }}>
+                            <span style={{ fontSize: '0.625rem', fontWeight: '900', color: isMe ? '#16a34a' : 'var(--primary, #80082E)' }}>{msg.sender_name}</span>
+                            <span style={{ fontSize: '0.825rem', whiteSpace: 'pre-wrap', lineHeight: '1.3' }}>{msg.message}</span>
+                            <span style={{ fontSize: '0.55rem', color: '#94a3b8', alignSelf: 'flex-end', fontFamily: 'monospace', marginTop: '0.15rem' }}>
+                              {new Date(msg.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Input Area */}
+                  <div style={{
+                    padding: '0.85rem 1.25rem',
+                    backgroundColor: '#f0f2f5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    borderTop: '1px solid #cbd5e1'
+                  }}>
+                    <input
+                      type="text"
+                      placeholder="Escribe un mensaje para el taller..."
+                      value={adminChatInput}
+                      onChange={e => setAdminChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSendAdminMessage(); }}
+                      style={{
+                        flex: 1,
+                        padding: '0.65rem 1rem',
+                        borderRadius: '20px',
+                        border: 'none',
+                        backgroundColor: 'white',
+                        color: '#0f172a',
+                        fontSize: '0.85rem',
+                        outline: 'none'
+                      }}
+                    />
+                    <button
+                      onClick={handleSendAdminMessage}
+                      disabled={sendingAdminMsg || !adminChatInput.trim()}
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        backgroundColor: sendingAdminMsg || !adminChatInput.trim() ? '#cbd5e1' : 'var(--primary, #80082E)',
+                        color: 'white',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+                      }}
+                    >
+                      {sendingAdminMsg ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                          <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (

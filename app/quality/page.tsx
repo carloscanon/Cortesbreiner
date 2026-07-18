@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { syncQualityApprovalToInventory } from '@/lib/finished-goods-sync';
 import {
   CheckCircle2, XCircle, AlertCircle, Search, ClipboardCheck,
-  Plus, X, Loader2, Save, ClipboardList, Package, ChevronDown, ChevronUp
+  Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity
 } from 'lucide-react';
 
 const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado'];
@@ -31,9 +31,13 @@ const EMPTY_FORM = {
   descuento_defectos: '0',
   valor_pagar: '0',
   pago_status: 'Pendiente de aprobación financiera',
+  received_at: null as string | null,
+  inspected_at: null as string | null,
+  packaged_at: null as string | null,
+  closed_at: null as string | null,
+  operator_name: ''
 };
 
-// Fetch all pages of a query
 const fetchAll = async (queryFn: () => any) => {
   let allData: any[] = [];
   let from = 0;
@@ -57,7 +61,12 @@ export default function QualityPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
   const [colors, setColors] = useState<any[]>([]);
-  const [workshops, setWorkshops] = useState<any[]>([]);
+  const [fabrics, setFabrics] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [workshopSpecialCosts, setWorkshopSpecialCosts] = useState<any[]>([]);
+  const [workshopRates, setWorkshopRates] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -67,8 +76,8 @@ export default function QualityPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [orderDetail, setOrderDetail] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  
-  // Individual garments states
+  const [dbNotifications, setDbNotifications] = useState<any[]>([]);
+  const [activeStage, setActiveStage] = useState<number>(1);
   const [individualGarments, setIndividualGarments] = useState<any[]>([]);
   const [loadingGarments, setLoadingGarments] = useState(false);
   const [barcodeSearch, setBarcodeSearch] = useState('');
@@ -77,42 +86,49 @@ export default function QualityPage() {
   const [garmentNotes, setGarmentNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [showLabelsModal, setShowLabelsModal] = useState(false);
-
-  // Track per-row approved/rejected in the detail table
   const [rowApproved, setRowApproved] = useState<Record<string, number>>({});
   const [rowRejected, setRowRejected] = useState<Record<string, number>>({});
+  const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAll(() => supabase.from('products').select('*')).then(setProducts);
     supabase.from('sizes').select('*').order('orden_visual', { ascending: true }).then(({ data }) => setSizes(data || []));
     supabase.from('colors').select('*').then(({ data }) => setColors(data || []));
-    supabase.from('workshops').select('*').then(({ data }) => setWorkshops(data || []));
+    supabase.from('fabrics').select('*').then(({ data }) => setFabrics(data || []));
+    supabase.from('categories').select('*').then(({ data }) => setCategories(data || []));
+    supabase.from('workshop_special_costs').select('*').then(({ data }) => setWorkshopSpecialCosts(data || []));
+    supabase.from('workshop_rates').select('*').then(({ data }) => setWorkshopRates(data || []));
     fetchInspections();
     fetchSewingOrders();
+    fetchNotifications();
+    loadUser();
   }, []);
+
+  const loadUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*, roles(id, name)')
+          .eq('id', user.id)
+          .single();
+        if (profile) {
+          setCurrentUser(profile);
+          setUserRole(profile.roles?.name || null);
+          setForm((f: any) => ({ ...f, operator_name: profile.full_name || '' }));
+        }
+      }
+    } catch (err: any) {
+      console.error('Error loading user:', err.message);
+    }
+  };
 
   const fetchInspections = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('quality_inspections')
-      .select(`
-        *,
-        orders (
-          id,
-          consecutive,
-          internal_code,
-          client_name,
-          brand
-        ),
-        sewing_orders (
-          id,
-          confeccion_code,
-          status,
-          workshops (
-            nombre_taller
-          )
-        )
-      `)
+      .select(`*, orders(id,consecutive,internal_code,client_name,brand), sewing_orders(id,confeccion_code,status,workshops(nombre_taller))`)
       .order('created_at', { ascending: false });
     setInspections(data || []);
     setLoading(false);
@@ -121,61 +137,43 @@ export default function QualityPage() {
   const fetchSewingOrders = async () => {
     const { data } = await supabase
       .from('sewing_orders')
-      .select(`
-        id,
-        confeccion_code,
-        parent_order_id,
-        orders (
-          id,
-          consecutive,
-          internal_code,
-          client_name,
-          brand
-        ),
-        workshops (
-          id,
-          nombre_taller
-        )
-      `)
+      .select(`id,confeccion_code,parent_order_id,orders(id,consecutive,internal_code,client_name,brand),workshops(id,nombre_taller)`)
       .order('created_at', { ascending: false });
     setSewingOrders(data || []);
   };
 
-  const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
+  const fetchNotifications = async () => {
+    const { data } = await supabase
+      .from('notifications')
+      .select('*, workshops(nombre_taller)')
+      .order('created_at', { ascending: false })
+      .limit(8);
+    setDbNotifications(data || []);
+  };
 
   const handleConfirmReceivedCheck = async (inspection: any) => {
     const novedades = prompt(
-      `¿Confirmar recepción de prendas de la orden ${inspection.sewing_orders?.confeccion_code}?\n\nIngresa cualquier novedad/discrepancia encontrada (déjalo vacío si todo llegó conforme):`,
+      `¿Confirmar recepción de prendas de la orden ${inspection.sewing_orders?.confeccion_code}?\n\nNovedades de recepción (déjalo vacío si todo llegó conforme):`,
       ""
     );
-    if (novedades === null) return; // User cancelled
-    
+    if (novedades === null) return;
     setReceivingCheckId(inspection.id);
     try {
-      // 1. Update sewing order status to 'Terminada' (completed & received by quality)
-      const { error: soErr } = await supabase
-        .from('sewing_orders')
-        .update({ status: 'Terminada' })
-        .eq('id', inspection.sewing_order_id);
-
-      if (soErr) throw soErr;
-
-      // 2. Set quality inspection status to 'Pendiente' (validation stage)
-      const formattedNotes = (inspection.notes || '') + 
-        `\n[Recibido en Calidad] Novedades de recepción: ${novedades || 'Ninguna'}`;
-
-      const { error: qiErr } = await supabase
-        .from('quality_inspections')
-        .update({
-          status: 'Pendiente',
-          notes: formattedNotes
-        })
-        .eq('id', inspection.id);
-
-      if (qiErr) throw qiErr;
-
-      alert('✓ Check de recibido completado. Las novedades fueron enviadas al satélite y la orden pasó a validación.');
+      await supabase.from('sewing_orders').update({ status: 'Terminada' }).eq('id', inspection.sewing_order_id);
+      const formattedNotes = (inspection.notes || '') + `\n[Recibido en Calidad] ${novedades || 'Sin novedades'}`;
+      await supabase.from('quality_inspections').update({
+        status: 'Pendiente',
+        notes: formattedNotes,
+        received_at: new Date().toISOString()
+      }).eq('id', inspection.id);
+      await supabase.from('notifications').insert({
+        title: `Lote Recepcionado: ${inspection.sewing_orders?.confeccion_code || 'OC'}`,
+        message: `Ingresado al módulo de calidad. Novedades: ${novedades || 'Ninguna'}.`,
+        type: 'recepcion', severity: novedades ? 'medium' : 'low',
+        inspection_id: inspection.id
+      });
       fetchInspections();
+      fetchNotifications();
     } catch (err: any) {
       alert('Error al confirmar recibido: ' + err.message);
     } finally {
@@ -183,80 +181,121 @@ export default function QualityPage() {
     }
   };
 
-  const fetchIndividualGarments = async (id: string, isSewingOrder: boolean = true) => {
+  const fetchIndividualGarments = async (id: string, isSewingOrder: boolean = true, detailRowsInput?: any[]) => {
     setLoadingGarments(true);
     const query = supabase.from('individual_garments').select('*');
-    if (isSewingOrder) {
-      query.eq('sewing_order_id', id);
-    } else {
-      query.eq('order_id', id);
-    }
+    if (isSewingOrder) query.eq('sewing_order_id', id);
+    else query.eq('order_id', id);
     const { data } = await query.order('barcode', { ascending: true });
-    setIndividualGarments(data || []);
+    const garments = data || [];
+    setIndividualGarments(garments);
+
+    const rows = detailRowsInput || (orderDetail ? getDetailRows(orderDetail) : []);
+    if (rows.length > 0) {
+      const newApproved: Record<string, number> = {};
+      const newRejected: Record<string, number> = {};
+      rows.forEach((row: any) => {
+        if (garments.length > 0) {
+          const matchingGarments = garments.filter(g =>
+            g.reference_name === row.productName &&
+            g.color_name === row.colorName &&
+            g.size_code === row.size
+          );
+          newApproved[row.key] = matchingGarments.length;
+          newRejected[row.key] = Math.max(0, (Number(row.quantity) || 0) - matchingGarments.length);
+        } else {
+          // Pre-populate with planned quantities if no barcodes generated yet
+          newApproved[row.key] = Number(row.quantity) || 0;
+          newRejected[row.key] = 0;
+        }
+      });
+      setRowApproved(newApproved);
+      setRowRejected(newRejected);
+    }
     setLoadingGarments(false);
   };
 
   const generateIndividualGarments = async () => {
     if (!orderDetail) return;
     setLoadingGarments(true);
-    
     const toInsert: any[] = [];
     let globalIndex = 1;
-    
     const isSewingOrder = !!orderDetail.sewing_order_sizes;
-    
-    // Distribution of sizes derived from getDetailRows
+
+    // Código de orden 100% numérico:
+    // Usar el número consecutivo de la orden de confección (ej. "OC-0042" → "0042")
+    // o el consecutivo del parent_order, nunca UUIDs.
+    let orderNumericCode = '';
+    const confCode: string = orderDetail.confeccion_code || '';
+    const numericFromConf = confCode.replace(/\D/g, '');
+    if (numericFromConf.length > 0) {
+      orderNumericCode = numericFromConf.slice(-4).padStart(4, '0');
+    } else {
+      const consecutive = orderDetail.consecutive
+        || orderDetail.parent_order?.consecutive
+        || orderDetail.cuts?.[0]?.consecutive
+        || 0;
+      orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
+    }
+
     const detailRows = getDetailRows(orderDetail);
-    
     detailRows.forEach((row: any) => {
-      const qty = Number(row.quantity) || 0;
+      // ONLY generate for approved garments
+      const qty = Number(rowApproved[row.key]) || 0;
       const sizeCode = row.size || 'ST';
-      
       for (let i = 0; i < qty; i++) {
         const paddedIdx = globalIndex.toString().padStart(4, '0');
-        const barcode = `${orderDetail.confeccion_code || 'OC'}-${sizeCode}-${paddedIdx}`;
+        // Código de barra 100% numérico: <4 dígitos orden><4 dígitos consecutivo>
+        const barcode = `${orderNumericCode}${paddedIdx}`;
         toInsert.push({
           sewing_order_id: isSewingOrder ? orderDetail.id : null,
           order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
           quality_inspection_id: editingId || null,
-          barcode,
-          reference_name: row.productName,
+          barcode, 
+          reference_name: row.productName, 
           color_name: row.colorName,
-          size_code: sizeCode,
-          status: 'Pendiente',
+          size_code: sizeCode, 
+          status: 'Aprobada', 
           defect_checklist: {}
         });
         globalIndex++;
       }
     });
 
-    if (toInsert.length === 0) {
-      alert('No hay prendas planeadas en esta orden para generar.');
-      setLoadingGarments(false);
-      return;
+    if (toInsert.length === 0) { 
+      alert('No hay prendas aprobadas registradas para generar.'); 
+      setLoadingGarments(false); 
+      return; 
     }
 
     const { error } = await supabase.from('individual_garments').insert(toInsert);
     if (error) {
       alert('Error al generar prendas: ' + error.message);
     } else {
-      await fetchIndividualGarments(orderDetail.id, isSewingOrder);
+      await fetchIndividualGarments(orderDetail.id, isSewingOrder, detailRows);
     }
     setLoadingGarments(false);
   };
 
   const handleUpdateGarment = async (garmentId: string, updates: any) => {
     const { error } = await supabase.from('individual_garments').update(updates).eq('id', garmentId);
-    if (error) {
-      alert('Error al actualizar prenda: ' + error.message);
-    } else {
-      // Re-fetch list
-      if (orderDetail) {
-        await fetchIndividualGarments(orderDetail.id);
-      }
-      // Update selectedGarment state to reflect changes
-      setSelectedGarment((prev: any) => prev && prev.id === garmentId ? { ...prev, ...updates } : prev);
-    }
+    if (error) { alert('Error al actualizar prenda: ' + error.message); return; }
+    if (orderDetail) await fetchIndividualGarments(orderDetail.id);
+    setSelectedGarment((prev: any) => prev && prev.id === garmentId ? { ...prev, ...updates } : prev);
+    if (!form.inspected_at) setForm((prev: any) => ({ ...prev, inspected_at: new Date().toISOString() }));
+  };
+
+  const handleReworkNotification = async (garment: any, defectType: string) => {
+    await supabase.from('garment_rework_history').insert({
+      garment_id: garment.id, defect_type: defectType, status: 'Enviado',
+      notes: `Enviado a corrección: ${defectType}`, operator: form.operator_name || 'Inspector'
+    });
+    await supabase.from('notifications').insert({
+      title: `Prenda a Reproceso: ${garment.barcode}`,
+      message: `Defecto: ${defectType}. Taller: ${orderDetail?.workshops?.nombre_taller || '—'}.`,
+      type: 'reproceso', severity: 'medium', inspection_id: editingId || null
+    });
+    fetchNotifications();
   };
 
   const handleScanBarcode = (code: string) => {
@@ -269,9 +308,87 @@ export default function QualityPage() {
       setGarmentNotes(found.notes || '');
       setPhotoUrl(found.photo_url || '');
       setBarcodeSearch('');
-    } else {
-      alert(`No se encontró la prenda con código: ${cleanCode}`);
+    } else alert(`No se encontró la prenda con código: ${cleanCode}`);
+  };
+
+  // Resolves garment rate with cascade: special_cost → workshop_rates → category.base_rate → 3500
+  const resolveGarmentRate = (workshopId: string, productId: string, categoryId: string): number => {
+    // 1. Tarifa especial por taller+producto (Costos Especiales por Producto)
+    if (workshopId && productId) {
+      const special = workshopSpecialCosts.find(
+        (sc: any) => String(sc.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+                     String(sc.product_id).toLowerCase() === String(productId).toLowerCase()
+      );
+      if (special && Number(special.special_rate) > 0) return Number(special.special_rate);
     }
+    // 2. Tarifa por taller+categoría (Tarifas por Categoría)
+    if (workshopId && categoryId) {
+      const catRate = workshopRates.find(
+        (wr: any) => String(wr.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+                     String(wr.category_id).toLowerCase() === String(categoryId).toLowerCase()
+      );
+      if (catRate && Number(catRate.rate) > 0) return Number(catRate.rate);
+    }
+    // 3. Tarifa base de la categoría
+    if (categoryId) {
+      const cat = categories.find((c: any) => String(c.id) === String(categoryId));
+      if (cat && Number(cat.base_rate) > 0) return Number(cat.base_rate);
+    }
+    // 4. Fallback
+    return 3500;
+  };
+
+  /** Detecta la fuente de la tarifa de una orden de confección para mostrarla en UI */
+  const getRateSource = (sewingOrderData: any, prodObj: any): { rate: number; source: string; isSpecialProduct: boolean } => {
+    const workshopId = sewingOrderData?.workshop_id || '';
+    const productId = String(prodObj?.id || '');
+    const categoryId = String(prodObj?.category_id || '');
+    
+    // 1. Tarifa manual en OC (si es un número real > 1, no el flag de activación = 1)
+    const soTarifa = Number(sewingOrderData?.tarifa_especial);
+    if (soTarifa > 1) return { rate: soTarifa, source: 'Tarifa manual en OC', isSpecialProduct: false };
+    
+    // 2. Tarifa especial (si está activo el flag)
+    const isSpecialEnabled = sewingOrderData?.tarifa_especial !== null && 
+                             sewingOrderData?.tarifa_especial !== undefined && 
+                             (sewingOrderData.tarifa_especial === true || Number(sewingOrderData.tarifa_especial) > 0);
+    
+    if (isSpecialEnabled) {
+      // Costo especial por taller+producto
+      const special = workshopSpecialCosts.find(
+        (sc: any) => String(sc.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+                     String(sc.product_id).toLowerCase() === String(productId).toLowerCase()
+      );
+      if (special && Number(special.special_rate) > 0)
+        return { rate: Number(special.special_rate), source: `Costo especial: ${prodObj?.nombre_producto || 'Producto'}`, isSpecialProduct: true };
+      
+      // Fallback por cualquier producto de la misma categoría (para costo especial)
+      if (categoryId) {
+        const categoryProducts = products.filter((p: any) => String(p.category_id) === String(categoryId));
+        const catSpecial = workshopSpecialCosts.find(
+          (sc: any) => String(sc.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+                       categoryProducts.some((p: any) => String(p.id).toLowerCase() === String(sc.product_id).toLowerCase())
+        );
+        if (catSpecial && Number(catSpecial.special_rate) > 0) {
+          return { rate: Number(catSpecial.special_rate), source: `Costo especial categoría: ${prodObj?.nombre_producto || 'Producto'}`, isSpecialProduct: true };
+        }
+      }
+    }
+    
+    // 3. Tarifa por categoría del taller
+    const catRate = workshopRates.find(
+      (wr: any) => String(wr.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+                   String(wr.category_id).toLowerCase() === String(categoryId).toLowerCase()
+    );
+    if (catRate && Number(catRate.rate) > 0)
+      return { rate: Number(catRate.rate), source: 'Tarifa por categoría del taller', isSpecialProduct: false };
+    
+    // 4. Tarifa base de la categoría
+    const cat = categories.find((c: any) => String(c.id) === String(categoryId));
+    if (cat && Number(cat.base_rate) > 0)
+      return { rate: Number(cat.base_rate), source: 'Tarifa base de la categoría', isSpecialProduct: false };
+    
+    return { rate: 3500, source: 'Fallback ($3.500)', isSpecialProduct: false };
   };
 
   const fetchOrderDetail = async (id: string, isSewingOrder: boolean = true) => {
@@ -281,194 +398,112 @@ export default function QualityPage() {
     if (isSewingOrder) {
       const { data } = await supabase
         .from('sewing_orders')
-        .select(`
-          *,
-          parent_order:orders(
-            *,
-            fabrics(nombre_tela),
-            workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque),
-            cuts(
-              *,
-              cut_sizes(*)
-            )
-          ),
-          sewing_order_sizes(
-            *,
-            sizes(*)
-          ),
-          workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque)
-        `)
-        .eq('id', id)
-        .single();
-      
+        .select(`*, parent_order:orders(*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*))), sewing_order_sizes(*, sizes(*)), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque)`)
+        .eq('id', id).single();
       setOrderDetail(data);
-      await fetchIndividualGarments(id, true);
-
-      // Determine price per garment (valor_prenda)
+      const detailRows = getDetailRows(data);
+      await fetchIndividualGarments(id, true, detailRows);
       if (data) {
-        let garmentRate = 3500;
-        if (data.tarifa_especial && Number(data.tarifa_especial) > 0) {
-          // If special cost is enabled, use it
-          garmentRate = Number(data.tarifa_especial);
-        } else {
-          // Fallback to workshop rates in workshop master based on product category
-          const prod = products.find(p => String(p.id) === String(data.product_id));
-          if (prod && data.workshop_id) {
-            const { data: rateData } = await supabase
-              .from('workshop_rates')
-              .select('rate')
-              .eq('workshop_id', data.workshop_id)
-              .eq('category_id', prod.category_id)
-              .maybeSingle();
-            if (rateData && rateData.rate) {
-              garmentRate = Number(rateData.rate);
-            }
-          }
-        }
-        // Update form state with the resolved rate
+        const prod = products.find((p: any) => String(p.id) === String(data.product_id));
+        const { rate: garmentRate } = getRateSource(data, prod);
         setForm((f: any) => ({ ...f, valor_prenda: garmentRate.toString() }));
       }
     } else {
-      const { data } = await supabase
-        .from('orders')
-        .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable, desc_costuras, desc_lavanderia, desc_empaque), cuts(*, cut_sizes(*))')
-        .eq('id', id)
-        .single();
+      const { data } = await supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*))').eq('id', id).single();
       setOrderDetail(data);
-      await fetchIndividualGarments(id, false);
+      const detailRows = getDetailRows(data);
+      await fetchIndividualGarments(id, false, detailRows);
     }
     setLoadingDetail(false);
   };
 
-  // Build detail rows from order cuts
+  const getFabricName = () => {
+    if (!orderDetail) return '—';
+    const fabricId = orderDetail.parent_order?.fabric_id || orderDetail.fabric_id;
+    if (!fabricId) {
+      const cutsList = orderDetail.parent_order?.cuts || orderDetail.cuts || [];
+      const firstCut = cutsList[0];
+      if (firstCut?.fabric_id) {
+        const fab = fabrics.find(f => String(f.id) === String(firstCut.fabric_id));
+        if (fab) return fab.nombre_tela;
+      }
+      return '—';
+    }
+    const fab = fabrics.find(f => String(f.id) === String(fabricId));
+    return fab ? fab.nombre_tela : '—';
+  };
+
   const getDetailRows = (order: any) => {
     if (!order) return [];
-
-    // Check if it is a sewing order (has sewing_order_sizes)
     if (order.sewing_order_sizes) {
       const sewingOrder = order;
       const parent = sewingOrder.parent_order;
-      if (!parent || !parent.cuts) return [];
-
-      const rows: { key: string; productName: string; colorName: string; size: string; quantity: number }[] = [];
+      if (!parent?.cuts) return [];
+      const rows: any[] = [];
       parent.cuts.forEach((cut: any) => {
-        // Only include cuts for this specific product
         if (String(cut.product_id) !== String(sewingOrder.product_id)) return;
-
-        const prod = products.find(p => String(p.id) === String(cut.product_id));
-        const colorObj = colors.find(c => String(c.id) === String(cut.color_id));
+        const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+        const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id));
         const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
         const productName = prod ? prod.nombre_producto : 'Sin Referencia';
-
-        const layersProyec = cut.layers || 1;
-        const layersProduced = cut.layers_produced || 0;
-
         (cut.cut_sizes || []).forEach((cs: any) => {
-          const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
-          const sz = sizeObj ? sizeObj.codigo_talla : (cs.size_code || 'S/T');
-
-          // Check if this size is assigned to this sewing order
-          const sosMatch = sewingOrder.sewing_order_sizes.find(
-            (sos: any) => String(sos.size_id) === String(cs.size_id)
-          );
+          const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+          const sosMatch = sewingOrder.sewing_order_sizes.find((sos: any) => String(sos.size_id) === String(cs.size_id));
           const plannedQty = sosMatch ? Number(sosMatch.cantidad_planeada) || 0 : 0;
           if (plannedQty <= 0) return;
-
-          // Always use planned quantity for sewing orders to ensure we can always generate/print labels
-          const qty = plannedQty;
-
-          const key = `${cut.id}_${cs.id}`;
-          rows.push({ key, productName, colorName, size: sz, quantity: qty });
+          rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, size: sz, quantity: plannedQty });
         });
       });
       return rows;
     }
-
-    // Otherwise fallback to parent order
     if (!order.cuts) return [];
-    const rows: { key: string; productName: string; colorName: string; size: string; quantity: number }[] = [];
+    const rows: any[] = [];
     order.cuts.forEach((cut: any) => {
-      const prod = products.find(p => String(p.id) === String(cut.product_id));
-      const colorObj = colors.find(c => String(c.id) === String(cut.color_id));
-      const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
+      const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id));
       const productName = prod ? prod.nombre_producto : 'Sin Referencia';
+      const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
       (cut.cut_sizes || []).forEach((cs: any) => {
-        const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
-        const sz = sizeObj ? sizeObj.codigo_talla : (cs.size_code || 'S/T');
-        let qty = 0;
-        if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
-          qty = Number(cs.quantity_produced);
-        } else {
-          const proyecQty = Number(cs.quantity) || 0;
-          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-          qty = Math.round(ppc * layersProduced);
-        }
-        // Fallback to planned quantity if produced is 0
-        if (qty <= 0) {
-          qty = Number(cs.quantity) || 0;
-        }
-        if (qty > 0) {
-          const key = `${cut.id}_${cs.id}`;
-          rows.push({ key, productName, colorName, size: sz, quantity: qty });
-        }
+        const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
+        const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+        let qty = cs.quantity_produced !== undefined && cs.quantity_produced !== null ? Number(cs.quantity_produced) : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
+        if (qty <= 0) qty = Number(cs.quantity) || 0;
+        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, size: sz, quantity: qty });
       });
     });
     return rows;
   };
 
-  // Compute totals from per-row inputs
   const computeTotalsFromRows = (rows: any[]) => {
-    let totalApproved = 0;
-    let totalRejected = 0;
-    rows.forEach(row => {
-      totalApproved += rowApproved[row.key] || 0;
-      totalRejected += rowRejected[row.key] || 0;
-    });
+    let totalApproved = 0, totalRejected = 0;
+    rows.forEach(row => { totalApproved += rowApproved[row.key] || 0; totalRejected += rowRejected[row.key] || 0; });
     return { totalApproved, totalRejected };
   };
 
-  const handleSave = async () => {
+  const handleSave = async (nextStageToSave?: number) => {
     if (!form.sewing_order_id && !form.order_id) return alert('Selecciona una orden.');
     setSaving(true);
-
-    const selectedSewingOrder = sewingOrders.find(so => so.id === form.sewing_order_id);
+    const selectedSewingOrder = sewingOrders.find((so: any) => so.id === form.sewing_order_id);
     const parentOrderId = selectedSewingOrder ? selectedSewingOrder.parent_order_id : form.order_id;
-    const selectedOrder = orders.find(o => o.id === parentOrderId);
+    const selectedOrder = orders.find((o: any) => o.id === parentOrderId);
     const rows = getDetailRows(orderDetail);
-    
-    let lavVal = Number(form.lavanderia) || 0;
-    let salVal = Number(form.saldos) || 0;
-    let cosVal = Number(form.costuras) || 0;
-    let incVal = Number(form.incompleto) || 0;
-    let finalApproved = Number(form.items_approved) || 0;
-    let finalRejected = 0;
+    let lavVal = Number(form.lavanderia) || 0, salVal = Number(form.saldos) || 0, cosVal = Number(form.costuras) || 0, incVal = Number(form.incompleto) || 0;
+    let finalApproved = Number(form.items_approved) || 0, finalRejected = 0;
 
-    // If we have individual garments generated, calculate everything from them
     if (individualGarments.length > 0) {
       finalApproved = individualGarments.filter(g => g.status === 'Aprobada').length;
       const rejectedGarments = individualGarments.filter(g => g.status === 'Rechazada');
       finalRejected = rejectedGarments.length;
-      
-      // Calculate breakdown from checklist
-      cosVal = 0;
-      lavVal = 0;
-      salVal = 0;
-      incVal = 0;
+      cosVal = 0; lavVal = 0; salVal = 0; incVal = 0;
       rejectedGarments.forEach(g => {
         const chk = g.defect_checklist || {};
         const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
         const isLavado = chk['Lavado'] || chk['Mancha'];
-        if (isCostura) {
-          cosVal++;
-        } else if (isLavado) {
-          lavVal++;
-        } else {
-          salVal++;
-        }
+        if (isCostura) cosVal++; else if (isLavado) lavVal++; else salVal++;
       });
-
       form.items_inspected = individualGarments.length.toString();
       form.items_approved = finalApproved.toString();
       form.items_rejected = finalRejected.toString();
@@ -480,59 +515,42 @@ export default function QualityPage() {
       finalRejected = lavVal + salVal + cosVal + incVal;
       if (rows.length > 0) {
         const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
-        if (totalApproved > 0) {
-          finalApproved = totalApproved;
-        }
-        if (totalRejected > 0 && finalRejected === 0) {
-          finalRejected = totalRejected;
-        }
+        if (totalApproved > 0) finalApproved = totalApproved;
+        if (totalRejected > 0 && finalRejected === 0) finalRejected = totalRejected;
       }
     }
-
     const totalInspected = Number(form.items_inspected) || 0;
+    if (finalRejected > totalInspected) { setSaving(false); return alert(`❌ Rechazadas (${finalRejected}) no puede superar el total inspeccionadas (${totalInspected}).`); }
+    if (finalApproved + finalRejected > totalInspected) { setSaving(false); return alert(`❌ Aprobadas + rechazadas supera total inspeccionado.`); }
 
-    if (finalRejected > totalInspected) {
-      setSaving(false);
-      return alert(`❌ La cantidad de prendas rechazadas (${finalRejected}) no puede ser mayor que las prendas inspeccionadas (${totalInspected}).`);
-    }
-
-    if (finalApproved + finalRejected > totalInspected) {
-      setSaving(false);
-      return alert(`❌ La suma de prendas aprobadas (${finalApproved}) y rechazadas (${finalRejected}) no puede superar el total de prendas inspeccionadas (${totalInspected}).`);
-    }
-
-    // Settlement calculations using workshop-specific rates
     const valPrenda = Number(form.valor_prenda) || 3500;
     const workshopObj = selectedSewingOrder?.workshops || selectedOrder?.workshops || orderDetail?.workshops || orderDetail?.parent_order?.workshops;
     const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
     const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
     const rateEmpaque = workshopObj ? Number(workshopObj.desc_empaque ?? 0) : 0;
-
     const descDefectos = (cosVal * rateCosturas) + (lavVal * rateLavanderia);
-    
-    // Si empaque está activo en la orden de confección, se adiciona el costo de empaque al pago
     const isEmpaqueEnabled = selectedSewingOrder?.empaque ?? orderDetail?.empaque ?? false;
     const pagoEmpaque = isEmpaqueEnabled ? (finalApproved * rateEmpaque) : 0;
-
     const valPagar = (finalApproved * valPrenda) + pagoEmpaque - descDefectos;
 
-    const payload = {
+    // Calcular el stage a persistir
+    const resolvedStage = nextStageToSave !== undefined ? nextStageToSave : activeStage;
+
+    const payload: any = {
       order_id: parentOrderId || null,
       sewing_order_id: form.sewing_order_id || null,
       workshop_name: selectedSewingOrder?.workshops?.nombre_taller || selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
-      items_inspected: totalInspected,
-      items_approved: finalApproved,
-      items_rejected: finalRejected,
-      lavanderia: lavVal,
-      saldos: salVal,
-      costuras: cosVal,
-      incompleto: incVal,
-      status: form.status,
-      notes: form.notes,
-      valor_prenda: valPrenda,
-      descuento_defectos: descDefectos,
-      valor_pagar: valPagar,
+      items_inspected: totalInspected, items_approved: finalApproved, items_rejected: finalRejected,
+      lavanderia: lavVal, saldos: salVal, costuras: cosVal, incompleto: incVal,
+      status: resolvedStage >= 4 ? 'Aprobado' : form.status, notes: form.notes, valor_prenda: valPrenda,
+      descuento_defectos: descDefectos, valor_pagar: valPagar,
       pago_status: form.pago_status || 'Pendiente de aprobación financiera',
+      received_at: form.received_at || (activeStage === 1 ? new Date().toISOString() : null),
+      inspected_at: form.inspected_at || (activeStage === 1 ? new Date().toISOString() : null),
+      packaged_at: form.packaged_at || (activeStage === 3 ? new Date().toISOString() : null),
+      closed_at: (resolvedStage >= 4 || form.status === 'Aprobado' || form.status === 'Empacado') ? new Date().toISOString() : null,
+      operator_name: form.operator_name || null,
+      current_stage: resolvedStage
     };
 
     let error = null;
@@ -543,220 +561,211 @@ export default function QualityPage() {
     } else {
       const res = await supabase.from('quality_inspections').insert([payload]).select().single();
       error = res.error;
-      if (res.data) {
-        savedInspectionId = res.data.id;
-      }
+      if (res.data) savedInspectionId = res.data.id;
     }
 
-    // Update quality_inspection_id on individual_garments if this was a new inspection
     if (!error && savedInspectionId) {
-      if (form.sewing_order_id) {
-        await supabase
-          .from('individual_garments')
-          .update({ quality_inspection_id: savedInspectionId })
-          .eq('sewing_order_id', form.sewing_order_id)
-          .is('quality_inspection_id', null);
-      } else if (parentOrderId) {
-        await supabase
-          .from('individual_garments')
-          .update({ quality_inspection_id: savedInspectionId })
-          .eq('order_id', parentOrderId)
-          .is('quality_inspection_id', null);
+      if (activeStage === 1 && rows.length > 0) {
+        // Borrar prendas existentes para este lote/inspección para mantener sincronía total con las cantidades manuales de etapa 1
+        if (form.sewing_order_id) {
+          await supabase.from('individual_garments').delete().eq('sewing_order_id', form.sewing_order_id);
+        } else if (parentOrderId) {
+          await supabase.from('individual_garments').delete().eq('order_id', parentOrderId);
+        }
+
+        // Generar las nuevas prendas individuales aprobadas
+        const toInsert: any[] = [];
+        let globalIndex = 1;
+        const isSewingOrder = !!orderDetail.sewing_order_sizes;
+
+        let orderNumericCode = '';
+        const confCode: string = orderDetail.confeccion_code || '';
+        const numericFromConf = confCode.replace(/\D/g, '');
+        if (numericFromConf.length > 0) {
+          orderNumericCode = numericFromConf.slice(-4).padStart(4, '0');
+        } else {
+          const consecutive = orderDetail.consecutive
+            || orderDetail.parent_order?.consecutive
+            || orderDetail.cuts?.[0]?.consecutive
+            || 0;
+          orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
+        }
+
+        rows.forEach((row: any) => {
+          const qty = Number(rowApproved[row.key]) || 0;
+          const sizeCode = row.size || 'ST';
+          for (let i = 0; i < qty; i++) {
+            const paddedIdx = globalIndex.toString().padStart(4, '0');
+            const barcode = `${orderNumericCode}${paddedIdx}`;
+            toInsert.push({
+              sewing_order_id: isSewingOrder ? orderDetail.id : null,
+              order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
+              quality_inspection_id: savedInspectionId,
+              barcode,
+              reference_name: row.productName,
+              color_name: row.colorName,
+              size_code: sizeCode,
+              status: 'Aprobada'
+            });
+            globalIndex++;
+          }
+        });
+
+        if (toInsert.length > 0) {
+          await supabase.from('individual_garments').insert(toInsert);
+        }
+      } else {
+        if (form.sewing_order_id) {
+          await supabase.from('individual_garments').update({ quality_inspection_id: savedInspectionId }).eq('sewing_order_id', form.sewing_order_id).is('quality_inspection_id', null);
+        } else if (parentOrderId) {
+          await supabase.from('individual_garments').update({ quality_inspection_id: savedInspectionId }).eq('order_id', parentOrderId).is('quality_inspection_id', null);
+        }
+      }
+      const rejectPct = totalInspected > 0 ? (finalRejected / totalInspected) * 100 : 0;
+      if (rejectPct > 8) {
+        await supabase.from('notifications').insert({
+          title: `⚠️ Alerta Rechazo Elevado`,
+          message: `Taller "${payload.workshop_name}" presenta ${rejectPct.toFixed(1)}% de rechazos en el lote.`,
+          type: 'rechazo', severity: 'high', inspection_id: savedInspectionId
+        });
       }
     }
 
     if (error) {
       alert('Error al guardar: ' + error.message);
     } else {
-      if (payload.status === 'Aprobado' && savedInspectionId) {
+      if ((payload.status === 'Aprobado' || payload.status === 'Empacado' || resolvedStage >= 4) && savedInspectionId) {
         await syncQualityApprovalToInventory(savedInspectionId);
       }
+      // Al cerrar un paso, cerramos el modal por completo para que el siguiente re-ingreso continúe en la etapa grabada.
       closeModal();
       fetchInspections();
+      fetchNotifications();
     }
     setSaving(false);
   };
 
   const updateStatus = async (id: string, status: string) => {
-    await supabase.from('quality_inspections').update({ status }).eq('id', id);
-    if (status === 'Aprobado') {
-      await syncQualityApprovalToInventory(id);
-    }
+    const updates: any = { status };
+    if (status === 'Aprobado' || status === 'Empacado') updates.closed_at = new Date().toISOString();
+    await supabase.from('quality_inspections').update(updates).eq('id', id);
+    if (status === 'Aprobado') await syncQualityApprovalToInventory(id);
     fetchInspections();
   };
 
   const closeModal = () => {
-    setShowModal(false);
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setOrderDetail(null);
-    setIndividualGarments([]);
-    setSelectedGarment(null);
-    setRowApproved({});
-    setRowRejected({});
+    setShowModal(false); setEditingId(null); setForm(EMPTY_FORM);
+    setOrderDetail(null); setIndividualGarments([]); setSelectedGarment(null);
+    setRowApproved({}); setRowRejected({}); setActiveStage(1);
   };
 
   const openReview = async (item: any) => {
     setEditingId(item.id);
     setForm({
-      order_id: item.order_id || '',
-      sewing_order_id: item.sewing_order_id || '',
+      order_id: item.order_id || '', sewing_order_id: item.sewing_order_id || '',
       workshop_name: item.workshop_name || '',
       items_inspected: (item.items_inspected || 0).toString(),
       items_approved: (item.items_approved || 0).toString(),
       items_rejected: (item.items_rejected || 0).toString(),
-      lavanderia: (item.lavanderia || 0).toString(),
-      saldos: (item.saldos || 0).toString(),
-      costuras: (item.costuras || 0).toString(),
-      incompleto: (item.incompleto || 0).toString(),
-      status: item.status,
-      notes: item.notes || '',
+      lavanderia: (item.lavanderia || 0).toString(), saldos: (item.saldos || 0).toString(),
+      costuras: (item.costuras || 0).toString(), incompleto: (item.incompleto || 0).toString(),
+      status: item.status, notes: item.notes || '',
       valor_prenda: (item.valor_prenda || 3500).toString(),
       descuento_defectos: (item.descuento_defectos || 0).toString(),
       valor_pagar: (item.valor_pagar || 0).toString(),
       pago_status: item.pago_status || 'Pendiente de aprobación financiera',
+      received_at: item.received_at || null, inspected_at: item.inspected_at || null,
+      packaged_at: item.packaged_at || null, closed_at: item.closed_at || null,
+      operator_name: item.operator_name || (currentUser?.full_name) || '',
+      current_stage: item.current_stage || 1
     });
-    setRowApproved({});
-    setRowRejected({});
+    setRowApproved({}); setRowRejected({});
+    const stageMap: Record<string, number> = { 'Pendiente': 1, 'Reproceso': 1, 'Doblado': 3, 'Empacado': 3, 'Aprobado': 4, 'Rechazado': 4 };
+    setActiveStage(item.current_stage || stageMap[item.status] || 1);
     setShowModal(true);
     await fetchOrderDetail(item.sewing_order_id || item.order_id, !!item.sewing_order_id);
   };
 
   const printLabelsForInspection = async (item: any) => {
-    // Load garments for this inspection and open label modal
     const sewingId = item.sewing_order_id;
     const orderId = item.order_id;
     let garments: any[] = [];
     if (sewingId) {
-      const { data } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .eq('sewing_order_id', sewingId)
-        .order('barcode', { ascending: true });
+      const { data } = await supabase.from('individual_garments').select('*').eq('sewing_order_id', sewingId).order('barcode', { ascending: true });
       garments = data || [];
     } else if (orderId) {
-      const { data } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .eq('order_id', orderId)
-        .order('barcode', { ascending: true });
+      const { data } = await supabase.from('individual_garments').select('*').eq('order_id', orderId).order('barcode', { ascending: true });
       garments = data || [];
     }
-    if (garments.length === 0) {
-      alert('Esta inspección no tiene prendas unitarias registradas. Abre la inspección y genera las prendas primero.');
-      return;
-    }
+    if (garments.length === 0) { alert('Sin prendas unitarias registradas. Abre la inspección y genera prendas en la Etapa 2.'); return; }
     setIndividualGarments(garments);
-    // Use inspection order code as label reference
-    setOrderDetail({ consecutive: item.sewing_orders?.confeccion_code || item.orders?.consecutive || '' });
+    setOrderDetail((prev: any) => prev ? prev : { consecutive: item.sewing_orders?.confeccion_code || '' });
     setShowLabelsModal(true);
   };
 
-  // KPIs & Executive Metrics
-  const pending = inspections.filter(i => i.status === 'Pendiente').length;
+  // KPI calculations
+  const completedInsps = inspections.filter(i => i.closed_at && i.received_at);
+  const avgHours = completedInsps.length > 0
+    ? completedInsps.reduce((sum, i) => sum + (new Date(i.closed_at).getTime() - new Date(i.received_at).getTime()) / 3600000, 0) / completedInsps.length
+    : 0;
+
   const approved = inspections.filter(i => i.status === 'Aprobado').length;
-  const folded = inspections.filter(i => i.status === 'Doblado').length;
-  const packed = inspections.filter(i => i.status === 'Empacado').length;
-  const rework = inspections.filter(i => i.status === 'Reproceso').length;
   const rejected = inspections.filter(i => i.status === 'Rechazado').length;
-
-  // 1. Recepcionadas Hoy
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const inspectionsToday = inspections.filter(i => {
-    if (!i.created_at) return false;
-    const d = new Date(i.created_at);
-    return d >= todayStart;
-  });
-  const countToday = inspectionsToday.reduce((sum, i) => sum + (i.items_inspected || 0), 0);
-
-  // 2. En Inspección
-  const countInInspection = inspections.filter(i => i.status === 'Pendiente' || i.status === 'Reproceso').length;
-
-  // 3. Costo de Defectos / Descuentos
+  const totalInspectedUnits = inspections.reduce((sum, i) => sum + (i.items_inspected || 0), 0);
+  const totalApprovedUnits = inspections.reduce((sum, i) => sum + (i.items_approved || 0), 0);
+  const qualityPct = totalInspectedUnits > 0 ? ((totalApprovedUnits / totalInspectedUnits) * 100).toFixed(1) : '100';
   const totalValueDiscounted = inspections.reduce((sum, i) => sum + (Number(i.descuento_defectos) || 0), 0);
+  const totalValueToPay = inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').reduce((sum, i) => sum + (Number(i.valor_pagar) || 0), 0);
 
-  // 4. Valor por Pagar
-  const totalValueToPay = inspections
-    .filter(i => i.pago_status === 'Pendiente de aprobación financiera')
-    .reduce((sum, i) => sum + (Number(i.valor_pagar) || 0), 0);
-
-  // Workshop metrics grouping
   const workshopPerformance = Object.entries(
     inspections.reduce((acc: Record<string, any>, item: any) => {
-      const wName = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || item.orders?.workshops?.nombre_taller || 'Taller Desconocido';
-      if (!acc[wName]) {
-        acc[wName] = {
-          name: wName,
-          inspected: 0,
-          approved: 0,
-          rejected: 0,
-          count: 0,
-        };
-      }
+      const wName = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Desconocido';
+      if (!acc[wName]) acc[wName] = { name: wName, inspected: 0, approved: 0, rejected: 0 };
       acc[wName].inspected += item.items_inspected || 0;
       acc[wName].approved += item.items_approved || 0;
       acc[wName].rejected += item.items_rejected || 0;
-      acc[wName].count += 1;
       return acc;
     }, {})
   ).map(([_, w]: any) => {
     const qualityRate = w.inspected > 0 ? (w.approved / w.inspected) * 100 : 100;
     const reworksRate = w.inspected > 0 ? (w.rejected / w.inspected) * 100 : 0;
-    
-    // Delivery performance (simulated 95-99%)
-    const deliveryRate = w.inspected > 0 ? 95 + (w.approved % 5) : 100;
-    const scoreStars = qualityRate >= 98 ? 5 : qualityRate >= 95 ? 4 : qualityRate >= 90 ? 3 : 2;
-    
-    return {
-      name: w.name,
-      production: w.inspected,
-      quality: qualityRate,
-      rework: reworksRate,
-      delivery: deliveryRate,
-      stars: scoreStars,
-    };
+    const stars = qualityRate >= 97 ? 5 : qualityRate >= 93 ? 4 : qualityRate >= 88 ? 3 : 2;
+    return { name: w.name, production: w.inspected, quality: qualityRate, rework: reworksRate, stars };
   }).sort((a, b) => b.quality - a.quality);
 
   const filtered = inspections.filter(i => {
-    const orderCode = i.sewing_orders?.confeccion_code
-      || (i.orders?.internal_code
-        ? `OC-${i.orders.internal_code}`
-        : i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : '');
+    const orderCode = i.sewing_orders?.confeccion_code || (i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : '');
     const client = i.orders?.client_name || '';
-    const workshop = i.workshop_name 
-      || i.sewing_orders?.workshops?.nombre_taller 
-      || i.orders?.workshops?.nombre_taller 
-      || '';
-    const matchSearch =
-      orderCode.toLowerCase().includes(search.toLowerCase()) ||
-      client.toLowerCase().includes(search.toLowerCase()) ||
-      workshop.toLowerCase().includes(search.toLowerCase());
+    const workshop = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || '';
+    const matchSearch = orderCode.toLowerCase().includes(search.toLowerCase()) || client.toLowerCase().includes(search.toLowerCase()) || workshop.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus ? i.status === filterStatus : true;
     return matchSearch && matchStatus;
   });
 
   const detailRows = orderDetail ? getDetailRows(orderDetail) : [];
   const { totalApproved: rowTotalApproved, totalRejected: rowTotalRejected } = computeTotalsFromRows(detailRows);
-  const hasRowData = rowTotalApproved > 0 || rowTotalRejected > 0;
+
+  const totalRec = individualGarments.length > 0 ? individualGarments.length : detailRows.reduce((s, r) => s + r.quantity, 0);
+  const totalApp = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Aprobada').length : rowTotalApproved;
+  const totalRej = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Rechazada').length : rowTotalRejected;
+  const totalRep = individualGarments.filter(g => g.status === 'Reproceso').length;
+  const allResolved = totalRec > 0 && (totalApp + totalRej === totalRec) && totalRep === 0;
+
+  const STAGE_LABELS = ['1. Recepción e Inspección', '2. Etiquetado', '3. Doblado y Empaque', '4. Liquidación'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-      
+
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>
-            Etapa de Producción
-          </span>
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>Etapa de Producción</span>
           <h1 style={{ fontSize: '1.75rem', fontWeight: '950', margin: '0.25rem 0 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white' }}>
-              <ClipboardCheck size={24} />
-            </div>
+            <div style={{ padding: '0.5rem', backgroundColor: '#80082E', borderRadius: '12px', color: 'white' }}><ClipboardCheck size={24} /></div>
             Control de Calidad
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Inspección, trazabilidad unitaria por prenda y liquidación financiera.
+            Módulo independiente de 7 etapas: trazabilidad por prenda, reprocesos y liquidación financiera.
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => { setForm(EMPTY_FORM); setEditingId(null); setOrderDetail(null); setShowModal(true); }}>
@@ -765,74 +774,104 @@ export default function QualityPage() {
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Recepcionadas Hoy', value: `${countToday} uds`, color: '#80082E', icon: ClipboardList, desc: `${countInInspection} en inspección` },
-          { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'Pendiente de aprobación' },
-          { label: 'Total Descuentos Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Descontado de liquidaciones' },
-          { label: 'Inspeccionadas Totales', value: `${inspections.reduce((sum, i) => sum + (i.items_inspected || 0), 0)} uds`, color: '#10b981', icon: CheckCircle2, desc: `${approved} aprobados / ${rejected} rechazados` },
+          { label: 'Tiempo Promedio Inspección', value: avgHours > 0 ? `${avgHours.toFixed(1)}h` : '—', color: '#6366f1', icon: Activity, desc: 'Desde recepción a cierre de lote' },
+          { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'En espera de aprobación financiera' },
+          { label: 'Descuentos por Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Aplicado en liquidaciones del período' },
+          { label: '% Calidad General', value: `${qualityPct}%`, color: '#10b981', icon: Award, desc: `${approved} lotes aprobados / ${rejected} rechazados` },
         ].map((k, i) => (
           <div key={i} className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid var(--border)', borderRadius: '16px', backgroundColor: 'white' }}>
-            <div style={{ padding: '0.75rem', backgroundColor: `${k.color}15`, color: k.color, borderRadius: '12px', flexShrink: 0 }}>
-              <k.icon size={22} />
-            </div>
+            <div style={{ padding: '0.75rem', backgroundColor: `${k.color}18`, color: k.color, borderRadius: '12px', flexShrink: 0 }}><k.icon size={22} /></div>
             <div>
               <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{k.label}</p>
-              <h3 style={{ fontSize: '1.35rem', fontWeight: '950', margin: '0.15rem 0', color: '#0f172a' }}>{k.value}</h3>
+              <h3 style={{ fontSize: '1.35rem', fontWeight: '950', margin: '0.1rem 0', color: '#0f172a' }}>{k.value}</h3>
               <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0 }}>{k.desc}</p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Taller Performance Cards / Ranking */}
-      {workshopPerformance.length > 0 && (
-        <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Rendimiento y Calificación de Talleres</h3>
-            <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.1rem 0 0' }}>Indicadores de desempeño de confección y calidad por taller satélite.</p>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Taller', 'Producción Recibida', 'Calidad %', 'Retrabajos / Defectos %', 'Cumplimiento Entrega %', 'Calificación'].map((h, i) => (
-                    <th key={h} style={{ padding: '0.75rem', fontWeight: '900', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {workshopPerformance.map((w, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
-                    <td style={{ padding: '0.75rem', fontWeight: '700' }}>{w.production.toLocaleString()} uds</td>
-                    <td style={{ padding: '0.75rem', fontWeight: '800', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
-                    <td style={{ padding: '0.75rem', color: '#dc2626', fontWeight: '700' }}>{w.rework.toFixed(1)}%</td>
-                    <td style={{ padding: '0.75rem', color: '#475569', fontWeight: '600' }}>{w.delivery.toFixed(1)}%</td>
-                    <td style={{ padding: '0.75rem', color: '#eab308', fontSize: '1rem', fontWeight: '900' }}>
-                      {'★'.repeat(w.stars)}{'☆'.repeat(5 - w.stars)}
-                    </td>
+      {/* Two-column: Workshop Ranking + Live Notifications */}
+      <div style={{ display: 'grid', gridTemplateColumns: workshopPerformance.length > 0 ? '3fr 2fr' : '1fr', gap: '1.5rem' }}>
+        {workshopPerformance.length > 0 && (
+          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.25rem' }}>Ranking de Satélites</h3>
+            <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0 0 1rem' }}>Desempeño de calidad y defectos por taller.</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                    {['Taller', 'Producción', 'Calidad %', 'Defectos %', 'Estrellas'].map(h => (
+                      <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.68rem', textTransform: 'uppercase' }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {workshopPerformance.map((w, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
+                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '700' }}>{w.production.toLocaleString()} uds</td>
+                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '800', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
+                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '700', color: '#dc2626' }}>{w.rework.toFixed(1)}%</td>
+                      <td style={{ padding: '0.65rem 0.75rem', fontSize: '0.85rem' }}>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} size={11} fill={i < w.stars ? '#eab308' : 'none'} stroke={i < w.stars ? '#eab308' : '#d1d5db'} style={{ display: 'inline-block' }} />
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Live Notifications Feed */}
+        <div className="card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Bell size={16} style={{ color: '#80082E' }} /> Alertas y Novedades
+              </h3>
+              <p style={{ fontSize: '0.68rem', color: '#64748b', margin: '0.1rem 0 0' }}>Feed en vivo desde base de datos.</p>
+            </div>
+            <button onClick={fetchNotifications} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#80082E', fontSize: '0.68rem', fontWeight: '800' }}>↻ Actualizar</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '240px', overflowY: 'auto' }}>
+            {dbNotifications.length === 0 ? (
+              <p style={{ fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center', padding: '1.5rem 0' }}>Sin alertas registradas.</p>
+            ) : dbNotifications.map((n: any) => {
+              const colors: Record<string, { bg: string; border: string; dot: string }> = {
+                high: { bg: '#fff5f5', border: '#fecdd3', dot: '#ef4444' },
+                medium: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b' },
+                low: { bg: '#f0f9ff', border: '#bae6fd', dot: '#3b82f6' }
+              };
+              const c = colors[n.severity] || colors.low;
+              return (
+                <div key={n.id} style={{ padding: '0.65rem 0.75rem', borderRadius: '10px', border: `1.5px solid ${c.border}`, backgroundColor: c.bg, display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.dot, marginTop: '0.3rem', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <strong style={{ fontSize: '0.74rem', color: '#1e293b', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</strong>
+                    <span style={{ fontSize: '0.68rem', color: '#475569', display: 'block', marginTop: '0.1rem' }}>{n.message}</span>
+                    <span style={{ fontSize: '0.6rem', color: '#94a3b8', display: 'block', marginTop: '0.15rem' }}>
+                      {new Date(n.created_at).toLocaleString('es-CO', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* List */}
+      {/* Inspection List */}
       <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden' }}>
-        {/* Filters */}
         <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
             <Search size={16} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input
-              type="text"
-              placeholder="Buscar por orden, cliente o taller..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.85rem' }}
-            />
+            <input type="text" placeholder="Buscar por orden, cliente o taller..." value={search} onChange={e => setSearch(e.target.value)}
+              style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.85rem' }} />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {['', ...STATUS_OPTIONS].map(s => (
@@ -854,125 +893,62 @@ export default function QualityPage() {
               <ClipboardList size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
               <p>No hay inspecciones registradas.</p>
             </div>
-                    ) : filtered.map(item => {
-            const orderCode = item.sewing_orders?.confeccion_code
-              || (item.orders?.internal_code
-                ? `OC-${item.orders.internal_code}`
-                : item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
+          ) : filtered.map((item: any) => {
+            const orderCode = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
             const client = item.orders?.client_name || '—';
-            const workshop = item.workshop_name 
-              || item.sewing_orders?.workshops?.nombre_taller 
-              || item.orders?.workshops?.nombre_taller 
-              || '—';
+            const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || '—';
             const date = item.created_at ? new Date(item.created_at).toLocaleDateString('es-CO') : '—';
             const statusColor = item.status === 'Aprobado' ? { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' }
               : item.status === 'Reproceso' ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
               : item.status === 'Rechazado' ? { bg: '#fff1f2', color: '#9f1239', border: '#fecdd3' }
               : { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
             return (
-              <div
-                key={item.id}
-                style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', gap: '1rem', flexWrap: 'wrap' }}
-              >
-                {/* Status dot */}
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', gap: '1rem', flexWrap: 'wrap' }}>
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor.color, flexShrink: 0 }} />
-
-                {/* Info */}
                 <div style={{ flex: 1, minWidth: '200px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</span>
                     <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0f172a' }}>{client}</span>
                     {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
-                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', fontWeight: '800' }}>
-                        ⚠️ ENVÍO POR RECIBIR (PENDIENTE CHECK)
-                      </span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', fontWeight: '800' }}>⚠️ PENDIENTE CHECK DE RECIBO</span>
                     ) : (
-                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.border}`, fontWeight: '700' }}>
-                        {item.status.toUpperCase()}
-                      </span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.border}`, fontWeight: '700' }}>{item.status.toUpperCase()}</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', fontSize: '0.72rem', color: '#64748b', flexWrap: 'wrap' }}>
                     <span>🏭 {workshop}</span>
                     {item.items_inspected > 0 && <span>📦 {item.items_inspected} prendas</span>}
                     {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '700' }}>✓ {item.items_approved} aprobadas</span>}
-                    {item.items_rejected > 0 && (
-                      <span style={{ color: '#ef4444', fontWeight: '700' }}>
-                        ✗ {item.items_rejected} rechazadas
-                        {(item.costuras > 0 || item.lavanderia > 0 || item.saldos > 0 || item.incompleto > 0) && (
-                          <span style={{ fontWeight: '500', fontSize: '0.68rem', color: '#7f1d1d', marginLeft: '0.2rem' }}>
-                            ({[
-                              item.costuras > 0 && `${item.costuras} costura`,
-                              item.lavanderia > 0 && `${item.lavanderia} lavandería`,
-                              item.saldos > 0 && `${item.saldos} saldos`,
-                              item.incompleto > 0 && `${item.incompleto} incompleto`
-                            ].filter(Boolean).join(', ')})
-                          </span>
-                        )}
-                      </span>
-                    )}
+                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '700' }}>✗ {item.items_rejected} rechazadas</span>}
                     <span>📅 {date}</span>
                   </div>
-                  {item.notes && item.notes !== 'Creado automáticamente al recibir de confección.' && (
-                    <div style={{ 
-                      fontSize: '0.78rem', 
-                      color: '#475569', 
-                      marginTop: '0.4rem', 
-                      backgroundColor: '#f8fafc', 
-                      padding: '0.5rem 0.75rem', 
-                      borderRadius: '8px', 
-                      borderLeft: '3px solid #eab308',
-                      whiteSpace: 'pre-wrap', 
-                      fontFamily: 'inherit' 
-                    }}>
-                      <strong>Relación/Novedades del Satélite:</strong>
-                      <div style={{ marginTop: '0.2rem' }}>{item.notes}</div>
+                  {item.received_at && item.closed_at && (
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                      ⏱ Ciclo: {((new Date(item.closed_at).getTime() - new Date(item.received_at).getTime()) / 3600000).toFixed(1)}h
                     </div>
                   )}
                 </div>
-
-                {/* Actions */}
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
                   {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
-                    <button
-                      className="btn"
-                      disabled={receivingCheckId === item.id}
-                      style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '900', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)' }}
-                      onClick={() => handleConfirmReceivedCheck(item)}
-                    >
+                    <button className="btn" disabled={receivingCheckId === item.id}
+                      style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '900', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                      onClick={() => handleConfirmReceivedCheck(item)}>
                       {receivingCheckId === item.id ? 'Confirmando...' : '✓ Dar Check de Recibido'}
                     </button>
                   ) : (
                     <>
-                      <select
-                        value={item.status}
-                        onChange={e => updateStatus(item.id, e.target.value)}
-                        style={{
-                          padding: '0.4rem 0.75rem', borderRadius: '8px',
-                          border: `1.5px solid ${statusColor.border}`,
-                          fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer',
-                          backgroundColor: statusColor.bg, color: statusColor.color,
-                        }}
-                      >
+                      <select value={item.status} onChange={e => updateStatus(item.id, e.target.value)}
+                        style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: `1.5px solid ${statusColor.border}`, fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', backgroundColor: statusColor.bg, color: statusColor.color }}>
                         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                       {(item.status === 'Aprobado' || item.status === 'Doblado' || item.status === 'Empacado') && (
-                        <button
-                          className="btn"
-                          title="Imprimir etiquetas unitarias de esta orden"
-                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', gap: '0.25rem', alignItems: 'center' }}
-                          onClick={() => printLabelsForInspection(item)}
-                        >
-                          🖨️ Etiquetas
-                        </button>
+                        <button className="btn"
+                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                          onClick={() => printLabelsForInspection(item)}>🖨️ Etiquetas</button>
                       )}
-                      <button
-                        className="btn"
-                        style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                        onClick={() => openReview(item)}
-                      >
-                        Revisar
-                      </button>
+                      <button className="btn"
+                        style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+                        onClick={() => openReview(item)}>Revisar</button>
                     </>
                   )}
                 </div>
@@ -982,673 +958,577 @@ export default function QualityPage() {
         </div>
       </div>
 
-      {/* ── MODAL: Nueva / Revisar Inspección ── */}
+      {/* ── MODAL WIZARD 7 ETAPAS ── */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', padding: '1rem' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '780px', padding: 0, maxHeight: '95vh', display: 'flex', flexDirection: 'column', borderRadius: '20px', overflow: 'hidden' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.87)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '860px', padding: 0, maxHeight: '95vh', display: 'flex', flexDirection: 'column', borderRadius: '20px', overflow: 'hidden' }}>
 
-            {/* Modal header */}
-            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #80082E 0%, #D81B60 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 2rem', background: 'linear-gradient(135deg, #80082E 0%, #D81B60 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <div>
-                <p style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                  {editingId ? 'Revisar Inspección de Calidad' : 'Nueva Inspección de Calidad'}
-                </p>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', color: 'white', margin: '0.25rem 0 0' }}>
-                  {orderDetail
-                    ? orderDetail.confeccion_code
-                      ? `${orderDetail.confeccion_code} — ${orderDetail.parent_order?.client_name}`
-                      : `OC-${orderDetail.internal_code || orderDetail.consecutive} — ${orderDetail.client_name}`
-                    : 'Selecciona una orden de confección para revisar'}
+                <p style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Proceso de Control de Calidad Independiente</p>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: '950', color: 'white', margin: '0.1rem 0 0' }}>
+                  {orderDetail ? `${orderDetail.confeccion_code || 'OC'} — ${orderDetail.workshops?.nombre_taller || orderDetail.parent_order?.workshops?.nombre_taller || 'Inspección'}` : 'Selecciona una orden de confección'}
                 </h2>
               </div>
-              <button onClick={closeModal} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem' }}>
-                <X size={20} />
-              </button>
+              <button onClick={closeModal} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem' }}><X size={18} /></button>
             </div>
 
-            {/* Scrollable content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* Stage Stepper */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', padding: '0.4rem 0.75rem', overflowX: 'auto', gap: '0.25rem', flexShrink: 0 }}>
+              {STAGE_LABELS.map((label, idx) => {
+                const step = idx + 1;
+                const isActive = activeStage === step;
+                const isDisabled = step > (form.current_stage || 1);
+                return (
+                  <button key={step} disabled={isDisabled} onClick={() => setActiveStage(step)} style={{
+                    flex: 1, minWidth: '90px', padding: '0.45rem 0.25rem', fontSize: '0.66rem', fontWeight: '800',
+                    border: 'none', backgroundColor: isActive ? 'white' : 'transparent',
+                    color: isActive ? '#80082E' : (isDisabled ? '#cbd5e1' : '#64748b'), borderRadius: '8px',
+                    borderBottom: isActive ? '2.5px solid #80082E' : 'none', cursor: isDisabled ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+                    boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                    opacity: isDisabled ? 0.6 : 1
+                  }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
 
-              {/* Order selector (only when creating new) */}
-              {!editingId && (
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+              {/* Order Selector (new only) */}
+              {!editingId && activeStage === 1 && (
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem', color: '#374151' }}>Orden de Confección *</label>
-                  <select
-                    style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }}
-                    value={form.sewing_order_id}
-                    onChange={async e => {
+                  <select style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.875rem' }}
+                    value={form.sewing_order_id} onChange={async e => {
                       setForm({ ...form, sewing_order_id: e.target.value });
                       if (e.target.value) await fetchOrderDetail(e.target.value, true);
                       else setOrderDetail(null);
-                    }}
-                  >
+                    }}>
                     <option value="">Seleccionar Orden de Confección...</option>
-                    {sewingOrders.map(so => (
-                      <option key={so.id} value={so.id}>
-                        {so.confeccion_code} — {so.orders?.client_name} ({so.workshops?.nombre_taller || 'Sin taller'})
-                      </option>
+                    {sewingOrders.map((so: any) => (
+                      <option key={so.id} value={so.id}>{so.confeccion_code} — {so.orders?.client_name} ({so.workshops?.nombre_taller || 'Sin taller'})</option>
                     ))}
                   </select>
                 </div>
               )}
 
-              {/* Order context info when editing or detail loaded */}
-               {orderDetail && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* Context Card */}
-                  <div style={{ padding: '1rem 1.25rem', backgroundColor: '#fdf2f4', borderRadius: '12px', border: '1.5px solid #f5c6d0', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                    <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Taller</p>
-                      <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
-                        {orderDetail.workshops?.nombre_taller || orderDetail.parent_order?.workshops?.nombre_taller || '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Cliente</p>
-                      <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
-                        {orderDetail.parent_order?.client_name || orderDetail.client_name || '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Tela</p>
-                      <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>
-                        {orderDetail.parent_order?.fabrics?.nombre_tela || orderDetail.fabrics?.nombre_tela || '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <p style={{ fontSize: '0.65rem', fontWeight: '700', color: '#80082E', textTransform: 'uppercase', margin: 0 }}>Total Esperado</p>
-                      <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: '0.1rem 0 0' }}>{detailRows.reduce((s, r) => s + r.quantity, 0)} prendas</p>
-                    </div>
-                  </div>
-
-                  {/* Individual Garments Section */}
-                  <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '14px', padding: '1.25rem', backgroundColor: '#f8fafc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <div>
-                        <h4 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: 0 }}>Generación e Inspección Unitaria</h4>
-                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0.1rem 0 0' }}>Trazabilidad unitaria de cada una de las prendas por código único.</p>
-                      </div>
-                      {individualGarments.length === 0 ? (
-                        <button
-                          onClick={generateIndividualGarments}
-                          disabled={loadingGarments}
-                          className="btn"
-                          style={{
-                            fontSize: '0.75rem', fontWeight: '800', padding: '0.6rem 1.25rem',
-                            backgroundColor: '#80082E', color: 'white', border: 'none',
-                            borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s'
-                          }}
-                        >
-                          {loadingGarments ? 'Generando...' : '⚙️ GENERAR PRENDAS'}
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#16a34a', backgroundColor: '#f0fdf4', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
-                          ✓ {individualGarments.length} prendas registradas
-                        </span>
-                      )}
-                    </div>
-
-                    {individualGarments.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {/* Barcode Search / Scanner Input */}
-                        <form
-                          onSubmit={e => {
-                            e.preventDefault();
-                            handleScanBarcode(barcodeSearch);
-                          }}
-                          style={{ display: 'flex', gap: '0.5rem' }}
-                        >
-                          <input
-                            type="text"
-                            placeholder="Escanear o ingresar código de barras unitario..."
-                            value={barcodeSearch}
-                            onChange={e => setBarcodeSearch(e.target.value)}
-                            style={{ flex: 1, padding: '0.55rem 0.8rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.82rem' }}
-                          />
-                          <button
-                            type="submit"
-                            className="btn"
-                            style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.55rem 1rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px' }}
-                          >
-                            Buscar
-                          </button>
-                        </form>
-
-                        {/* Badges list */}
-                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '0.5rem', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                          {individualGarments.map((g: any) => {
-                            const badgeColor = g.status === 'Aprobada' ? { bg: '#d1fae5', color: '#065f46', border: '#a7f3d0' }
-                              : g.status === 'Rechazada' ? { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5' }
-                              : g.status === 'Reproceso' ? { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' }
-                              : { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
-                            const isSelected = selectedGarment && selectedGarment.id === g.id;
-                            return (
-                              <button
-                                key={g.id}
-                                onClick={() => {
-                                  setSelectedGarment(g);
-                                  setDefectChecklist(g.defect_checklist || {});
-                                  setGarmentNotes(g.notes || '');
-                                  setPhotoUrl(g.photo_url || '');
-                                }}
-                                style={{
-                                  fontSize: '0.62rem', fontWeight: '700', padding: '0.25rem 0.5rem',
-                                  borderRadius: '6px', cursor: 'pointer',
-                                  backgroundColor: isSelected ? '#80082E' : badgeColor.bg,
-                                  color: isSelected ? 'white' : badgeColor.color,
-                                  border: `1px solid ${isSelected ? '#80082E' : badgeColor.border}`,
-                                  transition: 'all 0.1s'
-                                }}
-                              >
-                                {g.barcode.split('-').slice(-2).join('-')}
-                              </button>
-                            );
-                          })}
+              {orderDetail && (
+                <>
+                  {/* Context bar */}
+                  {(() => {
+                    const ctxProd = products.find((p: any) => String(p.id) === String(orderDetail.product_id));
+                    const { rate: ctxRate, source: ctxRateSource, isSpecialProduct: ctxIsSpecial } = getRateSource(orderDetail, ctxProd);
+                    const isPedidoEspecial = !!(orderDetail.parent_order?.pedido_especial);
+                    return (
+                      <>
+                        {/* Badges de condiciones especiales */}
+                        {(isPedidoEspecial || ctxIsSpecial) && (
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                            {isPedidoEspecial && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', backgroundColor: '#fff7ed', border: '1.5px solid #fb923c', borderRadius: '20px', padding: '0.2rem 0.75rem', fontSize: '0.68rem', fontWeight: '900', color: '#c2410c' }}>
+                                ⭐ Pedido Especial
+                              </span>
+                            )}
+                            {ctxIsSpecial && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', backgroundColor: '#f0fdf4', border: '1.5px solid #4ade80', borderRadius: '20px', padding: '0.2rem 0.75rem', fontSize: '0.68rem', fontWeight: '900', color: '#15803d' }}>
+                                💲 Costo especial: ${ctxRate.toLocaleString('es-CO')}/prenda
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem', backgroundColor: '#fdf2f4', padding: '0.85rem 1rem', borderRadius: '10px', border: '1.5px solid #f5c6d0' }}>
+                          {[
+                            { label: 'Cliente', value: orderDetail.parent_order?.client_name || orderDetail.client_name || '—' },
+                            { label: 'Tela', value: getFabricName() },
+                            { label: 'Cantidad', value: `${totalRec} prendas` },
+                            { label: 'Tarifa Prenda', value: `$${ctxRate.toLocaleString('es-CO')} — ${ctxRateSource}` },
+                          ].map(item => (
+                            <div key={item.label}>
+                              <span style={{ fontSize: '0.6rem', color: '#80082E', fontWeight: '800', textTransform: 'uppercase', display: 'block' }}>{item.label}</span>
+                              <strong style={{ fontSize: '0.8rem', color: '#1e293b' }}>{item.value}</strong>
+                            </div>
+                          ))}
+                          <div>
+                            <span style={{ fontSize: '0.6rem', color: '#80082E', fontWeight: '800', textTransform: 'uppercase', display: 'block' }}>Inspector</span>
+                            <input type="text" placeholder="Nombre..." value={form.operator_name}
+                              onChange={e => setForm({ ...form, operator_name: e.target.value })}
+                              readOnly={!!currentUser}
+                              style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', borderRadius: '4px', border: '1px solid #f5c6d0', width: '100%', boxSizing: 'border-box', backgroundColor: currentUser ? '#f1f5f9' : 'white', color: currentUser ? '#475569' : '#1e293b', fontWeight: currentUser ? 'bold' : 'normal' }} />
+                          </div>
                         </div>
+                      </>
+                    );
+                  })()}
 
-                        {/* Garment detailed inspection form */}
-                        {selectedGarment && (
-                          <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>
-                              <div>
-                                <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#80082E' }}>{selectedGarment.barcode}</span>
-                                <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: '0.5rem' }}>
-                                  Ref: {selectedGarment.reference_name} | {selectedGarment.color_name} | Talla: {selectedGarment.size_code}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedGarment(null)}
-                                style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.85rem' }}
-                              >
-                                ✕ Cerrar
+                  {/* STAGE 1: Recepción e Inspección (Fusionadas) */}
+                  {activeStage === 1 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {/* Recepción */}
+                      <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                        <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.35rem' }}>📦 Recepción del Lote</h3>
+                        <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1rem' }}>Registra la fecha de ingreso y las novedades físicas del paquete.</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Fecha y hora de recepción</label>
+                            <input type="datetime-local" value={form.received_at ? form.received_at.slice(0, 16) : ''}
+                              onChange={e => setForm({ ...form, received_at: new Date(e.target.value).toISOString() })}
+                              style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem' }} />
+                            {!form.received_at && (
+                              <button type="button" onClick={() => setForm({ ...form, received_at: new Date().toISOString() })}
+                                style={{ marginTop: '0.4rem', fontSize: '0.7rem', color: '#80082E', fontWeight: '800', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                🕒 Marcar ahora
                               </button>
-                            </div>
+                            )}
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Novedades de recepción</label>
+                            <textarea placeholder="Ej: bolsas húmedas, cantidad incompleta..." value={form.notes}
+                              onChange={e => setForm({ ...form, notes: e.target.value })}
+                              style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', minHeight: '60px', resize: 'none' }} />
+                          </div>
+                        </div>
+                      </div>
 
-                            {/* Status selection */}
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              {['Aprobada', 'Reproceso', 'Rechazada'].map(st => {
-                                const stColors: Record<string, { bg: string; border: string; color: string }> = {
-                                  Aprobada: { bg: '#f0fdf4', border: '#bbf7d0', color: '#16a34a' },
-                                  Reproceso: { bg: '#fffbeb', border: '#fde68a', color: '#d97706' },
-                                  Rechazada: { bg: '#fff1f2', border: '#fecdd3', color: '#dc2626' }
-                                };
-                                const sc = stColors[st];
-                                const isSel = selectedGarment.status === st;
-                                return (
-                                  <button
-                                    key={st}
-                                    type="button"
-                                    onClick={() => handleUpdateGarment(selectedGarment.id, { status: st })}
-                                    style={{
-                                      flex: 1, padding: '0.45rem', borderRadius: '8px',
-                                      fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer',
-                                      backgroundColor: isSel ? sc.bg : 'white',
-                                      color: isSel ? sc.color : '#64748b',
-                                      border: `1.5px solid ${isSel ? sc.color : '#e2e8f0'}`
-                                    }}
-                                  >
-                                    {st.toUpperCase()}
-                                  </button>
-                                );
-                              })}
-                            </div>
-
-                            {/* Defects Checklist */}
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.35rem' }}>Checklist de Defectos</label>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
-                                {DEFECT_CHECKLIST_OPTIONS.map(opt => {
-                                  const isChecked = !!defectChecklist[opt];
+                      {/* Inspección por Color / Talla */}
+                      {detailRows.length > 0 && (
+                        <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                          <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.25rem' }}>🔍 Inspección por Referencia, Color y Talla</h3>
+                          <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1rem' }}>Ingresa cuántas prendas de cada variante están aprobadas y cuántas no pasan. El total rechazado se calculará automáticamente.</p>
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                  {['Referencia', 'Color', 'Talla', 'Planeadas', 'Aprobadas ✓', 'No Aprobadas ✗', 'Estado'].map(h => (
+                                    <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.68rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {detailRows.map((row: any) => {
+                                  const planned = Number(row.quantity) || 0;
+                                  const approved = rowApproved[row.key] ?? null;
+                                  const rejected = rowRejected[row.key] ?? null;
+                                  const approvedN = approved !== null ? Number(approved) : 0;
+                                  const rejectedN = rejected !== null ? Number(rejected) : 0;
+                                  const filled = approved !== null || rejected !== null;
+                                  const sumTotal = approvedN + rejectedN;
+                                  const overLimit = sumTotal > planned;
+                                  const allApproved = filled && approvedN === planned && rejectedN === 0;
+                                  const someRejected = filled && rejectedN > 0;
+                                  const statusColor = overLimit ? { bg: '#fff1f2', color: '#dc2626', label: `⚠️ Excede (${sumTotal}/${planned})` }
+                                    : !filled ? { bg: '#f8fafc', color: '#94a3b8', label: '—' }
+                                    : allApproved ? { bg: '#f0fdf4', color: '#16a34a', label: '✓ Todo OK' }
+                                    : someRejected ? { bg: '#fff1f2', color: '#dc2626', label: `✗ ${rejectedN} rechazada${rejectedN > 1 ? 's' : ''}` }
+                                    : { bg: '#fffbeb', color: '#d97706', label: 'Parcial' };
                                   return (
-                                    <label
-                                      key={opt}
-                                      style={{
-                                        display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem',
-                                        padding: '0.3rem', borderRadius: '6px', cursor: 'pointer',
-                                        backgroundColor: isChecked ? '#fff1f2' : '#f8fafc',
-                                        border: `1px solid ${isChecked ? '#fecdd3' : '#e2e8f0'}`,
-                                        color: isChecked ? '#b91c1c' : '#475569'
-                                      }}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={e => {
-                                          const nextCheck = { ...defectChecklist, [opt]: e.target.checked };
-                                          setDefectChecklist(nextCheck);
-                                          handleUpdateGarment(selectedGarment.id, { defect_checklist: nextCheck });
-                                        }}
-                                        style={{ accentColor: '#dc2626' }}
-                                      />
-                                      {opt}
-                                    </label>
+                                    <tr key={row.key} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: statusColor.bg }}>
+                                      <td style={{ padding: '0.6rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>{row.productName}</td>
+                                      <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{row.colorName}</td>
+                                      <td style={{ padding: '0.6rem 0.75rem' }}>
+                                        <span style={{ fontWeight: '900', padding: '0.15rem 0.5rem', borderRadius: '6px', backgroundColor: '#e0e7ff', color: '#3730a3', fontSize: '0.73rem' }}>{row.size}</span>
+                                      </td>
+                                      <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#475569' }}>{planned}</td>
+                                      <td style={{ padding: '0.4rem 0.5rem' }}>
+                                        <input type="number" min="0" max={planned - rejectedN}
+                                          value={approved ?? ''}
+                                          placeholder="0"
+                                          onChange={e => {
+                                            const rawVal = e.target.value === '' ? null : Math.max(0, Number(e.target.value));
+                                            const currentRejected = rowRejected[row.key] !== null ? Number(rowRejected[row.key]) : 0;
+                                            const maxAllowed = Math.max(0, planned - currentRejected);
+                                            const val = rawVal === null ? null : Math.min(rawVal, maxAllowed);
+                                            setRowApproved(prev => ({ ...prev, [row.key]: val as any }));
+                                          }}
+                                          style={{ width: '60px', padding: '0.35rem 0.45rem', borderRadius: '6px', border: `1.5px solid ${overLimit ? '#ef4444' : '#a7f3d0'}`, fontSize: '0.8rem', fontWeight: '800', color: '#065f46', textAlign: 'center', backgroundColor: overLimit ? '#fef2f2' : '#f0fdf4' }} />
+                                      </td>
+                                      <td style={{ padding: '0.4rem 0.5rem' }}>
+                                        <input type="number" min="0" max={planned - approvedN}
+                                          value={rejected ?? ''}
+                                          placeholder="0"
+                                          onChange={e => {
+                                            const rawVal = e.target.value === '' ? null : Math.max(0, Number(e.target.value));
+                                            const currentApproved = rowApproved[row.key] !== null ? Number(rowApproved[row.key]) : 0;
+                                            const maxAllowed = Math.max(0, planned - currentApproved);
+                                            const val = rawVal === null ? null : Math.min(rawVal, maxAllowed);
+                                            setRowRejected(prev => ({ ...prev, [row.key]: val as any }));
+                                          }}
+                                          style={{ width: '60px', padding: '0.35rem 0.45rem', borderRadius: '6px', border: `1.5px solid ${overLimit ? '#ef4444' : '#fca5a5'}`, fontSize: '0.8rem', fontWeight: '800', color: '#991b1b', textAlign: 'center', backgroundColor: overLimit ? '#fef2f2' : '#fff1f2' }} />
+                                      </td>
+                                      <td style={{ padding: '0.6rem 0.75rem' }}>
+                                        <span style={{ fontSize: '0.68rem', fontWeight: '800', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.color}30` }}>
+                                          {statusColor.label}
+                                        </span>
+                                      </td>
+                                    </tr>
                                   );
                                 })}
-                              </div>
+                              </tbody>
+                              <tfoot>
+                                <tr style={{ borderTop: '2px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                                  <td colSpan={3} style={{ padding: '0.6rem 0.75rem', fontWeight: '900', fontSize: '0.8rem', color: '#0f172a' }}>TOTALES</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '900', color: '#475569' }}>{detailRows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0)}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '900', color: '#16a34a' }}>{rowTotalApproved}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '900', color: '#dc2626' }}>{rowTotalRejected}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}>
+                                    {rowTotalApproved + rowTotalRejected > 0 && (
+                                      <span style={{ fontSize: '0.72rem', fontWeight: '900', color: rowTotalRejected === 0 ? '#16a34a' : '#d97706' }}>
+                                        {rowTotalRejected === 0 ? '✓ Lote OK' : `⚠️ ${((rowTotalRejected / (rowTotalApproved + rowTotalRejected)) * 100).toFixed(1)}% rechazado`}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                          {/* Total items inspected field */}
+                          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>Total prendas recibidas:</label>
+                              <input type="number" min="0" value={form.items_inspected}
+                                onChange={e => setForm({ ...form, items_inspected: e.target.value })}
+                                style={{ width: '80px', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', fontWeight: '800', textAlign: 'center' }} />
                             </div>
+                            {form.inspected_at ? (
+                              <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '700' }}>✓ Inspeccionado el {new Date(form.inspected_at).toLocaleString('es-CO')}</span>
+                            ) : (
+                              <button type="button" onClick={() => setForm({ ...form, inspected_at: new Date().toISOString() })}
+                                style={{ fontSize: '0.7rem', color: '#80082E', fontWeight: '800', background: 'none', border: 'none', cursor: 'pointer' }}>🕒 Marcar hora de inspección</button>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
-                            {/* Photo and notes */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button onClick={() => handleSave(2)} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem' }}>Guardar y Proceder a Etiquetado →</button>
+                      </div>
+                    </div>
+                  )}
+                  {/* STAGE 2: Etiquetado (Generación de Códigos de Barras) */}
+                  {activeStage === 2 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="card" style={{ padding: '1.5rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                        <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                          <QrCode size={42} style={{ color: '#0f172a', margin: '0 auto 0.75rem' }} />
+                          <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.25rem' }}>🏷️ Generación de Etiquetas y Códigos de Barras</h3>
+                          <p style={{ fontSize: '0.74rem', color: '#64748b', margin: 0 }}>Se generarán códigos de barras numéricos para las <strong>{rowTotalApproved} prendas aprobadas</strong>. Una vez generados, imprime las etiquetas para despacho.</p>
+                        </div>
+                        {individualGarments.length === 0 ? (
+                          <div style={{ textAlign: 'center' }}>
+                            <button onClick={generateIndividualGarments} disabled={loadingGarments || rowTotalApproved === 0} className="btn"
+                              style={{ fontSize: '0.82rem', fontWeight: '900', padding: '0.7rem 2rem', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', cursor: rowTotalApproved === 0 ? 'not-allowed' : 'pointer', opacity: rowTotalApproved === 0 ? 0.5 : 1 }}>
+                              {loadingGarments ? '⏳ Generando etiquetas...' : `⚙️ Generar ${rowTotalApproved} Etiquetas Aprobadas`}
+                            </button>
+                            {rowTotalApproved === 0 && <p style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: '0.5rem', fontWeight: '700' }}>Debes registrar prendas aprobadas en la Etapa 1 primero.</p>}
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div style={{ padding: '0.75rem', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '0.78rem', color: '#16a34a', fontWeight: '800', textAlign: 'center' }}>
+                              ✓ {individualGarments.length} etiquetas generadas.
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                              <button type="button"
+                                onClick={() => printLabelsForInspection({ 
+                                  sewing_order_id: orderDetail?.sewing_order_sizes ? orderDetail.id : null, 
+                                  order_id: orderDetail?.sewing_order_sizes ? null : orderDetail.id, 
+                                  id: editingId 
+                                })}
+                                style={{ padding: '0.65rem 1.75rem', fontSize: '0.82rem', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800' }}>
+                                🖨️ Abrir Panel de Impresión
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <button onClick={() => setActiveStage(1)} style={{ padding: '0.5rem 1.15rem', fontSize: '0.78rem', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>← Atrás</button>
+                        <button onClick={() => handleSave(3)} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem' }}>Proceder a Doblado y Empaque →</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STAGE 3: Doblado y Empaque */}
+                  {activeStage === 3 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                        <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.35rem' }}>📦 Doblado y Empaque</h3>
+                        {rowTotalApproved === 0 ? (
+                          <div style={{ padding: '1.25rem', textAlign: 'center', backgroundColor: '#fff1f2', borderRadius: '8px', border: '1px solid #fecdd3', color: '#9f1239', fontSize: '0.78rem', fontWeight: '700' }}>
+                            🔒 BLOQUEADO: Debes ingresar las cantidades aprobadas en la Etapa 1 antes de proceder al empaque.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '10px' }}>
+                              <span style={{ color: '#16a34a', fontWeight: '900', fontSize: '0.82rem' }}>✓ ¡Listo para empaque! {rowTotalApproved} aprobadas / {rowTotalRejected} rechazadas.</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                               <div>
-                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>URL Foto Evidencia</label>
-                                <input
-                                  type="text"
-                                  placeholder="Pegar link de foto..."
-                                  value={photoUrl}
-                                  onChange={e => setPhotoUrl(e.target.value)}
-                                  onBlur={() => handleUpdateGarment(selectedGarment.id, { photo_url: photoUrl })}
-                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid var(--border)', fontSize: '0.72rem' }}
-                                />
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Fecha y hora de empaque</label>
+                                <input type="datetime-local" value={form.packaged_at ? form.packaged_at.slice(0, 16) : ''}
+                                  onChange={e => setForm({ ...form, packaged_at: new Date(e.target.value).toISOString() })}
+                                  style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem' }} />
+                                {!form.packaged_at && (
+                                  <button type="button" onClick={() => setForm({ ...form, packaged_at: new Date().toISOString() })}
+                                    style={{ marginTop: '0.4rem', fontSize: '0.7rem', color: '#80082E', fontWeight: '800', background: 'none', border: 'none', cursor: 'pointer' }}>🕒 Marcar ahora</button>
+                                )}
                               </div>
                               <div>
-                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Notas Unitarias</label>
-                                <input
-                                  type="text"
-                                  placeholder="Anotación particular..."
-                                  value={garmentNotes}
-                                  onChange={e => setGarmentNotes(e.target.value)}
-                                  onBlur={() => handleUpdateGarment(selectedGarment.id, { notes: garmentNotes })}
-                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid var(--border)', fontSize: '0.72rem' }}
-                                />
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Operario de empaque</label>
+                                <input type="text" placeholder="Nombre del empacador..." value={form.operator_name}
+                                  onChange={e => setForm({ ...form, operator_name: e.target.value })}
+                                  style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem' }} />
                               </div>
                             </div>
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-
-                  {/* Detail table fallback – only if no individual garments generated */}
-                  {individualGarments.length === 0 && !loadingDetail && detailRows.length > 0 && (
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        <Package size={16} style={{ color: '#80082E' }} />
-                        <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
-                          Detalle de Prendas a Revisar
-                        </h3>
-                        <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: 'auto' }}>
-                          Ingresa cuántas prendas aprobaste y rechazaste por fila
-                        </span>
-                      </div>
-                      <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1.5px solid #e2e8f0', backgroundColor: 'white' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                          <thead>
-                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                              {['Referencia', 'Color', 'Talla', 'Esperado', '✓ Aprobadas', '✗ Rechazadas'].map((h, i) => (
-                                <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: i >= 3 ? 'center' : 'left', fontWeight: '800', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {detailRows.map((row, idx) => {
-                              return (
-                                <tr key={row.key} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
-                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{row.productName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{row.colorName}</td>
-                                  <td style={{ padding: '0.6rem 0.75rem' }}>
-                                    <span style={{ backgroundColor: '#ede9fe', color: '#5b21b6', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: '700', fontSize: '0.75rem' }}>{row.size}</span>
-                                  </td>
-                                  <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center', fontWeight: '800', color: '#334155' }}>{row.quantity}</td>
-                                  <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
-                                    <input
-                                      type="number" min="0" max={row.quantity} placeholder="0"
-                                      value={rowApproved[row.key] ?? ''}
-                                      onChange={e => setRowApproved(prev => ({ ...prev, [row.key]: Number(e.target.value) }))}
-                                      style={{ width: '70px', padding: '0.35rem 0.4rem', borderRadius: '6px', border: '1.5px solid #bbf7d0', backgroundColor: '#f0fdf4', textAlign: 'center', fontWeight: '700', color: '#166534', fontSize: '0.82rem' }}
-                                    />
-                                  </td>
-                                  <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
-                                    <input
-                                      type="number" min="0" max={row.quantity} placeholder="0"
-                                      value={rowRejected[row.key] ?? ''}
-                                      onChange={e => setRowRejected(prev => ({ ...prev, [row.key]: Number(e.target.value) }))}
-                                      style={{ width: '70px', padding: '0.35rem 0.4rem', borderRadius: '6px', border: '1.5px solid #fecaca', backgroundColor: '#fff5f5', textAlign: 'center', fontWeight: '700', color: '#991b1b', fontSize: '0.82rem' }}
-                                    />
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <button onClick={() => setActiveStage(2)} style={{ padding: '0.5rem 1.15rem', fontSize: '0.78rem', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>← Atrás</button>
+                        <button onClick={() => handleSave(4)} disabled={rowTotalApproved === 0} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem', opacity: rowTotalApproved === 0 ? 0.5 : 1 }}>Proceder a Liquidación →</button>
                       </div>
                     </div>
                   )}
 
-                  {/* Financial Settlement Panel */}
-                  <div style={{ border: '1.5px solid #ddd6fe', borderRadius: '16px', padding: '1.5rem', backgroundColor: '#faf5ff' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #ddd6fe', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
-                      <h4 style={{ fontSize: '0.9rem', fontWeight: '950', color: '#5b21b6', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        💵 RESUMEN DE LIQUIDACIÓN
-                      </h4>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#5b21b6' }}>Valor por Prenda:</span>
-                        <input
-                          type="number"
-                          value={form.valor_prenda || '3500'}
-                          onChange={e => setForm({ ...form, valor_prenda: e.target.value })}
-                          style={{ width: '80px', padding: '0.25rem 0.5rem', borderRadius: '6px', border: '1.5px solid #c084fc', fontSize: '0.78rem', fontWeight: '800', textAlign: 'center' }}
-                        />
-                      </div>
-                    </div>
+                  {/* STAGE 4: Liquidación y Cierre — Solo Administradores */}
+                  {activeStage === 4 && (() => {
+                    const normalizedRole = userRole?.toLowerCase() || '';
+                    const isAdmin = normalizedRole === 'admin' || 
+                                    normalizedRole === 'administrador' || 
+                                    normalizedRole === 'superadministrador' || 
+                                    normalizedRole.includes('admin');
 
-                    {(() => {
-                      const totalRec = individualGarments.length > 0 ? individualGarments.length : detailRows.reduce((s, r) => s + r.quantity, 0);
-                      const totalApp = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Aprobada').length : rowTotalApproved;
-                      const totalRej = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Rechazada').length : rowTotalRejected;
-                      const totalRep = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Reproceso').length : 0;
-                      
-                      let previewCos = Number(form.costuras) || 0;
-                      let previewLav = Number(form.lavanderia) || 0;
-
-                      if (individualGarments.length > 0) {
-                        previewCos = 0;
-                        previewLav = 0;
-                        individualGarments.filter(g => g.status === 'Rechazada').forEach(g => {
-                          const chk = g.defect_checklist || {};
-                          const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
-                          if (isCostura) previewCos++;
-                          else previewLav++;
-                        });
-                      }
-
-                      const workshopObj = orderDetail?.workshops || orderDetail?.parent_order?.workshops;
-                      const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
-                      const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
-                      const rateEmpaque = workshopObj ? Number(workshopObj.desc_empaque ?? 0) : 0;
-
-                      const valPrendaNum = Number(form.valor_prenda) || 3500;
-                      const appValue = totalApp * valPrendaNum;
-                      
-                      const isEmpaqueEnabled = orderDetail?.empaque || false;
-                      const pagoEmpaque = isEmpaqueEnabled ? (totalApp * rateEmpaque) : 0;
-
-                      const defDiscount = (previewCos * rateCosturas) + (previewLav * rateLavanderia);
-                      const netPayable = appValue + pagoEmpaque - defDiscount;
-
+                    // Bloqueo de acceso para no-admins
+                    if (!isAdmin) {
                       return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', backgroundColor: 'white', padding: '1rem', borderRadius: '10px', border: '1px solid #e9d5ff' }}>
-                            <div style={{ textAlign: 'center' }}>
-                              <p style={{ margin: 0, fontSize: '0.62rem', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Prendas Recibidas</p>
-                              <p style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: '950', color: '#475569' }}>{totalRec}</p>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <p style={{ margin: 0, fontSize: '0.62rem', color: '#16a34a', fontWeight: '700', textTransform: 'uppercase' }}>Prendas Aprobadas</p>
-                              <p style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: '950', color: '#16a34a' }}>{totalApp}</p>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <p style={{ margin: 0, fontSize: '0.62rem', color: '#dc2626', fontWeight: '700', textTransform: 'uppercase' }}>Prendas Rechazadas</p>
-                              <p style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: '950', color: '#dc2626' }}>{totalRej}</p>
-                            </div>
-                            <div style={{ textAlign: 'center' }}>
-                              <p style={{ margin: 0, fontSize: '0.62rem', color: '#d97706', fontWeight: '700', textTransform: 'uppercase' }}>En Reproceso</p>
-                              <p style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: '950', color: '#d97706' }}>{totalRep}</p>
-                            </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', padding: '2.5rem 1rem', textAlign: 'center' }}>
+                          <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#fff1f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.75rem' }}>🔒</div>
+                          <div>
+                            <h4 style={{ fontSize: '1rem', fontWeight: '950', color: '#9f1239', margin: '0 0 0.35rem' }}>Acceso Restringido</h4>
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>La liquidación del taller solo puede ser completada por un <strong>Administrador</strong>. Solicita a tu administrador que ingrese al sistema para finalizar este lote.</p>
                           </div>
-
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px dashed #ddd6fe', paddingTop: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#475569' }}>
-                              <span>Valor Aprobado:</span>
-                              <span style={{ fontWeight: '700' }}>${appValue.toLocaleString('es-CO')}</span>
-                            </div>
-                            {isEmpaqueEnabled && (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a' }}>
-                                <span>Adicional Empaque:</span>
-                                <span style={{ fontWeight: '700' }}>+${pagoEmpaque.toLocaleString('es-CO')}</span>
-                              </div>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626' }}>
-                              <span>Descuento Defectos:</span>
-                              <span style={{ fontWeight: '700' }}>-${defDiscount.toLocaleString('es-CO')}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: '#5b21b6', fontWeight: '900', borderTop: '1.5px solid #ddd6fe', paddingTop: '0.5rem' }}>
-                              <span>VALOR A PAGAR:</span>
-                              <span>${netPayable.toLocaleString('es-CO')}</span>
-                            </div>
-                          </div>
-
-                          <div style={{ marginTop: '0.5rem' }}>
-                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#5b21b6', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Estado de Aprobación Financiera</label>
-                            <select
-                              value={form.pago_status || 'Pendiente de aprobación financiera'}
-                              onChange={e => setForm({ ...form, pago_status: e.target.value })}
-                              style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #c084fc', fontSize: '0.8rem', fontWeight: '700', color: '#5b21b6', cursor: 'pointer' }}
-                            >
-                              <option value="Pendiente de aprobación financiera">⏳ Pendiente de aprobación financiera</option>
-                              <option value="Autorizado para Pago">✅ Autorizado para Pago</option>
-                              <option value="Pagado">💵 Pagado</option>
-                            </select>
-                          </div>
+                          <button onClick={() => setActiveStage(3)} style={{ padding: '0.5rem 1.5rem', fontSize: '0.78rem', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>← Volver a Empaque</button>
                         </div>
                       );
-                    })()}
-                  </div>
+                    }
 
-                  {/* Save/Close Inspection triggers */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {individualGarments.length === 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Aprobadas manual</label>
-                          <input
-                            type="number" min="0" placeholder="0"
-                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.8rem', textAlign: 'center' }}
-                            value={form.items_approved}
-                            onChange={e => setForm({ ...form, items_approved: e.target.value })}
-                          />
+                    const wObj = orderDetail.workshops || orderDetail.parent_order?.workshops;
+                    const rCosturas = wObj ? Number(wObj.desc_costuras ?? 500) : 500;
+                    const rLavanderia = wObj ? Number(wObj.desc_lavanderia ?? 500) : 500;
+                    const rEmpaque = wObj ? Number(wObj.desc_empaque ?? 0) : 0;
+
+                    // Resolver tarifa correcta usando la misma lógica que el contexto
+                    const prodId = orderDetail.product_id || orderDetail.cuts?.[0]?.product_id;
+                    const prodObj = products.find((p: any) => String(p.id) === String(prodId));
+                    const { rate: autoRate, source: rateSource, isSpecialProduct: isRateSpecial } = getRateSource(orderDetail, prodObj);
+
+                    let cosDef = 0, lavDef = 0;
+                    individualGarments.filter(g => g.status === 'Rechazada').forEach(g => {
+                      const chk = g.defect_checklist || {};
+                      if (chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón']) cosDef++;
+                      else lavDef++;
+                    });
+                    // Si el administrador editó manualmente el valor, respetar ese valor; si no, usar el autoRate
+                    const valPrendaNum = (Number(form.valor_prenda) > 1) ? Number(form.valor_prenda) : autoRate;
+                    const isEmpaque = orderDetail.empaque || false;
+                    const appValue = totalApp * valPrendaNum;
+                    const pagoEmpaque = isEmpaque ? totalApp * rEmpaque : 0;
+                    const defDiscount = (cosDef * rCosturas) + (lavDef * rLavanderia);
+                    const netPayable = appValue + pagoEmpaque - defDiscount;
+                    const isPedidoEspecial = !!(orderDetail.parent_order?.pedido_especial);
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div style={{ border: '1.5px solid #ddd6fe', borderRadius: '14px', padding: '1.5rem', backgroundColor: '#faf5ff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #ddd6fe', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                               <h4 style={{ fontSize: '0.9rem', fontWeight: '950', color: '#5b21b6', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>💵 Liquidación y Cierre de Lote</h4>
+                               {isPedidoEspecial && <span style={{ backgroundColor: '#fff7ed', border: '1.5px solid #fb923c', borderRadius: '20px', padding: '0.1rem 0.6rem', fontSize: '0.62rem', fontWeight: '900', color: '#c2410c' }}>⭐ Pedido Especial</span>}
+                               {isRateSpecial && <span style={{ backgroundColor: '#f0fdf4', border: '1.5px solid #4ade80', borderRadius: '20px', padding: '0.1rem 0.6rem', fontSize: '0.62rem', fontWeight: '900', color: '#15803d' }}>💲 Costo Especial</span>}
+                             </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: '0.6rem', color: '#94a3b8', display: 'block' }}>Fuente: {rateSource}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#5b21b6' }}>$/prenda:</span>
+                                  <input type="number" value={valPrendaNum} onChange={e => setForm({ ...form, valor_prenda: e.target.value })}
+                                    style={{ width: '90px', padding: '0.25rem 0.5rem', borderRadius: '6px', border: `1.5px solid ${isRateSpecial ? '#4ade80' : '#c084fc'}`, fontSize: '0.78rem', fontWeight: '800', textAlign: 'center', backgroundColor: isRateSpecial ? '#f0fdf4' : 'white' }} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.65rem', backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1px solid #e9d5ff', marginBottom: '1rem' }}>
+                            {[
+                              { label: 'Ingresadas', value: totalRec, color: '#475569' },
+                              { label: 'Aprobadas', value: totalApp, color: '#16a34a' },
+                              { label: 'Rechazadas', value: totalRej, color: '#dc2626' },
+                              { label: 'Reproceso', value: totalRep, color: '#d97706' },
+                            ].map(item => (
+                              <div key={item.label} style={{ textAlign: 'center' }}>
+                                <p style={{ margin: 0, fontSize: '0.62rem', color: item.color, fontWeight: '700', textTransform: 'uppercase' }}>{item.label}</p>
+                                <p style={{ margin: '0.15rem 0 0', fontSize: '1.05rem', fontWeight: '950', color: item.color }}>{item.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px dashed #ddd6fe', paddingTop: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#475569' }}><span>Valor base ({totalApp} aprobadas × ${valPrendaNum.toLocaleString('es-CO')}):</span><span style={{ fontWeight: '700' }}>${appValue.toLocaleString('es-CO')} COP</span></div>
+                            {isEmpaque && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a' }}><span>Adicional empaque:</span><span style={{ fontWeight: '700' }}>+${pagoEmpaque.toLocaleString('es-CO')} COP</span></div>}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626' }}><span>Descuento por defectos ({cosDef} costura @ ${rCosturas.toLocaleString()}, {lavDef} lavandería @ ${rLavanderia.toLocaleString()}):</span><span style={{ fontWeight: '700' }}>-${defDiscount.toLocaleString('es-CO')} COP</span></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', color: '#5b21b6', fontWeight: '950', borderTop: '1.5px solid #ddd6fe', paddingTop: '0.5rem' }}><span>TOTAL A PAGAR:</span><span>${netPayable.toLocaleString('es-CO')} COP</span></div>
+                          </div>
+                          <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#5b21b6', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Estado del Lote</label>
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                {['Aprobado', 'Empacado', 'Rechazado'].map(s => (
+                                  <button key={s} type="button" onClick={() => setForm({ ...form, status: s })}
+                                    style={{ flex: 1, padding: '0.4rem 0.25rem', borderRadius: '8px', border: `2px solid ${form.status === s ? '#80082E' : '#e2e8f0'}`, backgroundColor: form.status === s ? '#fdf2f4' : 'white', color: form.status === s ? '#80082E' : '#64748b', fontWeight: '800', fontSize: '0.68rem', cursor: 'pointer' }}>
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#5b21b6', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Aprobación Financiera</label>
+                              <select value={form.pago_status} onChange={e => setForm({ ...form, pago_status: e.target.value })}
+                                style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1.5px solid #c084fc', fontSize: '0.75rem', fontWeight: '700', color: '#5b21b6', cursor: 'pointer' }}>
+                                <option value="Pendiente de aprobación financiera">⏳ Pendiente de aprobación</option>
+                                <option value="Autorizado para Pago">✅ Autorizado para Pago</option>
+                                <option value="Pagado">💵 Pagado</option>
+                              </select>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Rechazadas manual</label>
-                          <input
-                            type="number" min="0" placeholder="0"
-                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.8rem', textAlign: 'center' }}
-                            value={form.items_rejected}
-                            onChange={e => setForm({ ...form, items_rejected: e.target.value })}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', marginBottom: '0.25rem' }}>Total manual</label>
-                          <input
-                            type="number" min="0" placeholder="0"
-                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.8rem', textAlign: 'center' }}
-                            value={form.items_inspected}
-                            onChange={e => setForm({ ...form, items_inspected: e.target.value })}
-                          />
-                        </div>
+                        <button className="btn" disabled={saving} onClick={() => handleSave()}
+                          style={{ width: '100%', padding: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', fontSize: '0.9rem', fontWeight: '950', backgroundColor: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}>
+                          {saving ? <Loader2 className="animate-spin" size={18} /> : <><CheckCircle2 size={18} /> CERRAR Y FINALIZAR LOTE</>}
+                        </button>
+                        <button onClick={() => setActiveStage(3)} style={{ padding: '0.45rem', fontSize: '0.78rem', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>← Atrás</button>
                       </div>
-                    )}
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.35rem' }}>Resultado de Inspección General</label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                        {STATUS_OPTIONS.map(s => {
-                          const colors: Record<string, { bg: string; border: string; color: string }> = {
-                            Pendiente: { bg: '#eff6ff', border: '#93c5fd', color: '#1d4ed8' },
-                            Aprobado: { bg: '#f0fdf4', border: '#6ee7b7', color: '#065f46' },
-                            Doblado: { bg: '#faf5ff', border: '#c084fc', color: '#6b21a8' },
-                            Empacado: { bg: '#ecfeff', border: '#67e8f9', color: '#0369a1' },
-                            Reproceso: { bg: '#fffbeb', border: '#fcd34d', color: '#92400e' },
-                            Rechazado: { bg: '#fff1f2', border: '#fca5a5', color: '#9f1239' },
-                          };
-                          const c = colors[s] || { bg: '#f1f5f9', border: '#cbd5e1', color: '#475569' };
-                          const isSelected = form.status === s;
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setForm({ ...form, status: s })}
-                              style={{
-                                padding: '0.55rem',
-                                borderRadius: '10px',
-                                border: `2px solid ${isSelected ? c.color : '#e2e8f0'}`,
-                                backgroundColor: isSelected ? c.bg : 'white',
-                                color: isSelected ? c.color : '#64748b',
-                                fontWeight: isSelected ? '800' : '600',
-                                fontSize: '0.74rem',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s'
-                              }}
-                            >
-                              {s}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Observaciones generales</label>
-                      <textarea
-                        rows={2}
-                        value={form.notes}
-                        onChange={e => setForm({ ...form, notes: e.target.value })}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.8rem' }}
-                      />
-                    </div>
-
-                    <button
-                      className="btn"
-                      style={{
-                        width: '100%', padding: '0.9rem', display: 'flex', gap: '0.5rem',
-                        alignItems: 'center', justifyContent: 'center', borderRadius: '12px',
-                        fontSize: '0.95rem', fontWeight: '950', backgroundColor: '#10b981',
-                        color: 'white', border: 'none', cursor: 'pointer'
-                      }}
-                      disabled={saving}
-                      onClick={handleSave}
-                    >
-                      {saving ? <Loader2 className="animate-spin" size={18} /> : <><CheckCircle2 size={20} /> ✔ Finalizar Inspección</>}
-                    </button>
-                  </div>
-                </div>
+                    );
+                  })()}
+                </>
               )}
             </div>
           </div>
         </div>
       )}
+
       {/* Printable Labels Modal */}
       {showLabelsModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '800px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            {/* Modal Header */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>🖨️ Impresión de Etiquetas Unitarias</h3>
-                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>Vista de impresión optimizada para las prendas registradas.</p>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>{individualGarments.length} prendas para imprimir.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowLabelsModal(false)}
-                style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
+              <button type="button" onClick={() => setShowLabelsModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
             </div>
-            
-            {/* Scrollable list of labels */}
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
-              <div id="printable-labels-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+              <div id="printable-labels-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
                 {individualGarments.map((g: any) => (
-                  <div
-                    key={g.id}
-                    style={{
-                      backgroundColor: 'white', border: '1.5px solid #000', borderRadius: '8px', padding: '0.75rem',
-                      display: 'flex', flexDirection: 'column', gap: '0.4rem', position: 'relative',
-                      boxSizing: 'border-box', height: '150px', justifyContent: 'space-between'
-                    }}
-                  >
-                    {/* Header */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #000', paddingBottom: '0.2rem' }}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: '950', letterSpacing: '0.05em' }}>CORTES BREINER</span>
-                      <span style={{ fontSize: '0.75rem', fontWeight: '950', backgroundColor: '#000', color: '#fff', padding: '0.05rem 0.35rem', borderRadius: '3px' }}>{g.size_code}</span>
-                    </div>
-                    {/* Body */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, padding: '0.25rem 0' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: '800' }}>Ref: {g.reference_name || 'N/A'}</span>
-                        <span style={{ fontSize: '0.62rem', color: '#334155' }}>Color: {g.color_name || 'N/A'}</span>
-                        <span style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: '700' }}>Lote: {orderDetail?.consecutive || '—'}</span>
-                      </div>
-                      
-                      {/* Fake QR Mockup (Vector drawing using SVG) */}
-                      <svg width="45" height="45" viewBox="0 0 100 100" style={{ border: '1px solid #000', padding: '2px' }}>
-                        <rect x="0" y="0" width="25" height="25" fill="#000"/>
-                        <rect x="5" y="5" width="15" height="15" fill="#fff"/>
-                        <rect x="75" y="0" width="25" height="25" fill="#000"/>
-                        <rect x="80" y="5" width="15" height="15" fill="#fff"/>
-                        <rect x="0" y="75" width="25" height="25" fill="#000"/>
-                        <rect x="5" y="80" width="15" height="15" fill="#fff"/>
-                        
-                        <rect x="35" y="10" width="10" height="10" fill="#000"/>
-                        <rect x="50" y="30" width="15" height="15" fill="#000"/>
-                        <rect x="30" y="50" width="15" height="15" fill="#000"/>
-                        <rect x="70" y="45" width="10" height="10" fill="#000"/>
-                        <rect x="85" y="85" width="15" height="15" fill="#000"/>
-                        <rect x="45" y="75" width="10" height="15" fill="#000"/>
+                  <div key={g.id} style={{ 
+                    backgroundColor: 'white', 
+                    border: '1.5px solid #0f172a', 
+                    borderRadius: '8px', 
+                    padding: '0.75rem 0.6rem', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    aspectRatio: '5/8',
+                    justifyContent: 'space-between', 
+                    boxSizing: 'border-box',
+                    fontFamily: 'system-ui, sans-serif',
+                    breakInside: 'avoid'
+                  }}>
+                    {/* Header: Small Logo + Title */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                        <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                        <line x1="8.12" y1="8.12" x2="12" y2="12"/>
                       </svg>
+                      <span style={{ fontSize: '0.6rem', fontWeight: '900', color: '#80082E', letterSpacing: '0.05em' }}>CORTES BREINER</span>
                     </div>
-                    {/* Barcode Mockup */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.2rem' }}>
-                      <div style={{ display: 'flex', gap: '2px', height: '18px', width: '80%' }}>
-                        {Array.from({ length: 28 }).map((_, idx) => {
-                          const w = (idx % 3 === 0) ? '3px' : (idx % 2 === 0) ? '1px' : '2px';
-                          const bg = (idx % 5 === 0) ? 'transparent' : '#000';
-                          return <div key={idx} style={{ width: w, height: '100%', backgroundColor: bg }} />;
+
+                    {/* Reference name */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                        {g.reference_name || 'Referencia'}
+                      </span>
+
+                      {/* Color chip if available */}
+                      {g.color_name && (
+                        <span style={{ fontSize: '0.55rem', color: '#64748b', fontWeight: '700' }}>{g.color_name}</span>
+                      )}
+
+                      {/* Barcode visual */}
+                      <div style={{ display: 'flex', gap: '1px', height: '38px', width: '100%', justifyContent: 'center', marginTop: '0.35rem' }}>
+                        {Array.from({ length: 38 }).map((_, idx) => {
+                          const code = g.barcode || '';
+                          const charCode = code.charCodeAt(idx % code.length) || 50;
+                          const isThick = charCode % 3 === 0;
+                          const isGap = charCode % 7 === 0 && idx % 5 === 0;
+                          return (
+                            <div key={idx} style={{ 
+                              width: isThick ? '3px' : '1.5px', 
+                              height: '100%', 
+                              backgroundColor: isGap ? 'transparent' : '#0f172a',
+                              borderRadius: '0.5px'
+                            }} />
+                          );
                         })}
                       </div>
-                      <span style={{ fontSize: '0.62rem', fontWeight: '900', letterSpacing: '0.05em' }}>{g.barcode}</span>
+                      <span style={{ fontSize: '0.65rem', fontWeight: '950', color: '#0f172a', letterSpacing: '0.08em', marginTop: '0.1rem' }}>{g.barcode}</span>
+                    </div>
+
+                    {/* Footer: Size badge */}
+                    <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '900', backgroundColor: '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                        {g.size_code || 'S/T'}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-            
-            {/* Modal Actions */}
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={() => setShowLabelsModal(false)}
-                className="btn"
-                style={{ fontSize: '0.8rem', padding: '0.55rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white' }}
-              >
-                Cerrar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  window.print();
-                }}
-                className="btn"
-                style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#80082E', color: 'white', fontWeight: '800' }}
-              >
-                🖨️ Imprimir Etiquetas
-              </button>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>💡 Impresión vertical: 3 etiquetas por fila (portrait). Papel A4 o 50mm × 80mm por etiqueta.</span>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button type="button" onClick={() => setShowLabelsModal(false)} style={{ fontSize: '0.8rem', padding: '0.55rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white' }}>Cerrar</button>
+                <button type="button" onClick={() => window.print()} style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#80082E', color: 'white', fontWeight: '800' }}>🖨 Imprimir (Zebra)</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Print isolated Styles */}
       <style>{`
         @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #printable-labels-container, #printable-labels-container * {
-            visibility: visible !important;
-          }
+          @page { size: A4 portrait; margin: 8mm; }
+          body * { visibility: hidden !important; }
+          #printable-labels-container, #printable-labels-container * { visibility: visible !important; }
           #printable-labels-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
+            position: fixed !important;
+            left: 8mm !important;
+            top: 8mm !important;
+            right: 8mm !important;
+            width: calc(210mm - 16mm) !important;
             display: grid !important;
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 1.5cm !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 4mm !important;
+            padding: 0 !important;
           }
-          .no-print {
-            display: none !important;
+          #printable-labels-container > div {
+            aspect-ratio: 5 / 8 !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            box-sizing: border-box !important;
+            border-radius: 4px !important;
           }
         }
       `}</style>

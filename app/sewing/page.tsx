@@ -73,6 +73,7 @@ export default function SewingPage() {
 
   // Envio a Calidad states
   const [showEnvioModal, setShowEnvioModal] = useState(false);
+  const [fichaModalUrl, setFichaModalUrl] = useState(null);
   const [selectedSewingOrderForEnvio, setSelectedSewingOrderForEnvio] = useState<any>(null);
   const [envioNotes, setEnvioNotes] = useState('');
   const [savingEnvio, setSavingEnvio] = useState(false);
@@ -1580,27 +1581,26 @@ export default function SewingPage() {
                     </td>
                     <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {/* 1. Botón Ficha */}
+                        {/* 1. Botón Ficha (Icono Circular) */}
                         {(() => {
                           const prodObj = products.find(p => String(p.id) === String(so.product_id));
                           const catObj = prodObj ? categoriesMaster.find(c => String(c.id) === String(prodObj.category_id)) : null;
                           const fichaUrl = catObj?.ficha_tecnica_url;
                           return (
                             <button
-                              className="btn"
                               style={{ 
-                                fontSize: '0.72rem', 
-                                fontWeight: '800', 
-                                padding: '0.45rem 0.85rem', 
-                                backgroundColor: fichaUrl ? '#4f46e5' : '#94a3b8', 
-                                color: 'white', 
-                                border: 'none', 
-                                borderRadius: '8px', 
-                                cursor: 'pointer',
-                                display: 'inline-flex',
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '50%',
+                                backgroundColor: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                display: 'flex',
                                 alignItems: 'center',
-                                gap: '0.25rem',
-                                transition: 'all 0.2s'
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                transition: 'all 0.2s',
+                                fontSize: '1rem'
                               }}
                               onClick={() => {
                                 if (fichaUrl) {
@@ -1610,115 +1610,55 @@ export default function SewingPage() {
                                 }
                               }}
                               title={fichaUrl ? "Ver Ficha Técnica" : "Sin Ficha Técnica"}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.backgroundColor = '#e2e8f0';
+                                e.currentTarget.style.transform = 'scale(1.05)';
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.backgroundColor = '#f8fafc';
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
                             >
-                              📄 Ficha
+                              📄
                             </button>
                           );
                         })()}
 
-                        {/* 2. Botón Ver Orden */}
+                        {/* 2. Botón Ver Orden (Icono Circular) */}
                         {so.parent_order && (
                           <button
-                            className="btn"
                             style={{ 
-                              fontSize: '0.72rem', 
-                              fontWeight: '800', 
-                              padding: '0.45rem 0.85rem', 
-                              backgroundColor: '#7c3aed', 
-                              color: 'white', 
-                              border: 'none', 
-                              borderRadius: '8px', 
-                              display: 'inline-flex', 
-                              alignItems: 'center', 
-                              gap: '0.25rem',
+                              width: '36px',
+                              height: '36px',
+                              borderRadius: '50%',
+                              backgroundColor: '#f8fafc',
+                              border: '1px solid #cbd5e1',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
                               cursor: 'pointer',
-                              transition: 'all 0.2s'
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                              transition: 'all 0.2s',
+                              fontSize: '1rem'
                             }}
                             onClick={() => handleOpenPrintModal(so.parent_order, so.id)}
+                            title="Ver Detalle de la Orden"
+                            onMouseEnter={e => {
+                              e.currentTarget.style.backgroundColor = '#e2e8f0';
+                              e.currentTarget.style.transform = 'scale(1.05)';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.backgroundColor = '#f8fafc';
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
                           >
-                            🔍 Ver Orden
+                            👁️
                           </button>
                         )}
 
-                        {/* 3. Botón Enviar a Calidad */}
-                        {so.status === 'En Confección' ? (
-                          <button
-                            className="btn"
-                            style={{ 
-                              fontSize: '0.72rem', 
-                              fontWeight: '800', 
-                              padding: '0.45rem 0.85rem', 
-                              backgroundColor: '#ea580c', 
-                              color: 'white', 
-                              border: 'none', 
-                              borderRadius: '8px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.25rem',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s'
-                            }}
-                            onClick={() => {
-                              setSelectedSewingOrderForEnvio(so);
-                              setEnvioNotes('');
-                              setShowEnvioModal(true);
-                            }}
-                          >
-                            📤 Enviar a Calidad
-                          </button>
-                        ) : (
-                          <button
-                            className="btn"
-                            disabled
-                            style={{ 
-                              fontSize: '0.72rem', 
-                              fontWeight: '800', 
-                              padding: '0.45rem 0.85rem', 
-                              backgroundColor: '#e2e8f0', 
-                              color: '#94a3b8', 
-                              border: 'none', 
-                              borderRadius: '8px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.25rem',
-                              cursor: 'not-allowed'
-                            }}
-                          >
-                            📤 Enviar a Calidad
-                          </button>
-                        )}
 
-                        {/* Otros botones del flujo de trabajo de la confección */}
-                        {so.status === 'Enviado a Taller' && (
-                          <button
-                            className="btn"
-                            style={{ fontSize: '0.72rem', fontWeight: '800', padding: '0.45rem 0.85rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                            onClick={() => handleConfirmReceiptInWorkshop(so)}
-                          >
-                            📥 Recibir en Taller
-                          </button>
-                        )}
 
-                        {so.status === 'En Confección' && (
-                          <>
-                            {so.parent_order && (
-                              <button
-                                className="btn"
-                                style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.45rem 0.85rem', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                                onClick={() => handleRevertToCortado(so.parent_order)}
-                              >
-                                Revertir a Cortado
-                              </button>
-                            )}
-                            <button
-                              className="btn"
-                              style={{ fontSize: '0.72rem', fontWeight: '700', padding: '0.45rem 0.85rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-                              onClick={() => handleReceiveSewingOrder(so)}
-                            >
-                              Recibir de Taller
-                            </button>
-                          </>
-                        )}
+
 
                         {so.status === 'Enviado a Calidad' && (
                           <span style={{
@@ -2861,6 +2801,8 @@ export default function SewingPage() {
           </div>
         </div>
       )}
+
+
 
       <style dangerouslySetInnerHTML={{ __html: `
         .print-only {
