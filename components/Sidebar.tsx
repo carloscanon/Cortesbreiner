@@ -36,6 +36,7 @@ const allMenuItems = [
 
 const allBottomItems = [
   { icon: Settings, label: 'Ajustes', href: '/settings', module: 'settings' },
+  { icon: ShieldCheck, label: 'Super Admin', href: '/super-admin', module: 'super_admin' },
   { icon: HelpCircle, label: 'Ayuda', href: '/help', module: 'help' },
 ];
 
@@ -102,13 +103,12 @@ export default function Sidebar() {
             return allowedModules.includes(item.module) || item.module === 'dashboard';
           });
 
-  const filteredBottomItems = allBottomItems.filter(item => 
-    isTaller
-      ? item.module === 'help'
-      : isSuperAdmin
-        ? true
-        : allowedModules.includes(item.module) || item.module === 'help'
-  );
+  const filteredBottomItems = allBottomItems.filter(item => {
+    if (item.module === 'super_admin') return isSuperAdmin;
+    if (isTaller) return item.module === 'help';
+    if (isSuperAdmin) return true;
+    return allowedModules.includes(item.module) || item.module === 'help';
+  });
 
   const logoUrl = config?.logo_url || '';
   const logoWidth = config?.logo_width || '150';

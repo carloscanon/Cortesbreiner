@@ -73,6 +73,8 @@ export default function WorkshopsPage() {
   const [specialCosts, setSpecialCosts] = useState<any[]>([]);
   const [savingSpecials, setSavingSpecials] = useState(false);
   const [productsList, setProductsList] = useState<any[]>([]);
+  const [specialSearch, setSpecialSearch] = useState('');
+  const [standardSpecialInput, setStandardSpecialInput] = useState('');
   const [showWorkshopsHelp, setShowWorkshopsHelp] = useState<boolean>(false);
   const [workshopProfiles, setWorkshopProfiles] = useState<any[]>([]);
 
@@ -555,103 +557,81 @@ export default function WorkshopsPage() {
     }
   };
 
+  const handleProductSpecialRateChange = (workshopId: string, productId: string, val: string) => {
+    const numericRate = val === '' ? 0 : parseFloat(val);
+    setSpecialCosts(prev => {
+      const copy = [...prev];
+      const idx = copy.findIndex(r =>
+        String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+        String(r.product_id).toLowerCase() === String(productId).toLowerCase()
+      );
+      if (idx >= 0) {
+        copy[idx] = { ...copy[idx], special_rate: numericRate };
+      } else {
+        copy.push({ workshop_id: workshopId, product_id: productId, special_rate: numericRate });
+      }
+      return copy;
+    });
+  };
+
   const handleSpecialCostChangeForCategory = (workshopId: string, categoryId: string, val: string) => {
     const numericRate = val === '' ? 0 : parseFloat(val);
     const productsInCat = productsList.filter(p => String(p.category_id) === String(categoryId));
     
     setSpecialCosts(prev => {
       let copy = [...prev];
-      
-      // Si la categoría tiene productos, actualizamos sus tarifas específicas
-      if (productsInCat.length > 0) {
-        productsInCat.forEach(prod => {
-          const idx = copy.findIndex(r => 
-            String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
-            String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
-          );
-          if (idx >= 0) {
-            copy[idx] = { ...copy[idx], special_rate: numericRate };
-          } else {
-            copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
-          }
-        });
-      }
-      
-      // Siempre guardamos un registro comodín para la categoría (usando un id ficticio o mapeo)
-      // para que el input sea totalmente editable en la UI aunque no existan productos
-      const catIdx = copy.findIndex(r => 
-        String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() && 
-        String(r.category_id).toLowerCase() === String(categoryId).toLowerCase()
-      );
-      if (catIdx >= 0) {
-        copy[catIdx] = { ...copy[catIdx], special_rate: numericRate };
-      } else {
-        copy.push({ workshop_id: workshopId, category_id: categoryId, special_rate: numericRate });
-      }
-      
+      productsInCat.forEach(prod => {
+        const idx = copy.findIndex(r =>
+          String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+          String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+        );
+        if (idx >= 0) {
+          copy[idx] = { ...copy[idx], special_rate: numericRate };
+        } else {
+          copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
+        }
+      });
       return copy;
     });
   };
 
+  const handleApplyStandardSpecialToAllProducts = (workshopId: string, val: string) => {
+    const numericRate = parseFloat(val);
+    if (isNaN(numericRate) || numericRate < 0) {
+      alert('Ingresa una tarifa numérica válida para parametrizar.');
+      return;
+    }
+    setSpecialCosts(prev => {
+      let copy = [...prev];
+      productsList.forEach(prod => {
+        const idx = copy.findIndex(r =>
+          String(r.workshop_id).toLowerCase() === String(workshopId).toLowerCase() &&
+          String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+        );
+        if (idx >= 0) {
+          copy[idx] = { ...copy[idx], special_rate: numericRate };
+        } else {
+          copy.push({ workshop_id: workshopId, product_id: String(prod.id), special_rate: numericRate });
+        }
+      });
+      return copy;
+    });
+    alert(`⚡ Se ha asignado la tarifa especial de $${numericRate.toLocaleString('es-CO')} COP a todas las referencias del taller. Haz clic en "Guardar Costos Especiales" para confirmar.`);
+  };
+
   const handleSaveSpecials = async () => {
+    if (!selectedSpecialWorkshopId) return alert('Selecciona un taller satélite.');
     setSavingSpecials(true);
     try {
-      // 1. Identificar si hay comodines de categorías vacías (tienen category_id pero no product_id)
-      const emptyCatSpecials = specialCosts.filter(item => item.workshop_id && item.category_id && !item.product_id);
-      
-      const updatedSpecials = [...specialCosts];
-      
-      for (const item of emptyCatSpecials) {
-        // Verificar si la categoría sigue sin productos
-        const productsInCat = productsList.filter(p => String(p.category_id) === String(item.category_id));
-        
-        let targetProductId = productsInCat[0]?.id;
-        
-        if (!targetProductId) {
-          // Si realmente no hay productos en esa categoría, creamos uno genérico
-          const catObj = categories.find(c => String(c.id) === String(item.category_id));
-          const genericName = `Genérico - ${catObj?.categoria || 'Categoría vacía'}`;
-          
-          const refCode = `GEN-${item.category_id.substring(0, 8)}-${Math.floor(1000 + Math.random() * 9000)}`;
-          const { data: newProd, error: prodErr } = await supabase
-            .from('products')
-            .insert([{
-              nombre_producto: genericName,
-              category_id: item.category_id,
-              codigo_referencia: refCode
-            }])
-            .select()
-            .single();
-            
-          if (prodErr) {
-            console.error('Error al crear producto genérico:', prodErr.message);
-            continue;
-          }
-          
-          if (newProd) {
-            targetProductId = newProd.id;
-            // Actualizar nuestra lista local de productos para evitar crearlo múltiples veces
-            productsList.push(newProd);
-            setProductsList([...productsList]);
-          }
-        }
-        
-        if (targetProductId) {
-          // Enlazar el comodín al product_id resuelto
-          item.product_id = targetProductId;
-        }
-      }
-
-      // 2. Filtrar, limpiar y eliminar duplicados del payload final para upsert en DB
       const seen = new Set();
-      const cleanedSpecials = [];
+      const recordsToUpsert: any[] = [];
 
-      for (const item of updatedSpecials) {
-        if (item.workshop_id && item.product_id) {
+      for (const item of specialCosts) {
+        if (String(item.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && item.product_id) {
           const key = `${String(item.workshop_id).toLowerCase()}_${String(item.product_id).toLowerCase()}`;
           if (!seen.has(key)) {
             seen.add(key);
-            cleanedSpecials.push({
+            recordsToUpsert.push({
               workshop_id: item.workshop_id,
               product_id: item.product_id,
               special_rate: Number(item.special_rate) || 0
@@ -660,15 +640,22 @@ export default function WorkshopsPage() {
         }
       }
 
+      if (recordsToUpsert.length === 0) {
+        alert('No hay tarifas especiales para guardar en este taller.');
+        setSavingSpecials(false);
+        return;
+      }
+
       const { error } = await supabase
         .from('workshop_special_costs')
-        .upsert(cleanedSpecials, { onConflict: 'workshop_id,product_id' });
+        .upsert(recordsToUpsert, { onConflict: 'workshop_id,product_id' });
 
       if (error) {
         alert('Error al guardar costos especiales: ' + error.message);
       } else {
-        alert('✅ Costos especiales guardados exitosamente.');
-        fetchWorkshops();
+        alert('✅ Costos especiales por referencia guardados exitosamente.');
+        const { data: freshSpecials } = await supabase.from('workshop_special_costs').select('*');
+        if (freshSpecials) setSpecialCosts(freshSpecials);
       }
     } catch (err: any) {
       alert('Error: ' + err.message);
@@ -1257,14 +1244,14 @@ export default function WorkshopsPage() {
         <div style={{ backgroundColor: 'white', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Matriz de Costos Especiales y Adicionales por Categoría</h2>
-              <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>Define tarifas especiales de costura por prenda independientes de la tarifa base general para cada categoría.</p>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>⭐ Matriz de Costos Especiales por Referencia y Producto</h2>
+              <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>Parametriza y ajusta tarifas especiales por cada producto/referencia o establece una tarifa especial estándar general para el taller.</p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button 
                 className="btn btn-primary" 
                 onClick={handleSaveSpecials}
-                disabled={savingSpecials}
+                disabled={savingSpecials || !selectedSpecialWorkshopId}
                 style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
               >
                 {savingSpecials ? <Loader2 className="animate-spin" size={16} /> : <><Save size={16} /> Guardar Costos Especiales</>}
@@ -1273,64 +1260,201 @@ export default function WorkshopsPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '1.25rem', backgroundColor: '#f8fafc' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#334155' }}>SELECCIONAR TALLER SATÉLITE:</span>
-              <select
-                value={selectedSpecialWorkshopId}
-                onChange={e => setSelectedSpecialWorkshopId(e.target.value)}
-                style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750', color: '#0f172a', backgroundColor: 'white', minWidth: '220px' }}
-              >
-                <option value="">Selecciona un taller...</option>
-                {workshops.map(w => (
-                  <option key={w.id} value={w.id}>{w.nombre_taller}</option>
-                ))}
-              </select>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '850', color: '#334155' }}>SELECCIONAR TALLER SATÉLITE:</span>
+                <select
+                  value={selectedSpecialWorkshopId}
+                  onChange={e => setSelectedSpecialWorkshopId(e.target.value)}
+                  style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #80082E', fontSize: '0.85rem', fontWeight: '800', color: '#0f172a', backgroundColor: 'white', minWidth: '240px' }}
+                >
+                  <option value="">Selecciona un taller...</option>
+                  {workshops.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedSpecialWorkshopId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Search size={16} style={{ color: '#64748b' }} />
+                  <input
+                    type="text"
+                    placeholder="Buscar referencia o producto..."
+                    value={specialSearch}
+                    onChange={e => setSpecialSearch(e.target.value)}
+                    style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', minWidth: '220px' }}
+                  />
+                </div>
+              )}
             </div>
 
             {!selectedSpecialWorkshopId ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
-                Selecciona un taller satélite para configurar los costos específicos de confección por categoría.
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                👈 Selecciona un taller satélite arriba para configurar sus costos especiales por referencia y producto.
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(265px, 1fr))', gap: '1rem', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginTop: '0.5rem' }}>
+                
+                {/* Panel de Parametrización Estándar Especial para Todos los Productos */}
+                <div style={{ padding: '1rem 1.25rem', backgroundColor: '#fffbe7', border: '1.5px solid #fcd34d', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.85rem', color: '#78350f', display: 'block' }}>⚡ Parametrización Rápida: Precio Especial Estándar</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#92400e' }}>Aplica un valor de tarifa especial uniforme a TODAS las referencias de este taller con 1 solo clic.</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontWeight: '800', color: '#78350f', fontSize: '0.85rem' }}>$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={standardSpecialInput}
+                      onChange={e => setStandardSpecialInput(e.target.value)}
+                      placeholder="Ej: 5700"
+                      style={{ width: '110px', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1.5px solid #f59e0b', fontSize: '0.85rem', fontWeight: '800', textAlign: 'right', backgroundColor: 'white' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleApplyStandardSpecialToAllProducts(selectedSpecialWorkshopId, standardSpecialInput)}
+                      style={{ padding: '0.45rem 0.9rem', fontSize: '0.78rem', fontWeight: '900', backgroundColor: '#d97706', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                    >
+                      ⚡ Aplicar a Todas las Referencias
+                    </button>
+                  </div>
+                </div>
+
+                {/* Listado por Categoría con Referencias Individuales */}
                 {categories.map(cat => {
-                  const productsInCat = productsList.filter(p => String(p.category_id) === String(cat.id));
-                  
-                  // Intentar buscar coincidencia directa por category_id
-                  let match = specialCosts.find(r => 
-                    String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && 
-                    String(r.category_id).toLowerCase() === String(cat.id).toLowerCase()
-                  );
-                  
-                  // Si no hay coincidencia directa, buscar por productos asociados
-                  if (!match) {
-                    match = specialCosts.find(r => 
-                      String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() && 
-                      productsInCat.some(p => String(p.id).toLowerCase() === String(r.product_id).toLowerCase())
-                    );
-                  }
-                  
-                  const currentRate = match ? match.special_rate : 0;
+                  const productsInCat = productsList.filter(p => {
+                    const matchesCat = String(p.category_id) === String(cat.id);
+                    if (!matchesCat) return false;
+                    if (!specialSearch.trim()) return true;
+                    const searchLower = specialSearch.toLowerCase().trim();
+                    const nameMatch = (p.nombre_producto || p.name || '').toLowerCase().includes(searchLower);
+                    const codeMatch = (p.codigo_referencia || p.reference_code || '').toLowerCase().includes(searchLower);
+                    return nameMatch || codeMatch;
+                  });
+
+                  if (specialSearch.trim() && productsInCat.length === 0) return null;
+
                   return (
-                    <div key={cat.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.85rem 1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase' }}>{cat.categoria || '(Sin Categoría)'}</span>
-                      <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: '700' }}>
-                        Tarifa Base General: <span style={{ color: '#0284c7', fontWeight: '800' }}>${cat.base_rate?.toLocaleString('es-CO') || '0'} COP</span>
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
-                        <span style={{ color: '#94a3b8', fontWeight: '700', fontSize: '0.8rem' }}>$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={currentRate}
-                          onChange={e => handleSpecialCostChangeForCategory(selectedSpecialWorkshopId, cat.id, e.target.value)}
-                          placeholder="Tarifa especial"
-                          style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', textAlign: 'right', fontWeight: '750', color: '#0f172a' }}
-                        />
+                    <div key={cat.id} style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                      
+                      {/* Cabecera de Categoría + Control Rápido por Categoría */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', paddingBottom: '0.6rem', borderBottom: '1px solid #f1f5f9' }}>
+                        <div>
+                          <span style={{ fontSize: '0.88rem', fontWeight: '950', color: '#0f172a', textTransform: 'uppercase' }}>{cat.categoria || '(Sin Categoría)'}</span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', marginLeft: '0.75rem' }}>
+                            Tarifa Base General: <strong style={{ color: '#0284c7' }}>${cat.base_rate?.toLocaleString('es-CO') || '0'} COP</strong>
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: '#475569', fontWeight: '700' }}>Fijar a toda la categoría:</span>
+                          <span style={{ color: '#94a3b8', fontWeight: '700', fontSize: '0.8rem' }}>$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="Aplicar a cat."
+                            onChange={e => handleSpecialCostChangeForCategory(selectedSpecialWorkshopId, cat.id, e.target.value)}
+                            style={{ width: '100px', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', textAlign: 'right', fontWeight: '800' }}
+                          />
+                        </div>
                       </div>
+
+                      {/* Lista de Referencias/Productos de esta categoría */}
+                      {productsInCat.length === 0 ? (
+                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>No hay productos asociados a esta categoría.</p>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                          {productsInCat.map(prod => {
+                            const match = specialCosts.find(r =>
+                              String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() &&
+                              String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+                            );
+                            const currentRate = match ? match.special_rate : 0;
+                            return (
+                              <div key={prod.id} style={{ padding: '0.65rem 0.85rem', borderRadius: '8px', backgroundColor: currentRate > 0 ? '#f0fdf4' : '#f8fafc', border: `1.5px solid ${currentRate > 0 ? '#bbf7d0' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{ overflow: 'hidden' }}>
+                                  <strong style={{ fontSize: '0.78rem', color: '#0f172a', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {prod.nombre_producto || prod.name}
+                                  </strong>
+                                  {prod.codigo_referencia && (
+                                    <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '700' }}>Ref: {prod.codigo_referencia}</span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', flexShrink: 0 }}>
+                                  <span style={{ color: currentRate > 0 ? '#16a34a' : '#94a3b8', fontWeight: '900', fontSize: '0.78rem' }}>$</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={currentRate || ''}
+                                    onChange={e => handleProductSpecialRateChange(selectedSpecialWorkshopId, prod.id, e.target.value)}
+                                    placeholder="0"
+                                    style={{ width: '85px', padding: '0.35rem 0.45rem', borderRadius: '6px', border: `1.5px solid ${currentRate > 0 ? '#16a34a' : '#cbd5e1'}`, fontSize: '0.8rem', textAlign: 'right', fontWeight: '900', color: currentRate > 0 ? '#15803d' : '#0f172a', backgroundColor: 'white' }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+
+                {/* Sección para Productos sin categoría */}
+                {(() => {
+                  const uncategorizedProducts = productsList.filter(p => {
+                    if (p.category_id) return false;
+                    if (!specialSearch.trim()) return true;
+                    const searchLower = specialSearch.toLowerCase().trim();
+                    const nameMatch = (p.nombre_producto || p.name || '').toLowerCase().includes(searchLower);
+                    const codeMatch = (p.codigo_referencia || p.reference_code || '').toLowerCase().includes(searchLower);
+                    return nameMatch || codeMatch;
+                  });
+
+                  if (uncategorizedProducts.length === 0) return null;
+
+                  return (
+                    <div style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                      <div style={{ marginBottom: '0.75rem', paddingBottom: '0.6rem', borderBottom: '1px solid #f1f5f9' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: '950', color: '#64748b', textTransform: 'uppercase' }}>📦 Referencias Generales (Sin Categoría)</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                        {uncategorizedProducts.map(prod => {
+                          const match = specialCosts.find(r =>
+                            String(r.workshop_id).toLowerCase() === String(selectedSpecialWorkshopId).toLowerCase() &&
+                            String(r.product_id).toLowerCase() === String(prod.id).toLowerCase()
+                          );
+                          const currentRate = match ? match.special_rate : 0;
+                          return (
+                            <div key={prod.id} style={{ padding: '0.65rem 0.85rem', borderRadius: '8px', backgroundColor: currentRate > 0 ? '#f0fdf4' : '#f8fafc', border: `1.5px solid ${currentRate > 0 ? '#bbf7d0' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                              <div style={{ overflow: 'hidden' }}>
+                                <strong style={{ fontSize: '0.78rem', color: '#0f172a', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {prod.nombre_producto || prod.name}
+                                </strong>
+                                {prod.codigo_referencia && (
+                                  <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '700' }}>Ref: {prod.codigo_referencia}</span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', flexShrink: 0 }}>
+                                <span style={{ color: currentRate > 0 ? '#16a34a' : '#94a3b8', fontWeight: '900', fontSize: '0.78rem' }}>$</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={currentRate || ''}
+                                  onChange={e => handleProductSpecialRateChange(selectedSpecialWorkshopId, prod.id, e.target.value)}
+                                  placeholder="0"
+                                  style={{ width: '85px', padding: '0.35rem 0.45rem', borderRadius: '6px', border: `1.5px solid ${currentRate > 0 ? '#16a34a' : '#cbd5e1'}`, fontSize: '0.8rem', textAlign: 'right', fontWeight: '900', color: currentRate > 0 ? '#15803d' : '#0f172a', backgroundColor: 'white' }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             )}
           </div>

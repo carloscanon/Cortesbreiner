@@ -56,6 +56,9 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       .eq('estado', 'activo');
     
     let defaultWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('principal')) || warehouses?.[0];
+    let laundryWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('lavanderia'));
+    let saldosWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('saldos'));
+
     if (!defaultWarehouse) {
       console.error('No active warehouses found to insert finished goods.');
       return;
@@ -181,70 +184,168 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       }
     }
 
-    // 4. Actualizar inventario físico y Kardex para cada ítem resuelto
-    for (const item of stockItemsToProcess) {
-      console.log(`Sincronizando SKU: Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}, Qty=${item.qty}`);
-
+    // Helper para actualizar stock y kardex en una bodega específica
+    const syncWarehouseStock = async (whId: string, item: any, qty: number, tipoMov: string, obs: string) => {
       const query = supabase
         .from('finished_goods_stock')
         .select('*')
-        .eq('warehouse_id', defaultWarehouse.id)
+        .eq('warehouse_id', whId)
         .eq('product_id', item.productId)
         .eq('size_id', item.sizeId)
         .is('location_id', null);
 
-      if (item.colorId) {
-        query.eq('color_id', item.colorId);
-      } else {
-        query.is('color_id', null);
-      }
+      if (item.colorId) query.eq('color_id', item.colorId);
+      else query.is('color_id', null);
 
       const { data: stockRecords } = await query;
       const existingStock = stockRecords?.[0];
       const saldoAnterior = existingStock ? Number(existingStock.cantidad_disponible) : 0;
-      const saldoNuevo = saldoAnterior + item.qty;
+      const saldoNuevo = saldoAnterior + qty;
 
       if (existingStock) {
         await supabase
           .from('finished_goods_stock')
-          .update({
-            cantidad_disponible: saldoNuevo,
-            updated_at: new Date().toISOString()
-          })
+          .update({ cantidad_disponible: saldoNuevo, updated_at: new Date().toISOString() })
           .eq('id', existingStock.id);
       } else {
         await supabase
           .from('finished_goods_stock')
-          .insert({
-            warehouse_id: defaultWarehouse.id,
-            location_id: null,
-            product_id: item.productId,
-            color_id: item.colorId,
-            size_id: item.sizeId,
-            cantidad_disponible: item.qty
-          });
+          .insert({ warehouse_id: whId, location_id: null, product_id: item.productId, color_id: item.colorId, size_id: item.sizeId, cantidad_disponible: qty });
       }
 
-      // Registrar movimiento de Kardex
       await supabase
         .from('finished_goods_kardex')
         .insert({
           product_id: item.productId,
           color_id: item.colorId,
           size_id: item.sizeId,
-          tipo_movimiento: 'Ingreso por aprobación de calidad',
-          cantidad: item.qty,
+          tipo_movimiento: tipoMov,
+          cantidad: qty,
           saldo_anterior: saldoAnterior,
           saldo_nuevo: saldoNuevo,
-          warehouse_dest_id: defaultWarehouse.id,
+          warehouse_dest_id: whId,
           documento_origen: `Inspección #${inspectionId}`,
           usuario: inspection.usuario || 'Sistema - Calidad',
-          observaciones: `Aprobación automática de prendas de la orden de confección ${inspection.sewing_orders?.confeccion_code || ''}`
+          observaciones: obs
         });
+    };
+
+    // 4. Distribuir stock entre Bodega Principal, Bodega Lavandería y Bodega Saldos
+    let remainingLaundryToDeduct = Number(inspection.lavanderia) || 0;
+    let remainingSaldosToDeduct = Number(inspection.saldos) || 0;
+
+    for (const item of stockItemsToProcess) {
+      const laundryDeduct = Math.min(item.qty, remainingLaundryToDeduct);
+      remainingLaundryToDeduct -= laundryDeduct;
+
+      const saldosDeduct = Math.min(item.qty - laundryDeduct, remainingSaldosToDeduct);
+      remainingSaldosToDeduct -= saldosDeduct;
+
+      const mainQty = item.qty - laundryDeduct - saldosDeduct;
+
+      // 4a. Ingreso a Bodega 101 Principal (únicamente prendas aprobadas que no van a lavandería ni saldos)
+      if (mainQty > 0) {
+        console.log(`Sincronizando ${mainQty} prendas a Bodega Principal: Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}`);
+        await syncWarehouseStock(
+          defaultWarehouse.id,
+          item,
+          mainQty,
+          'Ingreso por aprobación de calidad',
+          `Aprobación de prendas de la orden de confección ${inspection.sewing_orders?.confeccion_code || ''}`
+        );
+      }
+
+      // 4b. Ingreso exclusivo a Bodega Lavanderia (Fabrica)
+      if (laundryDeduct > 0 && laundryWarehouse) {
+        console.log(`Sincronizando ${laundryDeduct} prendas a Bodega Lavanderia (Fabrica): Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}`);
+        await syncWarehouseStock(
+          laundryWarehouse.id,
+          item,
+          laundryDeduct,
+          'Ingreso a Bodega Lavandería (Fábrica)',
+          `Prendas enviadas a proceso de lavado desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
+        );
+      }
+
+      // 4c. Ingreso exclusivo a Bodega Saldos (Fabrica)
+      if (saldosDeduct > 0 && saldosWarehouse) {
+        console.log(`Sincronizando ${saldosDeduct} prendas a Bodega Saldos (Fabrica): Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}`);
+        await syncWarehouseStock(
+          saldosWarehouse.id,
+          item,
+          saldosDeduct,
+          'Ingreso a Bodega Saldos (Fábrica)',
+          `Prendas clasificadas a saldos desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
+        );
+      }
     }
 
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
   } catch (err) {
     console.error('Error in syncQualityApprovalToInventory:', err);
+  }
+}
+
+/**
+ * Revierte y descuenta del inventario físico y Kardex la sincronización previamente realizada para una inspección.
+ */
+export async function revertQualityApprovalFromInventory(inspectionId: string) {
+  try {
+    const docOrigin = `Inspección #${inspectionId}`;
+    const { data: movs } = await supabase
+      .from('finished_goods_kardex')
+      .select('*')
+      .eq('documento_origen', docOrigin);
+
+    if (movs && movs.length > 0) {
+      for (const m of movs) {
+        const whId = m.warehouse_dest_id;
+        if (!whId) continue;
+
+        const query = supabase
+          .from('finished_goods_stock')
+          .select('*')
+          .eq('warehouse_id', whId)
+          .eq('product_id', m.product_id)
+          .eq('size_id', m.size_id);
+
+        if (m.color_id) query.eq('color_id', m.color_id);
+        else query.is('color_id', null);
+
+        const { data: stockRecords } = await query;
+        const existingStock = stockRecords?.[0];
+
+        if (existingStock) {
+          const currentQty = Number(existingStock.cantidad_disponible) || 0;
+          const newQty = Math.max(0, currentQty - (Number(m.cantidad) || 0));
+          await supabase
+            .from('finished_goods_stock')
+            .update({ cantidad_disponible: newQty, updated_at: new Date().toISOString() })
+            .eq('id', existingStock.id);
+        }
+
+        const saldoAnterior = existingStock ? Number(existingStock.cantidad_disponible) : 0;
+        const saldoNuevo = Math.max(0, saldoAnterior - (Number(m.cantidad) || 0));
+        await supabase.from('finished_goods_kardex').insert({
+          product_id: m.product_id,
+          color_id: m.color_id,
+          size_id: m.size_id,
+          tipo_movimiento: 'Reversión / Deshacer por SuperAdmin',
+          cantidad: -(Number(m.cantidad) || 0),
+          saldo_anterior: saldoAnterior,
+          saldo_nuevo: saldoNuevo,
+          warehouse_dest_id: whId,
+          documento_origen: `Reversión Inspección #${inspectionId}`,
+          usuario: 'SuperAdmin Master',
+          observaciones: `Rollback ejecutado por SuperAdministrador para la inspección #${inspectionId}`
+        });
+      }
+
+      await supabase.from('finished_goods_kardex').delete().eq('documento_origen', docOrigin);
+      await supabase.from('finished_goods_inventory').delete().eq('quality_inspection_id', inspectionId);
+      console.log(`✓ Inventario revertido exitosamente para la inspección #${inspectionId}.`);
+    }
+  } catch (err) {
+    console.error('Error in revertQualityApprovalFromInventory:', err);
   }
 }

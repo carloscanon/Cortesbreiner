@@ -32,7 +32,9 @@ import {
   Palette,
   Moon,
   Sun,
-  Factory
+  Factory,
+  QrCode,
+  Printer
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -94,6 +96,56 @@ export default function SettingsPage() {
   const [editingUser, setEditingUser] = useState<any>(null);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Sticker Configuration State
+  const [stickerConfig, setStickerConfig] = useState({
+    headerText: 'CORTES BREINER',
+    headerFontSize: 11,
+    refFontSize: 14,
+    refFontWeight: '900',
+    barcodeHeight: 55,
+    barcodeLineWidth: 2,
+    barcodeFontSize: 13,
+    barcodeType: 'code128', // 'code128' | 'code39' | 'ean13' | 'vector'
+    fontFamily: 'system-ui', // 'system-ui' | 'libre-barcode-39' | 'libre-barcode-128' | 'monospace'
+    alignment: 'center', // 'flex-start' | 'center' | 'flex-end'
+    orientation: 'portrait', // 'portrait' | 'landscape'
+    sizeFontSize: 18,
+    sizeBgColor: '#0f172a'
+  });
+
+  // Relación de Despacho a Confección Configuration State
+  const [printSubTab, setPrintSubTab] = useState<'quality' | 'sewing_despatch'>('quality');
+  const [sewingDespatchConfig, setSewingDespatchConfig] = useState({
+    companyTitle: 'CORTES BREINER S.A.S.',
+    titleFontSize: 15,
+    titleColor: '#80082E',
+    subtitleText: 'RELACIÓN DE DESPACHO A CONFECCIÓN',
+    subtitleFontSize: 12,
+    subtitleColor: '#1e293b',
+    headerBgColor: '#f8fafc',
+    bodyFontSize: 12,
+    bodyTextColor: '#0f172a',
+    itemTypeFontSize: 14,
+    itemQtyFontSize: 16,
+    itemSpacing: 8,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
+    showCutNumber: true,
+    showWorkshop: true,
+    showReference: true,
+    showColor: true,
+    showTotalUnits: true,
+    showDeliveryDate: true,
+    showOperatorSig: true,
+    showNotes: true,
+    customField1Label: 'Lote / Trazabilidad',
+    customField1Value: 'LOT-2026-X9',
+    showCustomField1: true,
+    customField2Label: 'Inspector Responsable',
+    customField2Value: 'Carlos Cañon',
+    showCustomField2: true
+  });
 
   // Avatar upload states
   const [createAvatarFile, setCreateAvatarFile] = useState<File | null>(null);
@@ -175,10 +227,22 @@ export default function SettingsPage() {
         setRoles(rolesData || []);
         const { data: wData } = await supabase.from('workshops').select('id, nombre_taller').eq('activo', true).order('nombre_taller', { ascending: true });
         setWorkshopsList(wData || []);
-      } else if (activeTab === 'company' || activeTab === 'parametrization') {
+      } else if (activeTab === 'company' || activeTab === 'parametrization' || activeTab === 'print_profiles') {
         const { data } = await supabase.from('company_params').select('*');
         if (data && data.length > 0) {
           setCompanyParams(data);
+          const printConf = data.find((p: any) => p.name === 'print_sticker_config');
+          if (printConf && printConf.value) {
+            try {
+              setStickerConfig(prev => ({ ...prev, ...JSON.parse(printConf.value) }));
+            } catch (e) {}
+          }
+          const despatchConf = data.find((p: any) => p.name === 'sewing_despatch_config');
+          if (despatchConf && despatchConf.value) {
+            try {
+              setSewingDespatchConfig(prev => ({ ...prev, ...JSON.parse(despatchConf.value) }));
+            } catch (e) {}
+          }
         } else {
           // Initialize defaults if empty
           const defaults = [
@@ -503,9 +567,10 @@ export default function SettingsPage() {
             {[
               { id: 'roles', label: 'Roles & Accesos', icon: ShieldCheck },
               { id: 'users', label: 'Usuarios', icon: Users },
+              { id: 'print_profiles', label: 'Configuración de Impresión', icon: QrCode },
               { id: 'company', label: 'Identidad Empresa', icon: Building2 },
               { id: 'masters', label: 'Tablas Maestras', icon: Database },
-              { id: 'parametrization', label: 'ParametrizaciÃ³n', icon: SettingsIcon },
+              { id: 'parametrization', label: 'Parametrización', icon: SettingsIcon },
               { id: 'notifications', label: 'Notificaciones', icon: Bell },
               { id: 'database', label: 'Base de Datos', icon: Database },
             ].map((item) => (
@@ -643,6 +708,679 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'print_profiles' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Printer size={20} color="var(--primary)" /> Configuración de Impresión de Etiquetas
+                      </h3>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
+                        Parametriza el diseño visual, tamaños de fuente y barras para etiquetas unitarias (Calidad / Confección)
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setSaving(true);
+                        try {
+                          await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              action: 'update_param',
+                              name: 'print_sticker_config',
+                              value: JSON.stringify(stickerConfig)
+                            })
+                          });
+                          await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              action: 'update_param',
+                              name: 'sewing_despatch_config',
+                              value: JSON.stringify(sewingDespatchConfig)
+                            })
+                          });
+                          setMessage('Configuración de plantillas de impresión guardada exitosamente.');
+                          setTimeout(() => setMessage(''), 4000);
+                        } catch (e: any) {
+                          alert('Error al guardar: ' + e.message);
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      className="btn btn-primary"
+                      disabled={saving}
+                      style={{ gap: '0.5rem', fontWeight: 800 }}
+                    >
+                      <Save size={16} /> {saving ? 'Guardando...' : 'Guardar Ajustes de Etiquetas'}
+                    </button>
+                  </div>
+
+                  {/* Selector de Sub-pestañas de Plantillas de Impresión */}
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPrintSubTab('quality')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'quality' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'quality' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      🏷️ Etiquetas Unitarias (Calidad)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrintSubTab('sewing_despatch')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'sewing_despatch' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'sewing_despatch' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      📄 Relación de Despacho a Confección
+                    </button>
+                  </div>
+
+                  {message && (
+                    <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', backgroundColor: '#dcfce7', color: '#166534', fontSize: '0.8rem', fontWeight: 700, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <CheckCircle2 size={16} /> {message}
+                    </div>
+                  )}
+
+                  {printSubTab === 'quality' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 1. Encabezado / Marca */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Texto del Encabezado (Marca)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Texto del Encabezado</label>
+                            <input
+                              type="text"
+                              value={stickerConfig.headerText}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Encabezado (px)</label>
+                            <input
+                              type="range" min="8" max="22" value={stickerConfig.headerFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.headerFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Referencia & Color */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Referencia y Color</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Referencia (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={stickerConfig.refFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.refFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Grosor Referencia</label>
+                            <select
+                              value={stickerConfig.refFontWeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontWeight: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="600">600 (Semi-Bold)</option>
+                              <option value="800">800 (Bold)</option>
+                              <option value="950">950 (Black Extra)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Código de Barras (Notoriedad, Fuente & Alineación) */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Código de Barras (Notoriedad, Fuente & Alineación)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tipo de Código</label>
+                            <select
+                              value={stickerConfig.barcodeType}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="code128">Code 128 (Ultra Nítido - Vector)</option>
+                              <option value="code39">Code 39 Standard (Vector)</option>
+                              <option value="font39">Fuente Libre Barcode 39</option>
+                              <option value="font128">Fuente Libre Barcode 128</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alineación del Código</label>
+                            <select
+                              value={stickerConfig.alignment}
+                              onChange={e => setStickerConfig({ ...stickerConfig, alignment: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="flex-start">⬅️ Izquierda</option>
+                              <option value="center">↔️ Centrado</option>
+                              <option value="flex-end">➡️ Derecha</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Orientación de la Etiqueta</label>
+                            <select
+                              value={stickerConfig.orientation}
+                              onChange={e => setStickerConfig({ ...stickerConfig, orientation: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="portrait">📱 Vertical (Portrait - 3 col)</option>
+                              <option value="landscape">🖥️ Horizontal (Landscape)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto de Barras (px)</label>
+                            <input
+                              type="range" min="25" max="140" value={stickerConfig.barcodeHeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeHeight: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeHeight}px</span>
+                          </div>
+
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Numérico Barcode (px)</label>
+                            <input
+                              type="range" min="10" max="22" value={stickerConfig.barcodeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Talla / Badge */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Badge de Talla</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Talla (px)</label>
+                            <input
+                              type="range" min="12" max="28" value={stickerConfig.sizeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.sizeFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color Fondo Talla</label>
+                            <input
+                              type="color" value={stickerConfig.sizeBgColor}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeBgColor: e.target.value })}
+                              style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Previsualización en Tiempo Real */}
+                    <div style={{ backgroundColor: '#f1f5f9', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', margin: '0 0 1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        👁 Previsualización de Etiqueta Impresa
+                      </h4>
+
+                      <div style={{
+                        width: '210px',
+                        backgroundColor: 'white',
+                        border: '2px solid #0f172a',
+                        borderRadius: '8px',
+                        padding: '0.85rem 0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+                        fontFamily: 'system-ui, sans-serif'
+                      }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="6" cy="6" r="3"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                            <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                            <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+                          </svg>
+                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: '#80082E', letterSpacing: '0.05em' }}>
+                            {stickerConfig.headerText}
+                          </span>
+                        </div>
+
+                        {/* Reference */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.6rem 0' }}>
+                          <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                            POLO CLASSIC 100% ALGODÓN
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>NEGRO INTENSO</span>
+
+                          {/* Configurable 1D Vector / Font Barcode Container */}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.2rem 0', width: '100%' }}>
+                            {(stickerConfig.barcodeType === 'font39' || stickerConfig.barcodeType === 'font128') ? (
+                              <span style={{
+                                fontFamily: stickerConfig.barcodeType === 'font128' ? "'Libre Barcode 128 Text', cursive, monospace" : "'Libre Barcode 39 Text', cursive, monospace",
+                                fontSize: `${stickerConfig.barcodeHeight || 48}px`,
+                                color: '#000000',
+                                lineHeight: 0.95,
+                                whiteSpace: 'nowrap',
+                                WebkitPrintColorAdjust: 'exact',
+                                printColorAdjust: 'exact'
+                              }}>
+                                *00420001*
+                              </span>
+                            ) : (
+                              <svg
+                                viewBox="0 0 160 50"
+                                style={{
+                                  width: '95%',
+                                  height: `${stickerConfig.barcodeHeight || 55}px`,
+                                  shapeRendering: 'crispEdges'
+                                }}
+                              >
+                                <rect x="0" y="0" width="160" height="50" fill="#ffffff" />
+                                {(() => {
+                                  const code = '00420001';
+                                  const bars: React.ReactNode[] = [];
+                                  let currentX = 10;
+                                  bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 5;
+                                  bars.push(<rect key="start-2" x={currentX} y="2" width="1.5" height="38" fill="#000000" />); currentX += 3.5;
+
+                                  for (let i = 0; i < code.length; i++) {
+                                    const digit = parseInt(code[i], 10) || (i + 1);
+                                    const w1 = (digit % 3 === 0) ? 3 : 1.5;
+                                    const gap = ((digit % 2 === 0) ? 2.5 : 1.5);
+                                    const w2 = ((digit + 1) % 3 === 0) ? 3.5 : 2;
+
+                                    bars.push(<rect key={`b1-${i}`} x={currentX} y="2" width={w1} height="38" fill="#000000" />);
+                                    currentX += w1 + gap;
+                                    bars.push(<rect key={`b2-${i}`} x={currentX} y="2" width={w2} height="38" fill="#000000" />);
+                                    currentX += w2 + 2;
+                                  }
+
+                                  bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
+                                  bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
+                                  return bars;
+                                })()}
+                              </svg>
+                            )}
+                            <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                              00420001
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Size Badge */}
+                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.sizeBgColor, color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                            M
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '280px' }}>
+                        💡 Cambia los deslizadores de la izquierda para ver cómo se ajusta el código de barras y textos en tiempo real.
+                      </p>
+                    </div>
+                  </div>
+                  ) : (
+                  /* ──── Pestaña: Relación de Despacho a Confección ──── */
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles de Despacho a Confección */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 1. Títulos y Encabezado */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Encabezado & Títulos</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Título Empresa</label>
+                            <input
+                              type="text"
+                              value={sewingDespatchConfig.companyTitle}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, companyTitle: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Título (px)</label>
+                            <input
+                              type="range" min="11" max="24" value={sewingDespatchConfig.titleFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, titleFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.titleFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Subtítulo Documento</label>
+                            <input
+                              type="text"
+                              value={sewingDespatchConfig.subtitleText}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, subtitleText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Subtítulo (px)</label>
+                            <input
+                              type="range" min="9" max="20" value={sewingDespatchConfig.subtitleFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, subtitleFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.subtitleFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Formato y Colores */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Formato, Fuente y Colores</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Cuerpo (px)</label>
+                            <input
+                              type="range" min="9" max="18" value={sewingDespatchConfig.bodyFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, bodyFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.bodyFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Tipo de Prenda (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={sewingDespatchConfig.itemTypeFontSize || 14}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemTypeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemTypeFontSize || 14}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Cantidad Unidades (px)</label>
+                            <input
+                              type="range" min="12" max="32" value={sewingDespatchConfig.itemQtyFontSize || 16}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemQtyFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemQtyFontSize || 16}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Espaciado entre Filas (px)</label>
+                            <input
+                              type="range" min="4" max="20" value={sewingDespatchConfig.itemSpacing}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemSpacing: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemSpacing}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color de Título</label>
+                            <input
+                              type="color" value={sewingDespatchConfig.titleColor}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, titleColor: e.target.value })}
+                              style={{ width: '100%', height: '34px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '6px' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color de Fondo Encabezado</label>
+                            <input
+                              type="color" value={sewingDespatchConfig.headerBgColor}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, headerBgColor: e.target.value })}
+                              style={{ width: '100%', height: '34px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '6px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Selección y Modificación de Campos */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Campos a Mostrar e Incluir</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showCutNumber} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCutNumber: e.target.checked })} /> Número de Corte / OP
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showWorkshop} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showWorkshop: e.target.checked })} /> Satélite / Taller Destino
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showReference} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showReference: e.target.checked })} /> Referencia de Prenda
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showColor} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showColor: e.target.checked })} /> Color de Tela
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showTotalUnits} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showTotalUnits: e.target.checked })} /> Total Unidades Despachadas
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showDeliveryDate} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showDeliveryDate: e.target.checked })} /> Fecha Estimada de Entrega
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showOperatorSig} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showOperatorSig: e.target.checked })} /> Firma de Recibido / Entregado
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showNotes} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showNotes: e.target.checked })} /> Observaciones / Notas
+                          </label>
+                        </div>
+
+                        {/* Campos Personalizables Personalizados */}
+                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <h5 style={{ fontSize: '0.78rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>Campos Personalizados Adicionales:</h5>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.5fr', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                              type="text" placeholder="Nombre Campo 1" value={sewingDespatchConfig.customField1Label}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField1Label: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <input
+                              type="text" placeholder="Valor Muestra 1" value={sewingDespatchConfig.customField1Value}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField1Value: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <label style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <input type="checkbox" checked={sewingDespatchConfig.showCustomField1} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCustomField1: e.target.checked })} /> Ver
+                            </label>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.5fr', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                              type="text" placeholder="Nombre Campo 2" value={sewingDespatchConfig.customField2Label}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField2Label: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <input
+                              type="text" placeholder="Valor Muestra 2" value={sewingDespatchConfig.customField2Value}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField2Value: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <label style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <input type="checkbox" checked={sewingDespatchConfig.showCustomField2} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCustomField2: e.target.checked })} /> Ver
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Simulación en Tiempo Real de la Etiqueta de Despacho */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        👁️ Simulación en Tiempo Real (Relación de Despacho)
+                      </h4>
+
+                      <div style={{
+                        width: '100%',
+                        maxWidth: '380px',
+                        backgroundColor: 'white',
+                        border: `${sewingDespatchConfig.borderWidth}px solid ${sewingDespatchConfig.borderColor}`,
+                        borderRadius: '10px',
+                        overflow: 'hidden',
+                        boxShadow: '0 12px 28px -6px rgba(0,0,0,0.12)',
+                        fontFamily: 'system-ui, sans-serif'
+                      }}>
+                        {/* Banner Encabezado */}
+                        <div style={{
+                          backgroundColor: sewingDespatchConfig.headerBgColor,
+                          padding: '0.85rem 1rem',
+                          borderBottom: `${sewingDespatchConfig.borderWidth}px solid ${sewingDespatchConfig.borderColor}`,
+                          textAlign: 'center'
+                        }}>
+                          <h3 style={{
+                            margin: 0,
+                            fontSize: `${sewingDespatchConfig.titleFontSize}px`,
+                            fontWeight: 900,
+                            color: sewingDespatchConfig.titleColor,
+                            letterSpacing: '0.04em'
+                          }}>
+                            {sewingDespatchConfig.companyTitle}
+                          </h3>
+                          <p style={{
+                            margin: '0.2rem 0 0',
+                            fontSize: `${sewingDespatchConfig.subtitleFontSize}px`,
+                            fontWeight: 800,
+                            color: sewingDespatchConfig.subtitleColor,
+                            letterSpacing: '0.02em'
+                          }}>
+                            {sewingDespatchConfig.subtitleText}
+                          </p>
+                        </div>
+
+                        {/* Contenido / Campos Simulados */}
+                        <div style={{
+                          padding: '1rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: `${sewingDespatchConfig.itemSpacing}px`,
+                          fontSize: `${sewingDespatchConfig.bodyFontSize}px`,
+                          color: sewingDespatchConfig.bodyTextColor
+                        }}>
+                          {sewingDespatchConfig.showCutNumber && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>N° Corte / OP:</span>
+                              <span style={{ fontWeight: 900, color: '#0f172a' }}>CORTE #1042</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showWorkshop && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Satélite Destino:</span>
+                              <span style={{ fontWeight: 800, color: '#80082E' }}>Confecciones Don Mario</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showReference && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Referencia:</span>
+                              <span style={{ fontWeight: 800 }}>POLO CLASSIC 100% ALGODÓN</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showColor && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Color:</span>
+                              <span style={{ fontWeight: 800, color: '#2563eb' }}>AZUL OBSCURO</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showTotalUnits && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#f1f5f9', padding: '0.4rem 0.6rem', borderRadius: '6px' }}>
+                              <span style={{ fontWeight: 900, color: '#0f172a' }}>Total Prenda Cortada:</span>
+                              <span style={{ fontWeight: 950, color: '#166534' }}>320 Unidades</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showDeliveryDate && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Entrega Estimada:</span>
+                              <span style={{ fontWeight: 800 }}>25/Julio/2026</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showCustomField1 && sewingDespatchConfig.customField1Label && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>{sewingDespatchConfig.customField1Label}:</span>
+                              <span style={{ fontWeight: 800 }}>{sewingDespatchConfig.customField1Value}</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showCustomField2 && sewingDespatchConfig.customField2Label && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>{sewingDespatchConfig.customField2Label}:</span>
+                              <span style={{ fontWeight: 800 }}>{sewingDespatchConfig.customField2Value}</span>
+                            </div>
+                          )}
+
+                          <div style={{ marginTop: '0.45rem', borderTop: '2px dashed #0f172a', paddingTop: '0.45rem' }}>
+                            <span style={{ fontWeight: 800, color: '#475569', display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '0.3rem' }}>Detalle de Prendas Cortadas:</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.35rem 0.5rem', borderRadius: '6px', marginBottom: '0.25rem' }}>
+                              <span style={{ fontWeight: 800, fontSize: `${sewingDespatchConfig.itemTypeFontSize || 14}px`, color: '#0f172a' }}>• POLO MANGA CORTA (Camisetas)</span>
+                              <strong style={{ fontSize: `${sewingDespatchConfig.itemQtyFontSize || 16}px`, fontWeight: 950, color: '#166534' }}>240 uds</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.35rem 0.5rem', borderRadius: '6px' }}>
+                              <span style={{ fontWeight: 800, fontSize: `${sewingDespatchConfig.itemTypeFontSize || 14}px`, color: '#0f172a' }}>• JOGGER ALGODÓN (Pantalones)</span>
+                              <strong style={{ fontSize: `${sewingDespatchConfig.itemQtyFontSize || 16}px`, fontWeight: 950, color: '#166534' }}>80 uds</strong>
+                            </div>
+                          </div>
+
+                          {sewingDespatchConfig.showNotes && (
+                            <div style={{ marginTop: '0.2rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b', display: 'block', fontSize: '0.7rem' }}>Observaciones:</span>
+                              <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', fontStyle: 'italic', color: '#475569' }}>
+                                Entregar tiquete de corte firmado. Incluye paquete de sesgo.
+                              </p>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showOperatorSig && (
+                            <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1.5px solid #cbd5e1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', textAlign: 'center' }}>
+                              <div>
+                                <div style={{ borderBottom: '1px solid #0f172a', height: '24px', marginBottom: '0.2rem' }} />
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b' }}>Entregado (Despacho)</span>
+                              </div>
+                              <div>
+                                <div style={{ borderBottom: '1px solid #0f172a', height: '24px', marginBottom: '0.2rem' }} />
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b' }}>Recibido (Taller Satélite)</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '320px' }}>
+                        💡 Activa o desactiva campos, ajusta colores y tamaños en la izquierda para personalizar la Relación de Despacho.
+                      </p>
+                    </div>
+                  </div>
+                  )}
                 </div>
               )}
 

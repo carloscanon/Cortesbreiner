@@ -113,6 +113,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (error) {
         console.warn('Profile fetch error:', error.message);
       } else if (data) {
+        if (data.is_active === false) {
+          console.warn('Usuario desactivado o desconectado remotamente.');
+          await supabase.auth.signOut();
+          setUser(null);
+          setProfile(null);
+          if (typeof window !== 'undefined') {
+            window.location.href = '/login?reason=disconnected';
+          }
+          return;
+        }
+
         // Priorizar user_metadata (fresco del servidor) sobre la tabla profiles
         const extendedProfile = {
           ...data,
@@ -128,6 +139,54 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     }
   };
+
+  // Realtime force disconnect listener
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`user-disconnect-listener-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'global_audit_logs',
+          filter: `event_type=eq.FORCE_DISCONNECT`
+        },
+        (payload) => {
+          const log = payload.new;
+          if (log && (log.affected_record === user.email || log.user_id === user.id || log.affected_record === user.id)) {
+            alert('⚡ Tu sesión ha sido terminada remotamente por el Super Administrador.');
+            supabase.auth.signOut().then(() => {
+              window.location.href = '/login?reason=remote_disconnect';
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`
+        },
+        (payload) => {
+          if (payload.new && payload.new.is_active === false) {
+            alert('🔒 Tu cuenta ha sido desactivada por el Administrador.');
+            supabase.auth.signOut().then(() => {
+              window.location.href = '/login?reason=disabled';
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const signOut = async () => {
     await supabase.auth.signOut();

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { syncQualityApprovalToInventory } from '@/lib/finished-goods-sync';
+import { syncQualityApprovalToInventory, revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 import {
   CheckCircle2, XCircle, AlertCircle, Search, ClipboardCheck,
   Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity
@@ -25,6 +25,8 @@ const EMPTY_FORM = {
   notes: '',
   lavanderia: '0',
   saldos: '0',
+  has_lavanderia: false,
+  has_saldos: false,
   costuras: '0',
   incompleto: '0',
   valor_prenda: '3500',
@@ -86,9 +88,42 @@ export default function QualityPage() {
   const [garmentNotes, setGarmentNotes] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [showLabelsModal, setShowLabelsModal] = useState(false);
+  const [showRollbackModal, setShowRollbackModal] = useState(false);
+  const [rollbackItem, setRollbackItem] = useState<any>(null);
+  const [selectedRollbackOption, setSelectedRollbackOption] = useState<string>('stage_1');
+  const [executingRollback, setExecutingRollback] = useState(false);
   const [rowApproved, setRowApproved] = useState<Record<string, number>>({});
   const [rowRejected, setRowRejected] = useState<Record<string, number>>({});
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
+
+  // Dynamic Sticker Config State
+  const [stickerConfig, setStickerConfig] = useState<{
+    headerText: string;
+    headerFontSize: number;
+    refFontSize: number;
+    refFontWeight: string;
+    barcodeHeight: number;
+    barcodeLineWidth: number;
+    barcodeFontSize: number;
+    barcodeType?: string;
+    alignment?: string;
+    orientation?: string;
+    sizeFontSize: number;
+    sizeBgColor: string;
+  }>({
+    headerText: 'CORTES BREINER',
+    headerFontSize: 11,
+    refFontSize: 14,
+    refFontWeight: '900',
+    barcodeHeight: 55,
+    barcodeLineWidth: 2,
+    barcodeFontSize: 13,
+    barcodeType: 'code128',
+    alignment: 'center',
+    orientation: 'portrait',
+    sizeFontSize: 18,
+    sizeBgColor: '#0f172a'
+  });
 
   useEffect(() => {
     fetchAll(() => supabase.from('products').select('*')).then(setProducts);
@@ -98,6 +133,11 @@ export default function QualityPage() {
     supabase.from('categories').select('*').then(({ data }) => setCategories(data || []));
     supabase.from('workshop_special_costs').select('*').then(({ data }) => setWorkshopSpecialCosts(data || []));
     supabase.from('workshop_rates').select('*').then(({ data }) => setWorkshopRates(data || []));
+    supabase.from('company_params').select('*').eq('name', 'print_sticker_config').maybeSingle().then(({ data }) => {
+      if (data && data.value) {
+        try { setStickerConfig(prev => ({ ...prev, ...JSON.parse(data.value) })); } catch (e) {}
+      }
+    });
     fetchInspections();
     fetchSewingOrders();
     fetchNotifications();
@@ -398,7 +438,7 @@ export default function QualityPage() {
     if (isSewingOrder) {
       const { data } = await supabase
         .from('sewing_orders')
-        .select(`*, parent_order:orders(*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*))), sewing_order_sizes(*, sizes(*)), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque)`)
+        .select(`*, parent_order:orders(*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*), fabrics(nombre_tela), colors(nombre_color), products(*, categories(categoria)))), sewing_order_sizes(*, sizes(*)), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque)`)
         .eq('id', id).single();
       setOrderDetail(data);
       const detailRows = getDetailRows(data);
@@ -406,13 +446,23 @@ export default function QualityPage() {
       if (data) {
         const prod = products.find((p: any) => String(p.id) === String(data.product_id));
         const { rate: garmentRate } = getRateSource(data, prod);
-        setForm((f: any) => ({ ...f, valor_prenda: garmentRate.toString() }));
+        const plannedSum = detailRows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0);
+        setForm((f: any) => ({
+          ...f,
+          valor_prenda: garmentRate.toString(),
+          items_inspected: (!f.items_inspected || f.items_inspected === '0') ? plannedSum.toString() : f.items_inspected
+        }));
       }
     } else {
-      const { data } = await supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*))').eq('id', id).single();
+      const { data } = await supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*), fabrics(nombre_tela), colors(nombre_color), products(*, categories(categoria)))').eq('id', id).single();
       setOrderDetail(data);
       const detailRows = getDetailRows(data);
       await fetchIndividualGarments(id, false, detailRows);
+      const plannedSum = detailRows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0);
+      setForm((f: any) => ({
+        ...f,
+        items_inspected: (!f.items_inspected || f.items_inspected === '0') ? plannedSum.toString() : f.items_inspected
+      }));
     }
     setLoadingDetail(false);
   };
@@ -423,6 +473,7 @@ export default function QualityPage() {
     if (!fabricId) {
       const cutsList = orderDetail.parent_order?.cuts || orderDetail.cuts || [];
       const firstCut = cutsList[0];
+      if (firstCut?.fabrics?.nombre_tela) return firstCut.fabrics.nombre_tela;
       if (firstCut?.fabric_id) {
         const fab = fabrics.find(f => String(f.id) === String(firstCut.fabric_id));
         if (fab) return fab.nombre_tela;
@@ -442,17 +493,41 @@ export default function QualityPage() {
       const rows: any[] = [];
       parent.cuts.forEach((cut: any) => {
         if (String(cut.product_id) !== String(sewingOrder.product_id)) return;
-        const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
-        const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id));
-        const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
-        const productName = prod ? prod.nombre_producto : 'Sin Referencia';
+        const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
+        const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id)) || cut.colors;
+        
+        let colorName = '—';
+        if (colorObj && colorObj.nombre_color) {
+          colorName = colorObj.nombre_color;
+        } else if (cut.color && cut.color !== '—') {
+          colorName = cut.color;
+        } else if (cut.fabrics?.nombre_tela) {
+          colorName = cut.fabrics.nombre_tela;
+        } else if (cut.fabric_id) {
+          const fab = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
+          if (fab && fab.nombre_tela) colorName = fab.nombre_tela;
+        }
+
+        const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
+        const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
+        const productName = prod ? (categoryName ? `${prod.nombre_producto || prod.name} [${categoryName}]` : (prod.nombre_producto || prod.name)) : 'Sin Referencia';
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
         (cut.cut_sizes || []).forEach((cs: any) => {
           const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
           const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
           const sosMatch = sewingOrder.sewing_order_sizes.find((sos: any) => String(sos.size_id) === String(cs.size_id));
-          const plannedQty = sosMatch ? Number(sosMatch.cantidad_planeada) || 0 : 0;
-          if (plannedQty <= 0) return;
-          rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, size: sz, quantity: plannedQty });
+          if (!sosMatch || (Number(sosMatch.cantidad_planeada) || 0) <= 0) return;
+
+          let realQty = cs.quantity_produced !== undefined && cs.quantity_produced !== null
+            ? Number(cs.quantity_produced)
+            : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
+          if (realQty <= 0) realQty = Number(cs.quantity) || 0;
+
+          if (realQty > 0) {
+            rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, categoryName, size: sz, quantity: realQty });
+          }
         });
       });
       return rows;
@@ -460,10 +535,24 @@ export default function QualityPage() {
     if (!order.cuts) return [];
     const rows: any[] = [];
     order.cuts.forEach((cut: any) => {
-      const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
-      const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id));
-      const productName = prod ? prod.nombre_producto : 'Sin Referencia';
-      const colorName = colorObj ? colorObj.nombre_color : (cut.color || '—');
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
+      const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id)) || cut.colors;
+      
+      let colorName = '—';
+      if (colorObj && colorObj.nombre_color) {
+        colorName = colorObj.nombre_color;
+      } else if (cut.color && cut.color !== '—') {
+        colorName = cut.color;
+      } else if (cut.fabrics?.nombre_tela) {
+        colorName = cut.fabrics.nombre_tela;
+      } else if (cut.fabric_id) {
+        const fab = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
+        if (fab && fab.nombre_tela) colorName = fab.nombre_tela;
+      }
+
+      const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
+      const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
+      const productName = prod ? (categoryName ? `${prod.nombre_producto || prod.name} [${categoryName}]` : (prod.nombre_producto || prod.name)) : 'Sin Referencia';
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
       (cut.cut_sizes || []).forEach((cs: any) => {
@@ -471,7 +560,7 @@ export default function QualityPage() {
         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
         let qty = cs.quantity_produced !== undefined && cs.quantity_produced !== null ? Number(cs.quantity_produced) : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
         if (qty <= 0) qty = Number(cs.quantity) || 0;
-        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, size: sz, quantity: qty });
+        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, categoryName, size: sz, quantity: qty });
       });
     });
     return rows;
@@ -483,13 +572,14 @@ export default function QualityPage() {
     return { totalApproved, totalRejected };
   };
 
-  const handleSave = async (nextStageToSave?: number) => {
+  const handleSave = async (nextStageToSave?: number, isFinalizingBatch: boolean = false) => {
     if (!form.sewing_order_id && !form.order_id) return alert('Selecciona una orden.');
     setSaving(true);
     const selectedSewingOrder = sewingOrders.find((so: any) => so.id === form.sewing_order_id);
     const parentOrderId = selectedSewingOrder ? selectedSewingOrder.parent_order_id : form.order_id;
     const selectedOrder = orders.find((o: any) => o.id === parentOrderId);
     const rows = getDetailRows(orderDetail);
+    const totalRecFromRows = rows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0);
     let lavVal = Number(form.lavanderia) || 0, salVal = Number(form.saldos) || 0, cosVal = Number(form.costuras) || 0, incVal = Number(form.incompleto) || 0;
     let finalApproved = Number(form.items_approved) || 0, finalRejected = 0;
 
@@ -497,12 +587,11 @@ export default function QualityPage() {
       finalApproved = individualGarments.filter(g => g.status === 'Aprobada').length;
       const rejectedGarments = individualGarments.filter(g => g.status === 'Rechazada');
       finalRejected = rejectedGarments.length;
-      cosVal = 0; lavVal = 0; salVal = 0; incVal = 0;
+      cosVal = 0; incVal = 0;
       rejectedGarments.forEach(g => {
         const chk = g.defect_checklist || {};
         const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
-        const isLavado = chk['Lavado'] || chk['Mancha'];
-        if (isCostura) cosVal++; else if (isLavado) lavVal++; else salVal++;
+        if (isCostura) cosVal++; else incVal++;
       });
       form.items_inspected = individualGarments.length.toString();
       form.items_approved = finalApproved.toString();
@@ -512,14 +601,15 @@ export default function QualityPage() {
       form.saldos = salVal.toString();
       form.incompleto = incVal.toString();
     } else {
-      finalRejected = lavVal + salVal + cosVal + incVal;
       if (rows.length > 0) {
         const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
-        if (totalApproved > 0) finalApproved = totalApproved;
-        if (totalRejected > 0 && finalRejected === 0) finalRejected = totalRejected;
+        finalApproved = totalApproved;
+        finalRejected = totalRejected;
+      } else {
+        finalRejected = lavVal + salVal + cosVal + incVal;
       }
     }
-    const totalInspected = Number(form.items_inspected) || 0;
+    const totalInspected = Number(form.items_inspected) || totalRecFromRows || (finalApproved + finalRejected);
     if (finalRejected > totalInspected) { setSaving(false); return alert(`❌ Rechazadas (${finalRejected}) no puede superar el total inspeccionadas (${totalInspected}).`); }
     if (finalApproved + finalRejected > totalInspected) { setSaving(false); return alert(`❌ Aprobadas + rechazadas supera total inspeccionado.`); }
 
@@ -535,6 +625,7 @@ export default function QualityPage() {
 
     // Calcular el stage a persistir
     const resolvedStage = nextStageToSave !== undefined ? nextStageToSave : activeStage;
+    const isClosing = isFinalizingBatch || form.status === 'Aprobado';
 
     const payload: any = {
       order_id: parentOrderId || null,
@@ -542,13 +633,16 @@ export default function QualityPage() {
       workshop_name: selectedSewingOrder?.workshops?.nombre_taller || selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
       items_inspected: totalInspected, items_approved: finalApproved, items_rejected: finalRejected,
       lavanderia: lavVal, saldos: salVal, costuras: cosVal, incompleto: incVal,
-      status: resolvedStage >= 4 ? 'Aprobado' : form.status, notes: form.notes, valor_prenda: valPrenda,
-      descuento_defectos: descDefectos, valor_pagar: valPagar,
-      pago_status: form.pago_status || 'Pendiente de aprobación financiera',
+      status: isClosing ? (form.status === 'Pendiente' ? 'Aprobado' : form.status) : (form.status || 'En Proceso'),
+      notes: form.notes,
+      valor_prenda: valPrenda,
+      descuento_defectos: descDefectos,
+      valor_pagar: valPagar,
+      pago_status: isClosing ? (form.pago_status || 'Autorizado para Pago') : 'Pendiente de aprobación financiera',
       received_at: form.received_at || (activeStage === 1 ? new Date().toISOString() : null),
       inspected_at: form.inspected_at || (activeStage === 1 ? new Date().toISOString() : null),
       packaged_at: form.packaged_at || (activeStage === 3 ? new Date().toISOString() : null),
-      closed_at: (resolvedStage >= 4 || form.status === 'Aprobado' || form.status === 'Empacado') ? new Date().toISOString() : null,
+      closed_at: isClosing ? (form.closed_at || new Date().toISOString()) : null,
       operator_name: form.operator_name || null,
       current_stage: resolvedStage
     };
@@ -634,15 +728,175 @@ export default function QualityPage() {
     if (error) {
       alert('Error al guardar: ' + error.message);
     } else {
-      if ((payload.status === 'Aprobado' || payload.status === 'Empacado' || resolvedStage >= 4) && savedInspectionId) {
+      if (isClosing && savedInspectionId) {
         await syncQualityApprovalToInventory(savedInspectionId);
       }
-      // Al cerrar un paso, cerramos el modal por completo para que el siguiente re-ingreso continúe en la etapa grabada.
-      closeModal();
+      if (nextStageToSave !== undefined && !isFinalizingBatch) {
+        setActiveStage(nextStageToSave);
+      } else {
+        closeModal();
+      }
       fetchInspections();
       fetchNotifications();
     }
     setSaving(false);
+  };
+
+  const handleSuperAdminRollbackOrder = (item: any) => {
+    setRollbackItem(item);
+    setSelectedRollbackOption('stage_1');
+    setShowRollbackModal(true);
+  };
+
+  const handleExecuteRollbackOption = async (targetOption: string) => {
+    if (!rollbackItem) return;
+    const item = rollbackItem;
+    const orderCode = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : 'Seleccionada');
+    
+    setExecutingRollback(true);
+    try {
+      const inspectionId = item.id;
+      const orderId = item.order_id || item.sewing_orders?.parent_order_id;
+      const sewingOrderId = item.sewing_order_id;
+
+      if (targetOption === 'stage_1') {
+        // Devolver a Etapa 1: Recepción e Inspección
+        if (inspectionId) {
+          await revertQualityApprovalFromInventory(inspectionId);
+          await supabase.from('quality_inspections').update({
+            current_stage: 1,
+            status: 'En Proceso',
+            closed_at: null,
+            pago_status: 'Pendiente de aprobación financiera'
+          }).eq('id', inspectionId);
+        }
+        alert(`✅ La inspección del lote ${orderCode} ha sido devuelta a la Etapa 1 (Recepción e Inspección).`);
+
+      } else if (targetOption === 'stage_2') {
+        // Devolver a Etapa 2: Reproceso y Arreglos
+        if (inspectionId) {
+          await revertQualityApprovalFromInventory(inspectionId);
+          await supabase.from('quality_inspections').update({
+            current_stage: 2,
+            status: 'Reproceso',
+            closed_at: null,
+            pago_status: 'Pendiente de aprobación financiera'
+          }).eq('id', inspectionId);
+        }
+        alert(`✅ La inspección del lote ${orderCode} ha sido devuelta a la Etapa 2 (Reproceso y Arreglos).`);
+
+      } else if (targetOption === 'stage_3') {
+        // Devolver a Etapa 3: Doblado y Empaque
+        if (inspectionId) {
+          await revertQualityApprovalFromInventory(inspectionId);
+          await supabase.from('quality_inspections').update({
+            current_stage: 3,
+            status: 'Empacado',
+            closed_at: null,
+            pago_status: 'Pendiente de aprobación financiera'
+          }).eq('id', inspectionId);
+        }
+        alert(`✅ La inspección del lote ${orderCode} ha sido devuelta a la Etapa 3 (Doblado y Empaque).`);
+
+      } else if (targetOption === 'stage_4') {
+        // Reabrir Liquidación (Etapa 4)
+        if (inspectionId) {
+          await revertQualityApprovalFromInventory(inspectionId);
+          await supabase.from('quality_inspections').update({
+            current_stage: 4,
+            status: 'En Proceso',
+            closed_at: null,
+            pago_status: 'Pendiente de aprobación financiera'
+          }).eq('id', inspectionId);
+        }
+        alert(`✅ El lote ${orderCode} ha sido reabierto en la Etapa 4 (Liquidación). Se descontó el inventario registrado previamente.`);
+
+      } else if (targetOption === 'sewing') {
+        // Devolver a Taller de Confección
+        if (inspectionId) await revertQualityApprovalFromInventory(inspectionId);
+        if (inspectionId) await supabase.from('individual_garments').delete().eq('quality_inspection_id', inspectionId);
+        if (sewingOrderId) await supabase.from('individual_garments').delete().eq('sewing_order_id', sewingOrderId);
+        if (inspectionId) await supabase.from('quality_inspections').delete().eq('id', inspectionId);
+
+        if (sewingOrderId) {
+          await supabase.from('sewing_orders').update({ status: 'En Confección' }).eq('id', sewingOrderId);
+        }
+        alert(`✅ La orden ${orderCode} ha sido devuelta al Taller de Confección (En Confección).`);
+
+      } else if (targetOption === 'tendido') {
+        // Devolver a Fin de Tendido / Salida de Corte (Remueve subórdenes de confección)
+        if (inspectionId) await revertQualityApprovalFromInventory(inspectionId);
+        if (inspectionId) await supabase.from('individual_garments').delete().eq('quality_inspection_id', inspectionId);
+        if (sewingOrderId) await supabase.from('individual_garments').delete().eq('sewing_order_id', sewingOrderId);
+        if (orderId) await supabase.from('individual_garments').delete().eq('order_id', orderId);
+
+        if (inspectionId) await supabase.from('quality_inspections').delete().eq('id', inspectionId);
+
+        if (orderId) {
+          const { data: sewingOrders } = await supabase.from('sewing_orders').select('id').eq('parent_order_id', orderId);
+          const sewingIds = (sewingOrders || []).map((s: any) => s.id);
+          if (sewingIds.length > 0) {
+            await supabase.from('sewing_order_sizes').delete().in('sewing_order_id', sewingIds);
+            await supabase.from('sewing_orders').delete().eq('parent_order_id', orderId);
+          }
+          await supabase.from('orders').update({ status: 'Cortado' }).eq('id', orderId);
+        } else if (sewingOrderId) {
+          await supabase.from('sewing_order_sizes').delete().eq('sewing_order_id', sewingOrderId);
+          await supabase.from('sewing_orders').delete().eq('id', sewingOrderId);
+        }
+        alert(`✅ La orden ${orderCode} ha sido devuelta a Fin de Tendido / Salida de Corte (Estado: Cortado). Se eliminaron las subórdenes relacionales.`);
+
+      } else if (targetOption === 'pre_cut') {
+        // Reinicio Total hasta Antes de Corte
+        if (inspectionId) await revertQualityApprovalFromInventory(inspectionId);
+        if (inspectionId) await supabase.from('individual_garments').delete().eq('quality_inspection_id', inspectionId);
+        if (sewingOrderId) await supabase.from('individual_garments').delete().eq('sewing_order_id', sewingOrderId);
+        if (orderId) await supabase.from('individual_garments').delete().eq('order_id', orderId);
+
+        if (inspectionId) await supabase.from('quality_inspections').delete().eq('id', inspectionId);
+
+        if (sewingOrderId) {
+          await supabase.from('sewing_order_sizes').delete().eq('sewing_order_id', sewingOrderId);
+          await supabase.from('sewing_orders').delete().eq('id', sewingOrderId);
+        } else if (orderId) {
+          await supabase.from('sewing_orders').delete().eq('parent_order_id', orderId);
+        }
+
+        if (orderId) {
+          const { data: cuts } = await supabase.from('cutting_orders').select('id').eq('order_id', orderId);
+          if (cuts && cuts.length > 0) {
+            for (const cut of cuts) {
+              await supabase.from('cut_sizes').delete().eq('cutting_order_id', cut.id);
+              await supabase.from('cutting_items').delete().eq('cutting_order_id', cut.id);
+            }
+            await supabase.from('cutting_orders').delete().eq('order_id', orderId);
+          }
+          await supabase.from('orders').update({ status: 'CREADO', workshop_id: null }).eq('id', orderId);
+        }
+        alert(`✅ La orden ${orderCode} ha sido reiniciada por completo hasta antes de corte.`);
+      }
+
+      await supabase.from('global_audit_logs').insert({
+        event_type: 'SUPERADMIN_ROLLBACK_ORDER',
+        module_name: 'Calidad',
+        user_name: currentUser?.full_name || currentUser?.email || 'SuperAdmin Master',
+        user_id: currentUser?.id,
+        affected_record: orderCode,
+        criticidad: 'Crítica',
+        resultado: 'Exitoso',
+        new_value: { action: targetOption, order_code: orderCode, order_id: orderId, inspection_id: inspectionId }
+      });
+
+      setShowRollbackModal(false);
+      setRollbackItem(null);
+      closeModal();
+      fetchInspections();
+      fetchNotifications();
+    } catch (err: any) {
+      alert('Error ejecutando el rollback: ' + err.message);
+    } finally {
+      setExecutingRollback(false);
+    }
   };
 
   const updateStatus = async (id: string, status: string) => {
@@ -668,6 +922,8 @@ export default function QualityPage() {
       items_approved: (item.items_approved || 0).toString(),
       items_rejected: (item.items_rejected || 0).toString(),
       lavanderia: (item.lavanderia || 0).toString(), saldos: (item.saldos || 0).toString(),
+      has_lavanderia: Number(item.lavanderia) > 0,
+      has_saldos: Number(item.saldos) > 0,
       costuras: (item.costuras || 0).toString(), incompleto: (item.incompleto || 0).toString(),
       status: item.status, notes: item.notes || '',
       valor_prenda: (item.valor_prenda || 3500).toString(),
@@ -752,6 +1008,8 @@ export default function QualityPage() {
   const allResolved = totalRec > 0 && (totalApp + totalRej === totalRec) && totalRep === 0;
 
   const STAGE_LABELS = ['1. Recepción e Inspección', '2. Etiquetado', '3. Doblado y Empaque', '4. Liquidación'];
+  const roleNameStr = (userRole || currentUser?.roles?.name || '').toLowerCase();
+  const isSuperAdmin = roleNameStr.includes('super') || roleNameStr.includes('admin master') || currentUser?.role_id === 'superadmin';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
@@ -929,6 +1187,14 @@ export default function QualityPage() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                  {isSuperAdmin && (
+                    <button className="btn"
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#dc2626', color: 'white', border: '1px solid #991b1b', borderRadius: '8px', cursor: 'pointer' }}
+                      onClick={() => handleSuperAdminRollbackOrder(item)}
+                      title="Acción exclusiva de SuperAdmin: Deshace y borra todo el flujo hasta cortes sin dejar registros">
+                      🚨 Deshacer Orden (SuperAdmin)
+                    </button>
+                  )}
                   {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
                     <button className="btn" disabled={receivingCheckId === item.id}
                       style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: '900', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
@@ -971,7 +1237,17 @@ export default function QualityPage() {
                   {orderDetail ? `${orderDetail.confeccion_code || 'OC'} — ${orderDetail.workshops?.nombre_taller || orderDetail.parent_order?.workshops?.nombre_taller || 'Inspección'}` : 'Selecciona una orden de confección'}
                 </h2>
               </div>
-              <button onClick={closeModal} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem' }}><X size={18} /></button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {isSuperAdmin && editingId && (
+                  <button className="btn"
+                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#dc2626', color: 'white', border: '1px solid #991b1b', borderRadius: '8px', cursor: 'pointer' }}
+                    onClick={() => handleSuperAdminRollbackOrder(orderDetail || inspections.find(i => i.id === editingId) || { id: editingId, order_id: form.order_id, sewing_order_id: form.sewing_order_id })}
+                    title="Acción exclusiva de SuperAdmin: deshacer completamente esta orden hasta cortes">
+                    🚨 Deshacer Todo (SuperAdmin)
+                  </button>
+                )}
+                <button onClick={closeModal} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '8px', padding: '0.5rem' }}><X size={18} /></button>
+              </div>
             </div>
 
             {/* Stage Stepper */}
@@ -1018,52 +1294,6 @@ export default function QualityPage() {
 
               {orderDetail && (
                 <>
-                  {/* Context bar */}
-                  {(() => {
-                    const ctxProd = products.find((p: any) => String(p.id) === String(orderDetail.product_id));
-                    const { rate: ctxRate, source: ctxRateSource, isSpecialProduct: ctxIsSpecial } = getRateSource(orderDetail, ctxProd);
-                    const isPedidoEspecial = !!(orderDetail.parent_order?.pedido_especial);
-                    return (
-                      <>
-                        {/* Badges de condiciones especiales */}
-                        {(isPedidoEspecial || ctxIsSpecial) && (
-                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
-                            {isPedidoEspecial && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', backgroundColor: '#fff7ed', border: '1.5px solid #fb923c', borderRadius: '20px', padding: '0.2rem 0.75rem', fontSize: '0.68rem', fontWeight: '900', color: '#c2410c' }}>
-                                ⭐ Pedido Especial
-                              </span>
-                            )}
-                            {ctxIsSpecial && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', backgroundColor: '#f0fdf4', border: '1.5px solid #4ade80', borderRadius: '20px', padding: '0.2rem 0.75rem', fontSize: '0.68rem', fontWeight: '900', color: '#15803d' }}>
-                                💲 Costo especial: ${ctxRate.toLocaleString('es-CO')}/prenda
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem', backgroundColor: '#fdf2f4', padding: '0.85rem 1rem', borderRadius: '10px', border: '1.5px solid #f5c6d0' }}>
-                          {[
-                            { label: 'Cliente', value: orderDetail.parent_order?.client_name || orderDetail.client_name || '—' },
-                            { label: 'Tela', value: getFabricName() },
-                            { label: 'Cantidad', value: `${totalRec} prendas` },
-                            { label: 'Tarifa Prenda', value: `$${ctxRate.toLocaleString('es-CO')} — ${ctxRateSource}` },
-                          ].map(item => (
-                            <div key={item.label}>
-                              <span style={{ fontSize: '0.6rem', color: '#80082E', fontWeight: '800', textTransform: 'uppercase', display: 'block' }}>{item.label}</span>
-                              <strong style={{ fontSize: '0.8rem', color: '#1e293b' }}>{item.value}</strong>
-                            </div>
-                          ))}
-                          <div>
-                            <span style={{ fontSize: '0.6rem', color: '#80082E', fontWeight: '800', textTransform: 'uppercase', display: 'block' }}>Inspector</span>
-                            <input type="text" placeholder="Nombre..." value={form.operator_name}
-                              onChange={e => setForm({ ...form, operator_name: e.target.value })}
-                              readOnly={!!currentUser}
-                              style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', borderRadius: '4px', border: '1px solid #f5c6d0', width: '100%', boxSizing: 'border-box', backgroundColor: currentUser ? '#f1f5f9' : 'white', color: currentUser ? '#475569' : '#1e293b', fontWeight: currentUser ? 'bold' : 'normal' }} />
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-
                   {/* STAGE 1: Recepción e Inspección (Fusionadas) */}
                   {activeStage === 1 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1102,7 +1332,7 @@ export default function QualityPage() {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                               <thead>
                                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                  {['Referencia', 'Color', 'Talla', 'Planeadas', 'Aprobadas ✓', 'No Aprobadas ✗', 'Estado'].map(h => (
+                                  {['Referencia / Categoría', 'Color / Tela', 'Talla', 'Planeadas', 'Aprobadas ✓', 'No Aprobadas ✗', 'Estado'].map(h => (
                                     <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.68rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                                   ))}
                                 </tr>
@@ -1184,23 +1414,146 @@ export default function QualityPage() {
                               </tfoot>
                             </table>
                           </div>
-                          {/* Total items inspected field */}
-                          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>Total prendas recibidas:</label>
-                              <input type="number" min="0" value={form.items_inspected}
-                                onChange={e => setForm({ ...form, items_inspected: e.target.value })}
-                                style={{ width: '80px', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', fontWeight: '800', textAlign: 'center' }} />
+                          {/* Total items inspected field & Observaciones */}
+                          <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>Total prendas recibidas:</label>
+                                <input type="number" min="0" value={form.items_inspected}
+                                  onChange={e => setForm({ ...form, items_inspected: e.target.value })}
+                                  style={{ width: '80px', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', fontWeight: '800', textAlign: 'center' }} />
+                              </div>
+                              {form.inspected_at ? (
+                                <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '700' }}>✓ Inspeccionado el {new Date(form.inspected_at).toLocaleString('es-CO')}</span>
+                              ) : (
+                                <button type="button" onClick={() => setForm({ ...form, inspected_at: new Date().toISOString() })}
+                                  style={{ fontSize: '0.7rem', color: '#80082E', fontWeight: '800', background: 'none', border: 'none', cursor: 'pointer' }}>🕒 Marcar hora de inspección</button>
+                              )}
                             </div>
-                            {form.inspected_at ? (
-                              <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '700' }}>✓ Inspeccionado el {new Date(form.inspected_at).toLocaleString('es-CO')}</span>
-                            ) : (
-                              <button type="button" onClick={() => setForm({ ...form, inspected_at: new Date().toISOString() })}
-                                style={{ fontSize: '0.7rem', color: '#80082E', fontWeight: '800', background: 'none', border: 'none', cursor: 'pointer' }}>🕒 Marcar hora de inspección</button>
-                            )}
+
+                            {/* Campo de Observaciones Detalladas de Inspección */}
+                            <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.35rem' }}>
+                                📝 Observaciones de la Inspección de Calidad
+                              </label>
+                              <textarea
+                                placeholder="Escribe aquí las observaciones detalladas del estado de las prendas, fallas de costura, tonos de tela, hilos, etc..."
+                                value={form.notes}
+                                onChange={e => setForm({ ...form, notes: e.target.value })}
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', minHeight: '75px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                              />
+                            </div>
                           </div>
                         </div>
                       )}
+
+                      {/* Clasificación de Bodega (Lavandería y Saldos - Bodegas de Fábrica) */}
+                      <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px', backgroundColor: '#f8fafc' }}>
+                        <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.25rem' }}>
+                          🧺 Clasificación y Destino de Bodega (Lavandería y Saldos)
+                        </h3>
+                        <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1rem' }}>
+                          Selecciona si el lote incluye prendas para lavado o saldos y registra la cantidad de prendas para su asignación a bodegas de Fábrica.
+                        </p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                          
+                          {/* Opción 1: Lavandería */}
+                          <div style={{
+                            padding: '1rem',
+                            borderRadius: '10px',
+                            border: (form.has_lavanderia || Number(form.lavanderia) > 0) ? '2px solid #2563eb' : '1.5px solid #cbd5e1',
+                            backgroundColor: (form.has_lavanderia || Number(form.lavanderia) > 0) ? '#eff6ff' : 'white',
+                            transition: 'all 0.15s ease-in-out'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.8rem', fontWeight: '900', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input type="checkbox"
+                                  checked={form.has_lavanderia || Number(form.lavanderia) > 0}
+                                  onChange={e => {
+                                    const isChecked = e.target.checked;
+                                    setForm((f: any) => ({
+                                      ...f,
+                                      has_lavanderia: isChecked,
+                                      lavanderia: isChecked ? (f.lavanderia && f.lavanderia !== '0' ? f.lavanderia : '1') : '0'
+                                    }));
+                                  }}
+                                  style={{ width: '17px', height: '17px', accentColor: '#2563eb', cursor: 'pointer' }} />
+                                🧼 Requiere Proceso de Lavandería
+                              </label>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #bfdbfe' }}>
+                                Bodega Lavanderia (Fabrica)
+                              </span>
+                            </div>
+
+                            {(form.has_lavanderia || Number(form.lavanderia) > 0) && (
+                              <div style={{ marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px dashed #bfdbfe' }}>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#1e3a8a', marginBottom: '0.3rem' }}>
+                                  Cantidad de prendas que se lavan:
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <input type="number" min="1"
+                                    value={form.lavanderia}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setForm((f: any) => ({ ...f, lavanderia: val, has_lavanderia: Number(val) > 0 }));
+                                    }}
+                                    style={{ width: '100px', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1.5px solid #2563eb', fontSize: '0.85rem', fontWeight: '800', color: '#1e40af', backgroundColor: 'white' }} />
+                                  <span style={{ fontSize: '0.72rem', color: '#3b82f6', fontWeight: '700' }}>prendas enviadas a lavado</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Opción 2: Saldos */}
+                          <div style={{
+                            padding: '1rem',
+                            borderRadius: '10px',
+                            border: (form.has_saldos || Number(form.saldos) > 0) ? '2px solid #d97706' : '1.5px solid #cbd5e1',
+                            backgroundColor: (form.has_saldos || Number(form.saldos) > 0) ? '#fffbeb' : 'white',
+                            transition: 'all 0.15s ease-in-out'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.8rem', fontWeight: '900', color: '#92400e', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input type="checkbox"
+                                  checked={form.has_saldos || Number(form.saldos) > 0}
+                                  onChange={e => {
+                                    const isChecked = e.target.checked;
+                                    setForm((f: any) => ({
+                                      ...f,
+                                      has_saldos: isChecked,
+                                      saldos: isChecked ? (f.saldos && f.saldos !== '0' ? f.saldos : '1') : '0'
+                                    }));
+                                  }}
+                                  style={{ width: '17px', height: '17px', accentColor: '#d97706', cursor: 'pointer' }} />
+                                🏷️ Trasladar Prendas a Saldos
+                              </label>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                Bodega Saldos (Fabrica)
+                              </span>
+                            </div>
+
+                            {(form.has_saldos || Number(form.saldos) > 0) && (
+                              <div style={{ marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px dashed #fde68a' }}>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#78350f', marginBottom: '0.3rem' }}>
+                                  Cantidad de prendas que pasan a saldos:
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <input type="number" min="1"
+                                    value={form.saldos}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setForm((f: any) => ({ ...f, saldos: val, has_saldos: Number(val) > 0 }));
+                                    }}
+                                    style={{ width: '100px', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1.5px solid #d97706', fontSize: '0.85rem', fontWeight: '800', color: '#92400e', backgroundColor: 'white' }} />
+                                  <span style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: '700' }}>prendas enviadas a saldos</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                        </div>
+                      </div>
 
                       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <button onClick={() => handleSave(2)} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem' }}>Guardar y Proceder a Etiquetado →</button>
@@ -1261,9 +1614,38 @@ export default function QualityPage() {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div style={{ padding: '0.75rem 1rem', backgroundColor: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '10px' }}>
-                              <span style={{ color: '#16a34a', fontWeight: '900', fontSize: '0.82rem' }}>✓ ¡Listo para empaque! {rowTotalApproved} aprobadas / {rowTotalRejected} rechazadas.</span>
+                            {/* Resumen Prominente de Cantidad a Empacar */}
+                            <div style={{
+                              padding: '1rem 1.25rem',
+                              backgroundColor: '#f0fdf4',
+                              border: '1.5px solid #86efac',
+                              borderRadius: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '0.75rem'
+                            }}>
+                              <div>
+                                <span style={{ fontSize: '0.68rem', color: '#166534', fontWeight: '800', textTransform: 'uppercase', display: 'block' }}>
+                                  Cantidad de Prendas Aprobadas a Doblar y Empacar
+                                </span>
+                                <h2 style={{ fontSize: '1.4rem', fontWeight: '950', color: '#15803d', margin: '0.1rem 0 0' }}>
+                                  📦 {rowTotalApproved} {rowTotalApproved === 1 ? 'Prenda' : 'Prendas'}
+                                </h2>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: '0.7rem', color: '#475569', fontWeight: '700', display: 'block' }}>
+                                  Total aprobadas del lote
+                                </span>
+                                {rowTotalRejected > 0 && (
+                                  <span style={{ fontSize: '0.68rem', color: '#dc2626', fontWeight: '800' }}>
+                                    (⚠️ {rowTotalRejected} rechazada{rowTotalRejected > 1 ? 's' : ''} excluidas de empaque)
+                                  </span>
+                                )}
+                              </div>
                             </div>
+
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                               <div>
                                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Fecha y hora de empaque</label>
@@ -1281,6 +1663,19 @@ export default function QualityPage() {
                                   onChange={e => setForm({ ...form, operator_name: e.target.value })}
                                   style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem' }} />
                               </div>
+                            </div>
+
+                            {/* Campo de Observaciones de Doblado y Empaque */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', marginBottom: '0.25rem' }}>
+                                📝 Observaciones de Doblado y Empaque
+                              </label>
+                              <textarea
+                                placeholder="Escribe aquí novedades del empaque, bolsas, embalaje, ganchos o cualquier detalle del lote..."
+                                value={form.notes}
+                                onChange={e => setForm({ ...form, notes: e.target.value })}
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', minHeight: '70px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                              />
                             </div>
                           </div>
                         )}
@@ -1401,7 +1796,7 @@ export default function QualityPage() {
                             </div>
                           </div>
                         </div>
-                        <button className="btn" disabled={saving} onClick={() => handleSave()}
+                        <button className="btn" disabled={saving} onClick={() => handleSave(4, true)}
                           style={{ width: '100%', padding: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', fontSize: '0.9rem', fontWeight: '950', backgroundColor: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}>
                           {saving ? <Loader2 className="animate-spin" size={18} /> : <><CheckCircle2 size={18} /> CERRAR Y FINALIZAR LOTE</>}
                         </button>
@@ -1452,43 +1847,82 @@ export default function QualityPage() {
                         <line x1="14.47" y1="14.48" x2="20" y2="20"/>
                         <line x1="8.12" y1="8.12" x2="12" y2="12"/>
                       </svg>
-                      <span style={{ fontSize: '0.6rem', fontWeight: '900', color: '#80082E', letterSpacing: '0.05em' }}>CORTES BREINER</span>
+                      <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: '900', color: '#80082E', letterSpacing: '0.05em' }}>
+                        {stickerConfig.headerText || 'CORTES BREINER'}
+                      </span>
                     </div>
 
                     {/* Reference name */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                      <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
                         {g.reference_name || 'Referencia'}
                       </span>
 
                       {/* Color chip if available */}
                       {g.color_name && (
-                        <span style={{ fontSize: '0.55rem', color: '#64748b', fontWeight: '700' }}>{g.color_name}</span>
+                        <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: '#64748b', fontWeight: '800' }}>{g.color_name}</span>
                       )}
 
-                      {/* Barcode visual */}
-                      <div style={{ display: 'flex', gap: '1px', height: '38px', width: '100%', justifyContent: 'center', marginTop: '0.35rem' }}>
-                        {Array.from({ length: 38 }).map((_, idx) => {
-                          const code = g.barcode || '';
-                          const charCode = code.charCodeAt(idx % code.length) || 50;
-                          const isThick = charCode % 3 === 0;
-                          const isGap = charCode % 7 === 0 && idx % 5 === 0;
-                          return (
-                            <div key={idx} style={{ 
-                              width: isThick ? '3px' : '1.5px', 
-                              height: '100%', 
-                              backgroundColor: isGap ? 'transparent' : '#0f172a',
-                              borderRadius: '0.5px'
-                            }} />
-                          );
-                        })}
+                      {/* Configurable 1D Vector / Font Barcode Container */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.2rem 0', width: '100%' }}>
+                        {(stickerConfig.barcodeType === 'font39' || stickerConfig.barcodeType === 'font128') ? (
+                          <span style={{
+                            fontFamily: stickerConfig.barcodeType === 'font128' ? "'Libre Barcode 128 Text', cursive, monospace" : "'Libre Barcode 39 Text', cursive, monospace",
+                            fontSize: `${stickerConfig.barcodeHeight || 48}px`,
+                            color: '#000000',
+                            lineHeight: 0.95,
+                            whiteSpace: 'nowrap',
+                            WebkitPrintColorAdjust: 'exact',
+                            printColorAdjust: 'exact'
+                          }}>
+                            *{g.barcode || '00420001'}*
+                          </span>
+                        ) : (
+                          <svg
+                            viewBox="0 0 160 50"
+                            style={{
+                              width: '95%',
+                              height: `${stickerConfig.barcodeHeight || 55}px`,
+                              shapeRendering: 'crispEdges',
+                              WebkitPrintColorAdjust: 'exact',
+                              printColorAdjust: 'exact'
+                            }}
+                          >
+                            <rect x="0" y="0" width="160" height="50" fill="#ffffff" />
+                            {(() => {
+                              const code = (g.barcode || '00420001').padStart(8, '0');
+                              const bars: React.ReactNode[] = [];
+                              let currentX = 10;
+                              bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 5;
+                              bars.push(<rect key="start-2" x={currentX} y="2" width="1.5" height="38" fill="#000000" />); currentX += 3.5;
+
+                              for (let i = 0; i < code.length; i++) {
+                                const digit = parseInt(code[i], 10) || (i + 1);
+                                const w1 = (digit % 3 === 0) ? 3 : 1.5;
+                                const gap = ((digit % 2 === 0) ? 2.5 : 1.5);
+                                const w2 = ((digit + 1) % 3 === 0) ? 3.5 : 2;
+
+                                bars.push(<rect key={`b1-${i}`} x={currentX} y="2" width={w1} height="38" fill="#000000" />);
+                                currentX += w1 + gap;
+                                bars.push(<rect key={`b2-${i}`} x={currentX} y="2" width={w2} height="38" fill="#000000" />);
+                                currentX += w2 + 2;
+                              }
+
+                              bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
+                              bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
+                              return bars;
+                            })()}
+                          </svg>
+                        )}
+                        <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                          {g.barcode || '00420001'}
+                        </span>
                       </div>
-                      <span style={{ fontSize: '0.65rem', fontWeight: '950', color: '#0f172a', letterSpacing: '0.08em', marginTop: '0.1rem' }}>{g.barcode}</span>
                     </div>
 
                     {/* Footer: Size badge */}
                     <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '900', backgroundColor: '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                      <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: '950', backgroundColor: stickerConfig.sizeBgColor || '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
                         {g.size_code || 'S/T'}
                       </span>
                     </div>
@@ -1507,28 +1941,142 @@ export default function QualityPage() {
         </div>
       )}
 
+      {/* SuperAdmin Rollback Interactive Modal */}
+      {showRollbackModal && rollbackItem && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '580px', width: '100%', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '2px solid #dc2626' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <span style={{ fontSize: '0.65rem', fontWeight: '950', color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', padding: '0.15rem 0.6rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  🚨 ACCIÓN EXCLUSIVA SUPERADMINISTRADOR
+                </span>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '950', color: '#0f172a', margin: '0.35rem 0 0' }}>
+                  Deshacer / Revertir Etapa de Proceso
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                  Selecciona a qué punto exacto del flujo deseas devolver la orden <strong>{rollbackItem.sewing_orders?.confeccion_code || rollbackItem.confeccion_code || rollbackItem.order_id || 'seleccionada'}</strong>.
+                </p>
+              </div>
+              <button onClick={() => setShowRollbackModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '360px', overflowY: 'auto' }}>
+              {[
+                { id: 'stage_1', title: '↩️ Devolver a Etapa 1: Recepción e Inspección', desc: 'Regresa el lote al inicio de revisión de calidad. Se descuenta inventario si fue sincronizado.' },
+                { id: 'stage_2', title: '↩️ Devolver a Etapa 2: Reproceso y Arreglos', desc: 'Permite reevaluar o ajustar prendas con defectos en reproceso.' },
+                { id: 'stage_3', title: '↩️ Devolver a Etapa 3: Doblado y Empaque', desc: 'Permite reabrir empaque y re-imprimir etiquetas.' },
+                { id: 'stage_4', title: '🔄 Reabrir Liquidación (Etapa 4)', desc: 'Deshace el cierre del lote y revierte el kardex para reajustar los valores a pagar.' },
+                { id: 'sewing', title: '🧵 Re-enviar a Taller de Confección', desc: 'Elimina la inspección actual y devuelve la orden al módulo de confección.' },
+                { id: 'tendido', title: '✂️ Devolver a Fin de Tendido (Salida de Corte)', desc: 'Elimina subórdenes de confección e inspección, dejando la orden en estado Cortado (lista para enviar a taller).' },
+                { id: 'pre_cut', title: '💥 Reinicio Total hasta Antes de Corte', desc: 'Resetea la orden de producción a estado CREADO borrando confección y corte.' },
+              ].map(opt => (
+                <label
+                  key={opt.id}
+                  onClick={() => setSelectedRollbackOption(opt.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.75rem',
+                    padding: '0.85rem 1rem',
+                    borderRadius: '10px',
+                    border: `2px solid ${selectedRollbackOption === opt.id ? '#dc2626' : '#e2e8f0'}`,
+                    backgroundColor: selectedRollbackOption === opt.id ? '#fef2f2' : '#f8fafc',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="rollbackOption"
+                    checked={selectedRollbackOption === opt.id}
+                    onChange={() => setSelectedRollbackOption(opt.id)}
+                    style={{ marginTop: '0.2rem' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '0.82rem', color: selectedRollbackOption === opt.id ? '#991b1b' : '#0f172a', display: 'block' }}>{opt.title}</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{opt.desc}</span>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowRollbackModal(false)}
+                disabled={executingRollback}
+                style={{ padding: '0.55rem 1.25rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={executingRollback}
+                onClick={() => handleExecuteRollbackOption(selectedRollbackOption)}
+                style={{ padding: '0.55rem 1.5rem', borderRadius: '8px', border: 'none', backgroundColor: '#dc2626', color: 'white', fontSize: '0.8rem', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                {executingRollback ? <Loader2 className="animate-spin" size={16} /> : '⚠️ Confirmar y Ejecutar Rollback'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 8mm; }
-          body * { visibility: hidden !important; }
-          #printable-labels-container, #printable-labels-container * { visibility: visible !important; }
+          @page {
+            size: A4 portrait;
+            margin: 4mm;
+          }
+          html, body {
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-labels-container, #printable-labels-container * {
+            visibility: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           #printable-labels-container {
-            position: fixed !important;
-            left: 8mm !important;
-            top: 8mm !important;
-            right: 8mm !important;
-            width: calc(210mm - 16mm) !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             display: grid !important;
             grid-template-columns: repeat(3, 1fr) !important;
-            gap: 4mm !important;
+            gap: 3mm !important;
             padding: 0 !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
           }
           #printable-labels-container > div {
-            aspect-ratio: 5 / 8 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            aspect-ratio: 5 / 7.5 !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             box-sizing: border-box !important;
-            border-radius: 4px !important;
+            margin: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          /* Ensure barcode black bars render strictly on thermal printers */
+          #printable-labels-container div[style*="background-color: #0f172a"],
+          #printable-labels-container div[style*="backgroundColor: #0f172a"],
+          #printable-labels-container div[style*="background-color: rgb(15, 23, 42)"] {
+            background-color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
       `}</style>

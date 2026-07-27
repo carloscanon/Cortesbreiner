@@ -18,6 +18,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Libre+Barcode+128+Text&display=swap" rel="stylesheet" />
+      </head>
       <body>
         <AuthProvider>
           <ThemeProvider />

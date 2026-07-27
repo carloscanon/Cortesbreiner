@@ -61,12 +61,38 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Record failed audit log
+        await supabase.from('global_audit_logs').insert({
+          event_type: 'LOGIN_FAILED',
+          user_name: email,
+          module_name: 'Autenticación',
+          ip_address: '181.132.45.12',
+          browser: typeof window !== 'undefined' ? window.navigator.userAgent : 'Browser',
+          criticidad: 'Media',
+          resultado: 'Fallido',
+          previous_value: { error: error.message }
+        });
+        throw error;
+      }
+
+      // Record successful audit log
+      await supabase.from('global_audit_logs').insert({
+        event_type: 'LOGIN_SUCCESS',
+        user_id: authData?.user?.id,
+        user_name: email,
+        module_name: 'Autenticación',
+        ip_address: '181.132.45.12',
+        browser: typeof window !== 'undefined' ? window.navigator.userAgent : 'Browser',
+        criticidad: 'Baja',
+        resultado: 'Exitoso'
+      });
+
       router.push('/');
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión');

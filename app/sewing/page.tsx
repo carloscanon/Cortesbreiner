@@ -77,6 +77,44 @@ export default function SewingPage() {
   const [selectedSewingOrderForEnvio, setSelectedSewingOrderForEnvio] = useState<any>(null);
   const [envioNotes, setEnvioNotes] = useState('');
   const [savingEnvio, setSavingEnvio] = useState(false);
+  // Módulo de Prenda Compuesta (Combinación de varias órdenes de corte)
+  const [showCompositeModal, setShowCompositeModal] = useState(false);
+  const [selectedCompositeOrderIds, setSelectedCompositeOrderIds] = useState<string[]>([]);
+  const [compositeWorkshopId, setCompositeWorkshopId] = useState<string>('');
+  const [compositePrepNotes, setCompositePrepNotes] = useState<string>('');
+  const [compositeWorkshopNotes, setCompositeWorkshopNotes] = useState<string>('');
+  const [compositeDeliveryDate, setCompositeDeliveryDate] = useState<string>('');
+  const [savingComposite, setSavingComposite] = useState(false);
+
+  // Configuración dinámica de Relación de Despacho
+  const [sewingDespatchConfig, setSewingDespatchConfig] = useState<any>({
+    companyTitle: 'CORTES BREINER S.A.S.',
+    titleFontSize: 15,
+    titleColor: '#80082E',
+    subtitleText: 'RELACIÓN DE DESPACHO A CONFECCIÓN',
+    subtitleFontSize: 12,
+    subtitleColor: '#1e293b',
+    headerBgColor: '#f8fafc',
+    bodyFontSize: 12,
+    bodyTextColor: '#0f172a',
+    itemSpacing: 8,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
+    showCutNumber: true,
+    showWorkshop: true,
+    showReference: true,
+    showColor: true,
+    showTotalUnits: true,
+    showDeliveryDate: true,
+    showOperatorSig: true,
+    showNotes: true,
+    customField1Label: '',
+    customField1Value: '',
+    showCustomField1: false,
+    customField2Label: '',
+    customField2Value: '',
+    showCustomField2: false
+  });
 
   useEffect(() => { fetchData(); }, []);
 
@@ -133,6 +171,13 @@ export default function SewingPage() {
       setColorsMaster(colorsData || []);
       setProductAccessoriesList(allProductAccs || []);
       setSewingOrders(sewingOrdersData || []);
+
+      // Cargar parámetros de configuración de despacho a confección
+      supabase.from('company_params').select('*').eq('name', 'sewing_despatch_config').maybeSingle().then(({ data }) => {
+        if (data && data.value) {
+          try { setSewingDespatchConfig((prev: any) => ({ ...prev, ...JSON.parse(data.value) })); } catch (e) {}
+        }
+      });
     } catch (err: any) {
       console.error('Error:', err.message);
     } finally {
@@ -683,6 +728,81 @@ export default function SewingPage() {
       alert('Error: ' + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateCompositeSewingOrders = async () => {
+    if (selectedCompositeOrderIds.length < 2) {
+      alert('Debes seleccionar al menos 2 órdenes cortadas de diferentes telas/piezas para armar la prenda compuesta.');
+      return;
+    }
+    if (!compositeWorkshopId) {
+      alert('Por favor selecciona el taller satélite al cual se despachará la prenda compuesta.');
+      return;
+    }
+
+    try {
+      setSavingComposite(true);
+      const compositeOrdersList = orders.filter(o => selectedCompositeOrderIds.includes(o.id));
+      const targetWorkshop = workshops.find(w => String(w.id) === String(compositeWorkshopId));
+      const compositeCodeTag = `[PRENDA COMPUESTA - ${compositeOrdersList.map(o => `OC-${o.internal_code}`).join(' + ')}]`;
+
+      for (const ord of compositeOrdersList) {
+        // 1. Actualizar estado de la orden base
+        const updatedObs = (ord.observaciones || '') + `\n\n=== ENTRADA A CONFECCIÓN COMO PRENDA COMPUESTA (${new Date().toLocaleDateString('es-ES')}) ===\nDespachada a: ${targetWorkshop?.nombre_taller || 'Taller Satélite'}. Lote combinado de telas.\n`;
+        await supabase.from('orders').update({
+          status: 'En Confección',
+          workshop_id: compositeWorkshopId,
+          observaciones: updatedObs
+        }).eq('id', ord.id);
+
+        // 2. Generar sewing_orders por cada producto/tela del conjunto
+        if (ord.cuts && ord.cuts.length > 0) {
+          for (const cut of ord.cuts) {
+            const cutQty = (cut.cut_sizes || []).reduce((sum: number, cs: any) => sum + (Number(cs.quantity_produced || cs.quantity) || 0), 0);
+            const confCode = `CONF-${ord.internal_code}-${cut.product_id || 1}`;
+
+            // Crear sewing_order
+            const { data: newSewingOrder, error: soErr } = await supabase
+              .from('sewing_orders')
+              .insert([{
+                parent_order_id: ord.id,
+                confeccion_code: confCode,
+                workshop_id: compositeWorkshopId,
+                product_id: cut.product_id,
+                cantidad_planeada: cutQty,
+                status: 'En Confección',
+                notes: `Prenda Compuesta (Pieza/Tela: ${ord.fabrics?.nombre_tela || 'Especial'}). ${compositeWorkshopNotes}`
+              }])
+              .select()
+              .single();
+
+            if (soErr) console.warn('Error inserting composite sewing order:', soErr.message);
+
+            // Insertar sewing_order_sizes
+            if (newSewingOrder && cut.cut_sizes) {
+              const sizesToInsert = cut.cut_sizes.map((cs: any) => ({
+                sewing_order_id: newSewingOrder.id,
+                size_id: cs.size_id,
+                cantidad: Number(cs.quantity_produced || cs.quantity) || 0
+              }));
+              await supabase.from('sewing_order_sizes').insert(sizesToInsert);
+            }
+          }
+        }
+      }
+
+      alert(`✅ Prenda Compuesta despachada a confección con éxito. Se combinaron ${compositeOrdersList.length} órdenes y se asignaron a ${targetWorkshop?.nombre_taller || 'Taller Satélite'}.`);
+      setShowCompositeModal(false);
+      setSelectedCompositeOrderIds([]);
+      setCompositeWorkshopId('');
+      setCompositePrepNotes('');
+      setCompositeWorkshopNotes('');
+      fetchData();
+    } catch (err: any) {
+      alert('Error creando despacho de prenda compuesta: ' + err.message);
+    } finally {
+      setSavingComposite(false);
     }
   };
 
@@ -1398,10 +1518,24 @@ export default function SewingPage() {
       {/* ── Cortadas list ── */}
       {totalCortadasCount > 0 && (
         <div className="card" style={{ padding: 0, border: '1px solid #fef3c7', borderRadius: '16px', overflow: 'hidden' }}>
-          <div style={{ padding: '1rem 1.5rem', backgroundColor: '#fef3c7', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '1rem 1.5rem', backgroundColor: '#fef3c7', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
             <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#92400e', margin: 0, textTransform: 'uppercase' }}>
               Órdenes listas para iniciar Confección ({totalCortadasCount})
             </h3>
+            <button
+              onClick={() => {
+                setSelectedCompositeOrderIds([]);
+                setCompositeWorkshopId('');
+                setShowCompositeModal(true);
+              }}
+              style={{
+                backgroundColor: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px',
+                padding: '0.5rem 1rem', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 2px 8px rgba(124, 58, 237, 0.25)'
+              }}
+            >
+              🧩 Armar Prenda Compuesta (Varias Telas)
+            </button>
           </div>
           
           {/* Barra de Filtro para Cortadas */}
@@ -2516,63 +2650,98 @@ export default function SewingPage() {
                      <div className="print-stickers-page" style={{
                        width: '150mm',
                        height: '150mm',
-                       padding: '12mm',
+                       padding: '10mm',
                        boxSizing: 'border-box',
                        display: 'flex',
                        flexDirection: 'column',
                        justifyContent: 'space-between',
-                       border: '3.75px solid #000',
+                       border: `${sewingDespatchConfig.borderWidth || 3.75}px solid ${sewingDespatchConfig.borderColor || '#000'}`,
                        backgroundColor: 'white',
                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                       color: 'black',
+                       color: sewingDespatchConfig.bodyTextColor || 'black',
                        fontFamily: 'system-ui, sans-serif'
                      }}>
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                         <div style={{ textAlign: 'center', borderBottom: '3.75px solid #000', paddingBottom: '0.5rem', marginBottom: '0.3rem' }}>
-                           <h2 style={{ fontSize: '1.875rem', fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cortesbreiner</h2>
-                           <p style={{ fontSize: '0.9rem', color: '#333', fontWeight: '750', margin: 0, letterSpacing: '0.05em' }}>DESPACHO DE PRENDAS A SATÉLITE</p>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: `${sewingDespatchConfig.itemSpacing || 8}px` }}>
+                         <div style={{ textAlign: 'center', backgroundColor: sewingDespatchConfig.headerBgColor || 'transparent', borderBottom: `${sewingDespatchConfig.borderWidth || 3.75}px solid ${sewingDespatchConfig.borderColor || '#000'}`, paddingBottom: '0.5rem', marginBottom: '0.3rem' }}>
+                           <h2 style={{ fontSize: `${sewingDespatchConfig.titleFontSize ? (sewingDespatchConfig.titleFontSize * 1.6) : 28}px`, fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', color: sewingDespatchConfig.titleColor || '#000' }}>
+                             {sewingDespatchConfig.companyTitle || 'Cortesbreiner'}
+                           </h2>
+                           <p style={{ fontSize: `${sewingDespatchConfig.subtitleFontSize || 14}px`, color: sewingDespatchConfig.subtitleColor || '#333', fontWeight: '750', margin: '0.1rem 0 0', letterSpacing: '0.05em' }}>
+                             {sewingDespatchConfig.subtitleText || 'DESPACHO DE PRENDAS A SATÉLITE'}
+                           </p>
                          </div>
                          
-                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '1.05rem' }}>
-                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                             <span><strong>ORDEN CONFECCIÓN:</strong></span>
-                             <span style={{ fontWeight: '900', color: '#7c3aed', fontSize: '1.25rem' }}>{printSewingOrder.confeccion_code}</span>
-                           </div>
-                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                             <span><strong>TALLER SATÉLITE:</strong></span>
-                             <span style={{ fontWeight: '800' }}>{printWorkshop.nombre_taller}</span>
-                           </div>
-                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                             <span><strong>CLIENTE:</strong></span>
-                             <span>{printOrder.client_name}</span>
-                           </div>
-                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                             <span><strong>TELA PRINCIPAL:</strong></span>
-                             <span>{printOrder.fabrics?.nombre_tela || '—'}</span>
-                           </div>
-                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                             <span><strong>FECHA COMPROMISO:</strong></span>
-                             <span><strong>{dataAss.deliveryDate || '—'}</strong></span>
-                           </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: `${sewingDespatchConfig.bodyFontSize || 14}px` }}>
+                           {sewingDespatchConfig.showCutNumber !== false && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>ORDEN CONFECCIÓN:</strong></span>
+                               <span style={{ fontWeight: '900', color: sewingDespatchConfig.titleColor || '#7c3aed', fontSize: '1.25rem' }}>{printSewingOrder.confeccion_code}</span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showWorkshop !== false && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>TALLER SATÉLITE:</strong></span>
+                               <span style={{ fontWeight: '800' }}>{printWorkshop.nombre_taller}</span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showReference !== false && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>CLIENTE:</strong></span>
+                               <span>{printOrder.client_name}</span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showColor !== false && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>TELA PRINCIPAL:</strong></span>
+                               <span>{printOrder.fabrics?.nombre_tela || '—'}</span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showDeliveryDate !== false && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>FECHA COMPROMISO:</strong></span>
+                               <span><strong>{dataAss.deliveryDate || '—'}</strong></span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showCustomField1 && sewingDespatchConfig.customField1Label && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>{sewingDespatchConfig.customField1Label.toUpperCase()}:</strong></span>
+                               <span>{sewingDespatchConfig.customField1Value}</span>
+                             </div>
+                           )}
+                           {sewingDespatchConfig.showCustomField2 && sewingDespatchConfig.customField2Label && (
+                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                               <span><strong>{sewingDespatchConfig.customField2Label.toUpperCase()}:</strong></span>
+                               <span>{sewingDespatchConfig.customField2Value}</span>
+                             </div>
+                           )}
                          </div>
 
                          <div style={{ marginTop: '0.45rem', borderTop: '2.25px dashed #000', paddingTop: '0.45rem' }}>
                            <p style={{ margin: '0 0 0.225rem 0', fontSize: '0.95rem', fontWeight: '800', textTransform: 'uppercase', color: '#444' }}>DETALLE DE PRENDAS:</p>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.95rem', maxHeight: '4.5rem', overflowY: 'auto' }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '6.5rem', overflowY: 'auto' }}>
                              {referencesGrouped.map((item, idx) => (
-                               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                 <span style={{ fontWeight: '600' }}>• {item.productName} ({item.categoryName})</span>
-                                 <strong style={{ fontSize: '1.05rem' }}>{item.totalQuantity} uds</strong>
+                               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                 <span style={{ fontWeight: '700', fontSize: `${sewingDespatchConfig.itemTypeFontSize || 14}px` }}>• {item.productName} ({item.categoryName})</span>
+                                 <strong style={{ fontSize: `${sewingDespatchConfig.itemQtyFontSize || 16}px`, fontWeight: '950' }}>{item.totalQuantity} uds</strong>
                                 </div>
                              ))}
                            </div>
                          </div>
                        </div>
 
-                       <div style={{ borderTop: '3.75px solid #000', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <span style={{ fontSize: '0.975rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
-                         <span style={{ fontSize: '1.725rem', fontWeight: '950', color: '#7c3aed' }}>{totalUnits} uds</span>
-                       </div>
+                       {sewingDespatchConfig.showOperatorSig && (
+                         <div style={{ borderTop: '1.5px solid #000', paddingTop: '0.35rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', textAlign: 'center', fontSize: '0.7rem' }}>
+                           <div>_______________________<br/>Firma Entregado</div>
+                           <div>_______________________<br/>Firma Recibido</div>
+                         </div>
+                       )}
+
+                       {sewingDespatchConfig.showTotalUnits !== false && (
+                         <div style={{ borderTop: '3.75px solid #000', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                           <span style={{ fontSize: '0.975rem', fontWeight: '900', textTransform: 'uppercase' }}>Total Unidades:</span>
+                           <span style={{ fontSize: '1.725rem', fontWeight: '950', color: sewingDespatchConfig.titleColor || '#7c3aed' }}>{totalUnits} uds</span>
+                         </div>
+                       )}
                      </div>
                    );
                  }
@@ -2769,17 +2938,37 @@ export default function SewingPage() {
                       )}
                     </div>
 
+                    {/* Custom Fields if configured */}
+                    {(sewingDespatchConfig.showCustomField1 || sewingDespatchConfig.showCustomField2) && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.75rem' }}>
+                        {sewingDespatchConfig.showCustomField1 && sewingDespatchConfig.customField1Label && (
+                          <div>
+                            <span style={{ fontWeight: '800', color: '#64748b' }}>{sewingDespatchConfig.customField1Label}: </span>
+                            <span style={{ fontWeight: '900', color: '#0f172a' }}>{sewingDespatchConfig.customField1Value || '—'}</span>
+                          </div>
+                        )}
+                        {sewingDespatchConfig.showCustomField2 && sewingDespatchConfig.customField2Label && (
+                          <div>
+                            <span style={{ fontWeight: '800', color: '#64748b' }}>{sewingDespatchConfig.customField2Label}: </span>
+                            <span style={{ fontWeight: '900', color: '#0f172a' }}>{sewingDespatchConfig.customField2Value || '—'}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Special notes */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.72rem' }}>
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
-                        <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.25rem', textTransform: 'uppercase', fontSize: '0.6rem' }}>Observaciones de Preparación</p>
-                        <p style={{ margin: 0, color: '#475569' }}>{dataAss.prepNotes || 'Sin novedades.'}</p>
+                    {sewingDespatchConfig.showNotes !== false && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.72rem' }}>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
+                          <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.25rem', textTransform: 'uppercase', fontSize: '0.6rem' }}>Observaciones de Preparación</p>
+                          <p style={{ margin: 0, color: '#475569' }}>{dataAss.prepNotes || 'Sin novedades.'}</p>
+                        </div>
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
+                          <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.25rem', textTransform: 'uppercase', fontSize: '0.6rem' }}>Instrucciones de Costura</p>
+                          <p style={{ margin: 0, color: '#475569' }}>{dataAss.workshopNotes || 'Sin instrucciones adicionales.'}</p>
+                        </div>
                       </div>
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.75rem' }}>
-                        <p style={{ fontWeight: '850', color: '#334155', margin: '0 0 0.25rem', textTransform: 'uppercase', fontSize: '0.6rem' }}>Instrucciones de Costura</p>
-                        <p style={{ margin: 0, color: '#475569' }}>{dataAss.workshopNotes || 'Sin instrucciones adicionales.'}</p>
-                      </div>
-                    </div>
+                    )}
 
                     {/* Signature block */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
@@ -2797,6 +2986,168 @@ export default function SewingPage() {
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL ARMAR PRENDA COMPUESTA (VARIAS TELAS) ── */}
+      {showCompositeModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.5rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '750px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            {/* Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ backgroundColor: '#7c3aed', padding: '0.5rem', borderRadius: '10px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Layers size={22} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 950, color: '#0f172a', margin: 0 }}>
+                    Módulo de Prenda Compuesta (Varias Telas)
+                  </h3>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
+                    Agrupa múltiples órdenes cortadas en una sola salida a taller satélite
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCompositeModal(false)}
+                style={{ border: 'none', background: '#e2e8f0', width: '32px', height: '32px', borderRadius: '50%', fontSize: '1.1rem', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Paso 1: Selección de Órdenes Cortadas */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', display: 'block', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                  1. Selecciona las Órdenes Cortadas a Combinar ({selectedCompositeOrderIds.length} seleccionadas)
+                </label>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', maxHeight: '220px', overflowY: 'auto', backgroundColor: '#fafafa' }}>
+                  {cortadas.length === 0 ? (
+                    <p style={{ padding: '1rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem', fontStyle: 'italic', margin: 0 }}>No hay órdenes cortadas disponibles.</p>
+                  ) : (
+                    cortadas.map(ord => {
+                      const isChecked = selectedCompositeOrderIds.includes(ord.id);
+                      return (
+                        <div
+                          key={ord.id}
+                          onClick={() => {
+                            if (isChecked) {
+                              setSelectedCompositeOrderIds(selectedCompositeOrderIds.filter(id => id !== ord.id));
+                            } else {
+                              setSelectedCompositeOrderIds([...selectedCompositeOrderIds, ord.id]);
+                            }
+                          }}
+                          style={{
+                            padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            backgroundColor: isChecked ? '#f3e8ff' : 'white', transition: 'background-color 0.15s'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              readOnly
+                              style={{ width: '16px', height: '16px', accentColor: '#7c3aed', cursor: 'pointer' }}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 900, color: '#0f172a', fontSize: '0.85rem' }}>
+                                OC-{ord.internal_code} · {ord.client_name || 'Cliente'}
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                Tela: <strong style={{ color: '#7c3aed' }}>{ord.fabrics?.nombre_tela || 'Especial'}</strong> · {getTotalPrendas(ord)} prendas
+                              </div>
+                            </div>
+                          </div>
+                          {isChecked && (
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, backgroundColor: '#7c3aed', color: 'white', padding: '0.15rem 0.5rem', borderRadius: '999px' }}>
+                              Seleccionada
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Paso 2: Selección de Taller Satélite Destino */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', display: 'block', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                  2. Taller Satélite Destino
+                </label>
+                <select
+                  value={compositeWorkshopId}
+                  onChange={e => setCompositeWorkshopId(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 700, backgroundColor: 'white' }}
+                >
+                  <option value="">-- Seleccionar Taller Satélite --</option>
+                  {workshops.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_taller} ({w.responsable || 'Satélite'})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Paso 3: Notas e Instrucciones para el Satélite */}
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', display: 'block', marginBottom: '0.35rem', textTransform: 'uppercase' }}>
+                  3. Instrucciones Especiales de Ensamble / Costura
+                </label>
+                <textarea
+                  value={compositeWorkshopNotes}
+                  onChange={e => setCompositeWorkshopNotes(e.target.value)}
+                  placeholder="Ej: Unir tela principal con tela de forro y sesgos según ficha técnica..."
+                  rows={2}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                />
+              </div>
+
+              {/* Resumen de Combinación */}
+              {selectedCompositeOrderIds.length > 0 && (
+                <div style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '0.85rem 1rem' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Resumen del Ensamble:</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.35rem', fontSize: '0.85rem' }}>
+                    <span style={{ fontWeight: 700 }}>Órdenes a Fusionar:</span>
+                    <span style={{ fontWeight: 900, color: '#7c3aed' }}>{selectedCompositeOrderIds.length} lotes de tela</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem', fontSize: '0.85rem' }}>
+                    <span style={{ fontWeight: 700 }}>Total Unidades a Confeccionar:</span>
+                    <span style={{ fontWeight: 950, color: '#16a34a' }}>
+                      {orders
+                        .filter(o => selectedCompositeOrderIds.includes(o.id))
+                        .reduce((sum, ord) => sum + getTotalPrendas(ord), 0)} prendas
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', backgroundColor: '#f8fafc', borderBottomLeftRadius: '16px', borderBottomRightRadius: '16px' }}>
+              <button
+                onClick={() => setShowCompositeModal(false)}
+                disabled={savingComposite}
+                style={{ padding: '0.6rem 1.25rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', color: '#334155' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateCompositeSewingOrders}
+                disabled={savingComposite || selectedCompositeOrderIds.length < 2 || !compositeWorkshopId}
+                style={{
+                  padding: '0.6rem 1.5rem', borderRadius: '8px', border: 'none',
+                  backgroundColor: (selectedCompositeOrderIds.length < 2 || !compositeWorkshopId) ? '#94a3b8' : '#7c3aed',
+                  color: 'white', fontSize: '0.8rem', fontWeight: 800,
+                  cursor: (selectedCompositeOrderIds.length < 2 || !compositeWorkshopId || savingComposite) ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 12px rgba(124, 58, 237, 0.25)'
+                }}
+              >
+                {savingComposite ? 'Despachando...' : '🚀 Despachar Prenda Compuesta'}
+              </button>
             </div>
           </div>
         </div>

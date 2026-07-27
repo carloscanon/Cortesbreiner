@@ -15,12 +15,31 @@ export async function GET() {
       .from('siigo_invoices')
       .select('*', { head: true, count: 'exact' });
 
-    // Ventas hoy
+    // Ventas hoy (o fallback a la fecha más reciente registrada)
     const { data: invHoy } = await supabaseAdmin
       .from('siigo_invoices')
       .select('total')
       .eq('date', today);
-    const ventasDia = (invHoy || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
+
+    let ventasDia = (invHoy || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
+    
+    // Si hoy no hay facturas emitidas aún, calcular el acumulado del día de facturación más reciente
+    if (ventasDia === 0) {
+      const { data: latestDateData } = await supabaseAdmin
+        .from('siigo_invoices')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1);
+
+      if (latestDateData && latestDateData.length > 0) {
+        const latestDate = latestDateData[0].date;
+        const { data: latestInv } = await supabaseAdmin
+          .from('siigo_invoices')
+          .select('total')
+          .eq('date', latestDate);
+        ventasDia = (latestInv || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
+      }
+    }
 
     // Ventas mes corriente
     const { data: invMes } = await supabaseAdmin
