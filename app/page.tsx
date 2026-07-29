@@ -4618,32 +4618,14 @@ export default function Dashboard() {
             {(() => {
               const totalInspectedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_inspected) || 0), 0);
               const totalApprovedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
-              const totalRejectedSum = workshopInspections.reduce((s, i) => {
-                const totalInsp = Number(i.items_inspected) || 0;
-                const app = Number(i.items_approved) || 0;
-                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
-                return s + (r > 0 ? r : (totalInsp > app ? totalInsp - app : 0));
-              }, 0);
-              const totalDefectDiscountSum = workshopInspections.reduce((s, i) => {
-                const totalInsp = Number(i.items_inspected) || 0;
-                const app = Number(i.items_approved) || 0;
-                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
-                const rFinal = r > 0 ? r : (totalInsp > app ? totalInsp - app : 0);
-                const wObj = i.sewing_orders?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
-                const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
-                return s + (i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rFinal * rateCosturas));
-              }, 0);
+              const totalRejectedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_rejected) || 0), 0);
+              const totalDefectDiscountSum = workshopInspections.reduce((s, i) => s + (Number(i.descuento_defectos) || 0), 0);
               const totalNetPayableSum = workshopInspections.reduce((s, i) => {
                 const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
-                const totalInsp = Number(i.items_inspected) || 0;
                 const app = Number(i.items_approved) || 0;
-                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
-                const rFinal = r > 0 ? r : (totalInsp > app ? totalInsp - app : 0);
-                const wObj = i.sewing_orders?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
-                const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
                 const basePay = app * itemRate;
-                const disc = i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rFinal * rateCosturas);
-                return s + (i.valor_pagar !== undefined && i.valor_pagar !== null ? Number(i.valor_pagar) : (basePay - disc));
+                const disc = Number(i.descuento_defectos) || 0;
+                return s + (Number(i.valor_pagar) || (basePay - disc));
               }, 0);
 
               return [
@@ -4681,16 +4663,13 @@ export default function Dashboard() {
                     const orderObj = orders.find(o => o.id === i.order_id);
                     const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
                     const confeccionCode = sewingOrderObj?.confeccion_code || (orderObj ? `OC-${orderObj.internal_code}` : '—');
-                    const totalInsp = Number(i.items_inspected) || (sewingOrderObj?.sewing_order_sizes?.reduce((s: number, sz: any) => s + (sz.cantidad_planeada || 0), 0)) || 0;
+                    const totalInsp = Number(i.items_inspected) || 0;
                     const approvedVal = Number(i.items_approved) || 0;
-                    const rawRej = Number(i.items_rejected) || Number(i.costuras) || 0;
-                    const rejCount = rawRej > 0 ? rawRej : (totalInsp > approvedVal ? totalInsp - approvedVal : 0);
-                    const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
-                    const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
+                    const rejCount = Number(i.items_rejected) || 0;
                     const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
-                    const defectDiscount = i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rejCount * rateCosturas);
-                    const netPayment = i.valor_pagar !== undefined && i.valor_pagar !== null ? Number(i.valor_pagar) : (basePay - defectDiscount);
+                    const defectDiscount = Number(i.descuento_defectos) || 0;
+                    const netPayment = Number(i.valor_pagar) || (basePay - defectDiscount);
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '1rem' }}>{confeccionCode}</td>
