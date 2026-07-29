@@ -1596,7 +1596,7 @@ export default function QualityPage() {
                                 ⚠️ Novedad por Faltante / Lote Incompleto
                               </label>
                               <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
-                                Faltantes Físicos
+                                Bodega Incompletos (Fábrica)
                               </span>
                             </div>
 

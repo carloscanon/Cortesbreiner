@@ -58,6 +58,7 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
     let defaultWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('principal')) || warehouses?.[0];
     let laundryWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('lavanderia'));
     let saldosWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('saldos'));
+    let incompletoWarehouse = warehouses?.find(w => w.nombre_bodega.toLowerCase().includes('incomplet'));
 
     if (!defaultWarehouse) {
       console.error('No active warehouses found to insert finished goods.');
@@ -278,6 +279,20 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
           `Prendas clasificadas a saldos desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
         );
       }
+    }
+
+    // 4d. Ingreso exclusivo a Bodega Incompletos
+    let remainingIncompletoToInsert = Number(inspection.incompleto) || 0;
+    if (remainingIncompletoToInsert > 0 && incompletoWarehouse && stockItemsToProcess.length > 0) {
+      const itemSample = stockItemsToProcess[0];
+      console.log(`Sincronizando ${remainingIncompletoToInsert} prendas a Bodega Incompletos: Prod=${itemSample.productId}`);
+      await syncWarehouseStock(
+        incompletoWarehouse.id,
+        itemSample,
+        remainingIncompletoToInsert,
+        'Ingreso por Faltantes / Lote Incompleto',
+        `Prendas reportadas como faltantes/incompletas desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
+      );
     }
 
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
