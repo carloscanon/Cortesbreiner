@@ -4634,7 +4634,7 @@ export default function Dashboard() {
                 return s + (i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rFinal * rateCosturas));
               }, 0);
               const totalNetPayableSum = workshopInspections.reduce((s, i) => {
-                const itemRate = getRateForOrder(i.order_id);
+                const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
                 const totalInsp = Number(i.items_inspected) || 0;
                 const app = Number(i.items_approved) || 0;
                 const r = Number(i.items_rejected) || Number(i.costuras) || 0;
@@ -4687,7 +4687,7 @@ export default function Dashboard() {
                     const rejCount = rawRej > 0 ? rawRej : (totalInsp > approvedVal ? totalInsp - approvedVal : 0);
                     const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
                     const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
-                    const itemRate = getRateForOrder(i.order_id);
+                    const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
                     const defectDiscount = i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rejCount * rateCosturas);
                     const netPayment = i.valor_pagar !== undefined && i.valor_pagar !== null ? Number(i.valor_pagar) : (basePay - defectDiscount);

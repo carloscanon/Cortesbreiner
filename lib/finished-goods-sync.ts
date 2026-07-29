@@ -231,9 +231,10 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
         });
     };
 
-    // 4. Distribuir stock entre Bodega Principal, Bodega Lavandería y Bodega Saldos
+    // 4. Distribuir stock entre Bodega Principal, Bodega Lavandería, Bodega Saldos y Bodega Incompletos
     let remainingLaundryToDeduct = Number(inspection.lavanderia) || 0;
     let remainingSaldosToDeduct = Number(inspection.saldos) || 0;
+    let remainingIncompletoToDeduct = Number(inspection.incompleto) || 0;
 
     for (const item of stockItemsToProcess) {
       const laundryDeduct = Math.min(item.qty, remainingLaundryToDeduct);
@@ -242,9 +243,12 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       const saldosDeduct = Math.min(item.qty - laundryDeduct, remainingSaldosToDeduct);
       remainingSaldosToDeduct -= saldosDeduct;
 
-      const mainQty = item.qty - laundryDeduct - saldosDeduct;
+      const incompletoDeduct = Math.min(item.qty - laundryDeduct - saldosDeduct, remainingIncompletoToDeduct);
+      remainingIncompletoToDeduct -= incompletoDeduct;
 
-      // 4a. Ingreso a Bodega 101 Principal (únicamente prendas aprobadas que no van a lavandería ni saldos)
+      const mainQty = item.qty - laundryDeduct - saldosDeduct - incompletoDeduct;
+
+      // 4a. Ingreso a Bodega 101 Principal (únicamente prendas aprobadas que no van a lavandería, saldos ni incompletos)
       if (mainQty > 0) {
         console.log(`Sincronizando ${mainQty} prendas a Bodega Principal: Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}`);
         await syncWarehouseStock(
@@ -279,20 +283,18 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
           `Prendas clasificadas a saldos desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
         );
       }
-    }
 
-    // 4d. Ingreso exclusivo a Bodega Incompletos
-    let remainingIncompletoToInsert = Number(inspection.incompleto) || 0;
-    if (remainingIncompletoToInsert > 0 && incompletoWarehouse && stockItemsToProcess.length > 0) {
-      const itemSample = stockItemsToProcess[0];
-      console.log(`Sincronizando ${remainingIncompletoToInsert} prendas a Bodega Incompletos: Prod=${itemSample.productId}`);
-      await syncWarehouseStock(
-        incompletoWarehouse.id,
-        itemSample,
-        remainingIncompletoToInsert,
-        'Ingreso por Faltantes / Lote Incompleto',
-        `Prendas reportadas como faltantes/incompletas desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
-      );
+      // 4d. Ingreso exclusivo a Bodega Incompletos (Fabrica)
+      if (incompletoDeduct > 0 && incompletoWarehouse) {
+        console.log(`Sincronizando ${incompletoDeduct} prendas a Bodega Incompletos (Fabrica): Prod=${item.productId}, Color=${item.colorId}, Talla=${item.sizeId}`);
+        await syncWarehouseStock(
+          incompletoWarehouse.id,
+          item,
+          incompletoDeduct,
+          'Ingreso a Bodega Incompletos (Fábrica)',
+          `Prendas reportadas como faltantes/incompletas desde Inspección de Calidad de la orden ${inspection.sewing_orders?.confeccion_code || ''}`
+        );
+      }
     }
 
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
