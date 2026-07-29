@@ -517,7 +517,7 @@ export default function Dashboard() {
             .order('created_at', { ascending: false })
             .limit(150),
           supabase.from('workshops').select('*'),
-          supabase.from('quality_inspections').select('*').limit(150).order('created_at', { ascending: false }),
+          supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(nombre_taller))').limit(250).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
@@ -1869,11 +1869,15 @@ export default function Dashboard() {
 
     // Inspecciones de todos los talleres del usuario (el selector solo afecta la vista, no el pool)
     const workshopInspections = inspections.filter(i =>
-      finalWorkshopsList.some(w => (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim())
+      finalWorkshopsList.some(w =>
+        (w.id && (String(w.id) === String(i.sewing_orders?.workshop_id) || String(w.id) === String(i.sewing_order_id))) ||
+        (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
+        (i.sewing_orders?.workshops?.nombre_taller && (i.sewing_orders.workshops.nombre_taller || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim())
+      )
     );
 
-    const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
-    const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (i.items_rejected || 0), 0);
+    const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
+    const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (Number(i.items_rejected) || Number(i.costuras) || 0), 0);
 
     // Obtener código único de confección por taller (ej. 12XKE-1, 12XKE-2)
     const getConfeccionCode = (order: any, workshopId: string, productId?: string) => {
@@ -3133,29 +3137,30 @@ export default function Dashboard() {
                   const parentOrder = so.parent_order || {};
                   const parentCuts = parentOrder.cuts || [];
                   const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
-                  let actualSewedQty = 0;
-                  if (cut) {
+                  let actualSewedQty = so.cantidad_confeccionada || 0;
+                  const insp = inspections.find((i: any) => String(i.sewing_order_id) === String(so.id));
+                  if (so.status === 'Terminada' || so.status === 'Enviada' || (insp && insp.status === 'Aprobado')) {
+                    const inspUnits = insp ? (Number(insp.items_approved || 0) + Number(insp.items_rejected || 0)) : 0;
+                    actualSewedQty = inspUnits > 0 ? inspUnits : plannedQty;
+                  } else if (cut) {
                     const layersProyec = cut.layers || 1;
                     const layersProduced = cut.layers_produced || 0;
                     const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
-                    actualSewedQty = Math.round(plannedQty * pct);
-                  } else {
-                    actualSewedQty = so.cantidad_confeccionada || 0;
+                    const calcFromCut = Math.round(plannedQty * pct);
+                    if (calcFromCut > actualSewedQty) actualSewedQty = calcFromCut;
                   }
 
-                  if (so.status === 'Enviado a Taller' || so.status === 'En Confección' || so.status === 'Enviado a Calidad') {
-                    pendingConfecciones.push({
-                      order: parentOrder,
-                      workshop: w,
-                      planeadas: plannedQty,
-                      confeccionadas: actualSewedQty,
-                      confeccionCode: so.confeccion_code,
-                      status: so.status,
-                      id: so.id,
-                      createdAt: so.created_at || parentOrder.created_at || '',
-                      sewingOrder: so
-                    });
-                  }
+                  pendingConfecciones.push({
+                    order: parentOrder,
+                    workshop: w,
+                    planeadas: plannedQty,
+                    confeccionadas: actualSewedQty,
+                    confeccionCode: so.confeccion_code,
+                    status: so.status,
+                    id: so.id,
+                    createdAt: so.created_at || parentOrder.created_at || '',
+                    sewingOrder: so
+                  });
                 });
 
                 // Ordenar por fecha más reciente primero
@@ -3299,18 +3304,18 @@ export default function Dashboard() {
                   </h3>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                     <thead>
-                      <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
-                        {['Orden', 'Fecha Revisión', 'Inspeccionadas', 'Aprobadas', 'Rechazadas', 'Pago Estimado', 'Estado Pago'].map(h => (
-                          <th key={h} style={{ padding: '0.85rem 1rem', fontWeight: '800', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                      <tr style={{ borderBottom: '2.5px solid #cbd5e1', textAlign: 'left', color: '#475569', backgroundColor: '#f8fafc' }}>
+                        {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Penalización Defectos', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
+                          <th key={h} style={{ padding: '0.95rem 1rem', fontWeight: '850', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {loading ? (
                         <tr>
-                          <td colSpan={7} style={{ padding: '2rem' }}>
+                          <td colSpan={8} style={{ padding: '2rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                               <div style={{ height: '18px', width: '100%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
                               <div style={{ height: '18px', width: '70%', borderRadius: '4px', background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%)', backgroundSize: '400% 100%', animation: 'shimmer 1.4s ease infinite' }}></div>
@@ -3318,28 +3323,31 @@ export default function Dashboard() {
                           </td>
                         </tr>
                       ) : workshopInspections.length === 0 ? (
-                        <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Aún no registras auditorías en Control de Calidad.</td></tr>
+                        <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontWeight: '600' }}>Aún no registras auditorías en Control de Calidad.</td></tr>
                       ) : workshopInspections.slice(0, 5).map(i => {
                         const orderObj = orders.find(o => o.id === i.order_id);
                         const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
                         const itemRate = getRateForOrder(i.order_id);
-                        const payment = (i.items_approved || 0) * itemRate;
+                        const basePay = (i.items_approved || 0) * itemRate;
+                        const defectDiscount = Number(i.descuento_defectos) || ((Number(i.items_rejected) || 0) * 500);
+                        const netPayment = Number(i.valor_pagar) || (basePay - defectDiscount);
                         return (
-                          <tr key={i.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</td>
-                            <td style={{ padding: '1rem 1rem', color: '#64748b', fontWeight: '600' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#475569' }}>{i.items_inspected} uds</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#16a34a' }}>{i.items_approved} uds</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '800', color: '#ef4444' }}>{i.items_rejected} uds</td>
-                            <td style={{ padding: '1rem 1rem', fontWeight: '900', color: '#10b981' }}>${payment.toLocaleString('es-CO')} COP</td>
-                            <td style={{ padding: '1rem 1rem' }}>
+                          <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '0.95rem' }}>{orderCode}</td>
+                            <td style={{ padding: '1.1rem 1rem', color: '#64748b', fontWeight: '600', fontSize: '0.88rem' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '800', color: '#334155', fontSize: '0.95rem' }}>{i.items_inspected} uds</td>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '900', color: '#16a34a', fontSize: '1.05rem' }}>{i.items_approved} uds</td>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '900', color: '#dc2626', fontSize: '1.05rem' }}>{i.items_rejected || 0} uds</td>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '800', color: '#dc2626', fontSize: '0.95rem' }}>-${defectDiscount.toLocaleString('es-CO')} COP</td>
+                            <td style={{ padding: '1.1rem 1rem', fontWeight: '950', color: '#5b21b6', fontSize: '1.1rem' }}>${netPayment.toLocaleString('es-CO')} COP</td>
+                            <td style={{ padding: '1.1rem 1rem' }}>
                               <span style={{
-                                fontSize: '0.68rem', padding: '0.25rem 0.65rem', borderRadius: '8px', fontWeight: '800',
+                                fontSize: '0.75rem', padding: '0.3rem 0.75rem', borderRadius: '8px', fontWeight: '800',
                                 backgroundColor: i.status === 'Aprobado' ? '#ecfdf5' : '#fffbeb',
                                 color: i.status === 'Aprobado' ? '#15803d' : '#b45309',
                                 border: i.status === 'Aprobado' ? '1px solid #bbf7d0' : '1px solid #fef08a'
                               }}>
-                                {i.status === 'Aprobado' ? 'Aprobado' : 'Pendiente'}
+                                {i.status === 'Aprobado' ? 'Listo para Pago' : 'Pendiente'}
                               </span>
                             </td>
                           </tr>
@@ -4605,36 +4613,97 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '2rem' }}>
+          {/* KPI Summary Header Cards para Control de Entregas y Pagos */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+            {(() => {
+              const totalInspectedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_inspected) || 0), 0);
+              const totalApprovedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
+              const totalRejectedSum = workshopInspections.reduce((s, i) => {
+                const totalInsp = Number(i.items_inspected) || 0;
+                const app = Number(i.items_approved) || 0;
+                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
+                return s + (r > 0 ? r : (totalInsp > app ? totalInsp - app : 0));
+              }, 0);
+              const totalDefectDiscountSum = workshopInspections.reduce((s, i) => {
+                const totalInsp = Number(i.items_inspected) || 0;
+                const app = Number(i.items_approved) || 0;
+                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
+                const rFinal = r > 0 ? r : (totalInsp > app ? totalInsp - app : 0);
+                const wObj = i.sewing_orders?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
+                return s + (i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rFinal * rateCosturas));
+              }, 0);
+              const totalNetPayableSum = workshopInspections.reduce((s, i) => {
+                const itemRate = getRateForOrder(i.order_id);
+                const totalInsp = Number(i.items_inspected) || 0;
+                const app = Number(i.items_approved) || 0;
+                const r = Number(i.items_rejected) || Number(i.costuras) || 0;
+                const rFinal = r > 0 ? r : (totalInsp > app ? totalInsp - app : 0);
+                const wObj = i.sewing_orders?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
+                const basePay = app * itemRate;
+                const disc = i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rFinal * rateCosturas);
+                return s + (i.valor_pagar !== undefined && i.valor_pagar !== null ? Number(i.valor_pagar) : (basePay - disc));
+              }, 0);
+
+              return [
+                { label: 'Inspeccionadas', value: `${totalInspectedSum.toLocaleString('es-CO')} uds`, color: '#334155', bg: '#f8fafc', icon: '📦' },
+                { label: 'Aprobadas para Pago', value: `${totalApprovedSum.toLocaleString('es-CO')} uds`, color: '#16a34a', bg: '#f0fdf4', icon: '✓' },
+                { label: 'Prendas Rechazadas ✗', value: `${totalRejectedSum.toLocaleString('es-CO')} uds`, color: '#dc2626', bg: '#fef2f2', icon: '✗', sub: `Penalización: -$${totalDefectDiscountSum.toLocaleString('es-CO')} COP` },
+                { label: 'Total Neto Liquidado', value: `$${totalNetPayableSum.toLocaleString('es-CO')} COP`, color: '#5b21b6', bg: '#f3e8ff', icon: '💵' }
+              ].map(card => (
+                <div key={card.label} className="card" style={{ padding: '1.25rem 1.5rem', backgroundColor: card.bg, border: `1.5px solid ${card.color}25`, borderRadius: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: card.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</span>
+                    <span style={{ fontSize: '1.1rem' }}>{card.icon}</span>
+                  </div>
+                  <h3 style={{ fontSize: '1.65rem', fontWeight: '950', margin: '0.35rem 0 0', color: card.color }}>{card.value}</h3>
+                  {card.sub && <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', fontWeight: '800', color: '#b91c1c' }}>{card.sub}</p>}
+                </div>
+              ));
+            })()}
+          </div>
+
+          <div className="card" style={{ padding: '2rem', borderRadius: '20px' }}>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '2.5px solid #f1f5f9', textAlign: 'left', color: '#64748b' }}>
-                    {['Orden', 'Fecha Revisión', 'Inspeccionadas', 'Aprobadas', 'Rechazadas', 'Tarifa Aplicada', 'Pago Estimado', 'Estado Pago'].map(h => (
-                      <th key={h} style={{ padding: '1rem', fontWeight: '800' }}>{h}</th>
+                  <tr style={{ borderBottom: '2.5px solid #cbd5e1', textAlign: 'left', color: '#475569', backgroundColor: '#f8fafc' }}>
+                    {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Penalización Defectos', 'Tarifa / Prenda', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
+                      <th key={h} style={{ padding: '1rem 1.15rem', fontWeight: '850', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {workshopInspections.length === 0 ? (
-                    <tr><td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Aún no se registran inspecciones de calidad para este taller.</td></tr>
+                    <tr><td colSpan={9} style={{ padding: '3.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '1rem', fontWeight: '600' }}>Aún no se registran auditorías de calidad para este taller.</td></tr>
                   ) : workshopInspections.map(i => {
                     const orderObj = orders.find(o => o.id === i.order_id);
-                    const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
+                    const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
+                    const confeccionCode = sewingOrderObj?.confeccion_code || (orderObj ? `OC-${orderObj.internal_code}` : '—');
+                    const totalInsp = Number(i.items_inspected) || (sewingOrderObj?.sewing_order_sizes?.reduce((s: number, sz: any) => s + (sz.cantidad_planeada || 0), 0)) || 0;
+                    const approvedVal = Number(i.items_approved) || 0;
+                    const rawRej = Number(i.items_rejected) || Number(i.costuras) || 0;
+                    const rejCount = rawRej > 0 ? rawRej : (totalInsp > approvedVal ? totalInsp - approvedVal : 0);
+                    const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                    const rateCosturas = wObj ? (Number(wObj.desc_costuras) || 0) : 0;
                     const itemRate = getRateForOrder(i.order_id);
-                    const payment = (i.items_approved || 0) * itemRate;
+                    const basePay = approvedVal * itemRate;
+                    const defectDiscount = i.descuento_defectos !== undefined && i.descuento_defectos !== null ? Number(i.descuento_defectos) : (rejCount * rateCosturas);
+                    const netPayment = i.valor_pagar !== undefined && i.valor_pagar !== null ? Number(i.valor_pagar) : (basePay - defectDiscount);
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '1rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</td>
-                        <td style={{ padding: '1rem', color: '#475569' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
-                        <td style={{ padding: '1rem', fontWeight: '700' }}>{i.items_inspected} uds</td>
-                        <td style={{ padding: '1rem', fontWeight: '700', color: '#16a34a' }}>{i.items_approved} uds</td>
-                        <td style={{ padding: '1rem', fontWeight: '700', color: '#ef4444' }}>{i.items_rejected} uds</td>
-                        <td style={{ padding: '1rem', fontWeight: '600' }}>${itemRate.toLocaleString('es-CO')} COP</td>
-                        <td style={{ padding: '1rem', fontWeight: '900', color: '#10b981' }}>${payment.toLocaleString('es-CO')} COP</td>
-                        <td style={{ padding: '1rem' }}>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '1rem' }}>{confeccionCode}</td>
+                        <td style={{ padding: '1.15rem 1rem', color: '#475569', fontWeight: '600', fontSize: '0.9rem' }}>{i.created_at ? new Date(i.created_at).toLocaleDateString('es-CO') : '—'}</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#334155', fontSize: '0.98rem' }}>{totalInsp} uds</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#16a34a', fontSize: '1.1rem' }}>{approvedVal} uds</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#dc2626', fontSize: '1.1rem' }}>{rejCount} uds</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#dc2626', fontSize: '0.95rem' }}>-${defectDiscount.toLocaleString('es-CO')} COP</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '700', color: '#475569', fontSize: '0.9rem' }}>${itemRate.toLocaleString('es-CO')} COP</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '950', color: '#5b21b6', fontSize: '1.2rem' }}>${netPayment.toLocaleString('es-CO')} COP</td>
+                        <td style={{ padding: '1.15rem 1rem' }}>
                           <span style={{
-                            fontSize: '0.7rem', padding: '0.25rem 0.65rem', borderRadius: '8px', fontWeight: '800',
+                            fontSize: '0.75rem', padding: '0.35rem 0.8rem', borderRadius: '8px', fontWeight: '800',
                             backgroundColor: i.status === 'Aprobado' ? '#ecfdf5' : '#fffbeb',
                             color: i.status === 'Aprobado' ? '#15803d' : '#b45309',
                             border: i.status === 'Aprobado' ? '1px solid #bbf7d0' : '1px solid #fef08a'

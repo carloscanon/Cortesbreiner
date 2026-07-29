@@ -17,8 +17,8 @@ const EMPTY_FORM = {
   especialidad: '',
   capacidad_mensual: '',
   activo: true,
-  desc_costuras: '500',
-  desc_lavanderia: '500',
+  desc_costuras: '0',
+  desc_lavanderia: '0',
   desc_empaque: '0',
 };
 
@@ -472,8 +472,8 @@ export default function WorkshopsPage() {
       especialidad: w.especialidad || '',
       capacidad_mensual: w.capacidad_mensual || '',
       activo: w.activo ?? true,
-      desc_costuras: (w.desc_costuras ?? 500).toString(),
-      desc_lavanderia: (w.desc_lavanderia ?? 500).toString(),
+      desc_costuras: (w.desc_costuras ?? 0).toString(),
+      desc_lavanderia: (w.desc_lavanderia ?? 0).toString(),
       desc_empaque: (w.desc_empaque ?? 0).toString(),
     });
     setShowModal(true);
@@ -488,8 +488,8 @@ export default function WorkshopsPage() {
       name: form.nombre_taller,
       capacidad_mensual: form.capacidad_mensual ? parseInt(form.capacidad_mensual, 10) : null,
       capacidad_diaria: null, // deprecated
-      desc_costuras: form.desc_costuras ? parseFloat(form.desc_costuras) : 500,
-      desc_lavanderia: form.desc_lavanderia ? parseFloat(form.desc_lavanderia) : 500,
+      desc_costuras: form.desc_costuras ? parseFloat(form.desc_costuras) : 0,
+      desc_lavanderia: form.desc_lavanderia ? parseFloat(form.desc_lavanderia) : 0,
       desc_empaque: form.desc_empaque ? parseFloat(form.desc_empaque) : 0,
     };
 

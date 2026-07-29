@@ -29,6 +29,9 @@ const EMPTY_FORM = {
   has_saldos: false,
   costuras: '0',
   incompleto: '0',
+  has_incompleto: false,
+  danadas_facturar: '0',
+  has_danadas_facturar: false,
   valor_prenda: '3500',
   descuento_defectos: '0',
   valor_pagar: '0',
@@ -585,15 +588,11 @@ export default function QualityPage() {
 
     if (individualGarments.length > 0) {
       finalApproved = individualGarments.filter(g => g.status === 'Aprobada').length;
-      const rejectedGarments = individualGarments.filter(g => g.status === 'Rechazada');
-      finalRejected = rejectedGarments.length;
-      cosVal = 0; incVal = 0;
-      rejectedGarments.forEach(g => {
-        const chk = g.defect_checklist || {};
-        const isCostura = chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón'];
-        if (isCostura) cosVal++; else incVal++;
-      });
-      form.items_inspected = individualGarments.length.toString();
+      const gRej = individualGarments.filter(g => g.status === 'Rechazada').length;
+      finalRejected = gRej > 0 ? gRej : (Number(form.items_rejected) || 0);
+      cosVal = finalRejected;
+      incVal = 0;
+      form.items_inspected = (finalApproved + finalRejected).toString();
       form.items_approved = finalApproved.toString();
       form.items_rejected = finalRejected.toString();
       form.costuras = cosVal.toString();
@@ -601,13 +600,10 @@ export default function QualityPage() {
       form.saldos = salVal.toString();
       form.incompleto = incVal.toString();
     } else {
-      if (rows.length > 0) {
-        const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
-        finalApproved = totalApproved;
-        finalRejected = totalRejected;
-      } else {
-        finalRejected = lavVal + salVal + cosVal + incVal;
-      }
+      const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
+      finalApproved = Object.keys(rowApproved).length > 0 ? totalApproved : (Number(form.items_approved) || 0);
+      finalRejected = Object.keys(rowRejected).length > 0 ? totalRejected : (Number(form.items_rejected) || 0);
+      cosVal = finalRejected;
     }
     const totalInspected = Number(form.items_inspected) || totalRecFromRows || (finalApproved + finalRejected);
     if (finalRejected > totalInspected) { setSaving(false); return alert(`❌ Rechazadas (${finalRejected}) no puede superar el total inspeccionadas (${totalInspected}).`); }
@@ -615,8 +611,8 @@ export default function QualityPage() {
 
     const valPrenda = Number(form.valor_prenda) || 3500;
     const workshopObj = selectedSewingOrder?.workshops || selectedOrder?.workshops || orderDetail?.workshops || orderDetail?.parent_order?.workshops;
-    const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 500) : 500;
-    const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 500) : 500;
+    const rateCosturas = workshopObj ? Number(workshopObj.desc_costuras ?? 0) : 0;
+    const rateLavanderia = workshopObj ? Number(workshopObj.desc_lavanderia ?? 0) : 0;
     const rateEmpaque = workshopObj ? Number(workshopObj.desc_empaque ?? 0) : 0;
     const descDefectos = (cosVal * rateCosturas) + (lavVal * rateLavanderia);
     const isEmpaqueEnabled = selectedSewingOrder?.empaque ?? orderDetail?.empaque ?? false;
@@ -627,6 +623,13 @@ export default function QualityPage() {
     const resolvedStage = nextStageToSave !== undefined ? nextStageToSave : activeStage;
     const isClosing = isFinalizingBatch || form.status === 'Aprobado';
 
+    const danadasVal = Number(form.danadas_facturar) || 0;
+    let formattedNotes = form.notes || '';
+    formattedNotes = formattedNotes.replace(/\[DAÑADAS FACTURAR:\s*\d+\]/gi, '').trim();
+    if (danadasVal > 0) {
+      formattedNotes = (formattedNotes ? `${formattedNotes}\n` : '') + `[DAÑADAS FACTURAR: ${danadasVal}]`;
+    }
+
     const payload: any = {
       order_id: parentOrderId || null,
       sewing_order_id: form.sewing_order_id || null,
@@ -634,7 +637,7 @@ export default function QualityPage() {
       items_inspected: totalInspected, items_approved: finalApproved, items_rejected: finalRejected,
       lavanderia: lavVal, saldos: salVal, costuras: cosVal, incompleto: incVal,
       status: isClosing ? (form.status === 'Pendiente' ? 'Aprobado' : form.status) : (form.status || 'En Proceso'),
-      notes: form.notes,
+      notes: formattedNotes,
       valor_prenda: valPrenda,
       descuento_defectos: descDefectos,
       valor_pagar: valPagar,
@@ -733,6 +736,9 @@ export default function QualityPage() {
       }
       if (nextStageToSave !== undefined && !isFinalizingBatch) {
         setActiveStage(nextStageToSave);
+        if (nextStageToSave === 1) {
+          alert('💾 Avance guardado temporalmente en la Etapa 1. Puedes continuar la inspección cuando desees.');
+        }
       } else {
         closeModal();
       }
@@ -915,8 +921,10 @@ export default function QualityPage() {
 
   const openReview = async (item: any) => {
     setEditingId(item.id);
+    const danadasMatch = (item.notes || '').match(/\[DAÑADAS FACTURAR:\s*(\d+)\]/i);
+    const loadedDanadas = item.danadas_facturar !== undefined && item.danadas_facturar !== null ? Number(item.danadas_facturar) : (danadasMatch ? Number(danadasMatch[1]) : 0);
     setForm({
-      order_id: item.order_id || '', sewing_order_id: item.sewing_order_id || '',
+      id: item.id, order_id: item.order_id || '', sewing_order_id: item.sewing_order_id || '',
       workshop_name: item.workshop_name || '',
       items_inspected: (item.items_inspected || 0).toString(),
       items_approved: (item.items_approved || 0).toString(),
@@ -925,6 +933,9 @@ export default function QualityPage() {
       has_lavanderia: Number(item.lavanderia) > 0,
       has_saldos: Number(item.saldos) > 0,
       costuras: (item.costuras || 0).toString(), incompleto: (item.incompleto || 0).toString(),
+      has_incompleto: Number(item.incompleto) > 0,
+      danadas_facturar: loadedDanadas.toString(),
+      has_danadas_facturar: loadedDanadas > 0,
       status: item.status, notes: item.notes || '',
       valor_prenda: (item.valor_prenda || 3500).toString(),
       descuento_defectos: (item.descuento_defectos || 0).toString(),
@@ -1001,9 +1012,18 @@ export default function QualityPage() {
   const detailRows = orderDetail ? getDetailRows(orderDetail) : [];
   const { totalApproved: rowTotalApproved, totalRejected: rowTotalRejected } = computeTotalsFromRows(detailRows);
 
-  const totalRec = individualGarments.length > 0 ? individualGarments.length : detailRows.reduce((s, r) => s + r.quantity, 0);
-  const totalApp = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Aprobada').length : rowTotalApproved;
-  const totalRej = individualGarments.length > 0 ? individualGarments.filter(g => g.status === 'Rechazada').length : rowTotalRejected;
+  const totalApp = individualGarments.length > 0
+    ? individualGarments.filter(g => g.status === 'Aprobada').length
+    : (rowTotalApproved > 0 ? rowTotalApproved : (Number(form.items_approved) || 0));
+
+  const gRejCount = individualGarments.filter(g => g.status === 'Rechazada').length;
+  const totalRej = gRejCount > 0
+    ? gRejCount
+    : (rowTotalRejected > 0 ? rowTotalRejected : (Number(form.items_rejected) || 0));
+
+  const totalRec = individualGarments.length > 0
+    ? (totalApp + totalRej)
+    : (detailRows.length > 0 ? detailRows.reduce((s, r) => s + r.quantity, 0) : (Number(form.items_inspected) || (totalApp + totalRej)));
   const totalRep = individualGarments.filter(g => g.status === 'Reproceso').length;
   const allResolved = totalRec > 0 && (totalApp + totalRej === totalRec) && totalRep === 0;
 
@@ -1552,11 +1572,128 @@ export default function QualityPage() {
                             )}
                           </div>
 
+                          {/* Opción 3: Incompleto / Faltantes */}
+                          <div style={{
+                            padding: '1rem',
+                            borderRadius: '10px',
+                            border: (form.has_incompleto || Number(form.incompleto) > 0) ? '2px solid #dc2626' : '1.5px solid #cbd5e1',
+                            backgroundColor: (form.has_incompleto || Number(form.incompleto) > 0) ? '#fef2f2' : 'white',
+                            transition: 'all 0.15s ease-in-out'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.8rem', fontWeight: '900', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input type="checkbox"
+                                  checked={form.has_incompleto || Number(form.incompleto) > 0}
+                                  onChange={e => {
+                                    const isChecked = e.target.checked;
+                                    setForm((f: any) => ({
+                                      ...f,
+                                      has_incompleto: isChecked,
+                                      incompleto: isChecked ? (f.incompleto && f.incompleto !== '0' ? f.incompleto : '1') : '0'
+                                    }));
+                                  }}
+                                  style={{ width: '17px', height: '17px', accentColor: '#dc2626', cursor: 'pointer' }} />
+                                ⚠️ Novedad por Faltante / Lote Incompleto
+                              </label>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+                                Faltantes Físicos
+                              </span>
+                            </div>
+
+                            {(form.has_incompleto || Number(form.incompleto) > 0) && (
+                              <div style={{ marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px dashed #fca5a5' }}>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#7f1d1d', marginBottom: '0.3rem' }}>
+                                  Cantidad de prendas faltantes en el paquete/lote:
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <input type="number" min="1"
+                                    value={form.incompleto}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setForm((f: any) => ({ ...f, incompleto: val, has_incompleto: Number(val) > 0 }));
+                                    }}
+                                    style={{ width: '100px', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1.5px solid #dc2626', fontSize: '0.85rem', fontWeight: '800', color: '#991b1b', backgroundColor: 'white' }} />
+                                  <span style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: '700' }}>prendas faltantes reportadas</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Opción 4: Prendas Dañadas (Facturar a Taller) */}
+                          <div style={{
+                            padding: '1rem',
+                            borderRadius: '10px',
+                            border: (form.has_danadas_facturar || Number(form.danadas_facturar) > 0) ? '2px solid #be123c' : '1.5px solid #cbd5e1',
+                            backgroundColor: (form.has_danadas_facturar || Number(form.danadas_facturar) > 0) ? '#fff1f2' : 'white',
+                            transition: 'all 0.15s ease-in-out'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.8rem', fontWeight: '900', color: '#9f1239', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                <input type="checkbox"
+                                  checked={form.has_danadas_facturar || Number(form.danadas_facturar) > 0}
+                                  onChange={e => {
+                                    const isChecked = e.target.checked;
+                                    setForm((f: any) => ({
+                                      ...f,
+                                      has_danadas_facturar: isChecked,
+                                      danadas_facturar: isChecked ? (f.danadas_facturar && f.danadas_facturar !== '0' ? f.danadas_facturar : '1') : '0'
+                                    }));
+                                  }}
+                                  style={{ width: '17px', height: '17px', accentColor: '#be123c', cursor: 'pointer' }} />
+                                🔥 Prendas Dañadas (Facturar a Taller)
+                              </label>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#ffe4e6', color: '#9f1239', border: '1px solid #fecdd3' }}>
+                                Cobro a Taller
+                              </span>
+                            </div>
+
+                            {(form.has_danadas_facturar || Number(form.danadas_facturar) > 0) && (
+                              <div style={{ marginTop: '0.75rem', paddingTop: '0.6rem', borderTop: '1px dashed #fecdd3' }}>
+                                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#881337', marginBottom: '0.3rem' }}>
+                                  Cantidad de prendas dañadas a facturar/cobrar:
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <input type="number" min="1"
+                                    value={form.danadas_facturar}
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      setForm((f: any) => ({ ...f, danadas_facturar: val, has_danadas_facturar: Number(val) > 0 }));
+                                    }}
+                                    style={{ width: '100px', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1.5px solid #be123c', fontSize: '0.85rem', fontWeight: '800', color: '#9f1239', backgroundColor: 'white' }} />
+                                  <span style={{ fontSize: '0.72rem', color: '#be123c', fontWeight: '700' }}>prendas dañadas a cobrar</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <button onClick={() => handleSave(2)} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem' }}>Guardar y Proceder a Etiquetado →</button>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleSave(1)}
+                          disabled={saving}
+                          style={{
+                            padding: '0.55rem 1.35rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '800',
+                            backgroundColor: '#2563eb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            boxShadow: '0 2px 4px rgba(37,99,235,0.2)'
+                          }}
+                        >
+                          {saving ? <Loader2 className="animate-spin" size={14} /> : '💾 Guardar Avance Temporal (Borrador)'}
+                        </button>
+                        <button onClick={() => handleSave(2)} className="btn btn-primary" style={{ padding: '0.55rem 1.5rem', fontSize: '0.8rem' }}>
+                          Guardar y Proceder a Etiquetado →
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1710,8 +1847,8 @@ export default function QualityPage() {
                     }
 
                     const wObj = orderDetail.workshops || orderDetail.parent_order?.workshops;
-                    const rCosturas = wObj ? Number(wObj.desc_costuras ?? 500) : 500;
-                    const rLavanderia = wObj ? Number(wObj.desc_lavanderia ?? 500) : 500;
+                    const rCosturas = wObj ? Number(wObj.desc_costuras ?? 0) : 0;
+                    const rLavanderia = wObj ? Number(wObj.desc_lavanderia ?? 0) : 0;
                     const rEmpaque = wObj ? Number(wObj.desc_empaque ?? 0) : 0;
 
                     // Resolver tarifa correcta usando la misma lógica que el contexto
@@ -1719,18 +1856,12 @@ export default function QualityPage() {
                     const prodObj = products.find((p: any) => String(p.id) === String(prodId));
                     const { rate: autoRate, source: rateSource, isSpecialProduct: isRateSpecial } = getRateSource(orderDetail, prodObj);
 
-                    let cosDef = 0, lavDef = 0;
-                    individualGarments.filter(g => g.status === 'Rechazada').forEach(g => {
-                      const chk = g.defect_checklist || {};
-                      if (chk['Costura'] || chk['Medida'] || chk['Hilo'] || chk['Cuello'] || chk['Manga'] || chk['Cremallera'] || chk['Botón']) cosDef++;
-                      else lavDef++;
-                    });
-                    // Si el administrador editó manualmente el valor, respetar ese valor; si no, usar el autoRate
+                    let cosDef = totalRej;
                     const valPrendaNum = (Number(form.valor_prenda) > 1) ? Number(form.valor_prenda) : autoRate;
                     const isEmpaque = orderDetail.empaque || false;
                     const appValue = totalApp * valPrendaNum;
                     const pagoEmpaque = isEmpaque ? totalApp * rEmpaque : 0;
-                    const defDiscount = (cosDef * rCosturas) + (lavDef * rLavanderia);
+                    const defDiscount = cosDef * rCosturas;
                     const netPayable = appValue + pagoEmpaque - defDiscount;
                     const isPedidoEspecial = !!(orderDetail.parent_order?.pedido_especial);
 
@@ -1754,24 +1885,73 @@ export default function QualityPage() {
                               </div>
                             </div>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.65rem', backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1px solid #e9d5ff', marginBottom: '1rem' }}>
+
+                          {/* Resumen Prominente de Conteo y Clasificación */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.85rem', backgroundColor: 'white', padding: '1rem', borderRadius: '12px', border: '1.5px solid #e9d5ff', marginBottom: '1.25rem', boxShadow: '0 2px 8px rgba(91,33,182,0.05)' }}>
                             {[
-                              { label: 'Ingresadas', value: totalRec, color: '#475569' },
-                              { label: 'Aprobadas', value: totalApp, color: '#16a34a' },
-                              { label: 'Rechazadas', value: totalRej, color: '#dc2626' },
-                              { label: 'Reproceso', value: totalRep, color: '#d97706' },
+                              { label: 'Ingresadas', value: totalRec, color: '#334155', bg: '#f8fafc' },
+                              { label: 'Aprobadas ✓', value: totalApp, color: '#16a34a', bg: '#f0fdf4' },
+                              { label: 'Rechazadas ✗', value: totalRej, color: '#dc2626', bg: '#fef2f2' },
+                              { label: 'Reproceso', value: totalRep, color: '#d97706', bg: '#fffbeb' },
                             ].map(item => (
-                              <div key={item.label} style={{ textAlign: 'center' }}>
-                                <p style={{ margin: 0, fontSize: '0.62rem', color: item.color, fontWeight: '700', textTransform: 'uppercase' }}>{item.label}</p>
-                                <p style={{ margin: '0.15rem 0 0', fontSize: '1.05rem', fontWeight: '950', color: item.color }}>{item.value}</p>
+                              <div key={item.label} style={{ textAlign: 'center', backgroundColor: item.bg, padding: '0.65rem 0.5rem', borderRadius: '8px', border: `1px solid ${item.color}25` }}>
+                                <p style={{ margin: 0, fontSize: '0.72rem', color: item.color, fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{item.label}</p>
+                                <p style={{ margin: '0.2rem 0 0', fontSize: '1.45rem', fontWeight: '950', color: item.color }}>{item.value}</p>
                               </div>
                             ))}
                           </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px dashed #ddd6fe', paddingTop: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#475569' }}><span>Valor base ({totalApp} aprobadas × ${valPrendaNum.toLocaleString('es-CO')}):</span><span style={{ fontWeight: '700' }}>${appValue.toLocaleString('es-CO')} COP</span></div>
-                            {isEmpaque && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a' }}><span>Adicional empaque:</span><span style={{ fontWeight: '700' }}>+${pagoEmpaque.toLocaleString('es-CO')} COP</span></div>}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626' }}><span>Descuento por defectos ({cosDef} costura @ ${rCosturas.toLocaleString()}, {lavDef} lavandería @ ${rLavanderia.toLocaleString()}):</span><span style={{ fontWeight: '700' }}>-${defDiscount.toLocaleString('es-CO')} COP</span></div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', color: '#5b21b6', fontWeight: '950', borderTop: '1.5px solid #ddd6fe', paddingTop: '0.5rem' }}><span>TOTAL A PAGAR:</span><span>${netPayable.toLocaleString('es-CO')} COP</span></div>
+
+                          {/* Sección Destino a Bodegas de Fábrica (Sin Descuento Financiero) */}
+                          <div style={{ backgroundColor: '#eff6ff', border: '1.5px solid #93c5fd', borderRadius: '12px', padding: '0.85rem 1.15rem', marginBottom: '1.25rem' }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: '900', color: '#1e40af', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span>🧺 Destino a Bodegas de Fábrica (Sin Descuento Financiero al Taller):</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#1e3a8a', fontWeight: '800' }}>
+                                <span>🧼 Bodega Lavandería:</span>
+                                <span style={{ backgroundColor: '#dbeafe', color: '#1e40af', padding: '0.15rem 0.65rem', borderRadius: '6px', fontWeight: '950', fontSize: '0.9rem' }}>
+                                  {Number(form.lavanderia) || 0} prendas
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#92400e', fontWeight: '800' }}>
+                                <span>🏷️ Bodega Saldos:</span>
+                                <span style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '0.15rem 0.65rem', borderRadius: '6px', fontWeight: '950', fontSize: '0.9rem' }}>
+                                  {Number(form.saldos) || 0} prendas
+                                </span>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: '#2563eb', display: 'block', marginTop: '0.4rem', fontStyle: 'italic' }}>
+                              ℹ️ Nota: Estas prendas ingresan directamente a sus bodegas de Fábrica sin deducción económica sobre la tarifa del taller.
+                            </span>
+                          </div>
+
+                          {/* Desglose Financiero de Liquidación */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', borderTop: '2px dashed #ddd6fe', paddingTop: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#334155' }}>
+                              <span>Valor base confección ({totalApp} aprobadas × ${valPrendaNum.toLocaleString('es-CO')}):</span>
+                              <span style={{ fontWeight: '800' }}>${appValue.toLocaleString('es-CO')} COP</span>
+                            </div>
+                            {isEmpaque && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#16a34a' }}>
+                                <span>Adicional por empaque ({totalApp} prendas × ${rEmpaque.toLocaleString('es-CO')}):</span>
+                                <span style={{ fontWeight: '800' }}>+${pagoEmpaque.toLocaleString('es-CO')} COP</span>
+                              </div>
+                            )}
+                            {totalRej > 0 && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#64748b' }}>
+                                <span>Valor no liquidado por prendas rechazadas ({totalRej} rechazadas × ${valPrendaNum.toLocaleString('es-CO')}):</span>
+                                <span style={{ fontWeight: '800', color: '#64748b' }}>${(totalRej * valPrendaNum).toLocaleString('es-CO')} COP</span>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#dc2626' }}>
+                              <span>Descuento aplicado por defectos ({cosDef} prendas × ${rCosturas.toLocaleString('es-CO')} penalización):</span>
+                              <span style={{ fontWeight: '900', color: '#dc2626' }}>-${defDiscount.toLocaleString('es-CO')} COP</span>
+                            </div>
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '1.15rem', color: '#5b21b6', fontWeight: '950', backgroundColor: '#f3e8ff', padding: '0.85rem 1.15rem', borderRadius: '10px', border: '1.5px solid #c084fc', marginTop: '0.5rem' }}>
+                              <span>TOTAL A PAGAR AL TALLER:</span>
+                              <span style={{ fontSize: '1.35rem', color: '#5b21b6' }}>${netPayable.toLocaleString('es-CO')} COP</span>
+                            </div>
                           </div>
                           <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                             <div>

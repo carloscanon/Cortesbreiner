@@ -464,14 +464,18 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
 
       // Save category accessories
       if (activeTab === 'categories' && categoryId) {
-        await supabase.from('category_accessories').delete().eq('category_id', categoryId);
-        if (selectedAccessories.length > 0) {
-          const toInsert = selectedAccessories.map(accId => ({
-            category_id: categoryId,
-            accessory_id: accId
-          }));
-          const { error: insErr } = await supabase.from('category_accessories').insert(toInsert);
-          if (insErr) throw insErr;
+        try {
+          const { error: delErr } = await supabase.from('category_accessories').delete().eq('category_id', categoryId);
+          if (!delErr && selectedAccessories.length > 0) {
+            const toInsert = selectedAccessories.map(accId => ({
+              category_id: categoryId,
+              accessory_id: accId
+            }));
+            const { error: insErr } = await supabase.from('category_accessories').insert(toInsert);
+            if (insErr && insErr.code !== 'PGRST205') console.warn('Error saving category_accessories:', insErr.message);
+          }
+        } catch (catAccErr) {
+          console.warn('category_accessories table not available:', catAccErr);
         }
       }
 
@@ -519,8 +523,12 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
     setFormData(item);
     setEditingId(item.id);
     if (activeTab === 'categories') {
-      const { data: rels } = await supabase.from('category_accessories').select('accessory_id').eq('category_id', item.id);
-      setSelectedAccessories(rels?.map(r => r.accessory_id) || []);
+      try {
+        const { data: rels } = await supabase.from('category_accessories').select('accessory_id').eq('category_id', item.id);
+        setSelectedAccessories(rels?.map(r => r.accessory_id) || []);
+      } catch (e) {
+        setSelectedAccessories([]);
+      }
       setSelectedProductAccessories([]);
     } else if (activeTab === 'products') {
       const { data: rels } = await supabase.from('product_accessories').select('accessory_id, cantidad').eq('product_id', item.id);
