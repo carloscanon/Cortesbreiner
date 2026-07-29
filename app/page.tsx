@@ -4620,17 +4620,30 @@ export default function Dashboard() {
               const totalApprovedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
               const totalRejectedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_rejected) || 0), 0);
               const totalDefectDiscountSum = workshopInspections.reduce((s, i) => s + (Number(i.descuento_defectos) || 0), 0);
+              const totalEmpaqueSum = workshopInspections.reduce((s, i) => {
+                const app = Number(i.items_approved) || 0;
+                const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
+                const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const isEmpaque = sewingOrderObj?.empaque ?? true;
+                const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                return s + (isEmpaque ? (app * rateEmpaque) : 0);
+              }, 0);
               const totalNetPayableSum = workshopInspections.reduce((s, i) => {
                 const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
                 const app = Number(i.items_approved) || 0;
+                const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
+                const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const isEmpaque = sewingOrderObj?.empaque ?? true;
+                const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                const pagoEmpaque = isEmpaque ? (app * rateEmpaque) : 0;
                 const basePay = app * itemRate;
                 const disc = Number(i.descuento_defectos) || 0;
-                return s + (Number(i.valor_pagar) || (basePay - disc));
+                return s + (Number(i.valor_pagar) || (basePay + pagoEmpaque - disc));
               }, 0);
 
               return [
                 { label: 'Inspeccionadas', value: `${totalInspectedSum.toLocaleString('es-CO')} uds`, color: '#334155', bg: '#f8fafc', icon: '📦' },
-                { label: 'Aprobadas para Pago', value: `${totalApprovedSum.toLocaleString('es-CO')} uds`, color: '#16a34a', bg: '#f0fdf4', icon: '✓' },
+                { label: 'Aprobadas para Pago', value: `${totalApprovedSum.toLocaleString('es-CO')} uds`, color: '#16a34a', bg: '#f0fdf4', icon: '✓', sub: totalEmpaqueSum > 0 ? `Adicional Empaque: +$${totalEmpaqueSum.toLocaleString('es-CO')} COP` : undefined },
                 { label: 'Prendas Rechazadas ✗', value: `${totalRejectedSum.toLocaleString('es-CO')} uds`, color: '#dc2626', bg: '#fef2f2', icon: '✗', sub: `Penalización: -$${totalDefectDiscountSum.toLocaleString('es-CO')} COP` },
                 { label: 'Total Neto Liquidado', value: `$${totalNetPayableSum.toLocaleString('es-CO')} COP`, color: '#5b21b6', bg: '#f3e8ff', icon: '💵' }
               ].map(card => (
@@ -4640,7 +4653,7 @@ export default function Dashboard() {
                     <span style={{ fontSize: '1.1rem' }}>{card.icon}</span>
                   </div>
                   <h3 style={{ fontSize: '1.65rem', fontWeight: '950', margin: '0.35rem 0 0', color: card.color }}>{card.value}</h3>
-                  {card.sub && <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', fontWeight: '800', color: '#b91c1c' }}>{card.sub}</p>}
+                  {card.sub && <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', fontWeight: '800', color: card.sub.includes('Empaque') ? '#15803d' : '#b91c1c' }}>{card.sub}</p>}
                 </div>
               ));
             })()}
@@ -4651,14 +4664,14 @@ export default function Dashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2.5px solid #cbd5e1', textAlign: 'left', color: '#475569', backgroundColor: '#f8fafc' }}>
-                    {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Penalización Defectos', 'Tarifa / Prenda', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
+                    {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Adicional Empaque', 'Penalización Defectos', 'Tarifa / Prenda', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
                       <th key={h} style={{ padding: '1rem 1.15rem', fontWeight: '850', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {workshopInspections.length === 0 ? (
-                    <tr><td colSpan={9} style={{ padding: '3.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '1rem', fontWeight: '600' }}>Aún no se registran auditorías de calidad para este taller.</td></tr>
+                    <tr><td colSpan={10} style={{ padding: '3.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '1rem', fontWeight: '600' }}>Aún no se registran auditorías de calidad para este taller.</td></tr>
                   ) : workshopInspections.map(i => {
                     const orderObj = orders.find(o => o.id === i.order_id);
                     const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
@@ -4666,10 +4679,14 @@ export default function Dashboard() {
                     const totalInsp = Number(i.items_inspected) || 0;
                     const approvedVal = Number(i.items_approved) || 0;
                     const rejCount = Number(i.items_rejected) || 0;
+                    const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                    const isEmpaque = sewingOrderObj?.empaque ?? true;
+                    const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                    const pagoEmpaque = isEmpaque ? (approvedVal * rateEmpaque) : 0;
                     const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
                     const defectDiscount = Number(i.descuento_defectos) || 0;
-                    const netPayment = Number(i.valor_pagar) || (basePay - defectDiscount);
+                    const netPayment = Number(i.valor_pagar) || (basePay + pagoEmpaque - defectDiscount);
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '1rem' }}>{confeccionCode}</td>
@@ -4677,6 +4694,7 @@ export default function Dashboard() {
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#334155', fontSize: '0.98rem' }}>{totalInsp} uds</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#16a34a', fontSize: '1.1rem' }}>{approvedVal} uds</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#dc2626', fontSize: '1.1rem' }}>{rejCount} uds</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: pagoEmpaque > 0 ? '#16a34a' : '#64748b', fontSize: '0.95rem' }}>{pagoEmpaque > 0 ? `+$${pagoEmpaque.toLocaleString('es-CO')} COP` : '$0 COP'}</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#dc2626', fontSize: '0.95rem' }}>-${defectDiscount.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '700', color: '#475569', fontSize: '0.9rem' }}>${itemRate.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '950', color: '#5b21b6', fontSize: '1.2rem' }}>${netPayment.toLocaleString('es-CO')} COP</td>
