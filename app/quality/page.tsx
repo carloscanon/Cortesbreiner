@@ -467,6 +467,42 @@ export default function QualityPage() {
         items_inspected: (!f.items_inspected || f.items_inspected === '0') ? plannedSum.toString() : f.items_inspected
       }));
     }
+    // Consultar si ya existe un borrador / inspección previa para esta orden
+    const { data: existingInsps } = await supabase
+      .from('quality_inspections')
+      .select('*')
+      .eq(isSewingOrder ? 'sewing_order_id' : 'order_id', id)
+      .order('created_at', { ascending: false });
+
+    if (existingInsps && existingInsps.length > 0) {
+      const existing = existingInsps[0];
+      setEditingId(existing.id);
+      const danadasMatch = (existing.notes || '').match(/\[DAÑADAS FACTURAR:\s*(\d+)\]/i);
+      const loadedDanadas = existing.danadas_facturar !== undefined && existing.danadas_facturar !== null ? Number(existing.danadas_facturar) : (danadasMatch ? Number(danadasMatch[1]) : 0);
+      const lav = Number(existing.lavanderia) || 0;
+      const sal = Number(existing.saldos) || 0;
+      const inc = Number(existing.incompleto) || 0;
+      setForm((f: any) => ({
+        ...f,
+        id: existing.id,
+        items_inspected: (existing.items_inspected || f.items_inspected || 0).toString(),
+        items_approved: (existing.items_approved || 0).toString(),
+        items_rejected: (existing.items_rejected || 0).toString(),
+        lavanderia: lav.toString(),
+        has_lavanderia: lav > 0,
+        saldos: sal.toString(),
+        has_saldos: sal > 0,
+        incompleto: inc.toString(),
+        has_incompleto: inc > 0,
+        costuras: (existing.costuras || 0).toString(),
+        danadas_facturar: loadedDanadas.toString(),
+        has_danadas_facturar: loadedDanadas > 0,
+        notes: existing.notes || f.notes || '',
+        status: existing.status || f.status || 'Pendiente',
+        current_stage: existing.current_stage || f.current_stage || 1
+      }));
+    }
+
     setLoadingDetail(false);
   };
 
@@ -735,6 +771,10 @@ export default function QualityPage() {
         await syncQualityApprovalToInventory(savedInspectionId);
       }
       if (nextStageToSave !== undefined && !isFinalizingBatch) {
+        if (savedInspectionId) {
+          setEditingId(savedInspectionId);
+          setForm((prev: any) => ({ ...prev, id: savedInspectionId }));
+        }
         setActiveStage(nextStageToSave);
         if (nextStageToSave === 1) {
           alert('💾 Avance guardado temporalmente en la Etapa 1. Puedes continuar la inspección cuando desees.');
