@@ -59,6 +59,152 @@ const fetchAll = async (queryFn: () => any) => {
   return allData;
 };
 
+const CODE128_PATTERNS = [
+  '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
+  '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
+  '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211',
+  '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313',
+  '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331',
+  '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111',
+  '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214',
+  '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111',
+  '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141',
+  '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141',
+  '114131', '311141', '411131', '211412', '211214', '211232', '2331112'
+];
+
+const CODE39_PATTERNS: Record<string, string> = {
+  '0': '111221211', '1': '211211112', '2': '112211112', '3': '212211111', '4': '111221112',
+  '5': '211221111', '6': '112221111', '7': '111211212', '8': '211211211', '9': '112211211',
+  'A': '211112112', 'B': '112112112', 'C': '212112111', 'D': '111122112', 'E': '211122111',
+  'F': '112122111', 'G': '111112212', 'H': '211112211', 'I': '112112211', 'J': '111122211',
+  'K': '211111122', 'L': '112111122', 'M': '212111121', 'N': '111121122', 'O': '211121121',
+  'P': '112121121', 'Q': '111111222', 'R': '211111221', 'S': '112111221', 'T': '111121221',
+  'U': '221111112', 'V': '122111112', 'W': '222111111', 'X': '121121112', 'Y': '221121111',
+  'Z': '122121111', '-': '121111212', '.': '221111211', ' ': '122111211', '*': '121121211'
+};
+
+const renderISOBarcode = (text: string, type: string = 'code128', height: number = 55) => {
+  const clean = (text || '00420001').trim();
+
+  if (type === 'qr') {
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(clean)}&margin=4`;
+    return (
+      <img
+        src={qrUrl}
+        alt={clean}
+        style={{
+          width: `${height * 1.4}px`,
+          height: `${height * 1.4}px`,
+          imageRendering: 'pixelated',
+          display: 'block',
+          margin: '0 auto',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact'
+        }}
+      />
+    );
+  }
+
+  if (type === 'code39') {
+    const textToEncode = '*' + clean.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '') + '*';
+    let patternStr = '';
+    for (let i = 0; i < textToEncode.length; i++) {
+      patternStr += (CODE39_PATTERNS[textToEncode[i]] || CODE39_PATTERNS['*']) + '1';
+    }
+
+    let totalModules = 0;
+    for (let i = 0; i < patternStr.length; i++) totalModules += parseInt(patternStr[i], 10);
+    const quietZone = 12;
+    const totalWidth = totalModules + (quietZone * 2);
+
+    let currentX = quietZone;
+    let isBar = true;
+    const bars: React.ReactNode[] = [];
+
+    for (let i = 0; i < patternStr.length; i++) {
+      const w = parseInt(patternStr[i], 10);
+      if (isBar) {
+        bars.push(
+          <rect key={i} x={currentX} y={2} width={w} height={height - 12} fill="#000000" />
+        );
+      }
+      currentX += w;
+      isBar = !isBar;
+    }
+
+    return (
+      <svg
+        viewBox={`0 0 ${totalWidth} ${height}`}
+        style={{
+          width: '98%',
+          height: `${height}px`,
+          shapeRendering: 'crispEdges',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact'
+        }}
+      >
+        <rect x="0" y="0" width={totalWidth} height={height} fill="#ffffff" />
+        {bars}
+      </svg>
+    );
+  }
+
+  // DEFAULT: CODE 128 (ISO/IEC 15417 Standard)
+  const codePoints: number[] = [104]; // Start B
+  let checksum = 104;
+  for (let i = 0; i < clean.length; i++) {
+    const val = clean.charCodeAt(i) - 32;
+    const safeVal = (val >= 0 && val <= 95) ? val : 0;
+    codePoints.push(safeVal);
+    checksum += safeVal * (i + 1);
+  }
+  checksum = checksum % 103;
+  codePoints.push(checksum);
+  codePoints.push(106); // Stop
+
+  let patternStr = '';
+  for (const pt of codePoints) {
+    patternStr += CODE128_PATTERNS[pt] || '211214';
+  }
+
+  let totalModules = 0;
+  for (let i = 0; i < patternStr.length; i++) totalModules += parseInt(patternStr[i], 10);
+  const quietZone = 12;
+  const totalWidth = totalModules + (quietZone * 2);
+
+  let currentX = quietZone;
+  let isBar = true;
+  const bars: React.ReactNode[] = [];
+
+  for (let i = 0; i < patternStr.length; i++) {
+    const w = parseInt(patternStr[i], 10);
+    if (isBar) {
+      bars.push(
+        <rect key={i} x={currentX} y={2} width={w} height={height - 12} fill="#000000" />
+      );
+    }
+    currentX += w;
+    isBar = !isBar;
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${totalWidth} ${height}`}
+      style={{
+        width: '98%',
+        height: `${height}px`,
+        shapeRendering: 'crispEdges',
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact'
+      }}
+    >
+      <rect x="0" y="0" width={totalWidth} height={height} fill="#ffffff" />
+      {bars}
+    </svg>
+  );
+};
+
 export default function QualityPage() {
   const [inspections, setInspections] = useState<any[]>([]);
   const [sewingOrders, setSewingOrders] = useState<any[]>([]);
@@ -2134,41 +2280,7 @@ export default function QualityPage() {
                             *{g.barcode || '00420001'}*
                           </span>
                         ) : (
-                          <svg
-                            viewBox="0 0 160 50"
-                            style={{
-                              width: '95%',
-                              height: `${stickerConfig.barcodeHeight || 55}px`,
-                              shapeRendering: 'crispEdges',
-                              WebkitPrintColorAdjust: 'exact',
-                              printColorAdjust: 'exact'
-                            }}
-                          >
-                            <rect x="0" y="0" width="160" height="50" fill="#ffffff" />
-                            {(() => {
-                              const code = (g.barcode || '00420001').padStart(8, '0');
-                              const bars: React.ReactNode[] = [];
-                              let currentX = 10;
-                              bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 5;
-                              bars.push(<rect key="start-2" x={currentX} y="2" width="1.5" height="38" fill="#000000" />); currentX += 3.5;
-
-                              for (let i = 0; i < code.length; i++) {
-                                const digit = parseInt(code[i], 10) || (i + 1);
-                                const w1 = (digit % 3 === 0) ? 3 : 1.5;
-                                const gap = ((digit % 2 === 0) ? 2.5 : 1.5);
-                                const w2 = ((digit + 1) % 3 === 0) ? 3.5 : 2;
-
-                                bars.push(<rect key={`b1-${i}`} x={currentX} y="2" width={w1} height="38" fill="#000000" />);
-                                currentX += w1 + gap;
-                                bars.push(<rect key={`b2-${i}`} x={currentX} y="2" width={w2} height="38" fill="#000000" />);
-                                currentX += w2 + 2;
-                              }
-
-                              bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
-                              bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
-                              return bars;
-                            })()}
-                          </svg>
+                          renderISOBarcode(g.barcode, stickerConfig.barcodeType || 'code128', stickerConfig.barcodeHeight || 55)
                         )}
                         <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
                           {g.barcode || '00420001'}
@@ -2186,7 +2298,29 @@ export default function QualityPage() {
                 ))}
               </div>
             </div>
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+
+            {/* Barcode Standard Selector Header Bar */}
+            <div style={{ padding: '0.85rem 1.5rem', borderTop: '1.5px solid #e2e8f0', borderBottom: '1.5px solid #e2e8f0', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>📐 Estándar de Código de Barras:</span>
+                <select
+                  value={stickerConfig.barcodeType || 'code128'}
+                  onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                  style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1.5px solid #94a3b8', fontSize: '0.78rem', fontWeight: '800', backgroundColor: 'white', color: '#0f172a', cursor: 'pointer' }}
+                >
+                  <option value="code128">⚡ CODE 128 (ISO/IEC 15417 — Recomendado para Pistolas Láser/2D)</option>
+                  <option value="code39">🏷️ CODE 39 (ISO/IEC 16388 Industrial con Guardas)</option>
+                  <option value="qr">📱 Código QR 2D (Matriz de Alta Densidad para Celulares/Pistolas 2D)</option>
+                  <option value="font128">🔤 Fuente Web HD Code 128</option>
+                  <option value="font39">🔤 Fuente Web HD Code 39</option>
+                </select>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: '700' }}>
+                {stickerConfig.barcodeType === 'qr' ? '📷 Escaneable con cualquier cámara o pistola 2D' : '🎯 Formato vectorial ISO ultra-nítido con márgenes de lectura'}
+              </span>
+            </div>
+
+            <div style={{ padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
               <span style={{ fontSize: '0.72rem', color: '#64748b' }}>💡 Impresión vertical: 3 etiquetas por fila (portrait). Papel A4 o 50mm × 80mm por etiqueta.</span>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button type="button" onClick={() => setShowLabelsModal(false)} style={{ fontSize: '0.8rem', padding: '0.55rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white' }}>Cerrar</button>
