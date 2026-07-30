@@ -4664,14 +4664,14 @@ export default function Dashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2.5px solid #cbd5e1', textAlign: 'left', color: '#475569', backgroundColor: '#f8fafc' }}>
-                    {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Adicional Empaque', 'Penalización Defectos', 'Tarifa / Prenda', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
+                    {['Orden Confección', 'Fecha Auditoría', 'Inspeccionadas', 'Aprobadas ✓', 'Rechazadas ✗', 'Tarifa Prenda', 'Tarifa Empaque', 'Adicional Empaque Total', 'Penalización Defectos', 'Pago Neto Liquidado', 'Estado Pago'].map(h => (
                       <th key={h} style={{ padding: '1rem 1.15rem', fontWeight: '850', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {workshopInspections.length === 0 ? (
-                    <tr><td colSpan={10} style={{ padding: '3.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '1rem', fontWeight: '600' }}>Aún no se registran auditorías de calidad para este taller.</td></tr>
+                    <tr><td colSpan={11} style={{ padding: '3.5rem', textAlign: 'center', color: '#94a3b8', fontSize: '1rem', fontWeight: '600' }}>Aún no se registran auditorías de calidad para este taller.</td></tr>
                   ) : workshopInspections.map(i => {
                     const orderObj = orders.find(o => o.id === i.order_id);
                     const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
@@ -4682,6 +4682,7 @@ export default function Dashboard() {
                     const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
                     const isEmpaque = sewingOrderObj?.empaque ?? true;
                     const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                    const unitRateEmpaque = isEmpaque ? rateEmpaque : 0;
                     const pagoEmpaque = isEmpaque ? (approvedVal * rateEmpaque) : 0;
                     const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
@@ -4694,9 +4695,10 @@ export default function Dashboard() {
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#334155', fontSize: '0.98rem' }}>{totalInsp} uds</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#16a34a', fontSize: '1.1rem' }}>{approvedVal} uds</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#dc2626', fontSize: '1.1rem' }}>{rejCount} uds</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '700', color: '#475569', fontSize: '0.9rem' }}>${itemRate.toLocaleString('es-CO')} COP</td>
+                        <td style={{ padding: '1.15rem 1rem', fontWeight: '700', color: unitRateEmpaque > 0 ? '#15803d' : '#64748b', fontSize: '0.9rem' }}>${unitRateEmpaque.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: pagoEmpaque > 0 ? '#16a34a' : '#64748b', fontSize: '0.95rem' }}>{pagoEmpaque > 0 ? `+$${pagoEmpaque.toLocaleString('es-CO')} COP` : '$0 COP'}</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '800', color: '#dc2626', fontSize: '0.95rem' }}>-${defectDiscount.toLocaleString('es-CO')} COP</td>
-                        <td style={{ padding: '1.15rem 1rem', fontWeight: '700', color: '#475569', fontSize: '0.9rem' }}>${itemRate.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '950', color: '#5b21b6', fontSize: '1.2rem' }}>${netPayment.toLocaleString('es-CO')} COP</td>
                         <td style={{ padding: '1.15rem 1rem' }}>
                           <span style={{
