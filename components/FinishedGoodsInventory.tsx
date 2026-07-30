@@ -90,7 +90,7 @@ export default function FinishedGoodsInventory() {
         .from('finished_goods_stock')
         .select(`
           *,
-          products (id, nombre_producto, codigo_referencia, precio),
+          products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria, nombre_categoria)),
           colors (id, nombre_color, hex_color),
           sizes (id, codigo_talla),
           warehouses (id, nombre_bodega),
@@ -109,7 +109,7 @@ export default function FinishedGoodsInventory() {
         .from('finished_goods_kardex')
         .select(`
           *,
-          products (id, nombre_producto, codigo_referencia),
+          products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria, nombre_categoria)),
           colors (id, nombre_color),
           sizes (id, codigo_talla),
           warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
@@ -170,6 +170,7 @@ export default function FinishedGoodsInventory() {
   const filteredStock = stock.filter(item => {
     const ref = item.products?.codigo_referencia || '';
     const name = item.products?.nombre_producto || '';
+    const cat = (item.products?.categories?.categoria || item.products?.categories?.nombre_categoria || item.products?.categoria || '');
     const color = item.colors?.nombre_color || '';
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';
@@ -177,6 +178,7 @@ export default function FinishedGoodsInventory() {
     const matchesSearch = 
       ref.toLowerCase().includes(searchQuery.toLowerCase()) ||
       name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cat.toLowerCase().includes(searchQuery.toLowerCase()) ||
       color.toLowerCase().includes(searchQuery.toLowerCase()) ||
       size.toLowerCase().includes(searchQuery.toLowerCase()) ||
       wh.toLowerCase().includes(searchQuery.toLowerCase());
@@ -790,7 +792,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Referencia', 'Descripción', 'Bodega', 'Color', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
+                  {['Referencia', 'Producto', 'Categoría', 'Bodega', 'Color', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -798,7 +800,7 @@ export default function FinishedGoodsInventory() {
               <tbody>
                 {filteredStock.length === 0 ? (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                       No se encontraron existencias con los filtros aplicados.
                     </td>
                   </tr>
@@ -808,9 +810,12 @@ export default function FinishedGoodsInventory() {
                     const isOver = item.cantidad_disponible >= (item.stock_maximo || 999999) && item.stock_maximo > 0;
                     return (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background-color 0.2s' }}>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia}</td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{item.products?.nombre_producto}</td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
+                          {item.products?.categories?.categoria || item.products?.categories?.nombre_categoria || item.products?.categoria || '—'}
+                        </td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '600' }}>
                             <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: item.colors?.hex_color || '#000', border: '1px solid var(--border)' }} />
@@ -874,7 +879,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Fecha / Hora', 'Movimiento', 'Documento', 'Referencia', 'Descripción', 'Color', 'Talla', 'Cant.', 'Saldo Ant. ➔ Nuevo', 'Bodega', 'Usuario'].map(h => (
+                  {['Fecha / Hora', 'Movimiento', 'Documento', 'Referencia', 'Producto', 'Categoría', 'Color', 'Talla', 'Cant.', 'Saldo Ant. ➔ Nuevo', 'Bodega', 'Usuario'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -882,7 +887,7 @@ export default function FinishedGoodsInventory() {
               <tbody>
                 {kardex.length === 0 ? (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                       El Kardex no registra movimientos aún.
                     </td>
                   </tr>
@@ -906,8 +911,11 @@ export default function FinishedGoodsInventory() {
                           </span>
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.documento_origen || '—'}</td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia}</td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.products?.nombre_producto}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{mov.products?.nombre_producto || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
+                          {mov.products?.categories?.categoria || mov.products?.categories?.nombre_categoria || mov.products?.categoria || '—'}
+                        </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.sizes?.codigo_talla}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '950', fontSize: '0.95rem', color: isPositive ? '#16a34a' : '#dc2626' }}>
