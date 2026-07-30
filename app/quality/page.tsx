@@ -265,9 +265,14 @@ export default function QualityPage() {
     let globalIndex = 1;
     const isSewingOrder = !!orderDetail.sewing_order_sizes;
 
+    // Borrar prendas previas de este lote u orden para evitar violaciones de clave única (duplicate key)
+    if (isSewingOrder) {
+      await supabase.from('individual_garments').delete().eq('sewing_order_id', orderDetail.id);
+    } else {
+      await supabase.from('individual_garments').delete().eq('order_id', orderDetail.id);
+    }
+
     // Código de orden 100% numérico:
-    // Usar el número consecutivo de la orden de confección (ej. "OC-0042" → "0042")
-    // o el consecutivo del parent_order, nunca UUIDs.
     let orderNumericCode = '';
     const confCode: string = orderDetail.confeccion_code || '';
     const numericFromConf = confCode.replace(/\D/g, '');
@@ -281,6 +286,22 @@ export default function QualityPage() {
       orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
     }
 
+    // Consultar todos los códigos de barra existentes de OTRAS órdenes para evitar cualquier colisión
+    const { data: existingAll } = await supabase.from('individual_garments').select('barcode, sewing_order_id, order_id');
+    const occupiedBarcodes = new Set(
+      (existingAll || [])
+        .filter((g: any) => (isSewingOrder ? String(g.sewing_order_id) !== String(orderDetail.id) : String(g.order_id) !== String(orderDetail.id)))
+        .map((g: any) => g.barcode)
+    );
+
+    let currentOrderNumericCode = orderNumericCode;
+    let offsetAttempt = 0;
+    while (occupiedBarcodes.has(`${currentOrderNumericCode}0001`) && offsetAttempt < 100) {
+      offsetAttempt++;
+      const nextVal = (Number(orderNumericCode) + offsetAttempt) % 10000;
+      currentOrderNumericCode = String(nextVal).padStart(4, '0');
+    }
+
     const detailRows = getDetailRows(orderDetail);
     detailRows.forEach((row: any) => {
       // ONLY generate for approved garments
@@ -289,7 +310,7 @@ export default function QualityPage() {
       for (let i = 0; i < qty; i++) {
         const paddedIdx = globalIndex.toString().padStart(4, '0');
         // Código de barra 100% numérico: <4 dígitos orden><4 dígitos consecutivo>
-        const barcode = `${orderNumericCode}${paddedIdx}`;
+        const barcode = `${currentOrderNumericCode}${paddedIdx}`;
         toInsert.push({
           sewing_order_id: isSewingOrder ? orderDetail.id : null,
           order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
@@ -724,12 +745,27 @@ export default function QualityPage() {
           orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
         }
 
+        const { data: existingAll } = await supabase.from('individual_garments').select('barcode, sewing_order_id, order_id');
+        const occupiedBarcodes = new Set(
+          (existingAll || [])
+            .filter((g: any) => (isSewingOrder ? String(g.sewing_order_id) !== String(orderDetail.id) : String(g.order_id) !== String(orderDetail.id)))
+            .map((g: any) => g.barcode)
+        );
+
+        let currentOrderNumericCode = orderNumericCode;
+        let offsetAttempt = 0;
+        while (occupiedBarcodes.has(`${currentOrderNumericCode}0001`) && offsetAttempt < 100) {
+          offsetAttempt++;
+          const nextVal = (Number(orderNumericCode) + offsetAttempt) % 10000;
+          currentOrderNumericCode = String(nextVal).padStart(4, '0');
+        }
+
         rows.forEach((row: any) => {
           const qty = Number(rowApproved[row.key]) || 0;
           const sizeCode = row.size || 'ST';
           for (let i = 0; i < qty; i++) {
             const paddedIdx = globalIndex.toString().padStart(4, '0');
-            const barcode = `${orderNumericCode}${paddedIdx}`;
+            const barcode = `${currentOrderNumericCode}${paddedIdx}`;
             toInsert.push({
               sewing_order_id: isSewingOrder ? orderDetail.id : null,
               order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
