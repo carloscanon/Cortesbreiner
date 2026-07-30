@@ -1867,9 +1867,13 @@ export default function Dashboard() {
     const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección');
     const completedOrders = assignedOrders.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
 
-    // Inspecciones de todos los talleres del usuario (el selector solo afecta la vista, no el pool)
+    // Inspecciones filtradas según el taller activo seleccionado por el usuario
+    const targetWorkshopsList = activeWorkshopId === 'all'
+      ? finalWorkshopsList
+      : finalWorkshopsList.filter(w => String(w.id) === String(activeWorkshopId));
+
     const workshopInspections = inspections.filter(i =>
-      finalWorkshopsList.some(w =>
+      targetWorkshopsList.some(w =>
         (w.id && (String(w.id) === String(i.sewing_orders?.workshop_id) || String(w.id) === String(i.sewing_order_id))) ||
         (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
         (i.sewing_orders?.workshops?.nombre_taller && (i.sewing_orders.workshops.nombre_taller || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim())
@@ -4607,8 +4611,32 @@ export default function Dashboard() {
                 </button>
               )}
               <div style={{ padding: '0.5rem 1.25rem', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1.5px solid #bbf7d0' }}>
-                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase', display: 'block' }}>Taller Conectado</span>
-                <strong style={{ fontSize: '0.95rem', color: '#14532d', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#16a34a', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                  Taller Conectado {finalWorkshopsList.length > 1 ? `(${finalWorkshopsList.length} asignados)` : ''}
+                </span>
+                {finalWorkshopsList.length > 1 ? (
+                  <select
+                    value={activeWorkshopId}
+                    onChange={e => setActiveWorkshopId(e.target.value)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      fontSize: '0.95rem',
+                      color: '#14532d',
+                      fontWeight: '900',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    <option value="all">Ver Todos los Talleres Asignados</option>
+                    {finalWorkshopsList.map(w => (
+                      <option key={w.id} value={w.id}>{w.nombre_taller}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <strong style={{ fontSize: '0.95rem', color: '#14532d', fontWeight: '900' }}>{userWorkshop?.nombre_taller || 'Taller satélite'}</strong>
+                )}
               </div>
             </div>
           </div>
