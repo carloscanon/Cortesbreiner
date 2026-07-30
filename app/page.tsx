@@ -517,7 +517,7 @@ export default function Dashboard() {
             .order('created_at', { ascending: false })
             .limit(150),
           supabase.from('workshops').select('*'),
-          supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(nombre_taller))').limit(250).order('created_at', { ascending: false }),
+          supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(*))').limit(250).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
@@ -4628,7 +4628,11 @@ export default function Dashboard() {
               const totalEmpaqueSum = workshopInspections.reduce((s, i) => {
                 const app = Number(i.items_approved) || 0;
                 const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
-                const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const wObj = (finalWorkshopsList || []).find((w: any) =>
+                  (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
+                  (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
+                  (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
+                ) || sewingOrderObj?.workshops;
                 const isEmpaque = sewingOrderObj?.empaque ?? true;
                 const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
                 return s + (isEmpaque ? (app * rateEmpaque) : 0);
@@ -4637,7 +4641,11 @@ export default function Dashboard() {
                 const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
                 const app = Number(i.items_approved) || 0;
                 const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
-                const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                const wObj = (finalWorkshopsList || []).find((w: any) =>
+                  (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
+                  (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
+                  (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
+                ) || sewingOrderObj?.workshops;
                 const isEmpaque = sewingOrderObj?.empaque ?? true;
                 const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
                 const pagoEmpaque = isEmpaque ? (app * rateEmpaque) : 0;
@@ -4685,7 +4693,11 @@ export default function Dashboard() {
                     const totalInsp = Number(i.items_inspected) || 0;
                     const approvedVal = Number(i.items_approved) || 0;
                     const rejCount = Number(i.items_rejected) || 0;
-                    const wObj = sewingOrderObj?.workshops || (finalWorkshopsList || []).find((w: any) => (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim());
+                    const wObj = (finalWorkshopsList || []).find((w: any) =>
+                      (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
+                      (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
+                      (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
+                    ) || sewingOrderObj?.workshops;
                     const isEmpaque = sewingOrderObj?.empaque ?? true;
                     const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
                     const unitRateEmpaque = isEmpaque ? rateEmpaque : 0;
