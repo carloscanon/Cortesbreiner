@@ -716,7 +716,7 @@ export default function QualityPage() {
 
         const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
         const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
-        const productName = prod ? (categoryName ? `${prod.nombre_producto || prod.name} [${categoryName}]` : (prod.nombre_producto || prod.name)) : 'Sin Referencia';
+        const productName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
         const layersProyec = cut.layers || 1;
         const layersProduced = cut.layers_produced || 0;
 
@@ -758,7 +758,7 @@ export default function QualityPage() {
 
       const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
       const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
-      const productName = prod ? (categoryName ? `${prod.nombre_producto || prod.name} [${categoryName}]` : (prod.nombre_producto || prod.name)) : 'Sin Referencia';
+      const productName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
       (cut.cut_sizes || []).forEach((cs: any) => {
@@ -2257,7 +2257,7 @@ export default function QualityPage() {
                     {/* Reference name */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
                       <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
-                        {g.reference_name || 'Referencia'}
+                        {(g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim()}
                       </span>
 
                       {/* Color chip if available */}
