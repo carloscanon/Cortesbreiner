@@ -293,7 +293,7 @@ export default function FinishedGoodsInventory() {
         });
 
       setShowAdjustmentModal(false);
-      setAdjustmentForm({ stock_id: '', product_id: '', color_id: '', size_id: '', warehouse_id: '', type: 'Ajuste positivo', cantidad: 1, observaciones: '' });
+      setAdjustmentForm({ stock_id: '', product_id: '', color_id: '', fabric_id: '', size_id: '', warehouse_id: '', type: 'Ajuste positivo', cantidad: 1, observaciones: '' });
       await fetchStock();
       await fetchKardex();
     } catch (err: any) {
