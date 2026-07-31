@@ -847,6 +847,7 @@ export default function FinishedGoodsInventory() {
                                 stock_id: item.id,
                                 product_id: item.product_id,
                                 color_id: item.color_id,
+                                fabric_id: item.fabric_id || '',
                                 size_id: item.size_id,
                                 warehouse_id: item.warehouse_id,
                                 type: 'Ajuste positivo',
