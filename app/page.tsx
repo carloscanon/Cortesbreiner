@@ -3333,8 +3333,17 @@ export default function Dashboard() {
                         const orderCode = orderObj ? `OC-${orderObj.internal_code}` : '—';
                         const itemRate = getRateForOrder(i.order_id);
                         const basePay = (i.items_approved || 0) * itemRate;
-                        const defectDiscount = Number(i.descuento_defectos) || ((Number(i.items_rejected) || 0) * 500);
-                        const netPayment = Number(i.valor_pagar) || (basePay - defectDiscount);
+                        const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
+                        const wObj = (finalWorkshopsList || []).find((w: any) =>
+                          (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
+                          (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
+                          (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
+                        ) || sewingOrderObj?.workshops;
+                        const isEmpaque = sewingOrderObj?.empaque ?? true;
+                        const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                        const pagoEmpaque = isEmpaque ? ((i.items_approved || 0) * rateEmpaque) : 0;
+                        const calculatedNet = basePay + pagoEmpaque - defectDiscount;
+                        const netPayment = Math.max(Number(i.valor_pagar) || 0, calculatedNet);
                         return (
                           <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '1.1rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '0.95rem' }}>{orderCode}</td>
@@ -4671,7 +4680,7 @@ export default function Dashboard() {
                 const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
                 const wObj = (finalWorkshopsList || []).find((w: any) =>
                   (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
-                  (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
+                  (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
                   (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
                 ) || sewingOrderObj?.workshops;
                 const isEmpaque = sewingOrderObj?.empaque ?? true;
@@ -4679,7 +4688,9 @@ export default function Dashboard() {
                 const pagoEmpaque = isEmpaque ? (app * rateEmpaque) : 0;
                 const basePay = app * itemRate;
                 const disc = Number(i.descuento_defectos) || 0;
-                return s + (Number(i.valor_pagar) || (basePay + pagoEmpaque - disc));
+                const calculatedNet = basePay + pagoEmpaque - disc;
+                const storedValPagar = Number(i.valor_pagar) || 0;
+                return s + Math.max(storedValPagar, calculatedNet);
               }, 0);
 
               return [
@@ -4733,7 +4744,11 @@ export default function Dashboard() {
                     const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
                     const defectDiscount = Number(i.descuento_defectos) || 0;
-                    const netPayment = Number(i.valor_pagar) || (basePay + pagoEmpaque - defectDiscount);
+                    // Si valor_pagar en la inspección no incluyó empaque (ej. guardado previamente sin empaque), aseguramos que basePay + pagoEmpaque - defectDiscount se use
+                    const calculatedNet = basePay + pagoEmpaque - defectDiscount;
+                    const storedValPagar = Number(i.valor_pagar) || 0;
+                    // Usar el mayor entre el calculado (con empaque) y el guardado
+                    const netPayment = Math.max(storedValPagar, calculatedNet);
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '1rem' }}>{confeccionCode}</td>
