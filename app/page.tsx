@@ -3342,6 +3342,7 @@ export default function Dashboard() {
                         const isEmpaque = sewingOrderObj?.empaque ?? true;
                         const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
                         const pagoEmpaque = isEmpaque ? ((i.items_approved || 0) * rateEmpaque) : 0;
+                        const defectDiscount = Number(i.descuento_defectos) || ((Number(i.items_rejected) || 0) * 500);
                         const calculatedNet = basePay + pagoEmpaque - defectDiscount;
                         const netPayment = Math.max(Number(i.valor_pagar) || 0, calculatedNet);
                         return (
