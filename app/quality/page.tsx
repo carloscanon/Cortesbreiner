@@ -843,6 +843,7 @@ export default function QualityPage() {
       notes: formattedNotes,
       valor_prenda: valPrenda,
       descuento_defectos: descDefectos,
+      pago_empaque: pagoEmpaque,
       valor_pagar: valPagar,
       pago_status: isClosing ? (form.pago_status || 'Autorizado para Pago') : 'Pendiente de aprobación financiera',
       received_at: form.received_at || (activeStage === 1 ? new Date().toISOString() : null),

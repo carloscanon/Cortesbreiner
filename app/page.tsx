@@ -4663,20 +4663,11 @@ export default function Dashboard() {
                 const app = Number(i.items_approved) || 0;
                 return s + (app * itemRate);
               }, 0);
+              // Usar pago_empaque directamente de la liquidación de calidad cuando esté disponible
               const totalEmpaqueSum = workshopInspections.reduce((s, i) => {
-                const app = Number(i.items_approved) || 0;
-                const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
-                const wObj = (finalWorkshopsList || []).find((w: any) =>
-                  (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
-                  (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
-                  (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
-                ) || sewingOrderObj?.workshops;
-                const isEmpaque = sewingOrderObj?.empaque ?? true;
-                const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
-                return s + (isEmpaque ? (app * rateEmpaque) : 0);
-              }, 0);
-              const totalNetPayableSum = workshopInspections.reduce((s, i) => {
-                const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
+                // Si la inspección ya tiene pago_empaque guardado (nueva columna), usarlo directamente
+                if (Number(i.pago_empaque) > 0) return s + Number(i.pago_empaque);
+                // Fallback: calcular desde la tarifa del taller
                 const app = Number(i.items_approved) || 0;
                 const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
                 const wObj = (finalWorkshopsList || []).find((w: any) =>
@@ -4684,14 +4675,30 @@ export default function Dashboard() {
                   (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
                   (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
                 ) || sewingOrderObj?.workshops;
-                const isEmpaque = sewingOrderObj?.empaque ?? true;
+                const isEmpaque = sewingOrderObj?.empaque ?? false;
                 const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
-                const pagoEmpaque = isEmpaque ? (app * rateEmpaque) : 0;
-                const basePay = app * itemRate;
+                return s + (isEmpaque ? (app * rateEmpaque) : 0);
+              }, 0);
+              const totalNetPayableSum = workshopInspections.reduce((s, i) => {
+                const itemRate = Number(i.valor_prenda) || Number(i.sewing_orders?.valor_prenda) || getRateForOrder(i.order_id);
+                const app = Number(i.items_approved) || 0;
                 const disc = Number(i.descuento_defectos) || 0;
-                const calculatedNet = basePay + pagoEmpaque - disc;
-                const storedValPagar = Number(i.valor_pagar) || 0;
-                return s + Math.max(storedValPagar, calculatedNet);
+                const basePay = app * itemRate;
+                // Usar pago_empaque guardado en la inspección cuando exista
+                let pagoEmpaque = Number(i.pago_empaque) || 0;
+                if (pagoEmpaque === 0) {
+                  // Fallback: calcular desde la tarifa
+                  const sewingOrderObj = i.sewing_orders || sewingOrdersList.find((so: any) => String(so.id) === String(i.sewing_order_id));
+                  const wObj = (finalWorkshopsList || []).find((w: any) =>
+                    (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
+                    (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
+                    (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
+                  ) || sewingOrderObj?.workshops;
+                  const isEmpaque = sewingOrderObj?.empaque ?? false;
+                  const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                  pagoEmpaque = isEmpaque ? (app * rateEmpaque) : 0;
+                }
+                return s + basePay + pagoEmpaque - disc;
               }, 0);
 
               return [
@@ -4735,21 +4742,24 @@ export default function Dashboard() {
                     const rejCount = Number(i.items_rejected) || 0;
                     const wObj = (finalWorkshopsList || []).find((w: any) =>
                       (sewingOrderObj?.workshop_id && String(w.id) === String(sewingOrderObj.workshop_id)) ||
-                      (i.workshop_name && (w.nombre_taller || '').toLowerCase().trim() === (i.workshop_name || '').toLowerCase().trim()) ||
+                      (i.workshop_name && (i.workshop_name || '').toLowerCase().trim() === (w.nombre_taller || '').toLowerCase().trim()) ||
                       (sewingOrderObj?.workshops?.nombre_taller && (w.nombre_taller || '').toLowerCase().trim() === (sewingOrderObj.workshops.nombre_taller || '').toLowerCase().trim())
                     ) || sewingOrderObj?.workshops;
-                    const isEmpaque = sewingOrderObj?.empaque ?? true;
-                    const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
-                    const unitRateEmpaque = isEmpaque ? rateEmpaque : 0;
-                    const pagoEmpaque = isEmpaque ? (approvedVal * rateEmpaque) : 0;
                     const itemRate = Number(i.valor_prenda) || Number(sewingOrderObj?.valor_prenda) || getRateForOrder(i.order_id);
                     const basePay = approvedVal * itemRate;
                     const defectDiscount = Number(i.descuento_defectos) || 0;
-                    // Si valor_pagar en la inspección no incluyó empaque (ej. guardado previamente sin empaque), aseguramos que basePay + pagoEmpaque - defectDiscount se use
-                    const calculatedNet = basePay + pagoEmpaque - defectDiscount;
-                    const storedValPagar = Number(i.valor_pagar) || 0;
-                    // Usar el mayor entre el calculado (con empaque) y el guardado
-                    const netPayment = Math.max(storedValPagar, calculatedNet);
+                    // Usar pago_empaque guardado en la inspección (nueva columna); fallback a cálculo por tarifa
+                    let pagoEmpaque = Number(i.pago_empaque) || 0;
+                    let unitRateEmpaque = 0;
+                    if (pagoEmpaque === 0) {
+                      const isEmpaque = sewingOrderObj?.empaque ?? false;
+                      const rateEmpaque = wObj ? (Number(wObj.desc_empaque) || 0) : 0;
+                      unitRateEmpaque = isEmpaque ? rateEmpaque : 0;
+                      pagoEmpaque = isEmpaque ? (approvedVal * rateEmpaque) : 0;
+                    } else {
+                      unitRateEmpaque = approvedVal > 0 ? Math.round(pagoEmpaque / approvedVal) : 0;
+                    }
+                    const netPayment = basePay + pagoEmpaque - defectDiscount;
                     return (
                       <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '1.15rem 1rem', fontWeight: '900', color: '#7c3aed', fontSize: '1rem' }}>{confeccionCode}</td>
