@@ -792,7 +792,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Referencia', 'Producto', 'Categoría', 'Bodega', 'Color', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
+                  {['Referencia', 'Producto', 'Color', 'Categoría', 'Bodega', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -812,16 +812,16 @@ export default function FinishedGoodsInventory() {
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background-color 0.2s' }}>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700' }}>
+                            <span style={{ width: '14px', height: '14px', borderRadius: '50%', backgroundColor: item.colors?.hex_color || '#94a3b8', border: '1.5px solid var(--border)', flexShrink: 0 }} />
+                            {item.colors?.nombre_color || '—'}
+                          </span>
+                        </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
                           {item.products?.categories?.categoria || item.products?.categoria || '—'}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega || '—'}</td>
-                        <td style={{ padding: '1rem 1.5rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '600' }}>
-                            <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: item.colors?.hex_color || '#000', border: '1px solid var(--border)' }} />
-                            {item.colors?.nombre_color || '—'}
-                          </span>
-                        </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.sizes?.codigo_talla}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '950', fontSize: '1rem' }}>{item.cantidad_disponible}</td>
                         <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{item.cantidad_reservada}</td>
