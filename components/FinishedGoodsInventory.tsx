@@ -90,7 +90,7 @@ export default function FinishedGoodsInventory() {
         .from('finished_goods_stock')
         .select(`
           *,
-          products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria, nombre_categoria)),
+          products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria)),
           colors (id, nombre_color, hex_color),
           sizes (id, codigo_talla),
           warehouses (id, nombre_bodega),
@@ -109,7 +109,7 @@ export default function FinishedGoodsInventory() {
         .from('finished_goods_kardex')
         .select(`
           *,
-          products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria, nombre_categoria)),
+          products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
           colors (id, nombre_color),
           sizes (id, codigo_talla),
           warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
@@ -170,7 +170,7 @@ export default function FinishedGoodsInventory() {
   const filteredStock = stock.filter(item => {
     const ref = item.products?.codigo_referencia || '';
     const name = item.products?.nombre_producto || '';
-    const cat = (item.products?.categories?.categoria || item.products?.categories?.nombre_categoria || item.products?.categoria || '');
+    const cat = (item.products?.categories?.categoria || item.products?.categoria || '');
     const color = item.colors?.nombre_color || '';
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';
@@ -813,7 +813,7 @@ export default function FinishedGoodsInventory() {
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
-                          {item.products?.categories?.categoria || item.products?.categories?.nombre_categoria || item.products?.categoria || '—'}
+                          {item.products?.categories?.categoria || item.products?.categoria || '—'}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
@@ -914,7 +914,7 @@ export default function FinishedGoodsInventory() {
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{mov.products?.nombre_producto || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
-                          {mov.products?.categories?.categoria || mov.products?.categories?.nombre_categoria || mov.products?.categoria || '—'}
+                          {mov.products?.categories?.categoria || mov.products?.categoria || '—'}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.sizes?.codigo_talla}</td>
