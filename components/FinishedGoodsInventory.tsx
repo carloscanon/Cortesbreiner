@@ -42,7 +42,7 @@ export default function FinishedGoodsInventory() {
 
   // Form states
   const [locationForm, setLocationForm] = useState({ warehouse_id: '', pasillo: '', estanteria: '', nivel: '', posicion: '' });
-  const [adjustmentForm, setAdjustmentForm] = useState({ stock_id: '', product_id: '', color_id: '', size_id: '', warehouse_id: '', type: 'Ajuste positivo', cantidad: 1, observaciones: '' });
+  const [adjustmentForm, setAdjustmentForm] = useState({ stock_id: '', product_id: '', color_id: '', fabric_id: '', size_id: '', warehouse_id: '', type: 'Ajuste positivo', cantidad: 1, observaciones: '' });
   const [transferForm, setTransferForm] = useState({ warehouse_orig_id: '', warehouse_dest_id: '', items: [] as any[], observaciones: '' });
   
   // Initial load assistant
@@ -92,6 +92,7 @@ export default function FinishedGoodsInventory() {
           *,
           products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria)),
           colors (id, nombre_color, hex_color),
+          fabrics:fabric_id (id, nombre_tela, codigo_tela),
           sizes (id, codigo_talla),
           warehouses (id, nombre_bodega),
           warehouse_locations (id, pasillo, estanteria, nivel, posicion)
@@ -111,6 +112,7 @@ export default function FinishedGoodsInventory() {
           *,
           products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
           colors (id, nombre_color),
+          fabrics:fabric_id (id, nombre_tela),
           sizes (id, codigo_talla),
           warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
           warehouse_dest:warehouses!finished_goods_kardex_warehouse_dest_id_fkey (nombre_bodega)
@@ -815,7 +817,7 @@ export default function FinishedGoodsInventory() {
                         <td style={{ padding: '1rem 1.5rem' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700' }}>
                             <span style={{ width: '14px', height: '14px', borderRadius: '50%', backgroundColor: item.colors?.hex_color || '#94a3b8', border: '1.5px solid var(--border)', flexShrink: 0 }} />
-                            {item.colors?.nombre_color || '—'}
+                            {item.colors?.nombre_color || item.fabrics?.nombre_tela || '—'}
                           </span>
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
@@ -916,7 +918,7 @@ export default function FinishedGoodsInventory() {
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
                           {mov.products?.categories?.categoria || mov.products?.categoria || '—'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || mov.fabrics?.nombre_tela || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.sizes?.codigo_talla}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '950', fontSize: '0.95rem', color: isPositive ? '#16a34a' : '#dc2626' }}>
                           {isPositive ? `+${mov.cantidad}` : `-${mov.cantidad}`}
@@ -1250,7 +1252,7 @@ export default function FinishedGoodsInventory() {
                       <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Color</label>
                       <select
                         value={adjustmentForm.color_id}
-                        onChange={e => setAdjustmentForm({ ...adjustmentForm, color_id: e.target.value })}
+                        onChange={e => setAdjustmentForm({ ...adjustmentForm, color_id: e.target.value, fabric_id: '' })}
                         style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
                       >
                         <option value="">Ninguno</option>
