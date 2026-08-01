@@ -220,7 +220,7 @@ export default function QualityPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState('Pendiente');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>(EMPTY_FORM);
@@ -608,7 +608,7 @@ export default function QualityPage() {
     if (isSewingOrder) {
       const { data } = await supabase
         .from('sewing_orders')
-        .select(`*, parent_order:orders(*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*), fabrics(nombre_tela), colors(nombre_color), products(*, categories(categoria)))), sewing_order_sizes(*, sizes(*)), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque)`)
+        .select(`*, parent_order:orders(*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(id,color_id,fabric_id,product_id,layers,layers_produced,cut_sizes(*), fabrics(nombre_tela), colors(id,nombre_color,codigo_color,hex_color), products(*, categories(categoria)))), sewing_order_sizes(*, sizes(*)), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque)`)
         .eq('id', id).single();
       setOrderDetail(data);
       const detailRows = getDetailRows(data);
@@ -624,7 +624,7 @@ export default function QualityPage() {
         }));
       }
     } else {
-      const { data } = await supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(*, cut_sizes(*), fabrics(nombre_tela), colors(nombre_color), products(*, categories(categoria)))').eq('id', id).single();
+      const { data } = await supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller,responsable,desc_costuras,desc_lavanderia,desc_empaque), cuts(id,color_id,fabric_id,product_id,layers,layers_produced, cut_sizes(*), fabrics(nombre_tela), colors(id,nombre_color,codigo_color,hex_color), products(*, categories(categoria)))').eq('id', id).single();
       setOrderDetail(data);
       const detailRows = getDetailRows(data);
       await fetchIndividualGarments(id, false, detailRows);
@@ -700,18 +700,44 @@ export default function QualityPage() {
       parent.cuts.forEach((cut: any) => {
         if (String(cut.product_id) !== String(sewingOrder.product_id)) return;
         const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
-        const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id)) || cut.colors;
         
-        let colorName = '—';
-        if (colorObj && colorObj.nombre_color) {
-          colorName = colorObj.nombre_color;
-        } else if (cut.color && cut.color !== '—') {
-          colorName = cut.color;
-        } else if (cut.fabrics?.nombre_tela) {
-          colorName = cut.fabrics.nombre_tela;
-        } else if (cut.fabric_id) {
-          const fab = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
-          if (fab && fab.nombre_tela) colorName = fab.nombre_tela;
+        // 1. Intentar obtener el color desde la relación/ID directa con el maestro
+        const joinedColor = cut.colors;
+        const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+        let colorObj = joinedColor || localColor;
+
+        // 2. Solo si hay un campo explícito de color en el corte (NO la tela)
+        let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+        
+        if (!colorObj && rawColorString) {
+          // Extraer prefijo de color si viene con número/guión/slash (ej: "LILA-4882" -> "LILA")
+          const cleanPrefix = rawColorString.split('/')[0].split('-')[0].trim().toUpperCase();
+          
+          if (cleanPrefix) {
+            colorObj = colors.find((c: any) => {
+              const cName = (c.nombre_color || '').trim().toUpperCase();
+              const cCode = (c.codigo_color || '').trim().toUpperCase();
+              return cName === cleanPrefix || cCode === cleanPrefix;
+            });
+          }
+        }
+
+        // 3. Determinar nombre y hex final (Si no hay colorObj ni rawColorString explícito, colorName queda vacío o '—')
+        let colorName = colorObj?.nombre_color || colorObj?.codigo_color || '';
+        if (!colorName && rawColorString) {
+          colorName = rawColorString.split('/')[0].split('-')[0].trim();
+        }
+        const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
+
+        // Resolución de Tela desde el maestro de telas o del corte
+        const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+        let fabricName = '—';
+        if (fabricObj) {
+          fabricName = fabricObj.nombre_tela || fabricObj.nombre || fabricObj.codigo_tela || '—';
+        } else if (cut.tela && cut.tela !== '—') {
+          fabricName = cut.tela;
+        } else if (cut.fabric_name && cut.fabric_name !== '—') {
+          fabricName = cut.fabric_name;
         }
 
         const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
@@ -732,7 +758,7 @@ export default function QualityPage() {
           if (realQty <= 0) realQty = Number(cs.quantity) || 0;
 
           if (realQty > 0) {
-            rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, categoryName, size: sz, quantity: realQty });
+            rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: realQty });
           }
         });
       });
@@ -742,18 +768,43 @@ export default function QualityPage() {
     const rows: any[] = [];
     order.cuts.forEach((cut: any) => {
       const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
-      const colorObj = colors.find((c: any) => String(c.id) === String(cut.color_id)) || cut.colors;
       
-      let colorName = '—';
-      if (colorObj && colorObj.nombre_color) {
-        colorName = colorObj.nombre_color;
-      } else if (cut.color && cut.color !== '—') {
-        colorName = cut.color;
-      } else if (cut.fabrics?.nombre_tela) {
-        colorName = cut.fabrics.nombre_tela;
-      } else if (cut.fabric_id) {
-        const fab = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id));
-        if (fab && fab.nombre_tela) colorName = fab.nombre_tela;
+      // 1. Intentar obtener el color desde la relación/ID directa con el maestro
+      const joinedColor = cut.colors;
+      const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+      let colorObj = joinedColor || localColor;
+
+      // 2. Solo si hay un campo explícito de color en el corte (NO la tela)
+      let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+      
+      if (!colorObj && rawColorString) {
+        const cleanPrefix = rawColorString.split('/')[0].split('-')[0].trim().toUpperCase();
+        
+        if (cleanPrefix) {
+          colorObj = colors.find((c: any) => {
+            const cName = (c.nombre_color || '').trim().toUpperCase();
+            const cCode = (c.codigo_color || '').trim().toUpperCase();
+            return cName === cleanPrefix || cCode === cleanPrefix;
+          });
+        }
+      }
+
+      // 3. Determinar nombre y hex final
+      let colorName = colorObj?.nombre_color || colorObj?.codigo_color || '';
+      if (!colorName && rawColorString) {
+        colorName = rawColorString.split('/')[0].split('-')[0].trim();
+      }
+      const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
+
+      // Resolución de Tela desde el maestro de telas o del corte
+      const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+      let fabricName = '—';
+      if (fabricObj) {
+        fabricName = fabricObj.nombre_tela || fabricObj.nombre || fabricObj.codigo_tela || '—';
+      } else if (cut.tela && cut.tela !== '—') {
+        fabricName = cut.tela;
+      } else if (cut.fabric_name && cut.fabric_name !== '—') {
+        fabricName = cut.fabric_name;
       }
 
       const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
@@ -766,7 +817,7 @@ export default function QualityPage() {
         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
         let qty = cs.quantity_produced !== undefined && cs.quantity_produced !== null ? Number(cs.quantity_produced) : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
         if (qty <= 0) qty = Number(cs.quantity) || 0;
-        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, categoryName, size: sz, quantity: qty });
+        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: qty });
       });
     });
     return rows;
@@ -1446,10 +1497,6 @@ export default function QualityPage() {
                     </button>
                   ) : (
                     <>
-                      <select value={item.status} onChange={e => updateStatus(item.id, e.target.value)}
-                        style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: `1.5px solid ${statusColor.border}`, fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', backgroundColor: statusColor.bg, color: statusColor.color }}>
-                        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
                       {(item.status === 'Aprobado' || item.status === 'Doblado' || item.status === 'Empacado') && (
                         <button className="btn"
                           style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
@@ -1543,7 +1590,29 @@ export default function QualityPage() {
                       {/* Recepción */}
                       <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
                         <h3 style={{ fontSize: '0.85rem', fontWeight: '900', color: '#1e293b', margin: '0 0 0.35rem' }}>📦 Recepción del Lote</h3>
-                        <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1rem' }}>Registra la fecha de ingreso y las novedades físicas del paquete.</p>
+                        <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 0.75rem' }}>Registra la fecha de ingreso y las novedades físicas del paquete.</p>
+                        {/* Producto y Categoría en encabezado */}
+                        {detailRows.length > 0 && (() => {
+                          const uniqueProducts = [...new Set(detailRows.map((r: any) => r.productName))].filter(Boolean);
+                          const uniqueCategories = [...new Set(detailRows.map((r: any) => r.categoryName))].filter(Boolean);
+                          return (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '1.1rem', padding: '0.9rem 1.1rem', backgroundColor: '#eef2ff', border: '2px solid #818cf8', borderRadius: '12px', alignItems: 'center', boxShadow: '0 2px 8px #818cf820' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#3730a3', textTransform: 'uppercase', letterSpacing: '0.07em' }}>🏷️ Producto:</span>
+                              {uniqueProducts.map((p: any) => (
+                                <span key={p} style={{ fontSize: '0.92rem', fontWeight: '900', color: '#1e1b4b', background: '#ffffff', padding: '0.3rem 0.85rem', borderRadius: '8px', border: '2px solid #818cf8', boxShadow: '0 1px 4px #6366f130', letterSpacing: '0.01em' }}>{p}</span>
+                              ))}
+                              {uniqueCategories.length > 0 && (
+                                <>
+                                  <span style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0.15rem', fontWeight: '700' }}>│</span>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.07em' }}>📂 Categoría:</span>
+                                  {uniqueCategories.map((cat: any) => (
+                                    <span key={cat} style={{ fontSize: '0.92rem', fontWeight: '800', color: '#4c1d95', background: '#ede9fe', padding: '0.3rem 0.85rem', borderRadius: '8px', border: '2px solid #a78bfa', boxShadow: '0 1px 4px #7c3aed20', letterSpacing: '0.01em' }}>{cat}</span>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div>
                             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Fecha y hora de recepción</label>
@@ -1575,7 +1644,7 @@ export default function QualityPage() {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                               <thead>
                                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                  {['Referencia / Categoría', 'Color / Tela', 'Talla', 'Planeadas', 'Aprobadas ✓', 'No Aprobadas ✗', 'Estado'].map(h => (
+                                  {['Color', 'Tela', 'Talla', 'Planeadas', 'Aprobadas ✓', 'No Aprobadas ✗', 'Estado'].map(h => (
                                     <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.68rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                                   ))}
                                 </tr>
@@ -1599,8 +1668,15 @@ export default function QualityPage() {
                                     : { bg: '#fffbeb', color: '#d97706', label: 'Parcial' };
                                   return (
                                     <tr key={row.key} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: statusColor.bg }}>
-                                      <td style={{ padding: '0.6rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>{row.productName}</td>
-                                      <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{row.colorName}</td>
+                                      <td style={{ padding: '0.5rem 0.75rem' }}>
+                                        {row.colorName ? (
+                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '800', fontSize: '0.78rem', color: '#0f172a' }}>
+                                            {row.colorHex && <span style={{ width: '14px', height: '14px', borderRadius: '4px', backgroundColor: row.colorHex, border: '1px solid #cbd5e1', flexShrink: 0, display: 'inline-block' }} />}
+                                            {row.colorName}
+                                          </span>
+                                        ) : <span style={{ color: '#94a3b8', fontSize: '0.72rem' }}>Sin color</span>}
+                                       </td>
+                                      <td style={{ padding: '0.6rem 0.75rem', color: '#64748b', fontWeight: '600', fontSize: '0.75rem' }}>{row.fabricName || '—'}</td>
                                       <td style={{ padding: '0.6rem 0.75rem' }}>
                                         <span style={{ fontWeight: '900', padding: '0.15rem 0.5rem', borderRadius: '6px', backgroundColor: '#e0e7ff', color: '#3730a3', fontSize: '0.73rem' }}>{row.size}</span>
                                       </td>

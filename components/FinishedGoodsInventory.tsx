@@ -21,6 +21,7 @@ export default function FinishedGoodsInventory() {
   const [sizes, setSizes] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
+  const [fabrics, setFabrics] = useState<any[]>([]);
 
   // State
   const [loading, setLoading] = useState(true);
@@ -71,12 +72,14 @@ export default function FinishedGoodsInventory() {
       const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
       const { data: w } = await supabase.from('warehouses').select('*').eq('estado', 'activo');
       const { data: loc } = await supabase.from('warehouse_locations').select('*');
+      const { data: fab } = await supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true });
 
       setProducts(p || []);
       setColors(c || []);
       setSizes(s || []);
       setWarehouses(w || []);
       setLocations(loc || []);
+      setFabrics(fab || []);
     } catch (err) {
       console.error('Error fetching masters:', err);
     } finally {
@@ -241,15 +244,28 @@ export default function FinishedGoodsInventory() {
         }
       }
 
-      // 1. Fetch current stock
-      const { data: stockRecords } = await supabase
+      // 1. Fetch current stock — discriminar por color_id Y fabric_id para que cada color/tela sea una fila distinta
+      let stockQuery = supabase
         .from('finished_goods_stock')
         .select('*')
         .eq('warehouse_id', finalWarehouseId)
         .eq('product_id', finalProductId)
-        .eq('size_id', finalSizeId)
-        .is('location_id', null);
+        .eq('size_id', finalSizeId);
 
+      if (finalColorId) {
+        stockQuery = stockQuery.eq('color_id', finalColorId);
+      } else {
+        stockQuery = stockQuery.is('color_id', null);
+      }
+
+      const finalFabricId = adjustmentForm.fabric_id || null;
+      if (finalFabricId) {
+        stockQuery = stockQuery.eq('fabric_id', finalFabricId);
+      } else {
+        stockQuery = stockQuery.is('fabric_id', null);
+      }
+
+      const { data: stockRecords } = await stockQuery.limit(1);
       const existingRecord = stockRecords?.[0];
       const saldoAnterior = existingRecord ? Number(existingRecord.cantidad_disponible) : 0;
       const saldoNuevo = saldoAnterior + adjQty;
@@ -269,7 +285,8 @@ export default function FinishedGoodsInventory() {
           .insert({
             warehouse_id: finalWarehouseId,
             product_id: finalProductId,
-            color_id: finalColorId,
+            color_id: finalColorId || null,
+            fabric_id: finalFabricId || null,
             size_id: finalSizeId,
             cantidad_disponible: saldoNuevo
           });
@@ -280,7 +297,8 @@ export default function FinishedGoodsInventory() {
         .from('finished_goods_kardex')
         .insert({
           product_id: finalProductId,
-          color_id: finalColorId,
+          color_id: finalColorId || null,
+          fabric_id: finalFabricId || null,
           size_id: finalSizeId,
           tipo_movimiento: type,
           cantidad: Number(cantidad),
@@ -330,13 +348,13 @@ export default function FinishedGoodsInventory() {
           .insert({
             transfer_id: newTransfer.id,
             product_id: item.product_id,
-            color_id: item.color_id,
+            color_id: item.color_id || null,
             size_id: item.size_id,
             cantidad: Number(item.cantidad)
           });
 
         // Deduct from origin
-        const { data: origStock } = await supabase
+        let origQuery = supabase
           .from('finished_goods_stock')
           .select('*')
           .eq('warehouse_id', transferForm.warehouse_orig_id)
@@ -344,16 +362,26 @@ export default function FinishedGoodsInventory() {
           .eq('size_id', item.size_id)
           .is('location_id', null);
 
+        if (item.color_id) {
+          origQuery = origQuery.eq('color_id', item.color_id);
+        } else {
+          origQuery = origQuery.is('color_id', null);
+        }
+
+        const { data: origStock } = await origQuery.limit(1);
+
         const currentOrigQty = origStock?.[0] ? Number(origStock[0].cantidad_disponible) : 0;
-        await supabase
-          .from('finished_goods_stock')
-          .update({ cantidad_disponible: currentOrigQty - Number(item.cantidad) })
-          .eq('id', origStock?.[0]?.id);
+        if (origStock?.[0]) {
+          await supabase
+            .from('finished_goods_stock')
+            .update({ cantidad_disponible: currentOrigQty - Number(item.cantidad) })
+            .eq('id', origStock[0].id);
+        }
 
         // Kardex Orig (Salida en Tránsito)
         await supabase.from('finished_goods_kardex').insert({
           product_id: item.product_id,
-          color_id: item.color_id,
+          color_id: item.color_id || null,
           size_id: item.size_id,
           tipo_movimiento: 'Transferencia (Salida)',
           cantidad: Number(item.cantidad),
@@ -391,13 +419,21 @@ export default function FinishedGoodsInventory() {
 
       // 2. Add stock to destination
       for (const item of tx.finished_goods_transfer_items) {
-        const { data: destStock } = await supabase
+        let destQuery = supabase
           .from('finished_goods_stock')
           .select('*')
           .eq('warehouse_id', tx.warehouse_dest_id)
           .eq('product_id', item.product_id)
           .eq('size_id', item.size_id)
           .is('location_id', null);
+
+        if (item.color_id) {
+          destQuery = destQuery.eq('color_id', item.color_id);
+        } else {
+          destQuery = destQuery.is('color_id', null);
+        }
+
+        const { data: destStock } = await destQuery.limit(1);
 
         const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible) : 0;
         if (destStock?.[0]) {
@@ -411,7 +447,7 @@ export default function FinishedGoodsInventory() {
             .insert({
               warehouse_id: tx.warehouse_dest_id,
               product_id: item.product_id,
-              color_id: item.color_id,
+              color_id: item.color_id || null,
               size_id: item.size_id,
               cantidad_disponible: Number(item.cantidad)
             });
@@ -425,13 +461,20 @@ export default function FinishedGoodsInventory() {
 
         if (linkedStores && linkedStores.length > 0) {
           for (const store of linkedStores) {
-            const { data: storeStock } = await supabase
+            let storeQuery = supabase
               .from('store_inventory')
               .select('*')
               .eq('store_id', store.id)
               .eq('product_id', item.product_id)
-              .eq('size_id', item.size_id)
-              .is('color_id', item.color_id ? item.color_id : null);
+              .eq('size_id', item.size_id);
+
+            if (item.color_id) {
+              storeQuery = storeQuery.eq('color_id', item.color_id);
+            } else {
+              storeQuery = storeQuery.is('color_id', null);
+            }
+
+            const { data: storeStock } = await storeQuery.limit(1);
 
             const currentStoreQty = storeStock?.[0] ? Number(storeStock[0].cantidad_disponible) : 0;
             if (storeStock?.[0]) {
@@ -445,7 +488,7 @@ export default function FinishedGoodsInventory() {
                 .insert({
                   store_id: store.id,
                   product_id: item.product_id,
-                  color_id: item.color_id,
+                  color_id: item.color_id || null,
                   size_id: item.size_id,
                   cantidad_disponible: Number(item.cantidad)
                 });
@@ -456,7 +499,7 @@ export default function FinishedGoodsInventory() {
         // Kardex Dest
         await supabase.from('finished_goods_kardex').insert({
           product_id: item.product_id,
-          color_id: item.color_id,
+          color_id: item.color_id || null,
           size_id: item.size_id,
           tipo_movimiento: 'Transferencia (Entrada)',
           cantidad: Number(item.cantidad),
@@ -536,14 +579,22 @@ export default function FinishedGoodsInventory() {
     setImporting(true);
     try {
       for (const item of validRows) {
-        // Consultar stock
-        const { data: stockRecords } = await supabase
+        // Consultar stock discriminando color_id
+        let importQuery = supabase
           .from('finished_goods_stock')
           .select('*')
           .eq('warehouse_id', item.warehouseId)
           .eq('product_id', item.productId)
           .eq('size_id', item.sizeId)
           .is('location_id', null);
+
+        if (item.colorId) {
+          importQuery = importQuery.eq('color_id', item.colorId);
+        } else {
+          importQuery = importQuery.is('color_id', null);
+        }
+
+        const { data: stockRecords } = await importQuery.limit(1);
 
         const existingStock = stockRecords?.[0];
         const saldoAnterior = existingStock ? Number(existingStock.cantidad_disponible) : 0;
@@ -560,7 +611,7 @@ export default function FinishedGoodsInventory() {
             .insert({
               warehouse_id: item.warehouseId,
               product_id: item.productId,
-              color_id: item.colorId,
+              color_id: item.colorId || null,
               size_id: item.sizeId,
               cantidad_disponible: item.qty
             });
@@ -569,7 +620,7 @@ export default function FinishedGoodsInventory() {
         // Kardex
         await supabase.from('finished_goods_kardex').insert({
           product_id: item.productId,
-          color_id: item.colorId,
+          color_id: item.colorId || null,
           size_id: item.sizeId,
           tipo_movimiento: 'Carga Inicial',
           cantidad: item.qty,
@@ -815,10 +866,30 @@ export default function FinishedGoodsInventory() {
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700' }}>
-                            <span style={{ width: '14px', height: '14px', borderRadius: '50%', backgroundColor: item.colors?.hex_color || '#94a3b8', border: '1.5px solid var(--border)', flexShrink: 0 }} />
-                            {item.colors?.nombre_color || item.fabrics?.nombre_tela || '—'}
-                          </span>
+                          {(() => {
+                            const colorObj = item.colors;
+                            let colorName = colorObj?.nombre_color;
+                            let hexColor = colorObj?.hex_color;
+
+                            if (!colorName && item.products?.nombre_producto) {
+                              const nameUpper = item.products.nombre_producto.toUpperCase();
+                              const matchedColor = colors.find(c => {
+                                const cName = c.nombre_color?.toUpperCase().trim();
+                                return cName && cName.length >= 3 && (nameUpper.includes(' ' + cName + ' ') || nameUpper.endsWith(' ' + cName));
+                              });
+                              if (matchedColor) {
+                                colorName = matchedColor.nombre_color;
+                                hexColor = matchedColor.hex_color;
+                              }
+                            }
+
+                            return (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700' }}>
+                                <span style={{ width: '14px', height: '14px', borderRadius: '50%', backgroundColor: hexColor || '#94a3b8', border: '1.5px solid var(--border)', flexShrink: 0 }} />
+                                {colorName || item.fabrics?.nombre_tela || 'Sin Especificar'}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
                           {item.products?.categories?.categoria || item.products?.categoria || '—'}

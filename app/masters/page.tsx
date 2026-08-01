@@ -252,6 +252,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
   const [search, setSearch] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [masterCounts, setMasterCounts] = useState<Record<string, number>>({});
  
   useEffect(() => {
     const fetchIva = async () => {
@@ -259,7 +260,23 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
       if (data) setIva(Number(data.value));
     };
     fetchIva();
+    fetchAllCounts();
   }, []);
+
+  const fetchAllCounts = async () => {
+    try {
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        Object.entries(MASTER_CONFIG).map(async ([key, conf]: [string, any]) => {
+          const { count } = await supabase.from(conf.table).select('*', { count: 'exact', head: true });
+          counts[key] = count || 0;
+        })
+      );
+      setMasterCounts(counts);
+    } catch (e) {
+      console.error('Error fetching master counts:', e);
+    }
+  };
 
   const config = MASTER_CONFIG[activeTab];
 
@@ -547,27 +564,107 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
       {/* Sidebar de Maestros */}
       <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRight: '1px solid var(--border)', paddingRight: '1.5rem', overflowY: 'auto' }}>
         <h2 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--text-muted)' }}>Módulos Maestros</h2>
-        {Object.entries(MASTER_CONFIG).map(([key, item]: [string, any]) => (
-          <button 
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={`btn ${activeTab === key ? 'btn-primary' : ''}`}
-            style={{ 
-              justifyContent: 'flex-start', 
-              padding: '0.75rem 1rem', 
-              backgroundColor: activeTab === key ? 'var(--primary)' : 'transparent',
-              color: activeTab === key ? 'white' : 'var(--text)',
-              fontSize: '0.875rem'
-            }}
-          >
-            <item.icon size={18} />
-            {item.title}
-          </button>
-        ))}
+        {Object.entries(MASTER_CONFIG).map(([key, item]: [string, any]) => {
+          const itemCount = masterCounts[key] !== undefined ? masterCounts[key] : (activeTab === key ? data.length : null);
+          return (
+            <button 
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`btn ${activeTab === key ? 'btn-primary' : ''}`}
+              style={{ 
+                justifyContent: 'space-between', 
+                padding: '0.75rem 1rem', 
+                backgroundColor: activeTab === key ? 'var(--primary)' : 'transparent',
+                color: activeTab === key ? 'white' : 'var(--text)',
+                fontSize: '0.875rem'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <item.icon size={18} />
+                <span>{item.title}</span>
+              </div>
+              {itemCount !== null && (
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontWeight: '800', 
+                  padding: '0.15rem 0.5rem', 
+                  borderRadius: '10px', 
+                  backgroundColor: activeTab === key ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: activeTab === key ? 'white' : '#475569'
+                }}>
+                  {itemCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Contenido Principal */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto' }}>
+        {/* Totalization Summary Cards Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '0.85rem' }}>
+          {Object.entries(MASTER_CONFIG).map(([key, conf]: [string, any]) => {
+            const countVal = masterCounts[key] !== undefined ? masterCounts[key] : (activeTab === key ? data.length : 0);
+            const isSelected = activeTab === key;
+            const Icon = conf.icon;
+            return (
+              <div
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  padding: '0.85rem 1rem',
+                  borderRadius: '14px',
+                  backgroundColor: isSelected ? '#80082E' : 'white',
+                  color: isSelected ? 'white' : '#0f172a',
+                  border: isSelected ? '1.5px solid #80082E' : '1px solid #e2e8f0',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: isSelected ? '0 4px 12px rgba(128, 8, 46, 0.2)' : '0 2px 4px rgba(0,0,0,0.02)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem'
+                }}
+              >
+                <div style={{
+                  padding: '0.5rem',
+                  borderRadius: '10px',
+                  backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : '#f8fafc',
+                  color: isSelected ? 'white' : '#80082E',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <Icon size={20} />
+                </div>
+                <div style={{ overflow: 'hidden' }}>
+                  <p style={{
+                    margin: 0,
+                    fontSize: '0.68rem',
+                    fontWeight: '800',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.03em',
+                    color: isSelected ? 'rgba(255,255,255,0.85)' : '#64748b',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {conf.title.replace('Maestro de ', '').replace('Maestro ', '')}
+                  </p>
+                  <h3 style={{
+                    margin: '0.1rem 0 0',
+                    fontSize: '1.2rem',
+                    fontWeight: '950',
+                    color: isSelected ? 'white' : '#0f172a'
+                  }}>
+                    {countVal.toLocaleString()} <span style={{ fontSize: '0.75rem', fontWeight: '700', opacity: 0.85 }}>ítems</span>
+                  </h3>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
