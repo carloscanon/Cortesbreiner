@@ -150,7 +150,7 @@ const renderISOBarcode = (text: string, type: string = 'code128', height: number
     );
   }
 
-  // DEFAULT: CODE 128 (ISO/IEC 15417 Standard)
+  // DEFAULT: CODE 128 (ISO/IEC 15417 Standard) - Optimizado para lectores 1D/2D universales
   const codePoints: number[] = [104]; // Start B
   let checksum = 104;
   for (let i = 0; i < clean.length; i++) {
@@ -170,7 +170,7 @@ const renderISOBarcode = (text: string, type: string = 'code128', height: number
 
   let totalModules = 0;
   for (let i = 0; i < patternStr.length; i++) totalModules += parseInt(patternStr[i], 10);
-  const quietZone = 12;
+  const quietZone = 20; // Zona de silencio ampliada (Quiet Zone) para que los escáneres enfoquen fácilmente el inicio/fin
   const totalWidth = totalModules + (quietZone * 2);
 
   let currentX = quietZone;
@@ -181,7 +181,7 @@ const renderISOBarcode = (text: string, type: string = 'code128', height: number
     const w = parseInt(patternStr[i], 10);
     if (isBar) {
       bars.push(
-        <rect key={i} x={currentX} y={2} width={w} height={height - 12} fill="#000000" />
+        <rect key={i} x={currentX} y={0} width={w} height={height} fill="#000000" />
       );
     }
     currentX += w;
@@ -191,12 +191,16 @@ const renderISOBarcode = (text: string, type: string = 'code128', height: number
   return (
     <svg
       viewBox={`0 0 ${totalWidth} ${height}`}
+      preserveAspectRatio="none"
       style={{
-        width: '98%',
+        width: '100%',
+        maxWidth: '240px',
         height: `${height}px`,
         shapeRendering: 'crispEdges',
         WebkitPrintColorAdjust: 'exact',
-        printColorAdjust: 'exact'
+        printColorAdjust: 'exact',
+        display: 'block',
+        margin: '0 auto'
       }}
     >
       <rect x="0" y="0" width={totalWidth} height={height} fill="#ffffff" />
@@ -2351,7 +2355,7 @@ export default function QualityPage() {
                       )}
 
                       {/* Configurable 1D Vector / Font Barcode Container */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.2rem 0', width: '100%' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.15rem 0', width: '100%' }}>
                         {(stickerConfig.barcodeType === 'font39' || stickerConfig.barcodeType === 'font128') ? (
                           <span style={{
                             fontFamily: stickerConfig.barcodeType === 'font128' ? "'Libre Barcode 128 Text', cursive, monospace" : "'Libre Barcode 39 Text', cursive, monospace",
@@ -2367,7 +2371,7 @@ export default function QualityPage() {
                         ) : (
                           renderISOBarcode(g.barcode, stickerConfig.barcodeType || 'code128', stickerConfig.barcodeHeight || 55)
                         )}
-                        <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                        <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
                           {g.barcode || '00420001'}
                         </span>
                       </div>
