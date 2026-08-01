@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { syncQualityApprovalToInventory, revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 import {
@@ -59,40 +59,50 @@ const fetchAll = async (queryFn: () => any) => {
   return allData;
 };
 
-const CODE128_PATTERNS = [
-  '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
-  '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
-  '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211',
-  '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313',
-  '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331',
-  '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111',
-  '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214',
-  '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111',
-  '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141',
-  '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141',
-  '114131', '311141', '411131', '211412', '211214', '211232', '2331112'
-];
+// Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
+function BarcodeCanvas({ text, type, height }: { text: string; type: string; height: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-const CODE39_PATTERNS: Record<string, string> = {
-  '0': '111221211', '1': '211211112', '2': '112211112', '3': '212211111', '4': '111221112',
-  '5': '211221111', '6': '112221111', '7': '111211212', '8': '211211211', '9': '112211211',
-  'A': '211112112', 'B': '112112112', 'C': '212112111', 'D': '111122112', 'E': '211122111',
-  'F': '112122111', 'G': '111112212', 'H': '211112211', 'I': '112112211', 'J': '111122211',
-  'K': '211111122', 'L': '112111122', 'M': '212111121', 'N': '111121122', 'O': '211121121',
-  'P': '112121121', 'Q': '111111222', 'R': '211111221', 'S': '112111221', 'T': '111121221',
-  'U': '221111112', 'V': '122111112', 'W': '222111111', 'X': '121121112', 'Y': '221121111',
-  'Z': '122121111', '-': '121111212', '.': '221111211', ' ': '122111211', '*': '121121211'
-};
+  useEffect(() => {
+    if (!canvasRef.current || !text) return;
+    const canvas = canvasRef.current;
 
-const renderISOBarcode = (text: string, type: string = 'code128', height: number = 55) => {
-  const clean = (text || '00420001').trim();
+    if (type === 'qr') {
+      // QR lo manejamos con img externa
+      return;
+    }
+
+    const bcid = type === 'code39' ? 'code39' : 'code128';
+    const encodetext = type === 'code39' ? text.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '') : text;
+
+    import('bwip-js').then((bwipjs) => {
+      try {
+        bwipjs.toCanvas(canvas, {
+          bcid,
+          text: encodetext,
+          scale: 3,
+          height: Math.round(height / 4),
+          includetext: false,
+          textxalign: 'center',
+          paddingleft: 10,
+          paddingright: 10,
+          paddingtop: 2,
+          paddingbottom: 2,
+          backgroundcolor: 'ffffff',
+          barcolor: '000000',
+        });
+      } catch (e) {
+        console.error('bwip-js error:', e);
+      }
+    });
+  }, [text, type, height]);
 
   if (type === 'qr') {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(clean)}&margin=4`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}&margin=4`;
     return (
       <img
         src={qrUrl}
-        alt={clean}
+        alt={text}
         style={{
           width: `${height * 1.4}px`,
           height: `${height * 1.4}px`,
@@ -106,108 +116,21 @@ const renderISOBarcode = (text: string, type: string = 'code128', height: number
     );
   }
 
-  if (type === 'code39') {
-    const textToEncode = '*' + clean.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '') + '*';
-    let patternStr = '';
-    for (let i = 0; i < textToEncode.length; i++) {
-      patternStr += (CODE39_PATTERNS[textToEncode[i]] || CODE39_PATTERNS['*']) + '1';
-    }
-
-    let totalModules = 0;
-    for (let i = 0; i < patternStr.length; i++) totalModules += parseInt(patternStr[i], 10);
-    const quietZone = 12;
-    const totalWidth = totalModules + (quietZone * 2);
-
-    let currentX = quietZone;
-    let isBar = true;
-    const bars: React.ReactNode[] = [];
-
-    for (let i = 0; i < patternStr.length; i++) {
-      const w = parseInt(patternStr[i], 10);
-      if (isBar) {
-        bars.push(
-          <rect key={i} x={currentX} y={2} width={w} height={height - 12} fill="#000000" />
-        );
-      }
-      currentX += w;
-      isBar = !isBar;
-    }
-
-    return (
-      <svg
-        viewBox={`0 0 ${totalWidth} ${height}`}
-        style={{
-          width: '98%',
-          height: `${height}px`,
-          shapeRendering: 'crispEdges',
-          WebkitPrintColorAdjust: 'exact',
-          printColorAdjust: 'exact'
-        }}
-      >
-        <rect x="0" y="0" width={totalWidth} height={height} fill="#ffffff" />
-        {bars}
-      </svg>
-    );
-  }
-
-  // DEFAULT: CODE 128 (ISO/IEC 15417 Standard) - Optimizado para lectores 1D/2D universales
-  const codePoints: number[] = [104]; // Start B
-  let checksum = 104;
-  for (let i = 0; i < clean.length; i++) {
-    const val = clean.charCodeAt(i) - 32;
-    const safeVal = (val >= 0 && val <= 95) ? val : 0;
-    codePoints.push(safeVal);
-    checksum += safeVal * (i + 1);
-  }
-  checksum = checksum % 103;
-  codePoints.push(checksum);
-  codePoints.push(106); // Stop
-
-  let patternStr = '';
-  for (const pt of codePoints) {
-    patternStr += CODE128_PATTERNS[pt] || '211214';
-  }
-
-  let totalModules = 0;
-  for (let i = 0; i < patternStr.length; i++) totalModules += parseInt(patternStr[i], 10);
-  const quietZone = 20; // Zona de silencio ampliada (Quiet Zone) para que los escáneres enfoquen fácilmente el inicio/fin
-  const totalWidth = totalModules + (quietZone * 2);
-
-  let currentX = quietZone;
-  let isBar = true;
-  const bars: React.ReactNode[] = [];
-
-  for (let i = 0; i < patternStr.length; i++) {
-    const w = parseInt(patternStr[i], 10);
-    if (isBar) {
-      bars.push(
-        <rect key={i} x={currentX} y={0} width={w} height={height} fill="#000000" />
-      );
-    }
-    currentX += w;
-    isBar = !isBar;
-  }
-
   return (
-    <svg
-      viewBox={`0 0 ${totalWidth} ${height}`}
-      preserveAspectRatio="none"
+    <canvas
+      ref={canvasRef}
       style={{
-        width: '100%',
-        maxWidth: '240px',
-        height: `${height}px`,
-        shapeRendering: 'crispEdges',
-        WebkitPrintColorAdjust: 'exact',
-        printColorAdjust: 'exact',
         display: 'block',
-        margin: '0 auto'
+        margin: '0 auto',
+        maxWidth: '100%',
+        height: `${height}px`,
+        imageRendering: 'crisp-edges',
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact'
       }}
-    >
-      <rect x="0" y="0" width={totalWidth} height={height} fill="#ffffff" />
-      {bars}
-    </svg>
+    />
   );
-};
+}
 
 export default function QualityPage() {
   const [inspections, setInspections] = useState<any[]>([]);
@@ -2354,23 +2277,13 @@ export default function QualityPage() {
                         <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: '#64748b', fontWeight: '800' }}>{g.color_name}</span>
                       )}
 
-                      {/* Configurable 1D Vector / Font Barcode Container */}
+                      {/* Barcode usando bwip-js (estándar industrial) */}
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.15rem 0', width: '100%' }}>
-                        {(stickerConfig.barcodeType === 'font39' || stickerConfig.barcodeType === 'font128') ? (
-                          <span style={{
-                            fontFamily: stickerConfig.barcodeType === 'font128' ? "'Libre Barcode 128 Text', cursive, monospace" : "'Libre Barcode 39 Text', cursive, monospace",
-                            fontSize: `${stickerConfig.barcodeHeight || 48}px`,
-                            color: '#000000',
-                            lineHeight: 0.95,
-                            whiteSpace: 'nowrap',
-                            WebkitPrintColorAdjust: 'exact',
-                            printColorAdjust: 'exact'
-                          }}>
-                            *{g.barcode || '00420001'}*
-                          </span>
-                        ) : (
-                          renderISOBarcode(g.barcode, stickerConfig.barcodeType || 'code128', stickerConfig.barcodeHeight || 55)
-                        )}
+                        <BarcodeCanvas
+                          text={g.barcode || '00420001'}
+                          type={stickerConfig.barcodeType || 'code128'}
+                          height={stickerConfig.barcodeHeight || 55}
+                        />
                         <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
                           {g.barcode || '00420001'}
                         </span>
@@ -2397,11 +2310,9 @@ export default function QualityPage() {
                   onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
                   style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1.5px solid #94a3b8', fontSize: '0.78rem', fontWeight: '800', backgroundColor: 'white', color: '#0f172a', cursor: 'pointer' }}
                 >
-                  <option value="code128">⚡ CODE 128 (ISO/IEC 15417 — Recomendado para Pistolas Láser/2D)</option>
-                  <option value="code39">🏷️ CODE 39 (ISO/IEC 16388 Industrial con Guardas)</option>
-                  <option value="qr">📱 Código QR 2D (Matriz de Alta Densidad para Celulares/Pistolas 2D)</option>
-                  <option value="font128">🔤 Fuente Web HD Code 128</option>
-                  <option value="font39">🔤 Fuente Web HD Code 39</option>
+                  <option value="code128">⚡ CODE 128 — Universal (Recomendado para pistolas láser 1D)</option>
+                  <option value="code39">🏷️ CODE 39 — Solo números y letras mayúsculas</option>
+                  <option value="qr">📱 Código QR 2D — Pistolas 2D o cámara de celular</option>
                 </select>
               </div>
               <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: '700' }}>
