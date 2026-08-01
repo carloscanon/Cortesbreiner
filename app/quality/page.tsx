@@ -58,39 +58,40 @@ const fetchAll = async (queryFn: () => any) => {
   }
   return allData;
 };
-
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
+// Renderiza en canvas oculto y exporta como <img> para impresión confiable
 function BarcodeCanvas({ text, type, height }: { text: string; type: string; height: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [imgSrc, setImgSrc] = useState<string>('');
 
   useEffect(() => {
-    if (!canvasRef.current || !text) return;
-    const canvas = canvasRef.current;
+    if (!text) return;
 
-    if (type === 'qr') {
-      // QR lo manejamos con img externa
-      return;
-    }
+    if (type === 'qr') return; // QR usa img externa
 
+    const canvas = document.createElement('canvas');
     const bcid = type === 'code39' ? 'code39' : 'code128';
-    const encodetext = type === 'code39' ? text.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '') : text;
+    const encodetext = type === 'code39'
+      ? text.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '')
+      : text;
 
     import('bwip-js').then((bwipjs) => {
       try {
         bwipjs.toCanvas(canvas, {
           bcid,
           text: encodetext,
-          scale: 3,
-          height: Math.round(height / 4),
+          scale: 4,
+          height: 14,
           includetext: false,
-          textxalign: 'center',
-          paddingleft: 10,
-          paddingright: 10,
+          paddingleft: 8,
+          paddingright: 8,
           paddingtop: 2,
           paddingbottom: 2,
           backgroundcolor: 'ffffff',
           barcolor: '000000',
         });
+        // Convertir canvas a imagen PNG embebida — funciona en impresión
+        setImgSrc(canvas.toDataURL('image/png'));
       } catch (e) {
         console.error('bwip-js error:', e);
       }
@@ -98,15 +99,14 @@ function BarcodeCanvas({ text, type, height }: { text: string; type: string; hei
   }, [text, type, height]);
 
   if (type === 'qr') {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}&margin=4`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}&margin=6&ecc=M`;
     return (
       <img
         src={qrUrl}
         alt={text}
         style={{
-          width: `${height * 1.4}px`,
-          height: `${height * 1.4}px`,
-          imageRendering: 'pixelated',
+          width: `${height * 1.6}px`,
+          height: `${height * 1.6}px`,
           display: 'block',
           margin: '0 auto',
           WebkitPrintColorAdjust: 'exact',
@@ -116,13 +116,19 @@ function BarcodeCanvas({ text, type, height }: { text: string; type: string; hei
     );
   }
 
+  if (!imgSrc) {
+    return <div style={{ height: `${height}px`, width: '100%' }} />;
+  }
+
   return (
-    <canvas
-      ref={canvasRef}
+    <img
+      src={imgSrc}
+      alt={text}
       style={{
         display: 'block',
         margin: '0 auto',
         maxWidth: '100%',
+        width: '100%',
         height: `${height}px`,
         imageRendering: 'crisp-edges',
         WebkitPrintColorAdjust: 'exact',
