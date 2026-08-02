@@ -60,14 +60,13 @@ const fetchAll = async (queryFn: () => any) => {
 };
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
 // Renderiza en canvas oculto y exporta como <img> para impresión confiable
-function BarcodeCanvas({ text, type, height }: { text: string; type: string; height: number }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: string; height: number; garmentId?: string }) {
   const [imgSrc, setImgSrc] = useState<string>('');
 
   useEffect(() => {
     if (!text) return;
 
-    if (type === 'qr') return; // QR usa img externa
+    if (type === 'qr') return;
 
     const canvas = document.createElement('canvas');
     const bcid = type === 'code39' ? 'code39' : 'code128';
@@ -90,7 +89,6 @@ function BarcodeCanvas({ text, type, height }: { text: string; type: string; hei
           backgroundcolor: 'ffffff',
           barcolor: '000000',
         });
-        // Convertir canvas a imagen PNG embebida — funciona en impresión
         setImgSrc(canvas.toDataURL('image/png'));
       } catch (e) {
         console.error('bwip-js error:', e);
@@ -104,6 +102,7 @@ function BarcodeCanvas({ text, type, height }: { text: string; type: string; hei
       <img
         src={qrUrl}
         alt={text}
+        data-barcode-garment-id={garmentId}
         style={{
           width: `${height * 1.6}px`,
           height: `${height * 1.6}px`,
@@ -124,12 +123,13 @@ function BarcodeCanvas({ text, type, height }: { text: string; type: string; hei
     <img
       src={imgSrc}
       alt={text}
+      data-barcode-garment-id={garmentId}
       style={{
         display: 'block',
         margin: '0 auto',
         maxWidth: '100%',
-        width: '100%',
         height: `${height}px`,
+        objectFit: 'contain',
         imageRendering: 'crisp-edges',
         WebkitPrintColorAdjust: 'exact',
         printColorAdjust: 'exact'
@@ -190,6 +190,10 @@ export default function QualityPage() {
     barcodeType?: string;
     alignment?: string;
     orientation?: string;
+    columnsPerRow?: number;
+    stickerWidthMm?: number;
+    stickerHeightMm?: number;
+    gapMm?: number;
     sizeFontSize: number;
     sizeBgColor: string;
   }>({
@@ -203,6 +207,10 @@ export default function QualityPage() {
     barcodeType: 'code128',
     alignment: 'center',
     orientation: 'portrait',
+    columnsPerRow: 3,
+    stickerWidthMm: 50,
+    stickerHeightMm: 80,
+    gapMm: 2,
     sizeFontSize: 18,
     sizeBgColor: '#0f172a'
   });
@@ -365,21 +373,15 @@ export default function QualityPage() {
       orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
     }
 
-    // Consultar todos los códigos de barra existentes de OTRAS órdenes para evitar cualquier colisión
-    const { data: existingAll } = await supabase.from('individual_garments').select('barcode, sewing_order_id, order_id');
-    const occupiedBarcodes = new Set(
-      (existingAll || [])
-        .filter((g: any) => (isSewingOrder ? String(g.sewing_order_id) !== String(orderDetail.id) : String(g.order_id) !== String(orderDetail.id)))
-        .map((g: any) => g.barcode)
-    );
-
-    let currentOrderNumericCode = orderNumericCode;
-    let offsetAttempt = 0;
-    while (occupiedBarcodes.has(`${currentOrderNumericCode}0001`) && offsetAttempt < 100) {
-      offsetAttempt++;
-      const nextVal = (Number(orderNumericCode) + offsetAttempt) % 10000;
-      currentOrderNumericCode = String(nextVal).padStart(4, '0');
-    }
+    // Consultar todos los códigos de barra existentes para obtener el máximo consecutivo global de 10 dígitos
+    const { data: existingAll } = await supabase.from('individual_garments').select('barcode');
+    let maxGlobalSeq = 0;
+    (existingAll || []).forEach((g: any) => {
+      const num = parseInt(g.barcode, 10);
+      if (!isNaN(num) && num > maxGlobalSeq) {
+        maxGlobalSeq = num;
+      }
+    });
 
     const detailRows = getDetailRows(orderDetail);
     detailRows.forEach((row: any) => {
@@ -387,9 +389,9 @@ export default function QualityPage() {
       const qty = Number(rowApproved[row.key]) || 0;
       const sizeCode = row.size || 'ST';
       for (let i = 0; i < qty; i++) {
-        const paddedIdx = globalIndex.toString().padStart(4, '0');
-        // Código de barra 100% numérico: <4 dígitos orden><4 dígitos consecutivo>
-        const barcode = `${currentOrderNumericCode}${paddedIdx}`;
+        maxGlobalSeq++;
+        // ID Único Global Numérico de 10 dígitos (ej: 0000000001, 0000000002, ...)
+        const barcode = maxGlobalSeq.toString().padStart(10, '0');
         toInsert.push({
           sewing_order_id: isSewingOrder ? orderDetail.id : null,
           order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
@@ -401,7 +403,6 @@ export default function QualityPage() {
           status: 'Aprobada', 
           defect_checklist: {}
         });
-        globalIndex++;
       }
     });
 
@@ -868,43 +869,23 @@ export default function QualityPage() {
 
         // Generar las nuevas prendas individuales aprobadas
         const toInsert: any[] = [];
-        let globalIndex = 1;
         const isSewingOrder = !!orderDetail.sewing_order_sizes;
 
-        let orderNumericCode = '';
-        const confCode: string = orderDetail.confeccion_code || '';
-        const numericFromConf = confCode.replace(/\D/g, '');
-        if (numericFromConf.length > 0) {
-          orderNumericCode = numericFromConf.slice(-4).padStart(4, '0');
-        } else {
-          const consecutive = orderDetail.consecutive
-            || orderDetail.parent_order?.consecutive
-            || orderDetail.cuts?.[0]?.consecutive
-            || 0;
-          orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
-        }
-
-        const { data: existingAll } = await supabase.from('individual_garments').select('barcode, sewing_order_id, order_id');
-        const occupiedBarcodes = new Set(
-          (existingAll || [])
-            .filter((g: any) => (isSewingOrder ? String(g.sewing_order_id) !== String(orderDetail.id) : String(g.order_id) !== String(orderDetail.id)))
-            .map((g: any) => g.barcode)
-        );
-
-        let currentOrderNumericCode = orderNumericCode;
-        let offsetAttempt = 0;
-        while (occupiedBarcodes.has(`${currentOrderNumericCode}0001`) && offsetAttempt < 100) {
-          offsetAttempt++;
-          const nextVal = (Number(orderNumericCode) + offsetAttempt) % 10000;
-          currentOrderNumericCode = String(nextVal).padStart(4, '0');
-        }
+        const { data: existingAll } = await supabase.from('individual_garments').select('barcode');
+        let maxGlobalSeq = 0;
+        (existingAll || []).forEach((g: any) => {
+          const num = parseInt(g.barcode, 10);
+          if (!isNaN(num) && num > maxGlobalSeq) {
+            maxGlobalSeq = num;
+          }
+        });
 
         rows.forEach((row: any) => {
           const qty = Number(rowApproved[row.key]) || 0;
           const sizeCode = row.size || 'ST';
           for (let i = 0; i < qty; i++) {
-            const paddedIdx = globalIndex.toString().padStart(4, '0');
-            const barcode = `${currentOrderNumericCode}${paddedIdx}`;
+            maxGlobalSeq++;
+            const barcode = maxGlobalSeq.toString().padStart(10, '0');
             toInsert.push({
               sewing_order_id: isSewingOrder ? orderDetail.id : null,
               order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
@@ -915,7 +896,6 @@ export default function QualityPage() {
               size_code: sizeCode,
               status: 'Aprobada'
             });
-            globalIndex++;
           }
         });
 
@@ -2231,83 +2211,75 @@ export default function QualityPage() {
         </div>
       )}
 
-      {/* Printable Labels Modal */}
+      {/* Modal de etiquetas — vista previa en pantalla */}
       {showLabelsModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '800px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '850px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>🖨️ Impresión de Etiquetas Unitarias</h3>
-                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>{individualGarments.length} prendas para imprimir.</p>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
+                  {individualGarments.length} prendas — {Math.ceil(individualGarments.length / (stickerConfig.columnsPerRow || 3))} fila(s) de {stickerConfig.columnsPerRow || 3} etiquetas c/u.
+                </p>
               </div>
               <button type="button" onClick={() => setShowLabelsModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
             </div>
+
+            {/* Vista previa (solo pantalla, sin lógica de impresión) */}
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
-              <div id="printable-labels-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
-                {individualGarments.map((g: any) => (
-                  <div key={g.id} style={{ 
-                    backgroundColor: 'white', 
-                    border: '1.5px solid #0f172a', 
-                    borderRadius: '8px', 
-                    padding: '0.75rem 0.6rem', 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    aspectRatio: '5/8',
-                    justifyContent: 'space-between', 
-                    boxSizing: 'border-box',
-                    fontFamily: 'system-ui, sans-serif',
-                    breakInside: 'avoid'
-                  }}>
-                    {/* Header: Small Logo + Title */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="6" cy="6" r="3"/>
-                        <circle cx="6" cy="18" r="3"/>
-                        <line x1="20" y1="4" x2="8.12" y2="15.88"/>
-                        <line x1="14.47" y1="14.48" x2="20" y2="20"/>
-                        <line x1="8.12" y1="8.12" x2="12" y2="12"/>
-                      </svg>
-                      <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: '900', color: '#80082E', letterSpacing: '0.05em' }}>
-                        {stickerConfig.headerText || 'CORTES BREINER'}
-                      </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {(() => {
+                  const cols = stickerConfig.columnsPerRow || 3;
+                  const rows: any[][] = [];
+                  for (let i = 0; i < individualGarments.length; i += cols) {
+                    rows.push(individualGarments.slice(i, i + cols));
+                  }
+                  return rows.map((rowGarments, rIdx) => (
+                    <div key={rIdx} style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '0.75rem' }}>
+                      {rowGarments.map((g: any) => (
+                        <div key={g.id} style={{
+                          backgroundColor: 'white', border: '1.5px solid #0f172a', borderRadius: '8px',
+                          padding: '0.75rem 0.6rem', display: 'flex', flexDirection: 'column',
+                          height: `${Math.max(260, Math.round((stickerConfig.stickerHeightMm || 80) * 3.8))}px`,
+                          justifyContent: 'space-between', boxSizing: 'border-box', fontFamily: 'system-ui, sans-serif'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+                              <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                              <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                              <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+                            </svg>
+                            <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: '900', color: '#80082E' }}>
+                              {stickerConfig.headerText || 'CORTES BREINER'}
+                            </span>
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
+                            <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                              {(g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim()}
+                            </span>
+                            {g.color_name && <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: '#64748b', fontWeight: '800' }}>{g.color_name}</span>}
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                              <BarcodeCanvas text={g.barcode || '00420001'} type={stickerConfig.barcodeType || 'code128'} height={stickerConfig.barcodeHeight || 55} garmentId={g.id} />
+                              <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
+                                {g.barcode || '00420001'}
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: '950', backgroundColor: stickerConfig.sizeBgColor || '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px' }}>
+                              {g.size_code || 'S/T'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-
-                    {/* Reference name */}
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
-                      <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
-                        {(g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim()}
-                      </span>
-
-                      {/* Color chip if available */}
-                      {g.color_name && (
-                        <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: '#64748b', fontWeight: '800' }}>{g.color_name}</span>
-                      )}
-
-                      {/* Barcode usando bwip-js (estándar industrial) */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.15rem 0', width: '100%' }}>
-                        <BarcodeCanvas
-                          text={g.barcode || '00420001'}
-                          type={stickerConfig.barcodeType || 'code128'}
-                          height={stickerConfig.barcodeHeight || 55}
-                        />
-                        <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
-                          {g.barcode || '00420001'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Footer: Size badge */}
-                    <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
-                      <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: '950', backgroundColor: stickerConfig.sizeBgColor || '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
-                        {g.size_code || 'S/T'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
 
-            {/* Barcode Standard Selector Header Bar */}
+            {/* Selector de código de barras */}
             <div style={{ padding: '0.85rem 1.5rem', borderTop: '1.5px solid #e2e8f0', borderBottom: '1.5px solid #e2e8f0', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#1e293b' }}>📐 Estándar de Código de Barras:</span>
@@ -2316,21 +2288,153 @@ export default function QualityPage() {
                   onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
                   style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1.5px solid #94a3b8', fontSize: '0.78rem', fontWeight: '800', backgroundColor: 'white', color: '#0f172a', cursor: 'pointer' }}
                 >
-                  <option value="code128">⚡ CODE 128 — Universal (Recomendado para pistolas láser 1D)</option>
-                  <option value="code39">🏷️ CODE 39 — Solo números y letras mayúsculas</option>
-                  <option value="qr">📱 Código QR 2D — Pistolas 2D o cámara de celular</option>
+                  <option value="code128">⚡ CODE 128 — Universal</option>
+                  <option value="code39">🏷️ CODE 39 — Solo números y letras</option>
+                  <option value="qr">📱 QR 2D</option>
                 </select>
               </div>
-              <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: '700' }}>
-                {stickerConfig.barcodeType === 'qr' ? '📷 Escaneable con cualquier cámara o pistola 2D' : '🎯 Formato vectorial ISO ultra-nítido con márgenes de lectura'}
-              </span>
             </div>
 
             <div style={{ padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>💡 Impresión vertical: 3 etiquetas por fila (portrait). Papel A4 o 50mm × 80mm por etiqueta.</span>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                💡 {stickerConfig.stickerWidthMm || 50}mm × {stickerConfig.stickerHeightMm || 80}mm · {stickerConfig.columnsPerRow || 3} col/fila · sep {stickerConfig.gapMm ?? 2}mm
+              </span>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button type="button" onClick={() => setShowLabelsModal(false)} style={{ fontSize: '0.8rem', padding: '0.55rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white' }}>Cerrar</button>
-                <button type="button" onClick={() => window.print()} style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#80082E', color: 'white', fontWeight: '800' }}>🖨 Imprimir (Zebra)</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cols = stickerConfig.columnsPerRow || 3;
+                    const wMm = stickerConfig.stickerWidthMm || 50;
+                    const hMm = stickerConfig.stickerHeightMm || 80;
+                    const gapMm = stickerConfig.gapMm ?? 2;
+                    // Ancho total de página = (ancho etiqueta × columnas) + separadores entre columnas
+                    const pageWMm = (wMm * cols) + (gapMm * (cols - 1));
+
+                    const rows: any[][] = [];
+                    for (let i = 0; i < individualGarments.length; i += cols) {
+                      rows.push(individualGarments.slice(i, i + cols));
+                    }
+
+                    const barcodeImages: Record<string, string> = {};
+                    const imgs = document.querySelectorAll('img[data-barcode-garment-id]');
+                    imgs.forEach((img) => {
+                      const id = (img as HTMLImageElement).dataset.barcodeGarmentId;
+                      const src = (img as HTMLImageElement).src;
+                      if (id && src) {
+                        barcodeImages[id] = src;
+                      }
+                    });
+
+                    const rowsHtml = rows.map(rowGarments => {
+                      const cardsHtml = rowGarments.map((g: any, idx: number) => {
+                        const imgSrc = barcodeImages[g.id] || '';
+                        const refName = (g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim();
+                        // Separador a la derecha excepto en la última columna de la fila
+                        const marginRight = (idx < rowGarments.length - 1) ? `margin-right:${gapMm}mm;` : '';
+                        return `
+                          <div class="card" style="${marginRight}">
+                            <div class="top">
+                              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:#80082E;">
+                                ${stickerConfig.headerText || 'CORTES BREINER'}
+                              </span>
+                            </div>
+                            <div class="mid">
+                              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#1e293b;text-align:center;">
+                                ${refName}
+                              </span>
+                              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:#64748b;">${g.color_name}</span>` : ''}
+                              ${imgSrc ? `<img src="${imgSrc}" style="max-width:90%;height:auto;" />` : ''}
+                              <span style="font-size:${stickerConfig.barcodeFontSize || 12}px;font-family:monospace;letter-spacing:0.12em;font-weight:900;">
+                                ${g.barcode || '00420001'}
+                              </span>
+                            </div>
+                            <div class="bot">
+                              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${stickerConfig.sizeBgColor || '#0f172a'};color:white;padding:1px 8px;border-radius:3px;">
+                                ${g.size_code || 'S/T'}
+                              </span>
+                            </div>
+                          </div>`;
+                      }).join('');
+                      return `<div class="row">${cardsHtml}</div>`;
+                    }).join('');
+
+                    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Etiquetas Zebra</title>
+  <style>
+    @page { size: ${pageWMm}mm ${hMm}mm; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: white; width: ${pageWMm}mm; }
+    .row {
+      display: flex;
+      flex-direction: row;
+      width: ${pageWMm}mm;
+      height: ${hMm}mm;
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      width: ${wMm}mm;
+      min-width: ${wMm}mm;
+      max-width: ${wMm}mm;
+      height: ${hMm}mm;
+      padding: 2mm;
+      border: 0.5px solid #666;
+      overflow: hidden;
+      flex-shrink: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      border-bottom: 0.5px solid #ccc;
+      padding-bottom: 1mm;
+    }
+    .mid {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1mm;
+    }
+    .bot {
+      display: flex;
+      justify-content: center;
+      border-top: 0.5px solid #ccc;
+      padding-top: 1mm;
+    }
+  </style>
+</head>
+<body>${rowsHtml}</body>
+</html>`;
+
+                    const popup = window.open('', '_blank', 'width=800,height=600');
+                    if (!popup) {
+                      alert('Por favor permita los popups para imprimir etiquetas.');
+                      return;
+                    }
+                    popup.document.write(html);
+                    popup.document.close();
+                    popup.focus();
+                    setTimeout(() => {
+                      popup.print();
+                      popup.close();
+                    }, 600);
+                  }}
+                  style={{ fontSize: '0.8rem', padding: '0.55rem 1.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', backgroundColor: '#80082E', color: 'white', fontWeight: '800' }}
+                >
+                  🖨 Imprimir (Zebra)
+                </button>
               </div>
             </div>
           </div>
@@ -2419,60 +2523,90 @@ export default function QualityPage() {
       )}
 
       <style>{`
+        /* Ocultar el bloque de impresión en pantalla */
+        #printable-labels-container { display: none; }
+
         @media print {
           @page {
-            size: A4 portrait;
-            margin: 4mm;
+            size: ${(stickerConfig.stickerWidthMm || 50) * (stickerConfig.columnsPerRow || 3)}mm ${stickerConfig.stickerHeightMm || 80}mm;
+            margin: 0;
           }
-          html, body {
+
+          /*
+            Ocultar todo el body con visibility:hidden.
+            A diferencia de display:none, los hijos PUEDEN
+            sobreescribir con visibility:visible.
+          */
+          body {
+            visibility: hidden !important;
+          }
+
+          /* Mostrar solo el bloque de impresión y sus hijos */
+          #printable-labels-container {
+            display: block !important;
+            visibility: visible !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
             width: 100% !important;
-            height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
-            overflow: visible !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
           }
-          body * {
-            visibility: hidden !important;
-          }
-          #printable-labels-container, #printable-labels-container * {
+          #printable-labels-container * {
             visibility: visible !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          #printable-labels-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
+
+          /* Cada fila = exactamente 1 página del rollo Zebra */
+          .plr {
             display: grid !important;
-            grid-template-columns: repeat(3, 1fr) !important;
-            gap: 3mm !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            box-sizing: border-box !important;
-          }
-          #printable-labels-container > div {
+            grid-template-columns: repeat(${stickerConfig.columnsPerRow || 3}, 1fr) !important;
             width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-            aspect-ratio: 5 / 7.5 !important;
+            height: ${stickerConfig.stickerHeightMm || 80}mm !important;
+            page-break-after: always !important;
+            break-after: page !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            box-sizing: border-box !important;
             margin: 0 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
           }
-          /* Ensure barcode black bars render strictly on thermal printers */
-          #printable-labels-container div[style*="background-color: #0f172a"],
-          #printable-labels-container div[style*="backgroundColor: #0f172a"],
-          #printable-labels-container div[style*="background-color: rgb(15, 23, 42)"] {
-            background-color: #000000 !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+
+          /* Tarjeta individual */
+          .plc {
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            height: ${stickerConfig.stickerHeightMm || 80}mm !important;
+            box-sizing: border-box !important;
+            padding: 2mm !important;
+            margin: 0 !important;
+            border: 0.5px solid #444 !important;
+            background: white !important;
+            overflow: hidden !important;
+          }
+          .plc-top {
+            display: flex !important;
+            align-items: center !important;
+            gap: 3px !important;
+            border-bottom: 0.5px solid #ccc !important;
+            padding-bottom: 1mm !important;
+          }
+          .plc-mid {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 1mm !important;
+          }
+          .plc-bot {
+            display: flex !important;
+            justify-content: center !important;
+            border-top: 0.5px solid #ccc !important;
+            padding-top: 1mm !important;
           }
         }
       `}</style>

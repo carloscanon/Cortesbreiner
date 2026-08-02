@@ -8,11 +8,12 @@ import {
   MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 
 type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load';
 
 export default function FinishedGoodsInventory() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
   // Masters
@@ -28,6 +29,20 @@ export default function FinishedGoodsInventory() {
   const [stock, setStock] = useState<any[]>([]);
   const [kardex, setKardex] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
+
+  // SuperAdmin Revert Modal state
+  const [showRevertModal, setShowRevertModal] = useState(false);
+  const [recentApprovedInspections, setRecentApprovedInspections] = useState<any[]>([]);
+  const [selectedInspectionId, setSelectedInspectionId] = useState<string>('');
+  const [revertReason, setRevertReason] = useState<string>('Ingreso erróneo de cantidad / prendas en calidad');
+  const [targetStage, setTargetStage] = useState<number>(1);
+  const [executingRevert, setExecutingRevert] = useState(false);
+
+  // Unit details modal state
+  const [showUnitDetailModal, setShowUnitDetailModal] = useState(false);
+  const [selectedStockItemForDetail, setSelectedStockItemForDetail] = useState<any>(null);
+  const [unitGarments, setUnitGarments] = useState<any[]>([]);
+  const [loadingUnits, setLoadingUnits] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +78,113 @@ export default function FinishedGoodsInventory() {
       fetchTransfers();
     });
   }, []);
+
+  const fetchRecentApprovedInspections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('quality_inspections')
+        .select(`
+          *,
+          orders (id, consecutive, client_name),
+          sewing_orders (id, confeccion_code, products (nombre_producto, codigo_referencia))
+        `)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      setRecentApprovedInspections(data || []);
+    } catch (err: any) {
+      console.error('Error fetching quality inspections for revert:', err);
+    }
+  };
+
+  const openRevertModal = async () => {
+    await fetchRecentApprovedInspections();
+    setShowRevertModal(true);
+  };
+
+  const handleExecuteInventoryRevert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInspectionId) {
+      alert('Por favor selecciona la orden / inspección a revertir.');
+      return;
+    }
+
+    const selectedIns = recentApprovedInspections.find(i => i.id === selectedInspectionId);
+    const orderCode = selectedIns?.sewing_orders?.confeccion_code || (selectedIns?.orders?.consecutive ? `OC-${selectedIns.orders.consecutive.toString().padStart(4, '0')}` : selectedInspectionId);
+
+    if (!confirm(`⚠️ ¿Confirmas revertir el ingreso a inventario de la inspección/lote ${orderCode}?\n\n• Se descontarán las prendas ingresadas al inventario.\n• Se registrará la reversión en el Kardex.\n• La inspección se moverá a la Etapa ${targetStage} de Calidad para que pueda corregirse.`)) {
+      return;
+    }
+
+    setExecutingRevert(true);
+    try {
+      // 1. Revertir inventario físico y Kardex
+      await revertQualityApprovalFromInventory(selectedInspectionId);
+
+      // 2. Actualizar la inspección de calidad al stage seleccionado para reingreso/corrección
+      const newStatus = targetStage === 1 ? 'En Proceso' : targetStage === 2 ? 'Reproceso' : targetStage === 3 ? 'Empacado' : 'En Proceso';
+      await supabase
+        .from('quality_inspections')
+        .update({
+          current_stage: targetStage,
+          status: newStatus,
+          closed_at: null,
+          pago_status: 'Pendiente de aprobación financiera',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedInspectionId);
+
+      alert(`✅ REVERSIÓN EXITOSA:\n\n• El inventario de la orden ${orderCode} fue devuelto y descontado correctamente.\n• Se registró la reversión en el Kardex.\n• La orden fue enviada a Calidad (Etapa ${targetStage}) para su reingreso.`);
+
+      setShowRevertModal(false);
+      setSelectedInspectionId('');
+      await fetchStock();
+      await fetchKardex();
+    } catch (err: any) {
+      console.error('Error executing inventory revert:', err);
+      alert('❌ Error al revertir inventario: ' + err.message);
+    } finally {
+      setExecutingRevert(false);
+    }
+  };
+
+  const handleOpenUnitDetails = async (item: any) => {
+    setSelectedStockItemForDetail(item);
+    setShowUnitDetailModal(true);
+    setLoadingUnits(true);
+    try {
+      const refName = item.products?.nombre_producto || item.products?.codigo_referencia || '';
+      const colorName = item.colors?.nombre_color || '';
+      const sizeCode = item.sizes?.codigo_talla || '';
+
+      let query = supabase
+        .from('individual_garments')
+        .select(`
+          *,
+          quality_inspections (id, status, created_at)
+        `)
+        .order('barcode', { ascending: true });
+
+      if (refName) {
+        query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
+      }
+      if (sizeCode) {
+        query = query.eq('size_code', sizeCode);
+      }
+      if (colorName) {
+        query = query.eq('color_name', colorName);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setUnitGarments(data || []);
+    } catch (err: any) {
+      console.error('Error fetching unit details:', err);
+    } finally {
+      setLoadingUnits(false);
+    }
+  };
 
   const fetchMasters = async () => {
     setLoading(true);
@@ -666,7 +788,23 @@ export default function FinishedGoodsInventory() {
           </p>
         </div>
         
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Botón de Reversión exclusivo para SuperAdmin o usuarios habilitados */}
+          <button
+            className="btn"
+            onClick={openRevertModal}
+            style={{
+              border: '1.5px solid #dc2626',
+              backgroundColor: '#fef2f2',
+              color: '#dc2626',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <RefreshCw size={16} /> ↩️ Revertir a Calidad (SuperAdmin)
+          </button>
           <button className="btn btn-primary" onClick={() => setShowAdjustmentModal(true)}>
             <Plus size={18} /> Ajustar Inventario
           </button>
@@ -911,7 +1049,14 @@ export default function FinishedGoodsInventory() {
                             <span style={{ padding: '0.25rem 0.5rem', backgroundColor: '#d1fae5', color: '#065f46', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800' }}>SALDO SALUDABLE</span>
                           )}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem' }}>
+                        <td style={{ padding: '1rem 1.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleOpenUnitDetails(item)}
+                            className="btn"
+                            style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', border: '1.5px solid #6366f1', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: '800' }}
+                          >
+                            👁️ Ver Unidades
+                          </button>
                           <button
                             onClick={() => {
                               setAdjustmentForm({
@@ -1542,6 +1687,234 @@ export default function FinishedGoodsInventory() {
                 {savingTransfer ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar y Despachar Traslado'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🚨 MODAL REVERSIÓN A CALIDAD PARA SUPERADMINISTRADOR */}
+      {showRevertModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '620px', width: '100%', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '2px solid #dc2626' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <span style={{ fontSize: '0.65rem', fontWeight: 950, color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', padding: '0.15rem 0.6rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  🚨 EXCLUSIVO SUPERADMINISTRADOR
+                </span>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 950, color: '#0f172a', margin: '0.35rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <RefreshCw className="animate-spin-slow" size={20} color="#dc2626" />
+                  Revertir Ingreso de Inventario a Calidad
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                  Descuenta automáticamente del inventario físico y Kardex las prendas ingresadas por error y regresa la orden al módulo de Calidad para su corrección.
+                </p>
+              </div>
+              <button onClick={() => setShowRevertModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <form onSubmit={handleExecuteInventoryRevert} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+              
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.4rem' }}>
+                  1. Selecciona la Orden / Inspección a Revertir:
+                </label>
+                <select
+                  required
+                  value={selectedInspectionId}
+                  onChange={e => setSelectedInspectionId(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', backgroundColor: '#f8fafc', color: '#0f172a' }}
+                >
+                  <option value="">-- Seleccionar Orden o Inspección reciente --</option>
+                  {recentApprovedInspections.map(ins => {
+                    const code = ins.sewing_orders?.confeccion_code || (ins.orders?.consecutive ? `OC-${ins.orders.consecutive.toString().padStart(4, '0')}` : 'Sin código');
+                    const prodName = ins.sewing_orders?.products?.nombre_producto || ins.sewing_orders?.products?.codigo_referencia || '';
+                    const dateStr = new Date(ins.created_at).toLocaleDateString('es-CO');
+                    return (
+                      <option key={ins.id} value={ins.id}>
+                        {code} — {prodName} ({ins.status} | Etapa {ins.current_stage || 4} | {dateStr})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.4rem' }}>
+                  2. Etapa de Destino en Calidad:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                  {[
+                    { stage: 1, title: 'Etapa 1: Recepción', desc: 'Revisión desde cero' },
+                    { stage: 2, title: 'Etapa 2: Reproceso', desc: 'Arreglos de prendas' },
+                    { stage: 3, title: 'Etapa 3: Empaque', desc: 'Empaque y etiquetas' },
+                  ].map(s => (
+                    <button
+                      key={s.stage}
+                      type="button"
+                      onClick={() => setTargetStage(s.stage)}
+                      style={{
+                        padding: '0.65rem 0.5rem',
+                        borderRadius: '8px',
+                        border: `2px solid ${targetStage === s.stage ? '#dc2626' : '#cbd5e1'}`,
+                        backgroundColor: targetStage === s.stage ? '#fef2f2' : 'white',
+                        color: targetStage === s.stage ? '#991b1b' : '#334155',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <strong style={{ display: 'block', fontSize: '0.78rem' }}>{s.title}</strong>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{s.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.4rem' }}>
+                  3. Motivo de la Reversión (para Auditoría):
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Las cantidades ingresadas no coinciden con las empacadas reales..."
+                  value={revertReason}
+                  onChange={e => setRevertReason(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ backgroundColor: '#fff7ed', border: '1px solid #ffedd5', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.75rem', color: '#9a3412' }}>
+                💡 <strong>Efecto Automático:</strong> El sistema calculará las prendas aprobadas de este lote, las descontará del stock disponible de la bodega correspondiente y registrará un movimiento de salida tipo <em>Reversión / Deshacer por SuperAdmin</em> en el Kardex.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRevertModal(false)}
+                  disabled={executingRevert}
+                  style={{ padding: '0.55rem 1.25rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={executingRevert || !selectedInspectionId}
+                  style={{
+                    padding: '0.55rem 1.5rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#dc2626',
+                    color: 'white',
+                    fontSize: '0.8rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    opacity: (!selectedInspectionId || executingRevert) ? 0.6 : 1
+                  }}
+                >
+                  {executingRevert ? <Loader2 className="animate-spin" size={16} /> : '⚠️ Confirmar Reversión e Inventario'}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🏷️ MODAL DETALLE DE UNIDADES ÚNICAS POR REFERENCIA */}
+      {showUnitDetailModal && selectedStockItemForDetail && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1150, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '750px', width: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.15rem 0.6rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  🏷️ DETALLE DE PRENDAS ÚNICAS
+                </span>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 950, color: '#0f172a', margin: '0.25rem 0 0' }}>
+                  {selectedStockItemForDetail.products?.codigo_referencia || '—'} — {selectedStockItemForDetail.products?.nombre_producto || '—'}
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
+                  Color: <strong>{selectedStockItemForDetail.colors?.nombre_color || '—'}</strong> | Talla: <strong>{selectedStockItemForDetail.sizes?.codigo_talla || '—'}</strong> | Bodega: <strong>{selectedStockItemForDetail.warehouses?.nombre_bodega || '—'}</strong> ({unitGarments.length} unidades registradas)
+                </p>
+              </div>
+              <button onClick={() => setShowUnitDetailModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {/* Modal Content / Table */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
+              {loadingUnits ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                  <Loader2 size={24} className="animate-spin" />
+                  <span>Cargando unidades físicas e identificadores únicos...</span>
+                </div>
+              ) : unitGarments.length === 0 ? (
+                <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
+                  <Package size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                  <p style={{ margin: 0, fontWeight: 700 }}>No se encontraron prendas físicas unitarias con ID único para esta combinación.</p>
+                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Las prendas de producción reciente generarán automáticamente su código numérico único de 10 dígitos al aprobar inspección en Calidad.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left', backgroundColor: '#edf2f7' }}>
+                      <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>ID Único (Código de Barras)</th>
+                      <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Estado</th>
+                      <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Ubicación / Origen</th>
+                      <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Fecha Registro</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unitGarments.map((g: any) => (
+                      <tr key={g.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                        <td style={{ padding: '0.65rem 1rem', fontWeight: 950, fontFamily: 'monospace', fontSize: '0.9rem', color: '#0f172a' }}>
+                          <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                            {g.barcode}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 1rem' }}>
+                          <span style={{
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: '12px',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            backgroundColor: g.status === 'Aprobada' || g.status === 'Disponible' ? '#d1fae5' : g.status === 'Vendido' ? '#dbeafe' : '#fee2e2',
+                            color: g.status === 'Aprobada' || g.status === 'Disponible' ? '#065f46' : g.status === 'Vendido' ? '#1e40af' : '#991b1b'
+                          }}>
+                            {g.status || 'Disponible'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.65rem 1rem', color: '#475569', fontWeight: 700 }}>
+                          {selectedStockItemForDetail.warehouses?.nombre_bodega || 'Bodega Principal'}
+                        </td>
+                        <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
+                          {new Date(g.created_at).toLocaleDateString('es-CO')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                💡 Cada prenda física posee su propio número de 10 dígitos escaneable mediante lector láser o 2D.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowUnitDetailModal(false)}
+                style={{ fontSize: '0.8rem', padding: '0.5rem 1.25rem', border: '1.5px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', backgroundColor: 'white', fontWeight: 700 }}
+              >
+                Cerrar
+              </button>
+            </div>
+
           </div>
         </div>
       )}

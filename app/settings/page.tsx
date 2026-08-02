@@ -110,6 +110,10 @@ export default function SettingsPage() {
     fontFamily: 'system-ui', // 'system-ui' | 'libre-barcode-39' | 'libre-barcode-128' | 'monospace'
     alignment: 'center', // 'flex-start' | 'center' | 'flex-end'
     orientation: 'portrait', // 'portrait' | 'landscape'
+    columnsPerRow: 3, // 1 | 2 | 3 | 4
+    stickerWidthMm: 50, // mm
+    stickerHeightMm: 80, // mm
+    gapMm: 2, // mm separador entre etiquetas
     sizeFontSize: 18,
     sizeBgColor: '#0f172a'
   });
@@ -898,8 +902,22 @@ export default function SettingsPage() {
                               onChange={e => setStickerConfig({ ...stickerConfig, orientation: e.target.value })}
                               style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
                             >
-                              <option value="portrait">📱 Vertical (Portrait - 3 col)</option>
+                              <option value="portrait">📱 Vertical (Portrait)</option>
                               <option value="landscape">🖥️ Horizontal (Landscape)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Columnas / Etiquetas por Fila (Ancho Rollo)</label>
+                            <select
+                              value={stickerConfig.columnsPerRow || 3}
+                              onChange={e => setStickerConfig({ ...stickerConfig, columnsPerRow: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            >
+                              <option value="1">1 Columna (Rollo de 1 sticker de ancho - Zebra estándar)</option>
+                              <option value="2">2 Columnas (Rollo doble de 2 stickers de ancho)</option>
+                              <option value="3">3 Columnas (Rollo triple de 3 stickers de ancho / Hoja A4)</option>
+                              <option value="4">4 Columnas (Rollo de 4 stickers de ancho)</option>
                             </select>
                           </div>
 
@@ -925,9 +943,49 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      {/* 4. Talla / Badge */}
+                      {/* 4. Dimensiones del Sticker (Mm) */}
                       <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
-                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Badge de Talla</h4>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Dimensiones Físicas del Sticker (Milímetros)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Ancho (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerWidthMm || 50}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerWidthMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerWidthMm || 50} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerHeightMm || 80}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerHeightMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerHeightMm || 80} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Separador entre etiquetas (mm)</label>
+                            <input
+                              type="number" min="0" max="40"
+                              value={stickerConfig.gapMm ?? 2}
+                              onChange={e => setStickerConfig({ ...stickerConfig, gapMm: Math.max(0, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.gapMm ?? 2} mm</span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '0.5rem', margin: '0.6rem 0 0' }}>
+                          📌 Ancho total de página impresa = Ancho × Columnas + Separador × (Columnas−1) = <strong>{((stickerConfig.stickerWidthMm || 50) * (stickerConfig.columnsPerRow || 3)) + ((stickerConfig.gapMm ?? 2) * ((stickerConfig.columnsPerRow || 3) - 1))}mm</strong>
+                        </p>
+                      </div>
+
+                      {/* 5. Talla / Badge */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>5. Badge de Talla</h4>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div>
                             <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Talla (px)</label>
@@ -952,12 +1010,16 @@ export default function SettingsPage() {
 
                     {/* Previsualización en Tiempo Real */}
                     <div style={{ backgroundColor: '#f1f5f9', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <h4 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', margin: '0 0 1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         👁 Previsualización de Etiqueta Impresa
                       </h4>
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', marginBottom: '1rem' }}>
+                        Medidas configuradas: {stickerConfig.stickerWidthMm || 50}mm × {stickerConfig.stickerHeightMm || 80}mm
+                      </p>
 
                       <div style={{
-                        width: '210px',
+                        width: `${Math.min(280, Math.max(140, (stickerConfig.stickerWidthMm || 50) * 3.5))}px`,
+                        height: `${Math.min(380, Math.max(160, (stickerConfig.stickerHeightMm || 80) * 3.5))}px`,
                         backgroundColor: 'white',
                         border: '2px solid #0f172a',
                         borderRadius: '8px',
@@ -1001,7 +1063,7 @@ export default function SettingsPage() {
                                 WebkitPrintColorAdjust: 'exact',
                                 printColorAdjust: 'exact'
                               }}>
-                                *00420001*
+                                *05610002*
                               </span>
                             ) : (
                               <svg
@@ -1014,7 +1076,7 @@ export default function SettingsPage() {
                               >
                                 <rect x="0" y="0" width="160" height="50" fill="#ffffff" />
                                 {(() => {
-                                  const code = '00420001';
+                                  const code = '05610002';
                                   const bars: React.ReactNode[] = [];
                                   let currentX = 10;
                                   bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 5;
