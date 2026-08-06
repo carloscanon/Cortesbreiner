@@ -327,12 +327,12 @@ export default function QualityPage() {
       rows.forEach((row: any) => {
         if (garments.length > 0) {
           const matchingGarments = garments.filter(g =>
-            g.reference_name === row.productName &&
-            g.color_name === row.colorName &&
-            g.size_code === row.size
+            (g.reference_name || '').toUpperCase().trim() === (row.productName || '').toUpperCase().trim() &&
+            (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
+            (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
           );
           newApproved[row.key] = matchingGarments.filter(g => g.status === 'Aprobada').length;
-          newRejected[row.key] = matchingGarments.filter(g => g.status === 'Rechazada').length;
+          newRejected[row.key] = matchingGarments.filter(g => g.status !== 'Aprobada').length;
         } else {
           // Pre-populate with planned quantities if no barcodes generated yet
           newApproved[row.key] = Number(row.quantity) || 0;
