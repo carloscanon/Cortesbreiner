@@ -351,92 +351,24 @@ export default function QualityPage() {
     const isSewingOrder = !!orderDetail.sewing_order_sizes;
     const detailRows = getDetailRows(orderDetail);
 
-    const inserts: any[] = [];
-    const updates: any[] = [];
-    const deletes: string[] = [];
-
-    detailRows.forEach((row: any) => {
-      const approvedQty = Number(rowApproved[row.key]) || 0;
-      const rejectedQty = Number(rowRejected[row.key]) || 0;
-
-      const existing = individualGarments.filter(g =>
-        (g.reference_name || '').toUpperCase().trim() === (row.productName || '').toUpperCase().trim() &&
-        (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
-        (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
-      );
-
-      const targets: string[] = [];
-      for (let i = 0; i < approvedQty; i++) targets.push('Aprobada');
-      for (let i = 0; i < rejectedQty; i++) targets.push('Rechazada');
-
-      const maxLen = Math.max(existing.length, targets.length);
-      for (let i = 0; i < maxLen; i++) {
-        const g = existing[i];
-        const targetStatus = targets[i];
-
-        if (g && targetStatus) {
-          if (g.status !== targetStatus) {
-            updates.push({ id: g.id, status: targetStatus });
-          }
-        } else if (targetStatus) {
-          inserts.push({
-            sewing_order_id: isSewingOrder ? orderDetail.id : null,
-            order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
-            quality_inspection_id: editingId || null,
-            barcode: '', 
-            reference_name: row.productName,
-            color_name: row.colorName,
-            size_code: row.size || 'ST',
-            status: targetStatus,
-            defect_checklist: {}
-          });
-        } else if (g) {
-          deletes.push(g.id);
-        }
-      }
-    });
-
-    if (inserts.length > 0) {
-      const { data: maxGarment } = await supabase
-        .from('individual_garments')
-        .select('barcode')
-        .gte('barcode', '00000000')
-        .lte('barcode', '9999999999')
-        .order('barcode', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      let maxGlobalSeq = 0;
-      if (maxGarment?.barcode) {
-        const num = parseInt(maxGarment.barcode, 10);
-        if (!isNaN(num)) {
-          maxGlobalSeq = num;
-        }
-      }
-
-      inserts.forEach(ins => {
-        maxGlobalSeq++;
-        ins.barcode = maxGlobalSeq.toString().padStart(10, '0');
-      });
-    }
-
     try {
-      if (deletes.length > 0) {
-        const { error: delErr } = await supabase.from('individual_garments').delete().in('id', deletes);
-        if (delErr) throw delErr;
+      const res = await fetch('/api/quality/reconcile-garments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderDetailId: orderDetail.id,
+          isSewingOrder,
+          parentOrderId: orderDetail.parent_order_id || null,
+          savedInspectionId: editingId || null,
+          rowApproved,
+          rowRejected,
+          detailRows
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Error al reconciliar prendas.');
       }
-
-      if (updates.length > 0) {
-        await Promise.all(updates.map(upd =>
-          supabase.from('individual_garments').update({ status: upd.status }).eq('id', upd.id)
-        ));
-      }
-
-      if (inserts.length > 0) {
-        const { error: insErr } = await supabase.from('individual_garments').insert(inserts);
-        if (insErr) throw insErr;
-      }
-
       alert('✅ Prendas individuales actualizadas exitosamente.');
       await fetchIndividualGarments(orderDetail.id, isSewingOrder, detailRows);
     } catch (err: any) {
@@ -447,11 +379,25 @@ export default function QualityPage() {
   };
 
   const handleUpdateGarment = async (garmentId: string, updates: any) => {
-    const { error } = await supabase.from('individual_garments').update(updates).eq('id', garmentId);
-    if (error) { alert('Error al actualizar prenda: ' + error.message); return; }
-    if (orderDetail) await fetchIndividualGarments(orderDetail.id);
-    setSelectedGarment((prev: any) => prev && prev.id === garmentId ? { ...prev, ...updates } : prev);
-    if (!form.inspected_at) setForm((prev: any) => ({ ...prev, inspected_at: new Date().toISOString() }));
+    try {
+      const res = await fetch('/api/quality/update-garment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ garmentId, updates })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Error al actualizar prenda.');
+      }
+      if (orderDetail) {
+        const isSewingOrder = !!orderDetail.sewing_order_sizes;
+        await fetchIndividualGarments(orderDetail.id, isSewingOrder);
+      }
+      setSelectedGarment((prev: any) => prev && prev.id === garmentId ? { ...prev, ...updates } : prev);
+      if (!form.inspected_at) setForm((prev: any) => ({ ...prev, inspected_at: new Date().toISOString() }));
+    } catch (err: any) {
+      alert('Error al actualizar prenda: ' + err.message);
+    }
   };
 
   const handleReworkNotification = async (garment: any, defectType: string) => {
@@ -891,112 +837,33 @@ export default function QualityPage() {
 
     if (!error && savedInspectionId) {
       if (activeStage === 1 && rows.length > 0) {
-        const inserts: any[] = [];
-        const updates: any[] = [];
-        const deletes: string[] = [];
-
-        rows.forEach((row: any) => {
-          const approvedQty = Number(rowApproved[row.key]) || 0;
-          const rejectedQty = Number(rowRejected[row.key]) || 0;
-          const sizeCode = row.size || 'ST';
-
-          const existing = individualGarments.filter(g =>
-            (g.reference_name || '').toUpperCase().trim() === (row.productName || '').toUpperCase().trim() &&
-            (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
-            (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
-          );
-
-          const targets: string[] = [];
-          for (let i = 0; i < approvedQty; i++) targets.push('Aprobada');
-          for (let i = 0; i < rejectedQty; i++) targets.push('Rechazada');
-
-          const maxLen = Math.max(existing.length, targets.length);
-          for (let i = 0; i < maxLen; i++) {
-            const g = existing[i];
-            const targetStatus = targets[i];
-
-            if (g && targetStatus) {
-              if (g.status !== targetStatus) {
-                updates.push({ id: g.id, status: targetStatus });
-              }
-              if (!g.quality_inspection_id) {
-                updates.push({ id: g.id, status: targetStatus, updateInspectionId: true });
-              }
-            } else if (targetStatus) {
-              inserts.push({
-                sewing_order_id: isSewingOrder ? orderDetail.id : null,
-                order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
-                quality_inspection_id: savedInspectionId,
-                barcode: '', 
-                reference_name: row.productName,
-                color_name: row.colorName,
-                size_code: sizeCode,
-                status: targetStatus
-              });
-            } else if (g) {
-              deletes.push(g.id);
-            }
-          }
-        });
-
-        if (inserts.length > 0) {
-          const { data: maxGarment } = await supabase
-            .from('individual_garments')
-            .select('barcode')
-            .gte('barcode', '00000000')
-            .lte('barcode', '9999999999')
-            .order('barcode', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          let maxGlobalSeq = 0;
-          if (maxGarment?.barcode) {
-            const num = parseInt(maxGarment.barcode, 10);
-            if (!isNaN(num)) {
-              maxGlobalSeq = num;
-            }
-          }
-
-          inserts.forEach(ins => {
-            maxGlobalSeq++;
-            ins.barcode = maxGlobalSeq.toString().padStart(10, '0');
-          });
-        }
-
         let garmentErr = null;
-        if (deletes.length > 0) {
-          const { error: delErr } = await supabase.from('individual_garments').delete().in('id', deletes);
-          if (delErr) garmentErr = delErr;
-        }
-
-        if (!garmentErr && updates.length > 0) {
-          const updateMap = new Map<string, any>();
-          updates.forEach(u => {
-            const existingU = updateMap.get(u.id) || {};
-            updateMap.set(u.id, { ...existingU, status: u.status, quality_inspection_id: savedInspectionId });
+        try {
+          const res = await fetch('/api/quality/reconcile-garments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderDetailId: orderDetail.id,
+              isSewingOrder,
+              parentOrderId: parentOrderId || null,
+              savedInspectionId,
+              rowApproved,
+              rowRejected,
+              detailRows: rows
+            })
           });
-          const results = await Promise.all(Array.from(updateMap.entries()).map(([id, payload]) =>
-            supabase.from('individual_garments').update(payload).eq('id', id)
-          ));
-          const failed = results.find(r => r.error);
-          if (failed) garmentErr = failed.error;
-        }
-
-        if (!garmentErr && inserts.length > 0) {
-          const { error: insErr } = await supabase.from('individual_garments').insert(inserts);
-          if (insErr) garmentErr = insErr;
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            garmentErr = new Error(data.error || 'Error al guardar prendas individuales en el servidor.');
+          }
+        } catch (err: any) {
+          garmentErr = err;
         }
 
         if (garmentErr) {
           alert('❌ Error al reconciliar/guardar prendas individuales: ' + garmentErr.message);
           setSaving(false);
           return;
-        }
-      } else {
-        if (form.sewing_order_id) {
-          await supabase.from('individual_garments').update({ quality_inspection_id: savedInspectionId }).eq('sewing_order_id', form.sewing_order_id).is('quality_inspection_id', null);
-        } else if (parentOrderId) {
-          await supabase.from('individual_garments').update({ quality_inspection_id: savedInspectionId }).eq('order_id', parentOrderId).is('quality_inspection_id', null);
         }
       }
       const rejectPct = totalInspected > 0 ? (finalRejected / totalInspected) * 100 : 0;
