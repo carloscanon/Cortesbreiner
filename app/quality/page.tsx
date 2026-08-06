@@ -373,15 +373,23 @@ export default function QualityPage() {
       orderNumericCode = String(Number(consecutive) || 9999).padStart(4, '0').slice(-4);
     }
 
-    // Consultar todos los códigos de barra existentes para obtener el máximo consecutivo global de 10 dígitos
-    const { data: existingAll } = await supabase.from('individual_garments').select('barcode');
+    // Consultar el código de barras numérico más alto para obtener el máximo consecutivo global
+    const { data: maxGarment } = await supabase
+      .from('individual_garments')
+      .select('barcode')
+      .gte('barcode', '00000000')
+      .lte('barcode', '9999999999')
+      .order('barcode', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     let maxGlobalSeq = 0;
-    (existingAll || []).forEach((g: any) => {
-      const num = parseInt(g.barcode, 10);
-      if (!isNaN(num) && num > maxGlobalSeq) {
+    if (maxGarment?.barcode) {
+      const num = parseInt(maxGarment.barcode, 10);
+      if (!isNaN(num)) {
         maxGlobalSeq = num;
       }
-    });
+    }
 
     const detailRows = getDetailRows(orderDetail);
     detailRows.forEach((row: any) => {
@@ -871,14 +879,23 @@ export default function QualityPage() {
         const toInsert: any[] = [];
         const isSewingOrder = !!orderDetail.sewing_order_sizes;
 
-        const { data: existingAll } = await supabase.from('individual_garments').select('barcode');
+        // Consultar el código de barras numérico más alto para obtener el máximo consecutivo global
+        const { data: maxGarment } = await supabase
+          .from('individual_garments')
+          .select('barcode')
+          .gte('barcode', '00000000')
+          .lte('barcode', '9999999999')
+          .order('barcode', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
         let maxGlobalSeq = 0;
-        (existingAll || []).forEach((g: any) => {
-          const num = parseInt(g.barcode, 10);
-          if (!isNaN(num) && num > maxGlobalSeq) {
+        if (maxGarment?.barcode) {
+          const num = parseInt(maxGarment.barcode, 10);
+          if (!isNaN(num)) {
             maxGlobalSeq = num;
           }
-        });
+        }
 
         rows.forEach((row: any) => {
           const qty = Number(rowApproved[row.key]) || 0;
