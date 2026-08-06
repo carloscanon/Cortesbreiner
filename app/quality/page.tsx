@@ -807,28 +807,33 @@ export default function QualityPage() {
     const rows = getDetailRows(orderDetail);
     const totalRecFromRows = rows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0);
     let lavVal = Number(form.lavanderia) || 0, salVal = Number(form.saldos) || 0, cosVal = Number(form.costuras) || 0, incVal = Number(form.incompleto) || 0;
-    let finalApproved = Number(form.items_approved) || 0, finalRejected = 0;
+    let finalApproved = 0;
+    let finalRejected = 0;
 
-    if (individualGarments.length > 0) {
+    if (activeStage !== 1 && individualGarments.length > 0) {
       finalApproved = individualGarments.filter(g => g.status === 'Aprobada').length;
       const gRej = individualGarments.filter(g => g.status === 'Rechazada').length;
       finalRejected = gRej > 0 ? gRej : (Number(form.items_rejected) || 0);
       cosVal = finalRejected;
       incVal = 0;
-      form.items_inspected = (finalApproved + finalRejected).toString();
-      form.items_approved = finalApproved.toString();
-      form.items_rejected = finalRejected.toString();
-      form.costuras = cosVal.toString();
-      form.lavanderia = lavVal.toString();
-      form.saldos = salVal.toString();
-      form.incompleto = incVal.toString();
     } else {
       const { totalApproved, totalRejected } = computeTotalsFromRows(rows);
       finalApproved = Object.keys(rowApproved).length > 0 ? totalApproved : (Number(form.items_approved) || 0);
       finalRejected = Object.keys(rowRejected).length > 0 ? totalRejected : (Number(form.items_rejected) || 0);
       cosVal = finalRejected;
     }
+
     const totalInspected = Number(form.items_inspected) || totalRecFromRows || (finalApproved + finalRejected);
+    
+    // Sincronizar todas las variables del formulario antes de construir el payload final
+    form.items_approved = finalApproved.toString();
+    form.items_rejected = finalRejected.toString();
+    form.items_inspected = totalInspected.toString();
+    form.costuras = cosVal.toString();
+    form.lavanderia = lavVal.toString();
+    form.saldos = salVal.toString();
+    form.incompleto = incVal.toString();
+
     if (finalRejected > totalInspected) { setSaving(false); return alert(`❌ Rechazadas (${finalRejected}) no puede superar el total inspeccionadas (${totalInspected}).`); }
     if (finalApproved + finalRejected > totalInspected) { setSaving(false); return alert(`❌ Aprobadas + rechazadas supera total inspeccionado.`); }
 
