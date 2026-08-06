@@ -331,8 +331,8 @@ export default function QualityPage() {
             g.color_name === row.colorName &&
             g.size_code === row.size
           );
-          newApproved[row.key] = matchingGarments.length;
-          newRejected[row.key] = Math.max(0, (Number(row.quantity) || 0) - matchingGarments.length);
+          newApproved[row.key] = matchingGarments.filter(g => g.status === 'Aprobada').length;
+          newRejected[row.key] = matchingGarments.filter(g => g.status === 'Rechazada').length;
         } else {
           // Pre-populate with planned quantities if no barcodes generated yet
           newApproved[row.key] = Number(row.quantity) || 0;
@@ -393,12 +393,13 @@ export default function QualityPage() {
 
     const detailRows = getDetailRows(orderDetail);
     detailRows.forEach((row: any) => {
-      // ONLY generate for approved garments
-      const qty = Number(rowApproved[row.key]) || 0;
+      const approvedQty = Number(rowApproved[row.key]) || 0;
+      const rejectedQty = Number(rowRejected[row.key]) || 0;
       const sizeCode = row.size || 'ST';
-      for (let i = 0; i < qty; i++) {
+      
+      // Aprobadas
+      for (let i = 0; i < approvedQty; i++) {
         maxGlobalSeq++;
-        // ID Único Global Numérico de 10 dígitos (ej: 0000000001, 0000000002, ...)
         const barcode = maxGlobalSeq.toString().padStart(10, '0');
         toInsert.push({
           sewing_order_id: isSewingOrder ? orderDetail.id : null,
@@ -409,6 +410,23 @@ export default function QualityPage() {
           color_name: row.colorName,
           size_code: sizeCode, 
           status: 'Aprobada', 
+          defect_checklist: {}
+        });
+      }
+
+      // Rechazadas
+      for (let i = 0; i < rejectedQty; i++) {
+        maxGlobalSeq++;
+        const barcode = maxGlobalSeq.toString().padStart(10, '0');
+        toInsert.push({
+          sewing_order_id: isSewingOrder ? orderDetail.id : null,
+          order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
+          quality_inspection_id: editingId || null,
+          barcode, 
+          reference_name: row.productName, 
+          color_name: row.colorName,
+          size_code: sizeCode, 
+          status: 'Rechazada', 
           defect_checklist: {}
         });
       }
@@ -785,6 +803,7 @@ export default function QualityPage() {
     const selectedSewingOrder = sewingOrders.find((so: any) => so.id === form.sewing_order_id);
     const parentOrderId = selectedSewingOrder ? selectedSewingOrder.parent_order_id : form.order_id;
     const selectedOrder = orders.find((o: any) => o.id === parentOrderId);
+    const isSewingOrder = orderDetail ? !!orderDetail.sewing_order_sizes : !!selectedSewingOrder;
     const rows = getDetailRows(orderDetail);
     const totalRecFromRows = rows.reduce((s: number, r: any) => s + (Number(r.quantity) || 0), 0);
     let lavVal = Number(form.lavanderia) || 0, salVal = Number(form.saldos) || 0, cosVal = Number(form.costuras) || 0, incVal = Number(form.incompleto) || 0;
@@ -877,7 +896,6 @@ export default function QualityPage() {
 
         // Generar las nuevas prendas individuales aprobadas
         const toInsert: any[] = [];
-        const isSewingOrder = !!orderDetail.sewing_order_sizes;
 
         // Consultar el código de barras numérico más alto para obtener el máximo consecutivo global
         const { data: maxGarment } = await supabase
@@ -898,9 +916,12 @@ export default function QualityPage() {
         }
 
         rows.forEach((row: any) => {
-          const qty = Number(rowApproved[row.key]) || 0;
+          const approvedQty = Number(rowApproved[row.key]) || 0;
+          const rejectedQty = Number(rowRejected[row.key]) || 0;
           const sizeCode = row.size || 'ST';
-          for (let i = 0; i < qty; i++) {
+
+          // Aprobadas
+          for (let i = 0; i < approvedQty; i++) {
             maxGlobalSeq++;
             const barcode = maxGlobalSeq.toString().padStart(10, '0');
             toInsert.push({
@@ -912,6 +933,22 @@ export default function QualityPage() {
               color_name: row.colorName,
               size_code: sizeCode,
               status: 'Aprobada'
+            });
+          }
+
+          // Rechazadas
+          for (let i = 0; i < rejectedQty; i++) {
+            maxGlobalSeq++;
+            const barcode = maxGlobalSeq.toString().padStart(10, '0');
+            toInsert.push({
+              sewing_order_id: isSewingOrder ? orderDetail.id : null,
+              order_id: isSewingOrder ? (orderDetail.parent_order_id || orderDetail.parent_order?.id || null) : orderDetail.id,
+              quality_inspection_id: savedInspectionId,
+              barcode,
+              reference_name: row.productName,
+              color_name: row.colorName,
+              size_code: sizeCode,
+              status: 'Rechazada'
             });
           }
         });
@@ -948,6 +985,9 @@ export default function QualityPage() {
           setForm((prev: any) => ({ ...prev, id: savedInspectionId }));
         }
         setActiveStage(nextStageToSave);
+        if (orderDetail) {
+          await fetchIndividualGarments(orderDetail.id, isSewingOrder, rows);
+        }
         if (nextStageToSave === 1) {
           alert('💾 Avance guardado temporalmente en la Etapa 1. Puedes continuar la inspección cuando desees.');
         }
