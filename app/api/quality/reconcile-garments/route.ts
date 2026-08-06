@@ -99,14 +99,34 @@ export async function POST(req: Request) {
 
     // 3. Asignar códigos de barras a las inserciones
     if (inserts.length > 0) {
-      const { data: maxGarment } = await supabaseAdmin
+      // 1. Intentar buscar el código de barra de 10 dígitos más alto
+      let { data: maxGarment, error: maxErr } = await supabaseAdmin
         .from('individual_garments')
         .select('barcode')
-        .gte('barcode', '00000000')
-        .lte('barcode', '9999999999')
+        .like('barcode', '__________') // 10 guiones bajos para exactamente 10 caracteres
         .order('barcode', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (maxErr) {
+        return NextResponse.json({ error: 'Error al consultar código de barras (10 dgt): ' + maxErr.message }, { status: 500 });
+      }
+
+      // 2. Si no hay de 10 dígitos, buscar el de 8 dígitos más alto como fallback
+      if (!maxGarment?.barcode) {
+        const fallbackQuery = await supabaseAdmin
+          .from('individual_garments')
+          .select('barcode')
+          .like('barcode', '________') // 8 guiones bajos para exactamente 8 caracteres
+          .order('barcode', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (fallbackQuery.error) {
+          return NextResponse.json({ error: 'Error al consultar código de barras (8 dgt): ' + fallbackQuery.error.message }, { status: 500 });
+        }
+        maxGarment = fallbackQuery.data;
+      }
 
       let maxGlobalSeq = 0;
       if (maxGarment?.barcode) {
