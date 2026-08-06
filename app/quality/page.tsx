@@ -963,23 +963,34 @@ export default function QualityPage() {
           });
         }
 
+        let garmentErr = null;
         if (deletes.length > 0) {
-          await supabase.from('individual_garments').delete().in('id', deletes);
+          const { error: delErr } = await supabase.from('individual_garments').delete().in('id', deletes);
+          if (delErr) garmentErr = delErr;
         }
 
-        if (updates.length > 0) {
+        if (!garmentErr && updates.length > 0) {
           const updateMap = new Map<string, any>();
           updates.forEach(u => {
             const existingU = updateMap.get(u.id) || {};
             updateMap.set(u.id, { ...existingU, status: u.status, quality_inspection_id: savedInspectionId });
           });
-          await Promise.all(Array.from(updateMap.entries()).map(([id, payload]) =>
+          const results = await Promise.all(Array.from(updateMap.entries()).map(([id, payload]) =>
             supabase.from('individual_garments').update(payload).eq('id', id)
           ));
+          const failed = results.find(r => r.error);
+          if (failed) garmentErr = failed.error;
         }
 
-        if (inserts.length > 0) {
-          await supabase.from('individual_garments').insert(inserts);
+        if (!garmentErr && inserts.length > 0) {
+          const { error: insErr } = await supabase.from('individual_garments').insert(inserts);
+          if (insErr) garmentErr = insErr;
+        }
+
+        if (garmentErr) {
+          alert('❌ Error al reconciliar/guardar prendas individuales: ' + garmentErr.message);
+          setSaving(false);
+          return;
         }
       } else {
         if (form.sewing_order_id) {
@@ -1289,18 +1300,17 @@ export default function QualityPage() {
   const detailRows = orderDetail ? getDetailRows(orderDetail) : [];
   const { totalApproved: rowTotalApproved, totalRejected: rowTotalRejected } = computeTotalsFromRows(detailRows);
 
-  const totalApp = individualGarments.length > 0
-    ? individualGarments.filter(g => g.status === 'Aprobada').length
-    : (rowTotalApproved > 0 ? rowTotalApproved : (Number(form.items_approved) || 0));
+  const totalApp = detailRows.length > 0 
+    ? rowTotalApproved 
+    : (Number(form.items_approved) || 0);
 
-  const gRejCount = individualGarments.filter(g => g.status === 'Rechazada').length;
-  const totalRej = gRejCount > 0
-    ? gRejCount
-    : (rowTotalRejected > 0 ? rowTotalRejected : (Number(form.items_rejected) || 0));
+  const totalRej = detailRows.length > 0 
+    ? rowTotalRejected 
+    : (Number(form.items_rejected) || 0);
 
-  const totalRec = individualGarments.length > 0
-    ? (totalApp + totalRej)
-    : (detailRows.length > 0 ? detailRows.reduce((s, r) => s + r.quantity, 0) : (Number(form.items_inspected) || (totalApp + totalRej)));
+  const totalRec = detailRows.length > 0
+    ? detailRows.reduce((s, r) => s + r.quantity, 0)
+    : (Number(form.items_inspected) || (totalApp + totalRej));
   const totalRep = individualGarments.filter(g => g.status === 'Reproceso').length;
   const allResolved = totalRec > 0 && (totalApp + totalRej === totalRec) && totalRep === 0;
 
