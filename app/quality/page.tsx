@@ -182,6 +182,7 @@ export default function QualityPage() {
   const [activeDashboardTab, setActiveDashboardTab] = useState<'ranking' | 'alerts'>('ranking');
   const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
   const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
+  const [isRankingOpen, setIsRankingOpen] = useState(false);
 
   // Dynamic Sticker Config State
   const [stickerConfig, setStickerConfig] = useState<{
@@ -1358,37 +1359,61 @@ export default function QualityPage() {
         </div>
 
         {activeDashboardTab === 'ranking' && (
-          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-            <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.25rem' }}>Ranking de Satélites</h3>
-            <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1.25rem' }}>Desempeño de calidad y defectos por taller.</p>
-            {workshopPerformance.length === 0 ? (
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>Cargando ranking de talleres...</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)', backgroundColor: '#f8fafc' }}>
-                      {['Taller', 'Producción', 'Calidad %', 'Defectos %', 'Estrellas'].map(h => (
-                        <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workshopPerformance.map((w, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
-                        <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
-                        <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#334155' }}>{w.production.toLocaleString()} uds</td>
-                        <td style={{ padding: '0.8rem 1rem', fontWeight: '850', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
-                        <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#dc2626' }}>{w.rework.toFixed(1)}%</td>
-                        <td style={{ padding: '0.8rem 1rem', fontSize: '0.85rem' }}>
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <Star key={i} size={12} fill={i < w.stars ? '#eab308' : 'none'} stroke={i < w.stars ? '#eab308' : '#cbd5e1'} style={{ display: 'inline-block', marginRight: '2px' }} />
+          <div className="card" style={{ padding: 0, borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div
+              onClick={() => setIsRankingOpen(!isRankingOpen)}
+              style={{
+                padding: '1.25rem 1.5rem',
+                cursor: 'pointer',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: '#f8fafc',
+                borderBottom: isRankingOpen ? '1px solid var(--border)' : 'none',
+                userSelect: 'none'
+              }}
+            >
+              <div>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>🏆 Ranking de Satélites</h3>
+                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Desempeño de calidad y defectos por taller. Clic para desplegar.</p>
+              </div>
+              <div style={{ color: '#64748b', fontWeight: '850', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                {isRankingOpen ? '▲ Colapsar' : '▼ Desplegar'}
+              </div>
+            </div>
+
+            {isRankingOpen && (
+              <div style={{ padding: '1.5rem' }}>
+                {workshopPerformance.length === 0 ? (
+                  <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>Cargando ranking de talleres...</p>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                          {['Taller', 'Producción', 'Calidad %', 'Defectos %', 'Estrellas'].map(h => (
+                            <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                           ))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workshopPerformance.map((w, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#334155' }}>{w.production.toLocaleString()} uds</td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '850', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#dc2626' }}>{w.rework.toFixed(1)}%</td>
+                            <td style={{ padding: '0.8rem 1rem', fontSize: '0.85rem' }}>
+                              {Array.from({ length: 5 }).map((_, i) => (
+                                <Star key={i} size={12} fill={i < w.stars ? '#eab308' : 'none'} stroke={i < w.stars ? '#eab308' : '#cbd5e1'} style={{ display: 'inline-block', marginRight: '2px' }} />
+                              ))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1507,27 +1532,27 @@ export default function QualityPage() {
                   </div>
 
                   {/* Detalle del Producto */}
-                  <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.74rem', color: '#64748b' }}>Producto:</span>
-                    <span style={{ fontSize: '0.76rem', fontWeight: '800', color: '#0f172a', backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>{productName}</span>
+                  <div style={{ marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: '750' }}>Producto:</span>
+                    <span style={{ fontSize: '0.88rem', fontWeight: '950', color: '#0f172a', backgroundColor: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>{productName}</span>
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.74rem', color: '#475569', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f0f9ff', color: '#0369a1', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #bae6fd' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '0.25rem 0.75rem', borderRadius: '8px', fontWeight: '950', fontSize: '0.82rem', border: '1.5px solid #7dd3fc' }}>
                       🏭 Taller: {workshop}
                     </span>
                     {orderQty > 0 && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#faf5ff', color: '#6b21a8', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #e9d5ff' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f3e8ff', color: '#6b21a8', padding: '0.25rem 0.75rem', borderRadius: '8px', fontWeight: '950', fontSize: '0.82rem', border: '1.5px solid #d8b4fe' }}>
                         📊 Orden total: {orderQty.toLocaleString()} uds
                       </span>
                     )}
                     {item.items_inspected > 0 && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f8fafc', color: '#334155', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #cbd5e1' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f8fafc', color: '#334155', padding: '0.25rem 0.75rem', borderRadius: '8px', fontWeight: '950', fontSize: '0.82rem', border: '1.5px solid #cbd5e1' }}>
                         📦 Recibido: {item.items_inspected} uds
                       </span>
                     )}
-                    {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '900' }}>✓ {item.items_approved} aprobadas</span>}
-                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '900' }}>✗ {item.items_rejected} rechazadas</span>}
+                    {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '950', fontSize: '0.82rem' }}>✓ {item.items_approved} aprobadas</span>}
+                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '950', fontSize: '0.82rem' }}>✗ {item.items_rejected} rechazadas</span>}
                     <span style={{ color: '#94a3b8' }}>📅 {date}</span>
                   </div>
                   {item.received_at && item.closed_at && (
