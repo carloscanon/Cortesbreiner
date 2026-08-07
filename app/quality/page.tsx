@@ -180,6 +180,8 @@ export default function QualityPage() {
   const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
   const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
   const [activeDashboardTab, setActiveDashboardTab] = useState<'ranking' | 'alerts'>('ranking');
+  const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
+  const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
 
   // Dynamic Sticker Config State
   const [stickerConfig, setStickerConfig] = useState<{
@@ -261,7 +263,7 @@ export default function QualityPage() {
   async function fetchActiveSewingOrdersConsolidated() {
     const { data } = await supabase
       .from('sewing_orders')
-      .select('status, sewing_order_sizes(cantidad_planeada)');
+      .select('id, confeccion_code, status, orders(client_name), workshops(nombre_taller), sewing_order_sizes(cantidad_planeada)');
     if (data) {
       const active = data.filter((o: any) => o.status === 'En Confección' || o.status === 'Enviado a Taller');
       setSewingOrdersInWorkshopsCount(active.length);
@@ -270,6 +272,7 @@ export default function QualityPage() {
         qty += o.sewing_order_sizes?.reduce((sum: number, item: any) => sum + (Number(item.cantidad_planeada) || 0), 0) || 0;
       });
       setSewingOrdersInWorkshopsQty(qty);
+      setActiveSewingOrdersList(active);
     }
   }
 
@@ -1261,17 +1264,15 @@ export default function QualityPage() {
         </button>
       </div>
 
-      {/* KPI Cards */}
-      {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Tiempo Promedio Inspección', value: avgHours > 0 ? `${avgHours.toFixed(1)}h` : '—', color: '#6366f1', icon: Activity, desc: 'Desde recepción a cierre de lote', bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', border: '#a5b4fc' },
-          { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'En espera de aprobación financiera', bg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', border: '#fcd34d' },
-          { label: 'Descuentos por Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Aplicado en liquidaciones del período', bg: 'linear-gradient(135deg, #fee2e2 0%, #fecdd3 100%)', border: '#fca5a5' },
-          { label: '% Calidad General', value: `${qualityPct}%`, color: '#10b981', icon: Award, desc: `${approved} lotes aprobados / ${rejected} rechazados`, bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', border: '#86efac' },
-          { label: 'Consolidado en Talleres', value: `${sewingOrdersInWorkshopsCount} órdenes`, color: '#8b5cf6', icon: Package, desc: `${sewingOrdersInWorkshopsQty.toLocaleString()} prendas en confección`, bg: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', border: '#c4b5fd' }
+          { key: 'avg_time', label: 'Tiempo Promedio Inspección', value: avgHours > 0 ? `${avgHours.toFixed(1)}h` : '—', color: '#6366f1', icon: Activity, desc: 'Desde recepción a cierre de lote', bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', border: '#a5b4fc' },
+          { key: 'pending_finance', label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'En espera de aprobación financiera', bg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', border: '#fcd34d' },
+          { key: 'discounts', label: 'Descuentos por Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Aplicado en liquidaciones del período', bg: 'linear-gradient(135deg, #fee2e2 0%, #fecdd3 100%)', border: '#fca5a5' },
+          { key: 'quality_pct', label: '% Calidad General', value: `${qualityPct}%`, color: '#10b981', icon: Award, desc: `${approved} lotes aprobados / ${rejected} rechazados`, bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', border: '#86efac' },
+          { key: 'workshop_consolidated', label: 'Consolidado en Talleres', value: `${sewingOrdersInWorkshopsCount} órdenes`, color: '#8b5cf6', icon: Package, desc: `${sewingOrdersInWorkshopsQty.toLocaleString()} prendas en confección`, bg: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', border: '#c4b5fd' }
         ].map((k, i) => (
-          <div key={i} className="card" style={{
+          <div key={i} className="card" onClick={() => setSelectedKpiCard(k.key as any)} style={{
             padding: '1.5rem 1.25rem',
             display: 'flex',
             alignItems: 'center',
@@ -1280,8 +1281,17 @@ export default function QualityPage() {
             borderRadius: '20px',
             background: k.bg,
             boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.01)',
-            transition: 'transform 0.2s ease-in-out',
-            cursor: 'default'
+            transition: 'all 0.2s ease-in-out',
+            cursor: 'pointer',
+            userSelect: 'none'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-4px)';
+            e.currentTarget.style.boxShadow = `0 12px 20px -3px ${k.color}33, 0 4px 6px -2px rgba(0,0,0,0.05)`;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.01)';
           }}>
             <div style={{
               padding: '0.85rem',
@@ -2645,6 +2655,248 @@ export default function QualityPage() {
                 {executingRollback ? <Loader2 className="animate-spin" size={16} /> : '⚠️ Confirmar y Ejecutar Rollback'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal interactivo de Detalles de KPIs */}
+      {selectedKpiCard && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(8px)' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '20px', maxWidth: '850px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 2rem',
+              background: selectedKpiCard === 'avg_time' ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                : selectedKpiCard === 'pending_finance' ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                : selectedKpiCard === 'discounts' ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                : selectedKpiCard === 'quality_pct' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexShrink: 0
+            }}>
+              <div>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Métricas en Detalle</span>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: '950', color: 'white', margin: '0.15rem 0 0' }}>
+                  {selectedKpiCard === 'avg_time' && '⏱️ Tiempo Promedio de Inspección'}
+                  {selectedKpiCard === 'pending_finance' && '💰 Lotes Pendientes de Aprobación Financiera'}
+                  {selectedKpiCard === 'discounts' && '📉 Descuentos por Defectos en el Periodo'}
+                  {selectedKpiCard === 'quality_pct' && '🏆 Porcentaje General de Calidad'}
+                  {selectedKpiCard === 'workshop_consolidated' && '🏭 Consolidado de Confección en Talleres'}
+                </h3>
+              </div>
+              <button type="button" onClick={() => setSelectedKpiCard(null)} style={{ border: 'none', background: 'rgba(255,255,255,0.2)', fontSize: '1rem', color: 'white', cursor: 'pointer', borderRadius: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>✕</button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', backgroundColor: '#f8fafc' }}>
+              
+              {/* Card Explicativo / Contexto */}
+              <div style={{ padding: '1.25rem 1.5rem', backgroundColor: 'white', borderRadius: '14px', border: '1.5px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: '#475569', lineHeight: '1.5', fontWeight: '600' }}>
+                  {selectedKpiCard === 'avg_time' && 'Este indicador mide el tiempo transcurrido desde que la mercadería es marcada como Recibida en Control de Calidad hasta el cierre y liquidación del respectivo lote. Ayuda a detectar cuellos de botella en la inspección.'}
+                  {selectedKpiCard === 'pending_finance' && 'Lotes de confección que han completado satisfactoriamente el control de calidad física pero cuyos montos monetarios liquidados se encuentran retenidos a la espera de la liberación por parte de la administración.'}
+                  {selectedKpiCard === 'discounts' && 'Valores monetarios descontados a los talleres satélites debido a no conformidades, fallos de costura, prendas dañadas o saldos reportados durante la recepción.'}
+                  {selectedKpiCard === 'quality_pct' && 'Representa la proporción de unidades aprobadas para despacho e inventario principal respecto al total de prendas físicas inspeccionadas. Es la métrica clave de confiabilidad de costura.'}
+                  {selectedKpiCard === 'workshop_consolidated' && 'Consolidado general de lotes de confección en curso. Lista los talleres satélites que tienen órdenes asignadas en confección, con su respectiva cantidad planeada.'}
+                </p>
+              </div>
+
+              {/* Data Table */}
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1.5px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                
+                {/* ⏱️ Tiempo Promedio */}
+                {selectedKpiCard === 'avg_time' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Recibido el</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Cerrado el</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Duración</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {completedInsps.length === 0 ? (
+                          <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Sin inspecciones cerradas para calcular promedio.</td></tr>
+                        ) : completedInsps.map((i: any) => {
+                          const wName = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
+                          const code = i.sewing_orders?.confeccion_code || i.orders?.consecutive || '—';
+                          const hours = (new Date(i.closed_at).getTime() - new Date(i.received_at).getTime()) / 3600000;
+                          return (
+                            <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', color: '#80082E' }}>{code}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750', color: '#334155' }}>{wName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', color: '#64748b' }}>{new Date(i.received_at).toLocaleDateString('es-CO')}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', color: '#64748b' }}>{new Date(i.closed_at).toLocaleDateString('es-CO')}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '800', textAlign: 'right', color: '#4f46e5' }}>{hours.toFixed(1)}h</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* 💰 Pendientes Financieros */}
+                {selectedKpiCard === 'pending_finance' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Unidades</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Vlr. Prenda</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Total a Pagar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').length === 0 ? (
+                          <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Sin lotes pendientes de aprobación financiera.</td></tr>
+                        ) : inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').map((i: any) => {
+                          const wName = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
+                          const code = i.sewing_orders?.confeccion_code || i.orders?.consecutive || '—';
+                          return (
+                            <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', color: '#80082E' }}>{code}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750', color: '#334155' }}>{wName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750' }}>{i.items_inspected} uds</td>
+                              <td style={{ padding: '0.75rem 1.25rem', color: '#64748b' }}>${(Number(i.valor_prenda) || 0).toLocaleString('es-CO')}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', textAlign: 'right', color: '#d97706' }}>${(Number(i.valor_pagar) || 0).toLocaleString('es-CO')}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* 📉 Descuentos por Defectos */}
+                {selectedKpiCard === 'discounts' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Observaciones / Novedades</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Descuento</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inspections.filter(i => Number(i.descuento_defectos) > 0).length === 0 ? (
+                          <tr><td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Sin registros de descuentos por defectos aplicados en el período.</td></tr>
+                        ) : inspections.filter(i => Number(i.descuento_defectos) > 0).map((i: any) => {
+                          const wName = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
+                          const code = i.sewing_orders?.confeccion_code || i.orders?.consecutive || '—';
+                          return (
+                            <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', color: '#80082E' }}>{code}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750', color: '#334155' }}>{wName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', color: '#475569', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={i.notes}>{i.notes || '—'}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', textAlign: 'right', color: '#ef4444' }}>${(Number(i.descuento_defectos) || 0).toLocaleString('es-CO')}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* 🏆 Calidad General */}
+                {selectedKpiCard === 'quality_pct' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Inspeccionadas</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Aprobadas</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Rechazadas</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>% Calidad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inspections.length === 0 ? (
+                          <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Sin inspecciones cargadas.</td></tr>
+                        ) : inspections.map((i: any) => {
+                          const wName = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
+                          const code = i.sewing_orders?.confeccion_code || i.orders?.consecutive || '—';
+                          const pct = i.items_inspected > 0 ? ((i.items_approved / i.items_inspected) * 100).toFixed(1) : '100';
+                          return (
+                            <tr key={i.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', color: '#80082E' }}>{code}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750', color: '#334155' }}>{wName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', textAlign: 'center', fontWeight: '600' }}>{i.items_inspected} uds</td>
+                              <td style={{ padding: '0.75rem 1.25rem', textAlign: 'center', color: '#16a34a', fontWeight: '700' }}>{i.items_approved}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', textAlign: 'center', color: '#ef4444', fontWeight: '700' }}>{i.items_rejected}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', textAlign: 'right', color: Number(pct) >= 95 ? '#16a34a' : Number(pct) >= 90 ? '#d97706' : '#dc2626' }}>{pct}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* 🏭 Consolidado de Órdenes en Confección */}
+                {selectedKpiCard === 'workshop_consolidated' && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Código Lote</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Cliente</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Taller Asignado</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Estado Interno</th>
+                          <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Cant. Planeada</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeSewingOrdersList.length === 0 ? (
+                          <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Sin órdenes activas en confección en este momento.</td></tr>
+                        ) : activeSewingOrdersList.map((o: any) => {
+                          const wName = o.workshops?.nombre_taller || 'Sin Asignar';
+                          const clientName = o.orders?.client_name || '—';
+                          const qty = o.sewing_order_sizes?.reduce((sum: number, s: any) => sum + (Number(s.cantidad_planeada) || 0), 0) || 0;
+                          return (
+                            <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', color: '#80082E' }}>{o.confeccion_code}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '750', color: '#475569' }}>{clientName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '800', color: '#0369a1' }}>{wName}</td>
+                              <td style={{ padding: '0.75rem 1.25rem' }}>
+                                <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '20px', fontWeight: '800', backgroundColor: o.status === 'En Confección' ? '#ede9fe' : '#e0f2fe', color: o.status === 'En Confección' ? '#6b21a8' : '#0369a1' }}>{o.status.toUpperCase()}</span>
+                              </td>
+                              <td style={{ padding: '0.75rem 1.25rem', fontWeight: '850', textAlign: 'right', color: '#0f172a' }}>{qty.toLocaleString()} uds</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1.25rem 2rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', flexShrink: 0, backgroundColor: '#f1f5f9' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedKpiCard(null)}
+                style={{ padding: '0.6rem 1.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
+              >
+                Cerrar Ventana
+              </button>
+            </div>
+
           </div>
         </div>
       )}
