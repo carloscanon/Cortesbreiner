@@ -177,6 +177,9 @@ export default function QualityPage() {
   const [rowApproved, setRowApproved] = useState<Record<string, number>>({});
   const [rowRejected, setRowRejected] = useState<Record<string, number>>({});
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
+  const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
+  const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'ranking' | 'alerts'>('ranking');
 
   // Dynamic Sticker Config State
   const [stickerConfig, setStickerConfig] = useState<{
@@ -231,6 +234,7 @@ export default function QualityPage() {
     fetchInspections();
     fetchSewingOrders();
     fetchNotifications();
+    fetchActiveSewingOrdersConsolidated();
     loadUser();
   }, []);
 
@@ -254,11 +258,63 @@ export default function QualityPage() {
     }
   };
 
+  async function fetchActiveSewingOrdersConsolidated() {
+    const { data } = await supabase
+      .from('sewing_orders')
+      .select('status, sewing_order_sizes(cantidad_planeada)');
+    if (data) {
+      const active = data.filter((o: any) => o.status === 'En Confección' || o.status === 'Enviado a Taller');
+      setSewingOrdersInWorkshopsCount(active.length);
+      let qty = 0;
+      active.forEach((o: any) => {
+        qty += o.sewing_order_sizes?.reduce((sum: number, item: any) => sum + (Number(item.cantidad_planeada) || 0), 0) || 0;
+      });
+      setSewingOrdersInWorkshopsQty(qty);
+    }
+  }
+
   const fetchInspections = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('quality_inspections')
-      .select(`*, orders(id,consecutive,internal_code,client_name,brand), sewing_orders(id,confeccion_code,status,workshops(nombre_taller))`)
+      .select(`
+        *,
+        orders (
+          id,
+          consecutive,
+          internal_code,
+          client_name,
+          brand,
+          cuts (
+            id,
+            products (
+              nombre_producto,
+              name
+            )
+          )
+        ),
+        sewing_orders (
+          id,
+          confeccion_code,
+          status,
+          sewing_order_sizes (
+            cantidad_planeada
+          ),
+          workshops (
+            nombre_taller
+          ),
+          parent_order:orders (
+            id,
+            cuts (
+              id,
+              products (
+                nombre_producto,
+                name
+              )
+            )
+          )
+        )
+      `)
       .order('created_at', { ascending: false });
     setInspections(data || []);
     setLoading(false);
@@ -1206,95 +1262,168 @@ export default function QualityPage() {
       </div>
 
       {/* KPI Cards */}
+      {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Tiempo Promedio Inspección', value: avgHours > 0 ? `${avgHours.toFixed(1)}h` : '—', color: '#6366f1', icon: Activity, desc: 'Desde recepción a cierre de lote' },
-          { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'En espera de aprobación financiera' },
-          { label: 'Descuentos por Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Aplicado en liquidaciones del período' },
-          { label: '% Calidad General', value: `${qualityPct}%`, color: '#10b981', icon: Award, desc: `${approved} lotes aprobados / ${rejected} rechazados` },
+          { label: 'Tiempo Promedio Inspección', value: avgHours > 0 ? `${avgHours.toFixed(1)}h` : '—', color: '#6366f1', icon: Activity, desc: 'Desde recepción a cierre de lote', bg: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)', border: '#a5b4fc' },
+          { label: 'Pendientes Financieros', value: `$${totalValueToPay.toLocaleString('es-CO')}`, color: '#f59e0b', icon: AlertCircle, desc: 'En espera de aprobación financiera', bg: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', border: '#fcd34d' },
+          { label: 'Descuentos por Defectos', value: `$${totalValueDiscounted.toLocaleString('es-CO')}`, color: '#ef4444', icon: XCircle, desc: 'Aplicado en liquidaciones del período', bg: 'linear-gradient(135deg, #fee2e2 0%, #fecdd3 100%)', border: '#fca5a5' },
+          { label: '% Calidad General', value: `${qualityPct}%`, color: '#10b981', icon: Award, desc: `${approved} lotes aprobados / ${rejected} rechazados`, bg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', border: '#86efac' },
+          { label: 'Consolidado en Talleres', value: `${sewingOrdersInWorkshopsCount} órdenes`, color: '#8b5cf6', icon: Package, desc: `${sewingOrdersInWorkshopsQty.toLocaleString()} prendas en confección`, bg: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', border: '#c4b5fd' }
         ].map((k, i) => (
-          <div key={i} className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid var(--border)', borderRadius: '16px', backgroundColor: 'white' }}>
-            <div style={{ padding: '0.75rem', backgroundColor: `${k.color}18`, color: k.color, borderRadius: '12px', flexShrink: 0 }}><k.icon size={22} /></div>
-            <div>
-              <p style={{ fontSize: '0.65rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{k.label}</p>
-              <h3 style={{ fontSize: '1.35rem', fontWeight: '950', margin: '0.1rem 0', color: '#0f172a' }}>{k.value}</h3>
-              <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0 }}>{k.desc}</p>
+          <div key={i} className="card" style={{
+            padding: '1.5rem 1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1.25rem',
+            border: `1.5px solid ${k.border}`,
+            borderRadius: '20px',
+            background: k.bg,
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.01)',
+            transition: 'transform 0.2s ease-in-out',
+            cursor: 'default'
+          }}>
+            <div style={{
+              padding: '0.85rem',
+              backgroundColor: 'white',
+              color: k.color,
+              borderRadius: '14px',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <k.icon size={24} strokeWidth={2.5} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{k.label}</p>
+              <h3 style={{ fontSize: '1.45rem', fontWeight: '950', margin: '0.2rem 0', color: '#0f172a', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.value}</h3>
+              <p style={{ color: '#475569', fontWeight: '600', fontSize: '0.68rem', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.desc}</p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Two-column: Workshop Ranking + Live Notifications */}
-      <div style={{ display: 'grid', gridTemplateColumns: workshopPerformance.length > 0 ? '3fr 2fr' : '1fr', gap: '1.5rem' }}>
-        {workshopPerformance.length > 0 && (
-          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.25rem' }}>Ranking de Satélites</h3>
-            <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0 0 1rem' }}>Desempeño de calidad y defectos por taller.</p>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--border)', backgroundColor: '#f8fafc' }}>
-                    {['Taller', 'Producción', 'Calidad %', 'Defectos %', 'Estrellas'].map(h => (
-                      <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.68rem', textTransform: 'uppercase' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {workshopPerformance.map((w, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '700' }}>{w.production.toLocaleString()} uds</td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '800', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontWeight: '700', color: '#dc2626' }}>{w.rework.toFixed(1)}%</td>
-                      <td style={{ padding: '0.65rem 0.75rem', fontSize: '0.85rem' }}>
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star key={i} size={11} fill={i < w.stars ? '#eab308' : 'none'} stroke={i < w.stars ? '#eab308' : '#d1d5db'} style={{ display: 'inline-block' }} />
-                        ))}
-                      </td>
+      {/* Tabbed interface for Satellite Ranking and Alerts/News */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '0.5rem',
+          padding: '0.35rem',
+          backgroundColor: '#f1f5f9',
+          borderRadius: '14px',
+          border: '1.5px solid #cbd5e1',
+          maxWidth: '500px',
+          width: '100%'
+        }}>
+          {[
+            { key: 'ranking', label: '🏆 Ranking de Satélites' },
+            { key: 'alerts', label: '🔔 Alertas y Novedades' }
+          ].map(({ key, label }) => {
+            const isActive = activeDashboardTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveDashboardTab(key as any)}
+                style={{
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '0.65rem 0.5rem',
+                  fontSize: '0.78rem',
+                  fontWeight: isActive ? '900' : '700',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease-in-out',
+                  backgroundColor: isActive ? '#80082E' : '#f8fafc',
+                  color: isActive ? 'white' : '#475569',
+                  boxShadow: isActive ? '0 4px 12px rgba(128, 8, 46, 0.25)' : 'none'
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeDashboardTab === 'ranking' && (
+          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.25rem' }}>Ranking de Satélites</h3>
+            <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0 0 1.25rem' }}>Desempeño de calidad y defectos por taller.</p>
+            {workshopPerformance.length === 0 ? (
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2rem 0' }}>Cargando ranking de talleres...</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                      {['Taller', 'Producción', 'Calidad %', 'Defectos %', 'Estrellas'].map(h => (
+                        <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '900', color: '#475569', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {workshopPerformance.map((w, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
+                        <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#0f172a' }}>{w.name}</td>
+                        <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#334155' }}>{w.production.toLocaleString()} uds</td>
+                        <td style={{ padding: '0.8rem 1rem', fontWeight: '850', color: w.quality >= 95 ? '#16a34a' : w.quality >= 90 ? '#d97706' : '#dc2626' }}>{w.quality.toFixed(1)}%</td>
+                        <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: '#dc2626' }}>{w.rework.toFixed(1)}%</td>
+                        <td style={{ padding: '0.8rem 1rem', fontSize: '0.85rem' }}>
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star key={i} size={12} fill={i < w.stars ? '#eab308' : 'none'} stroke={i < w.stars ? '#eab308' : '#cbd5e1'} style={{ display: 'inline-block', marginRight: '2px' }} />
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Live Notifications Feed */}
-        <div className="card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <div>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Bell size={16} style={{ color: '#80082E' }} /> Alertas y Novedades
-              </h3>
-              <p style={{ fontSize: '0.68rem', color: '#64748b', margin: '0.1rem 0 0' }}>Feed en vivo desde base de datos.</p>
+        {activeDashboardTab === 'alerts' && (
+          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Bell size={18} style={{ color: '#80082E' }} /> Alertas y Novedades de Calidad
+                </h3>
+                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Feed en vivo desde base de datos.</p>
+              </div>
+              <button onClick={fetchNotifications} style={{ background: '#f1f5f9', padding: '0.4rem 0.8rem', borderRadius: '8px', cursor: 'pointer', color: '#80082E', fontSize: '0.72rem', fontWeight: '850', border: '1.5px solid #cbd5e1' }}>↻ Actualizar Feed</button>
             </div>
-            <button onClick={fetchNotifications} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#80082E', fontSize: '0.68rem', fontWeight: '800' }}>↻ Actualizar</button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '240px', overflowY: 'auto' }}>
-            {dbNotifications.length === 0 ? (
-              <p style={{ fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center', padding: '1.5rem 0' }}>Sin alertas registradas.</p>
-            ) : dbNotifications.map((n: any) => {
-              const colors: Record<string, { bg: string; border: string; dot: string }> = {
-                high: { bg: '#fff5f5', border: '#fecdd3', dot: '#ef4444' },
-                medium: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b' },
-                low: { bg: '#f0f9ff', border: '#bae6fd', dot: '#3b82f6' }
-              };
-              const c = colors[n.severity] || colors.low;
-              return (
-                <div key={n.id} style={{ padding: '0.65rem 0.75rem', borderRadius: '10px', border: `1.5px solid ${c.border}`, backgroundColor: c.bg, display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: c.dot, marginTop: '0.3rem', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong style={{ fontSize: '0.74rem', color: '#1e293b', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</strong>
-                    <span style={{ fontSize: '0.68rem', color: '#475569', display: 'block', marginTop: '0.1rem' }}>{n.message}</span>
-                    <span style={{ fontSize: '0.6rem', color: '#94a3b8', display: 'block', marginTop: '0.15rem' }}>
-                      {new Date(n.created_at).toLocaleString('es-CO', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
-                    </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+              {dbNotifications.length === 0 ? (
+                <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '2.5rem 0' }}>Sin alertas registradas.</p>
+              ) : dbNotifications.map((n: any) => {
+                const colors: Record<string, { bg: string; border: string; dot: string; text: string }> = {
+                  high: { bg: '#fff5f5', border: '#fecdd3', dot: '#ef4444', text: '#9f1239' },
+                  medium: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b', text: '#92400e' },
+                  low: { bg: '#f0f9ff', border: '#bae6fd', dot: '#3b82f6', text: '#0369a1' }
+                };
+                const c = colors[n.severity] || colors.low;
+                return (
+                  <div key={n.id} style={{ padding: '0.8rem 1rem', borderRadius: '12px', border: `1.5px solid ${c.border}`, backgroundColor: c.bg, display: 'flex', gap: '0.75rem', alignItems: 'flex-start', boxShadow: '0 2px 4px rgba(0,0,0,0.01)' }}>
+                    <div style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: c.dot, marginTop: '0.35rem', flexShrink: 0, boxShadow: `0 0 6px ${c.dot}` }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ fontSize: '0.78rem', color: '#1e293b', display: 'block', fontWeight: '800' }}>{n.title}</strong>
+                      <span style={{ fontSize: '0.74rem', color: '#475569', display: 'block', marginTop: '0.2rem', lineHeight: '1.3' }}>{n.message}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem' }}>
+                        <span style={{ fontSize: '0.65rem', fontWeight: '750', color: c.text }}>{n.workshops?.nombre_taller || 'Taller'}</span>
+                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                          {new Date(n.created_at).toLocaleString('es-CO', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Inspection List */}
@@ -1334,28 +1463,65 @@ export default function QualityPage() {
               : item.status === 'Reproceso' ? { bg: '#fffbeb', color: '#92400e', border: '#fde68a' }
               : item.status === 'Rechazado' ? { bg: '#fff1f2', color: '#9f1239', border: '#fecdd3' }
               : { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
+
+            // Obtener el nombre del producto
+            let productName = 'Sin Referencia';
+            if (item.sewing_orders) {
+              const parentCuts = item.sewing_orders.parent_order?.cuts || [];
+              const prodObj = parentCuts[0]?.products;
+              productName = prodObj?.nombre_producto || prodObj?.name || 'Sin Referencia';
+            } else if (item.orders) {
+              const cuts = item.orders.cuts || [];
+              const prodObj = cuts[0]?.products;
+              productName = prodObj?.nombre_producto || prodObj?.name || 'Sin Referencia';
+            }
+
+            // Obtener cantidad planeada de la orden
+            let orderQty = 0;
+            if (item.sewing_orders) {
+              orderQty = item.sewing_orders.sewing_order_sizes?.reduce((sum: number, s: any) => sum + (Number(s.cantidad_planeada) || 0), 0) || 0;
+            }
+
             return (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', gap: '1rem', flexWrap: 'wrap' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor.color, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: '200px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.875rem', fontWeight: '800', color: '#80082E' }}>{orderCode}</span>
-                    <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0f172a' }}>{client}</span>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', gap: '1.5rem', flexWrap: 'wrap', backgroundColor: 'white', transition: 'background 0.2s' }}>
+                <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: statusColor.color, flexShrink: 0, boxShadow: `0 0 8px ${statusColor.color}` }} />
+                <div style={{ flex: 1, minWidth: '280px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: '900', color: '#80082E', letterSpacing: '-0.01em' }}>{orderCode}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#475569' }}>{client}</span>
                     {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
-                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', fontWeight: '800' }}>⚠️ PENDIENTE CHECK DE RECIBO</span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1.5px solid #fcd34d', fontWeight: '900', letterSpacing: '0.02em' }}>⚠️ PENDIENTE RECIBO</span>
                     ) : (
-                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1px solid ${statusColor.border}`, fontWeight: '700' }}>{item.status.toUpperCase()}</span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1.5px solid ${statusColor.border}`, fontWeight: '900', letterSpacing: '0.02em' }}>{item.status.toUpperCase()}</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.72rem', color: '#64748b', flexWrap: 'wrap' }}>
-                    <span>🏭 {workshop}</span>
-                    {item.items_inspected > 0 && <span>📦 {item.items_inspected} prendas</span>}
-                    {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '700' }}>✓ {item.items_approved} aprobadas</span>}
-                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '700' }}>✗ {item.items_rejected} rechazadas</span>}
-                    <span>📅 {date}</span>
+
+                  {/* Detalle del Producto */}
+                  <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.74rem', color: '#64748b' }}>Producto:</span>
+                    <span style={{ fontSize: '0.76rem', fontWeight: '800', color: '#0f172a', backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>{productName}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.74rem', color: '#475569', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f0f9ff', color: '#0369a1', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #bae6fd' }}>
+                      🏭 Taller: {workshop}
+                    </span>
+                    {orderQty > 0 && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#faf5ff', color: '#6b21a8', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #e9d5ff' }}>
+                        📊 Orden total: {orderQty.toLocaleString()} uds
+                      </span>
+                    )}
+                    {item.items_inspected > 0 && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', backgroundColor: '#f8fafc', color: '#334155', padding: '0.2rem 0.6rem', borderRadius: '6px', fontWeight: '800', border: '1px solid #cbd5e1' }}>
+                        📦 Recibido: {item.items_inspected} uds
+                      </span>
+                    )}
+                    {item.items_approved > 0 && <span style={{ color: '#16a34a', fontWeight: '900' }}>✓ {item.items_approved} aprobadas</span>}
+                    {item.items_rejected > 0 && <span style={{ color: '#ef4444', fontWeight: '900' }}>✗ {item.items_rejected} rechazadas</span>}
+                    <span style={{ color: '#94a3b8' }}>📅 {date}</span>
                   </div>
                   {item.received_at && item.closed_at && (
-                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.35rem' }}>
                       ⏱ Ciclo: {((new Date(item.closed_at).getTime() - new Date(item.received_at).getTime()) / 3600000).toFixed(1)}h
                     </div>
                   )}
