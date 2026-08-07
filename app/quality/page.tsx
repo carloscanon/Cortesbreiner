@@ -2178,7 +2178,7 @@ export default function QualityPage() {
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>🖨️ Impresión de Etiquetas Unitarias</h3>
                 <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
-                  {individualGarments.length} prendas — {Math.ceil(individualGarments.length / (stickerConfig.columnsPerRow || 3))} fila(s) de {stickerConfig.columnsPerRow || 3} etiquetas c/u.
+                  {individualGarments.filter((g: any) => g.status === 'Aprobada').length} prendas aprobadas — {Math.ceil(individualGarments.filter((g: any) => g.status === 'Aprobada').length / (stickerConfig.columnsPerRow || 3))} fila(s) de {stickerConfig.columnsPerRow || 3} etiquetas c/u.
                 </p>
               </div>
               <button type="button" onClick={() => setShowLabelsModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
@@ -2189,9 +2189,10 @@ export default function QualityPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {(() => {
                   const cols = stickerConfig.columnsPerRow || 3;
+                  const approvedGarments = individualGarments.filter((g: any) => g.status === 'Aprobada');
                   const rows: any[][] = [];
-                  for (let i = 0; i < individualGarments.length; i += cols) {
-                    rows.push(individualGarments.slice(i, i + cols));
+                  for (let i = 0; i < approvedGarments.length; i += cols) {
+                    rows.push(approvedGarments.slice(i, i + cols));
                   }
                   return rows.map((rowGarments, rIdx) => (
                     <div key={rIdx} style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '0.75rem' }}>
@@ -2270,9 +2271,10 @@ export default function QualityPage() {
                     // Ancho total de página = (ancho etiqueta × columnas) + separadores entre columnas
                     const pageWMm = (wMm * cols) + (gapMm * (cols - 1));
 
+                    const approvedGarments = individualGarments.filter((g: any) => g.status === 'Aprobada');
                     const rows: any[][] = [];
-                    for (let i = 0; i < individualGarments.length; i += cols) {
-                      rows.push(individualGarments.slice(i, i + cols));
+                    for (let i = 0; i < approvedGarments.length; i += cols) {
+                      rows.push(approvedGarments.slice(i, i + cols));
                     }
 
                     const barcodeImages: Record<string, string> = {};
