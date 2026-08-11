@@ -168,37 +168,40 @@ export default function SettingsPage() {
         const { data: rolesData } = await supabase.from('roles').select('*').order('name', { ascending: true });
         let { data: permsData } = await supabase.from('permissions').select('*');
 
-        // Sincronizar mÃ³dulos faltantes automÃ¡ticamente para que siempre se vean en el menÃº
+        // Lista COMPLETA de todos los módulos del sistema — se sincroniza automáticamente con la BD
         const expectedModules = [
-          { module: 'dashboard', name: 'Dashboard', description: 'Vista de indicadores clave' },
-          { module: 'orders', name: 'Ã“rdenes', description: 'GestiÃ³n de Ã³rdenes de producciÃ³n' },
-          { module: 'cutting', name: 'Mesa de Corte', description: 'GestiÃ³n de cortes y trazos' },
-          { module: 'masters', name: 'Maestros', description: 'ConfiguraciÃ³n de telas, colores y tallas' },
-          { module: 'inventory', name: 'Inventario Telas', description: 'Control de stock de telas y rollos' },
-          { module: 'inventory_finished', name: 'Inventario P. Terminado', description: 'Inventario de prendas confeccionadas aprobadas' },
-          { module: 'store_admin', name: 'AdministraciÃ³n de Tiendas', description: 'GestiÃ³n de sucursales, cajas y promociones' },
-          { module: 'pos', name: 'Punto de Venta (POS)', description: 'Terminal de facturaciÃ³n tÃ¡ctil offline/online' },
-          { module: 'costs', name: 'Costos', description: 'MÃ³dulo de costeo de producciÃ³n' },
-          { module: 'tracking', name: 'Seguimiento', description: 'Estado de envÃ­os a talleres' },
-          { module: 'workshops', name: 'Talleres', description: 'GestiÃ³n de talleres satÃ©lite' },
-          { module: 'sewing', name: 'ConfecciÃ³n', description: 'GestiÃ³n de envÃ­o y recepciÃ³n de prendas' },
-          { module: 'quality', name: 'Calidad', description: 'Control de calidad y auditorÃ­a' },
-          { module: 'settings', name: 'Ajustes', description: 'ConfiguraciÃ³n del sistema' },
-          { module: 'help', name: 'Ayuda', description: 'DocumentaciÃ³n y soporte' }
+          { module: 'dashboard',          name: 'Dashboard',                    description: 'Vista principal de indicadores clave' },
+          { module: 'orders',             name: 'Órdenes',                      description: 'Gestión de órdenes de producción' },
+          { module: 'cutting',            name: 'Mesa de Corte / Proceso Corte',description: 'Gestión de tendidos, cortes y trazos' },
+          { module: 'sewing',             name: 'Confección',                   description: 'Envío, recepción y gestión de órdenes a talleres' },
+          { module: 'quality',            name: 'Calidad',                      description: 'Control de calidad e inspección de prendas' },
+          { module: 'payments',           name: 'Pagos Talleres',               description: 'Liquidación y comprobantes de pago a talleres satélite' },
+          { module: 'inventory',          name: 'Inventario General',           description: 'Control de stock de telas, rollos e insumos' },
+          { module: 'inventory_finished', name: 'Inventario P. Terminado',      description: 'Inventario de prendas confeccionadas aprobadas en calidad' },
+          { module: 'workshops',          name: 'Talleres Satélite',            description: 'Gestión de talleres, tarifas y costos especiales' },
+          { module: 'masters',            name: 'Maestros',                     description: 'Configuración de telas, colores, tallas y categorías' },
+          { module: 'costs',              name: 'Costos',                       description: 'Módulo de costeo y análisis de márgenes de producción' },
+          { module: 'tracking',           name: 'Seguimiento',                  description: 'Trazabilidad y estado de envíos a talleres' },
+          { module: 'analytics',          name: 'Analítica',                    description: 'Reportes y análisis de datos de producción' },
+          { module: 'financial',          name: 'Módulo Financiero',            description: 'Gestión financiera, contable y de facturación' },
+          { module: 'siigo',              name: 'Integración Siigo',            description: 'Facturación electrónica e integración con Siigo' },
+          { module: 'pos',                name: 'Punto de Venta (POS)',         description: 'Terminal de facturación táctil offline/online' },
+          { module: 'store_admin',        name: 'Administración de Tiendas',    description: 'Gestión de sucursales, cajas y promociones' },
+          { module: 'settings',           name: 'Ajustes',                      description: 'Configuración general del sistema' },
+          { module: 'super_admin',        name: 'Super Admin',                  description: 'Acceso completo de administración del sistema' },
+          { module: 'help',               name: 'Ayuda',                        description: 'Documentación y soporte' },
         ];
 
-        if (permsData) {
-          const missingModules = expectedModules.filter(em => !permsData?.some(p => p.module === em.module));
-          if (missingModules.length > 0) {
-            const { data: inserted } = await supabase.from('permissions').insert(missingModules).select('*');
-            if (inserted) {
-              permsData = [...permsData, ...inserted];
-            }
-          }
-        }
-        
-        // Ordenar los permisos por mÃ³dulo
-        permsData?.sort((a, b) => a.module.localeCompare(b.module));
+        // Upsert completo: inserta nuevos y actualiza nombre/descripción de existentes
+        const { data: upserted } = await supabase
+          .from('permissions')
+          .upsert(expectedModules, { onConflict: 'module' })
+          .select('*');
+        if (upserted) permsData = upserted;
+
+        // Ordenar los permisos por nombre
+        permsData?.sort((a, b) => a.name.localeCompare(b.name));
+
         
         // Fetch role permissions for all roles
         const { data: rolePerms } = await supabase.from('role_permissions').select('*');

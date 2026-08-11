@@ -401,6 +401,7 @@ export default function OrdersPage() {
         .from('fabrics')
         .select('*')
         .eq('factura_relacionada', invoiceNo)
+        .neq('is_active', false)
         .gt('metros', 0);
       if (error) throw error;
       if (data && data.length > 0) {
@@ -532,6 +533,7 @@ export default function OrdersPage() {
         .from('fabrics')
         .select('*')
         .eq('factura_relacionada', formData.factura_relacionada)
+        .neq('is_active', false)
         .gt('metros', 0);
       
       if (error) throw error;
@@ -1633,7 +1635,30 @@ export default function OrdersPage() {
               ) : (
                 filteredOrders.map(order => (
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover-row">
-                    <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '900', color: 'var(--primary)' }}>{order.internal_code}</span></td>
+                    <td style={{ padding: '1rem 1.5rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <span style={{ fontWeight: '900', color: order.internal_code?.startsWith('CMP') ? '#1d4ed8' : 'var(--primary)', fontSize: '0.95rem' }}>
+                          {order.internal_code}
+                        </span>
+                        {order.internal_code?.startsWith('CMP-P-') && (
+                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#15803d', backgroundColor: '#dcfce7', padding: '0.15rem 0.5rem', borderRadius: '6px', width: 'fit-content' }}>
+                            ⭐ Prenda Compuesta · Tela Primaria
+                          </span>
+                        )}
+                        {order.internal_code?.startsWith('CMP-S-') && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                            <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.15rem 0.5rem', borderRadius: '6px', width: 'fit-content' }}>
+                              🎨 Prenda Compuesta · Tela Secundaria
+                            </span>
+                            {order.parent_primary_code && (
+                              <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.4rem', borderRadius: '4px', width: 'fit-content', border: '1px solid #bfdbfe' }}>
+                                🔗 Hija de: {order.parent_primary_code}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>
                         {order.created_by || 'Sistema'}
@@ -1774,6 +1799,15 @@ export default function OrdersPage() {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                {viewingOrder.parent_primary_code && (
+                  <span style={{
+                    padding: '0.4rem 1rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '900',
+                    backgroundColor: '#1d4ed8', color: 'white', border: '1.5px solid #60a5fa',
+                    display: 'flex', alignItems: 'center', gap: '0.25rem'
+                  }}>
+                    🔗 Hija de: {viewingOrder.parent_primary_code}
+                  </span>
+                )}
                 {viewingOrder.pedido_especial && (
                   <span style={{
                     padding: '0.4rem 1rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '900',
@@ -2096,10 +2130,153 @@ export default function OrdersPage() {
               {/* STEP 1: INFO GENERAL & TELAS */}
               {step === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  {/* CONFECCIÓN COMPUESTA CONTROLS */}
+                  <div style={{
+                    backgroundColor: formData.is_composite ? '#eff6ff' : '#f8fafc',
+                    border: `2px solid ${formData.is_composite ? '#3b82f6' : '#e2e8f0'}`,
+                    borderRadius: '12px',
+                    padding: '1.25rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem',
+                    transition: 'all 0.2s'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', userSelect: 'none' }}>
+                        <input
+                          type="checkbox"
+                          checked={!!formData.is_composite}
+                          onChange={e => {
+                            const isChecked = e.target.checked;
+                            setFormData((prev: any) => {
+                              const rawCode = prev.internal_code.replace(/^(CMP-P-|CMP-S-|CMP-|OC-)/, '');
+                              const currentRole = prev.fabric_role || 'Primaria';
+                              const newRolePrefix = currentRole === 'Primaria' ? 'CMP-P-' : 'CMP-S-';
+                              const newCode = isChecked ? `${newRolePrefix}${rawCode}` : `OC-${rawCode}`;
+                              return {
+                                ...prev,
+                                is_composite: isChecked,
+                                fabric_role: isChecked ? currentRole : undefined,
+                                internal_code: newCode
+                              };
+                            });
+                          }}
+                          style={{ width: '20px', height: '20px', accentColor: '#3b82f6', cursor: 'pointer' }}
+                        />
+                        <div>
+                          <span style={{ fontWeight: '900', fontSize: '0.95rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            🧩 Confección Compuesta (Prenda con Varias Telas)
+                          </span>
+                          <span style={{ fontSize: '0.78rem', color: '#64748b', display: 'block' }}>
+                            Marca esta casilla si la prenda requiere combinar múltiples telas u órdenes de corte.
+                          </span>
+                        </div>
+                      </label>
+
+                      {formData.is_composite && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '10px', border: '1.5px solid #bfdbfe' }}>
+                            <label style={{ fontWeight: '900', fontSize: '0.78rem', color: '#1e40af', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                              Rol de esta Tela:
+                            </label>
+                            <select
+                              value={formData.fabric_role || 'Primaria'}
+                              onChange={e => {
+                                const selectedRole = e.target.value;
+                                setFormData((prev: any) => {
+                                  let baseCode = prev.internal_code.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/, '');
+                                  if (selectedRole === 'Secundaria' && prev.parent_primary_code) {
+                                    const cleanParent = prev.parent_primary_code.replace(/^(CMP-P-|OC-)/, '');
+                                    baseCode = `${cleanParent}-S1`;
+                                  }
+                                  const newPrefix = selectedRole === 'Primaria' ? 'CMP-P-' : 'CMP-S-';
+                                  return {
+                                    ...prev,
+                                    fabric_role: selectedRole,
+                                    internal_code: `${newPrefix}${baseCode}`
+                                  };
+                                });
+                              }}
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                border: '1.5px solid #3b82f6',
+                                fontWeight: '900',
+                                fontSize: '0.85rem',
+                                color: formData.fabric_role === 'Secundaria' ? '#d97706' : '#1d4ed8',
+                                backgroundColor: '#f8fafc',
+                                outline: 'none',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <option value="Primaria">⭐ Tela Primaria (Cuerpo)</option>
+                              <option value="Secundaria">🎨 Tela Secundaria (Complemento/Comb.)</option>
+                            </select>
+                          </div>
+
+                          {/* Vinculación con Orden Primaria si es Tela Secundaria */}
+                          {formData.fabric_role === 'Secundaria' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#fffbeb', padding: '0.5rem 1rem', borderRadius: '10px', border: '1.5px solid #fde68a' }}>
+                              <label style={{ fontWeight: '900', fontSize: '0.78rem', color: '#b45309', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                                🔗 Vincular a Primaria:
+                              </label>
+                              <select
+                                value={formData.parent_primary_code || ''}
+                                onChange={e => {
+                                  const parentCode = e.target.value;
+                                  setFormData((prev: any) => {
+                                    if (!parentCode) {
+                                      const rawCode = Math.random().toString(36).substring(2, 7).toUpperCase();
+                                      return { ...prev, parent_primary_code: '', internal_code: `CMP-S-${rawCode}` };
+                                    }
+
+                                    // Contar cuántas secundarias ya están vinculadas a esta misma primaria
+                                    const cleanParent = parentCode.replace(/^(CMP-P-|OC-)/, '');
+                                    const siblingsCount = data.filter(o => 
+                                      o.internal_code?.startsWith(`CMP-S-${cleanParent}`) ||
+                                      o.parent_primary_code === parentCode
+                                    ).length;
+                                    const nextIndex = siblingsCount + 1;
+
+                                    return {
+                                      ...prev,
+                                      parent_primary_code: parentCode,
+                                      internal_code: `CMP-S-${cleanParent}-P${nextIndex}`
+                                    };
+                                  });
+                                }}
+                                style={{
+                                  padding: '0.4rem 0.75rem',
+                                  borderRadius: '8px',
+                                  border: '1.5px solid #d97706',
+                                  fontWeight: '900',
+                                  fontSize: '0.85rem',
+                                  color: '#b45309',
+                                  backgroundColor: 'white',
+                                  outline: 'none',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <option value="">-- Seleccionar Orden Primaria --</option>
+                                {data
+                                  .filter(o => o.internal_code?.startsWith('CMP-P-'))
+                                  .map(o => (
+                                    <option key={o.id} value={o.internal_code}>
+                                      {o.internal_code} {o.client_name ? `(${o.client_name})` : ''}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                     <div className="input-group">
-                      <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Código Interno</label>
-                      <div style={{ padding: '0.875rem', borderRadius: '10px', backgroundColor: '#f8fafc', border: '2.5px solid #e2e8f0', fontWeight: '900', color: 'var(--primary)', fontSize: '1.125rem' }}>
+                      <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Código Interno de Orden</label>
+                      <div style={{ padding: '0.875rem', borderRadius: '10px', backgroundColor: formData.is_composite ? '#eff6ff' : '#f8fafc', border: `2.5px solid ${formData.is_composite ? '#3b82f6' : '#e2e8f0'}`, fontWeight: '900', color: formData.is_composite ? '#1d4ed8' : 'var(--primary)', fontSize: '1.125rem' }}>
                         {formData.internal_code}
                       </div>
                     </div>

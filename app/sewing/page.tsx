@@ -86,6 +86,13 @@ export default function SewingPage() {
   const [compositeDeliveryDate, setCompositeDeliveryDate] = useState<string>('');
   const [savingComposite, setSavingComposite] = useState(false);
 
+  // Reassignment states for returned orders
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [selectedOrderForReassign, setSelectedOrderForReassign] = useState<any>(null);
+  const [reassignWorkshopId, setReassignWorkshopId] = useState('');
+  const [reassignNotes, setReassignNotes] = useState('');
+  const [savingReassign, setSavingReassign] = useState(false);
+
   // Configuración dinámica de Relación de Despacho
   const [sewingDespatchConfig, setSewingDespatchConfig] = useState<any>({
     companyTitle: 'CORTES BREINER S.A.S.',
@@ -179,7 +186,7 @@ export default function SewingPage() {
         }
       });
     } catch (err: any) {
-      console.error('Error:', err.message);
+      console.error('Error fetching sewing data:', err?.message || err, err);
     } finally {
       setLoading(false);
     }
@@ -1298,6 +1305,48 @@ export default function SewingPage() {
     }
   };
 
+  const handleReassignWorkshop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrderForReassign || !reassignWorkshopId || savingReassign) return;
+    setSavingReassign(true);
+    try {
+      const so = selectedOrderForReassign;
+      const ws = workshops.find(w => String(w.id) === String(reassignWorkshopId));
+      const workshopName = ws ? ws.nombre_taller : 'Nuevo Taller';
+
+      const timestamp = new Date().toLocaleDateString('es-ES');
+      const updatedNotes = `${so.prep_notes || ''}\n[Reasignado a ${workshopName} el ${timestamp}]. Obs: ${reassignNotes}`.trim();
+
+      // 1. Actualizar taller y estado de la orden en la base de datos
+      const { error: updateErr } = await supabase
+        .from('sewing_orders')
+        .update({
+          workshop_id: reassignWorkshopId,
+          status: 'Enviado a Taller',
+          prep_notes: updatedNotes
+        })
+        .eq('id', so.id);
+
+      if (updateErr) throw updateErr;
+
+      // 2. Marcar la novedad del taller anterior como resuelta
+      await supabase
+        .from('novelties')
+        .update({ estado: 'resuelto' })
+        .eq('cod_novedad', `Orden ${so.confeccion_code} devuelta`)
+        .eq('estado', 'pendiente');
+
+      alert(`✓ Orden ${so.confeccion_code} reasignada con éxito al taller ${workshopName}.`);
+      setShowReassignModal(false);
+      setReassignNotes('');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al reasignar orden: ' + err.message);
+    } finally {
+      setSavingReassign(false);
+    }
+  };
+
   const handleToggleSewingOrderFlag = async (soId: string, field: 'tarifa_especial' | 'empaque' | 'lavanderia', currentVal: boolean) => {
     const nextVal = !currentVal;
     const dbValue = field === 'tarifa_especial' ? (nextVal ? 1 : 0) : nextVal;
@@ -1613,13 +1662,13 @@ export default function SewingPage() {
             />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {['all', 'En Confección', 'Terminada', 'Enviada'].map(s => (
+            {['all', 'En Confección', 'Terminada', 'Enviada', 'Devuelta por Taller'].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)} className="btn" style={{
                 fontSize: '0.72rem', fontWeight: '700', padding: '0.5rem 0.875rem',
                 backgroundColor: filterStatus === s ? '#7c3aed' : 'white',
                 color: filterStatus === s ? 'white' : 'var(--text)',
                 border: '1px solid var(--border)', borderRadius: '8px'
-              }}>{s === 'all' ? 'Todas' : s}</button>
+              }}>{s === 'all' ? 'Todas' : s === 'Devuelta por Taller' ? '🛑 Devueltas' : s}</button>
             ))}
           </div>
         </div>
@@ -1641,6 +1690,7 @@ export default function SewingPage() {
                             ) : paginatedTableOrders.map(so => {
                 const statusColor = so.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
                   : so.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
+                  : so.status === 'Devuelta por Taller' ? { bg: '#fee2e2', color: '#b91c1c' }
                   : { bg: '#f5f3ff', color: '#7c3aed' };
                 return (
                   <tr key={so.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1679,6 +1729,11 @@ export default function SewingPage() {
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <div style={{ fontWeight: '700', fontSize: '0.82rem' }}>{so.workshops?.nombre_taller || '—'}</div>
                       <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{so.workshops?.responsable || '—'}</div>
+                      {so.status === 'Devuelta por Taller' && (
+                        <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: '800', marginTop: '0.25rem', padding: '0.2rem 0.4rem', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '4px', maxWidth: '200px', wordBreak: 'break-word' }}>
+                          ⚠️ {so.workshop_notes || 'Devuelta por taller'}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem' }}>
@@ -1793,6 +1848,41 @@ export default function SewingPage() {
 
 
 
+
+                        {so.status === 'Devuelta por Taller' && (
+                          <button
+                            style={{ 
+                              padding: '0.4rem 0.85rem',
+                              borderRadius: '8px',
+                              backgroundColor: '#dc2626',
+                              color: 'white',
+                              border: 'none',
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 4px rgba(220,38,38,0.2)',
+                              transition: 'all 0.2s',
+                              whiteSpace: 'nowrap'
+                            }}
+                            onClick={() => {
+                              setSelectedOrderForReassign(so);
+                              setReassignWorkshopId(so.workshop_id || '');
+                              setReassignNotes('');
+                              setShowReassignModal(true);
+                            }}
+                            title="Reasignar a otro taller satélite"
+                            onMouseEnter={e => {
+                              e.currentTarget.style.backgroundColor = '#b91c1c';
+                              e.currentTarget.style.transform = 'scale(1.03)';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.backgroundColor = '#dc2626';
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                          >
+                            🔄 Reasignar Taller
+                          </button>
+                        )}
 
                         {so.status === 'Enviado a Calidad' && (
                           <span style={{
@@ -2254,6 +2344,83 @@ export default function SewingPage() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL REASIGNAR TALLER (ADMIN PORTAL) ── */}
+      {showReassignModal && selectedOrderForReassign && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(6px)', padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '480px', padding: '2rem', display: 'flex', flexDirection: 'column', borderRadius: '24px', gap: '1.25rem', backgroundColor: 'white', border: '1px solid #e2e8f0', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>🔄</span> Reasignar Orden de Confección
+              </h3>
+              <button onClick={() => setShowReassignModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: '1.4' }}>
+              La orden <strong>{selectedOrderForReassign.confeccion_code}</strong> fue devuelta por el taller anterior. Seleccione un nuevo taller satélite para reenviarla.
+            </p>
+
+            <form onSubmit={handleReassignWorkshop} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Nuevo Taller Destinatario</label>
+                <select
+                  required
+                  value={reassignWorkshopId}
+                  onChange={e => setReassignWorkshopId(e.target.value)}
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '750', backgroundColor: '#f8fafc' }}
+                >
+                  <option value="">Seleccione taller...</option>
+                  {workshops.filter(w => w.activo).map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_taller} ({w.responsable || 'Sin responsable'})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Instrucciones / Observaciones para el nuevo taller</label>
+                <textarea
+                  rows={3}
+                  value={reassignNotes}
+                  onChange={e => setReassignNotes(e.target.value)}
+                  placeholder="Ej: Prioridad urgente, insumos ya despachados..."
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', outline: 'none' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowReassignModal(false)}
+                  disabled={savingReassign}
+                  style={{ padding: '0.55rem 1.25rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingReassign || !reassignWorkshopId}
+                  style={{
+                    padding: '0.55rem 1.5rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#7c3aed',
+                    color: 'white',
+                    fontSize: '0.8rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    opacity: (!reassignWorkshopId || savingReassign) ? 0.6 : 1
+                  }}
+                >
+                  {savingReassign ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Reasignación'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

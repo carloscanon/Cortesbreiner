@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import FabricsInventory from '@/components/FabricsInventory';
 import FinishedGoodsInventory from '@/components/FinishedGoodsInventory';
-import { Package, Layers } from 'lucide-react';
+import AccessoriesInventory from '@/components/AccessoriesInventory';
+import { Package, Layers, Tag } from 'lucide-react';
 
 export default function ConsolidatedInventoryPage() {
-  const [activeInventory, setActiveInventory] = useState<'telas' | 'terminado'>('telas');
+  const [activeInventory, setActiveInventory] = useState<'telas' | 'accesorios' | 'terminado'>('telas');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '4rem' }}>
@@ -38,7 +39,7 @@ export default function ConsolidatedInventoryPage() {
           </div>
           <div>
             <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>Inventario Consolidador</h1>
-            <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>Gestión de Materia Prima y Producto Terminado</p>
+            <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>Gestión de Materia Prima, Accesorios y Producto Terminado</p>
           </div>
         </div>
 
@@ -71,6 +72,27 @@ export default function ConsolidatedInventoryPage() {
             Materia Prima (Telas)
           </button>
           <button
+            onClick={() => setActiveInventory('accesorios')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              border: 'none',
+              backgroundColor: activeInventory === 'accesorios' ? 'white' : 'transparent',
+              color: activeInventory === 'accesorios' ? '#80082E' : '#475569',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              fontWeight: '800',
+              cursor: 'pointer',
+              boxShadow: activeInventory === 'accesorios' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s'
+            }}
+          >
+            <Tag size={14} />
+            Accesorios e Insumos
+          </button>
+          <button
             onClick={() => setActiveInventory('terminado')}
             style={{
               display: 'flex',
@@ -98,6 +120,8 @@ export default function ConsolidatedInventoryPage() {
       <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1px solid #f1f5f9', padding: '1.5rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
         {activeInventory === 'telas' ? (
           <FabricsInventory />
+        ) : activeInventory === 'accesorios' ? (
+          <AccessoriesInventory />
         ) : (
           <FinishedGoodsInventory />
         )}

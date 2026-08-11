@@ -38,6 +38,8 @@ export default function DesignSubmodulePage() {
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<string | null>(null);
   const [fabricsInModal, setFabricsInModal] = useState<any[]>([]);
   const [isLoadingFabricsModal, setIsLoadingFabricsModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'depleted'>('all');
+  const [isTogglingActive, setIsTogglingActive] = useState<string | null>(null);
   
   // Advanced Global Settings
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -55,29 +57,112 @@ export default function DesignSubmodulePage() {
   const fetchLoadedInvoices = async () => {
     setIsLoadingInvoices(true);
     try {
-      const { data, error } = await supabase
+      const { data: fabricsData, error: fabErr } = await supabase
         .from('fabrics')
-        .select('factura_relacionada, created_at')
+        .select('id, factura_relacionada, kilos, metros, kilos_originales, rendimiento_estimado, is_active, created_at')
         .not('factura_relacionada', 'is', null)
         .neq('factura_relacionada', '');
 
-      if (error) throw error;
+      if (fabErr) throw fabErr;
 
-      const groups: Record<string, { invoiceNumber: string; fabricCount: number; minCreatedAt: string }> = {};
+      const { data: cutsData } = await supabase
+        .from('cuts')
+        .select('id, fabric_id, stroke_length, layers, layers_produced, kilos');
 
-      data?.forEach(row => {
+      const { data: movsData } = await supabase
+        .from('inventory_movements')
+        .select('fabric_id, metros_planeados, metros_reales, estado');
+
+      const groups: Record<string, {
+        invoiceNumber: string;
+        fabricCount: number;
+        minCreatedAt: string;
+        kilosOriginales: number;
+        kilosActuales: number;
+        kilosConsumidos: number;
+        pctConsumido: number;
+        isActive: boolean;
+        cutsCount: number;
+      }> = {};
+
+      fabricsData?.forEach(row => {
         const inv = row.factura_relacionada;
+        const rend = Number(row.rendimiento_estimado) > 0 ? Number(row.rendimiento_estimado) : 3.5;
+        const kOrig = Number(row.kilos_originales) || Number(row.kilos) || 0;
+        const kAct = Number(row.kilos) || 0;
+
         if (!groups[inv]) {
           groups[inv] = {
             invoiceNumber: inv,
             fabricCount: 0,
-            minCreatedAt: row.created_at
+            minCreatedAt: row.created_at,
+            kilosOriginales: 0,
+            kilosActuales: 0,
+            kilosConsumidos: 0,
+            pctConsumido: 0,
+            isActive: false,
+            cutsCount: 0
           };
         }
+
         groups[inv].fabricCount += 1;
+        groups[inv].kilosOriginales += kOrig;
+        groups[inv].kilosActuales += kAct;
+
+        // Calcular consumos por cortes de producción
+        let kConsumidosPorCortes = 0;
+        if (cutsData) {
+          const cutMatches = cutsData.filter(c => c.fabric_id === row.id);
+          groups[inv].cutsCount += cutMatches.length;
+          
+          cutMatches.forEach(c => {
+            if (Number(c.kilos) > 0) {
+              kConsumidosPorCortes += Number(c.kilos);
+            } else {
+              const layersToUse = Number(c.layers_produced) || Number(c.layers) || 0;
+              const metrosCorte = (Number(c.stroke_length) || 0) * layersToUse;
+              if (metrosCorte > 0 && rend > 0) {
+                kConsumidosPorCortes += (metrosCorte / rend);
+              }
+            }
+          });
+        }
+
+        // Calcular consumos por movimientos registrados
+        if (movsData) {
+          const movMatches = movsData.filter(m => m.fabric_id === row.id);
+          movMatches.forEach(m => {
+            const metrosMov = Number(m.metros_reales) || Number(m.metros_planeados) || 0;
+            if (metrosMov > 0 && rend > 0 && kConsumidosPorCortes === 0) {
+              kConsumidosPorCortes += (metrosMov / rend);
+            }
+          });
+        }
+
+        // Si hay consumo por cortes/movimientos, sumarlo al acumulado consumido
+        groups[inv].kilosConsumidos += kConsumidosPorCortes;
+
+        if (row.is_active !== false) {
+          groups[inv].isActive = true;
+        }
         if (row.created_at < groups[inv].minCreatedAt) {
           groups[inv].minCreatedAt = row.created_at;
         }
+      });
+
+      Object.values(groups).forEach(g => {
+        // El total consumido es el máximo entre (originales - actuales) y el acumulado por cortes/movimientos
+        const diffKilos = Math.max(0, g.kilosOriginales - g.kilosActuales);
+        g.kilosConsumidos = Math.max(g.kilosConsumidos, diffKilos);
+        
+        // Ajustar kilos actuales según el consumo calculado si no se ha descontado aún en fabrics
+        if (g.kilosConsumidos > 0 && g.kilosActuales === g.kilosOriginales) {
+          g.kilosActuales = Math.max(0, g.kilosOriginales - g.kilosConsumidos);
+        }
+
+        g.pctConsumido = g.kilosOriginales > 0 
+          ? Math.min(100, Math.round((g.kilosConsumidos / g.kilosOriginales) * 100))
+          : (g.kilosActuales === 0 ? 100 : 0);
       });
 
       const list = Object.values(groups).sort((a, b) => {
@@ -89,6 +174,27 @@ export default function DesignSubmodulePage() {
       setError('Error al cargar la lista de facturas: ' + err.message);
     } finally {
       setIsLoadingInvoices(false);
+    }
+  };
+
+  const handleToggleInvoiceActive = async (invoiceNum: string, currentIsActive: boolean) => {
+    const newStatus = !currentIsActive;
+    setIsTogglingActive(invoiceNum);
+    try {
+      const { error: updErr } = await supabase
+        .from('fabrics')
+        .update({ is_active: newStatus })
+        .eq('factura_relacionada', invoiceNum);
+
+      if (updErr) throw updErr;
+
+      setInvoices(prev => prev.map(inv => 
+        inv.invoiceNumber === invoiceNum ? { ...inv, isActive: newStatus } : inv
+      ));
+    } catch (err: any) {
+      alert('Error al cambiar estado de la factura: ' + err.message);
+    } finally {
+      setIsTogglingActive(null);
     }
   };
 
@@ -174,20 +280,84 @@ export default function DesignSubmodulePage() {
     setIsLoadingFabricsModal(true);
     setFabricsInModal([]);
     try {
-      const { data, error } = await supabase
-        .from('fabrics')
-        .select('codigo_tela, nombre_tela, kilos, capas, costo_unitario, costo_con_iva')
-        .eq('factura_relacionada', invoiceNum)
-        .order('codigo_tela', { ascending: true });
+      const [
+        { data: fabrics, error },
+        { data: cuts },
+        { data: movs }
+      ] = await Promise.all([
+        supabase
+          .from('fabrics')
+          .select('id, codigo_tela, nombre_tela, kilos, kilos_originales, metros, capas, costo_unitario, costo_con_iva, rendimiento_estimado, is_active')
+          .eq('factura_relacionada', invoiceNum)
+          .order('codigo_tela', { ascending: true }),
+        supabase
+          .from('cuts')
+          .select('fabric_id, stroke_length, layers, layers_produced, kilos'),
+        supabase
+          .from('inventory_movements')
+          .select('fabric_id, metros_planeados, metros_reales')
+      ]);
 
       if (error) throw error;
-      setFabricsInModal(data || []);
+
+      const processedFabrics = (fabrics || []).map(f => {
+        const rend = Number(f.rendimiento_estimado) > 0 ? Number(f.rendimiento_estimado) : 3.5;
+        let kConsumido = 0;
+
+        if (cuts) {
+          const cutMatches = cuts.filter(c => String(c.fabric_id) === String(f.id));
+          cutMatches.forEach(c => {
+            if (Number(c.kilos) > 0) {
+              kConsumido += Number(c.kilos);
+            } else {
+              const layersToUse = Number(c.layers_produced) || Number(c.layers) || 0;
+              const metrosCorte = (Number(c.stroke_length) || 0) * layersToUse;
+              if (metrosCorte > 0 && rend > 0) {
+                kConsumido += (metrosCorte / rend);
+              }
+            }
+          });
+        }
+
+        if (movs && kConsumido === 0) {
+          const movMatches = movs.filter(m => String(m.fabric_id) === String(f.id));
+          movMatches.forEach(m => {
+            const metrosMov = Number(m.metros_reales) || Number(m.metros_planeados) || 0;
+            if (metrosMov > 0 && rend > 0) {
+              kConsumido += (metrosMov / rend);
+            }
+          });
+        }
+
+        const kOrig = Number(f.kilos_originales) || Number(f.kilos) || 0;
+        const kActDirect = Number(f.kilos) || 0;
+        const diffKilos = Math.max(0, kOrig - kActDirect);
+        const finalKConsumido = Math.max(kConsumido, diffKilos);
+        const finalKActual = finalKConsumido > 0 && kActDirect === kOrig ? Math.max(0, kOrig - finalKConsumido) : kActDirect;
+
+        return {
+          ...f,
+          calculatedKConsumido: finalKConsumido,
+          calculatedKActual: finalKActual
+        };
+      });
+
+      setFabricsInModal(processedFabrics);
     } catch (err: any) {
       setError('Error al cargar las telas de la factura: ' + err.message);
     } finally {
       setIsLoadingFabricsModal(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'manage') {
+        setImportMode('manage');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (importMode === 'manage') {
@@ -741,6 +911,7 @@ export default function DesignSubmodulePage() {
           gramaje: parseFloat(globalWeight) || 1,
           rendimiento_estimado: item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5),
           kilos: item.cantidad_factura,
+          kilos_originales: item.cantidad_factura,
           metros: parseFloat((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))).toFixed(2)),
           capas: ((item.cantidad_factura * (item.rendimiento !== undefined ? item.rendimiento : (parseFloat(globalYield) || 3.5))) / (parseFloat(globalLargo) || 1)).toFixed(2),
           factura_relacionada: invoiceNumber
@@ -1043,6 +1214,34 @@ export default function DesignSubmodulePage() {
             </div>
           </div>
 
+          {/* Filters Bar */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {[
+              { key: 'all', label: 'Todas' },
+              { key: 'active', label: '🟢 Activas' },
+              { key: 'inactive', label: '🔴 Inactivas' },
+              { key: 'depleted', label: '⚠️ Agotadas (>95%)' },
+            ].map(f => (
+              <button
+                key={f.key}
+                onClick={() => setStatusFilter(f.key as any)}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  borderRadius: '8px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  backgroundColor: statusFilter === f.key ? 'var(--primary)' : 'white',
+                  color: statusFilter === f.key ? 'white' : '#475569',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           {error && (
             <div style={{ backgroundColor: '#fef2f2', border: '1px solid #ef4444', color: '#b91c1c', padding: '1rem', borderRadius: '12px', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
               <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -1058,14 +1257,21 @@ export default function DesignSubmodulePage() {
               <Loader2 size={40} className="animate-spin" style={{ color: 'var(--primary)' }} />
               <p style={{ color: '#64748b', fontWeight: '700' }}>Cargando listado de facturas...</p>
             </div>
-          ) : invoices.filter(inv => inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+          ) : invoices.filter(inv => {
+              const matchesSearch = inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase());
+              if (!matchesSearch) return false;
+              if (statusFilter === 'active') return inv.isActive;
+              if (statusFilter === 'inactive') return !inv.isActive;
+              if (statusFilter === 'depleted') return inv.pctConsumido >= 95;
+              return true;
+            }).length === 0 ? (
             <div style={{ textAlign: 'center', padding: '5rem 0', backgroundColor: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
               <Layers size={48} style={{ color: '#94a3b8', margin: '0 auto 1rem' }} />
               <h3 style={{ fontSize: '1.125rem', fontWeight: '850', color: '#334155', marginBottom: '0.5rem' }}>
-                {searchQuery ? 'No se encontraron facturas coincidentes' : 'No hay facturas cargadas'}
+                {searchQuery || statusFilter !== 'all' ? 'No se encontraron facturas coincidentes' : 'No hay facturas cargadas'}
               </h3>
               <p style={{ color: '#64748b', fontSize: '0.875rem', maxWidth: '400px', margin: '0 auto' }}>
-                {searchQuery ? 'Prueba escribiendo otro número de factura en la barra de búsqueda.' : 'Las facturas que cargues usando XML, CSV o PDF aparecerán listadas aquí para su gestión.'}
+                {searchQuery || statusFilter !== 'all' ? 'Prueba cambiando los filtros de búsqueda o estado.' : 'Las facturas que cargues usando XML, CSV o PDF aparecerán listadas aquí para su gestión.'}
               </p>
             </div>
           ) : (
@@ -1073,94 +1279,156 @@ export default function DesignSubmodulePage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Factura Relacionada</th>
-                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Fecha de Carga</th>
-                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Total Telas</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Factura / Fecha</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Telas / Cortes</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Consumo & Disponible</th>
+                    <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
                     <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices
-                    .filter(inv => inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((inv) => (
-                      <tr key={inv.invoiceNumber} style={{ borderBottom: '1px solid #e2e8f0', transition: 'background-color 0.2s' }}>
-                        <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.9rem', fontWeight: '800', color: '#0f172a' }}>
-                          {inv.invoiceNumber}
-                        </td>
-                        <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', color: '#475569', fontWeight: '600' }}>
-                          {new Date(inv.minCreatedAt).toLocaleDateString('es-ES', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </td>
-                        <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
-                          <span 
-                            onClick={() => handleOpenFabricsModal(inv.invoiceNumber)}
-                            style={{ 
-                              backgroundColor: '#eff6ff', 
-                              color: '#1d4ed8', 
-                              padding: '0.35rem 0.85rem', 
-                              borderRadius: '99px', 
-                              fontSize: '0.8rem', 
-                              fontWeight: '800', 
-                              border: '1px solid #bfdbfe',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.25rem',
-                              transition: 'all 0.2s',
-                              userSelect: 'none'
-                            }}
-                            onMouseOver={e => {
-                              e.currentTarget.style.backgroundColor = '#dbeafe';
-                              e.currentTarget.style.transform = 'scale(1.05)';
-                            }}
-                            onMouseOut={e => {
-                              e.currentTarget.style.backgroundColor = '#eff6ff';
-                              e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                          >
-                            {inv.fabricCount} {inv.fabricCount === 1 ? 'tela' : 'telas'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
-                          <button 
-                            onClick={() => handleDeleteInvoice(inv.invoiceNumber)}
-                            disabled={isDeletingInvoice !== null}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '0.5rem',
-                              backgroundColor: '#fef2f2',
-                              color: '#dc2626',
-                              border: '1.5px solid #fca5a5',
-                              padding: '0.5rem 1rem',
-                              borderRadius: '8px',
-                              fontWeight: '800',
-                              fontSize: '0.8rem',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            {isDeletingInvoice === inv.invoiceNumber ? (
-                              <>
-                                <Loader2 size={14} className="animate-spin" />
-                                Validando...
-                              </>
-                            ) : (
-                              <>
-                                <Trash2 size={14} />
-                                Eliminar Factura
-                              </>
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    .filter(inv => {
+                      const matchesSearch = inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase());
+                      if (!matchesSearch) return false;
+                      if (statusFilter === 'active') return inv.isActive;
+                      if (statusFilter === 'inactive') return !inv.isActive;
+                      if (statusFilter === 'depleted') return inv.pctConsumido >= 95;
+                      return true;
+                    })
+                    .map((inv) => {
+                      const isDepleted = inv.pctConsumido >= 95;
+                      return (
+                        <tr key={inv.invoiceNumber} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: !inv.isActive ? '#f8fafc' : 'white', transition: 'background-color 0.2s' }}>
+                          <td style={{ padding: '1.25rem 1.5rem' }}>
+                            <div style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a' }}>
+                              {inv.invoiceNumber}
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '600', marginTop: '0.2rem' }}>
+                              {new Date(inv.minCreatedAt).toLocaleDateString('es-ES', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </div>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '0.35rem', alignItems: 'center' }}>
+                              <span 
+                                onClick={() => handleOpenFabricsModal(inv.invoiceNumber)}
+                                style={{ 
+                                  backgroundColor: '#eff6ff', 
+                                  color: '#1d4ed8', 
+                                  padding: '0.3rem 0.75rem', 
+                                  borderRadius: '99px', 
+                                  fontSize: '0.78rem', 
+                                  fontWeight: '800', 
+                                  border: '1px solid #bfdbfe',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  transition: 'all 0.2s',
+                                  userSelect: 'none'
+                                }}
+                              >
+                                {inv.fabricCount} {inv.fabricCount === 1 ? 'tela' : 'telas'}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700' }}>
+                                {inv.cutsCount} corte{inv.cutsCount !== 1 ? 's' : ''} realizados
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', minWidth: '220px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                              <span>Consumido: {inv.kilosConsumidos.toFixed(1)} kg ({inv.pctConsumido}%)</span>
+                              <span style={{ color: isDepleted ? '#ef4444' : '#059669', fontWeight: '800' }}>Quedan: {inv.kilosActuales.toFixed(1)} kg</span>
+                            </div>
+                            <div style={{ height: '8px', backgroundColor: '#e2e8f0', borderRadius: '99px', overflow: 'hidden', display: 'flex' }}>
+                              <div style={{
+                                width: `${inv.pctConsumido}%`,
+                                backgroundColor: isDepleted ? '#ef4444' : inv.pctConsumido > 75 ? '#f59e0b' : 'var(--primary)',
+                                transition: 'width 0.3s ease'
+                              }} />
+                            </div>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', alignItems: 'center' }}>
+                              <span style={{
+                                padding: '0.25rem 0.65rem',
+                                borderRadius: '99px',
+                                fontSize: '0.72rem',
+                                fontWeight: '800',
+                                backgroundColor: !inv.isActive ? '#fee2e2' : isDepleted ? '#fef3c7' : '#dcfce7',
+                                color: !inv.isActive ? '#991b1b' : isDepleted ? '#92400e' : '#166534'
+                              }}>
+                                {!inv.isActive ? '🔴 Inactiva' : isDepleted ? '⚠️ Agotada' : '🟢 Activa'}
+                              </span>
+                              <button
+                                onClick={() => handleToggleInvoiceActive(inv.invoiceNumber, inv.isActive)}
+                                disabled={isTogglingActive === inv.invoiceNumber}
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: '800',
+                                  color: inv.isActive ? '#dc2626' : '#059669',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline'
+                                }}
+                              >
+                                {isTogglingActive === inv.invoiceNumber ? 'Guardando...' : inv.isActive ? 'Desactivar' : 'Activar'}
+                              </button>
+                            </div>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                              <button 
+                                onClick={() => handleOpenFabricsModal(inv.invoiceNumber)}
+                                style={{
+                                  padding: '0.45rem 0.85rem',
+                                  borderRadius: '8px',
+                                  border: '1.5px solid #cbd5e1',
+                                  backgroundColor: 'white',
+                                  color: '#334155',
+                                  fontWeight: '800',
+                                  fontSize: '0.78rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Ver Telas
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteInvoice(inv.invoiceNumber)}
+                                disabled={isDeletingInvoice !== null}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '0.35rem',
+                                  backgroundColor: '#fef2f2',
+                                  color: '#dc2626',
+                                  border: '1.5px solid #fca5a5',
+                                  padding: '0.45rem 0.85rem',
+                                  borderRadius: '8px',
+                                  fontWeight: '800',
+                                  fontSize: '0.78rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {isDeletingInvoice === inv.invoiceNumber ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={13} />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -1509,25 +1777,62 @@ export default function DesignSubmodulePage() {
                       <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Código</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Nombre / Descripción</th>
-                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Kilos</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>K. Inicial</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>K. Actual</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', minWidth: '160px' }}>Consumo Real</th>
                         <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Metros Est.</th>
-                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Capas Est.</th>
-                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo Unitario</th>
-                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo + IVA</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Costo Unit.</th>
+                        <th style={{ padding: '0.75rem 1rem', fontSize: '0.7rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {fabricsInModal.map((fabric, index) => (
-                        <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? 'white' : '#f8fafc' }}>
-                          <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#0f172a' }}>{fabric.codigo_tela}</td>
-                          <td style={{ padding: '0.85rem 1rem', color: '#334155', fontWeight: '500' }}>{fabric.nombre_tela}</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700' }}>{(fabric.kilos || 0).toLocaleString()} kg</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '800', color: '#0ea5e9' }}>{fabric.metros ? Number(fabric.metros).toFixed(2) : ((fabric.kilos || 0) * (parseFloat(globalYield) || 3.5)).toFixed(2)}</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: 'var(--primary)' }}>{fabric.capas ? Number(fabric.capas).toFixed(2) : '0.00'}</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '600' }}>${(fabric.costo_unitario || 0).toLocaleString('es-CO')}</td>
-                          <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700', color: '#16a34a' }}>${Math.round(fabric.costo_con_iva || (fabric.costo_unitario * 1.19)).toLocaleString('es-CO')}</td>
-                        </tr>
-                      ))}
+                      {fabricsInModal.map((fabric, index) => {
+                        const kOrig = Number(fabric.kilos_originales) || Number(fabric.kilos) || 0;
+                        const kAct = fabric.calculatedKActual !== undefined ? Number(fabric.calculatedKActual) : (Number(fabric.kilos) || 0);
+                        const kConsumido = fabric.calculatedKConsumido !== undefined ? Number(fabric.calculatedKConsumido) : Math.max(0, kOrig - kAct);
+                        const pctConsumido = kOrig > 0 ? Math.min(100, Math.round((kConsumido / kOrig) * 100)) : (kAct === 0 ? 100 : 0);
+                        const isActive = fabric.is_active !== false;
+                        const isDepleted = pctConsumido >= 95;
+
+                        return (
+                          <tr key={index} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: index % 2 === 0 ? 'white' : '#f8fafc' }}>
+                            <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#0f172a' }}>{fabric.codigo_tela}</td>
+                            <td style={{ padding: '0.85rem 1rem', color: '#334155', fontWeight: '500' }}>{fabric.nombre_tela}</td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '600', color: '#64748b' }}>{kOrig.toLocaleString()} kg</td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '800', color: kAct === 0 ? '#ef4444' : '#0f172a' }}>{kAct.toLocaleString()} kg</td>
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: '800' }}>
+                                  <span style={{ color: isDepleted ? '#ef4444' : '#334155' }}>{pctConsumido}% consumido</span>
+                                  <span style={{ color: '#64748b', fontSize: '0.68rem' }}>({kConsumido.toFixed(1)} kg)</span>
+                                </div>
+                                <div style={{ height: '7px', backgroundColor: '#e2e8f0', borderRadius: '99px', overflow: 'hidden' }}>
+                                  <div style={{
+                                    width: `${pctConsumido}%`,
+                                    backgroundColor: isDepleted ? '#ef4444' : pctConsumido > 75 ? '#f59e0b' : 'var(--primary)',
+                                    height: '100%',
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '800', color: '#0ea5e9' }}>{fabric.metros ? Number(fabric.metros).toFixed(2) : ((kAct) * (parseFloat(globalYield) || 3.5)).toFixed(2)}</td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '600' }}>${(fabric.costo_unitario || 0).toLocaleString('es-CO')}</td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              <span style={{
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '99px',
+                                fontSize: '0.68rem',
+                                fontWeight: '800',
+                                backgroundColor: !isActive ? '#fee2e2' : isDepleted ? '#fef3c7' : '#dcfce7',
+                                color: !isActive ? '#991b1b' : isDepleted ? '#92400e' : '#166534'
+                              }}>
+                                {!isActive ? 'Inactiva' : isDepleted ? 'Agotada' : 'Activa'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

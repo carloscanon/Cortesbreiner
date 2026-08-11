@@ -394,6 +394,13 @@ export default function Dashboard() {
   const [sewingPage, setSewingPage] = useState(0);
   const SEWING_PAGE_SIZE = 15;
 
+  // Declination States for workshops
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [selectedSewingOrderForDecline, setSelectedSewingOrderForDecline] = useState<any>(null);
+  const [declineReason, setDeclineReason] = useState('Sin capacidad operativa');
+  const [declineDetails, setDeclineDetails] = useState('');
+  const [savingDecline, setSavingDecline] = useState(false);
+
   // Next-Gen Executive Dashboard states
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [crossFilterTaller, setCrossFilterTaller] = useState<string>('all');
@@ -871,6 +878,52 @@ export default function Dashboard() {
       window.location.reload();
     } catch (err: any) {
       alert('Error al confirmar recibo en taller: ' + err.message);
+    }
+  };
+
+  const handleDeclineSewingOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSewingOrderForDecline || savingDecline) return;
+    setSavingDecline(true);
+    try {
+      const so = selectedSewingOrderForDecline;
+      const ws = workshops.find(w => String(w.id) === String(so.workshop_id));
+      const workshopName = ws ? ws.nombre_taller : 'Taller Satélite';
+      
+      const fullDeclineNote = `Rechazada por taller. Motivo: ${declineReason}${declineDetails ? ` - Detalle: ${declineDetails}` : ''}`;
+
+      // 1. Actualizar orden en Base de Datos
+      const { error: updateErr } = await supabase
+        .from('sewing_orders')
+        .update({
+          status: 'Devuelta por Taller',
+          workshop_notes: fullDeclineNote
+        })
+        .eq('id', so.id);
+
+      if (updateErr) throw updateErr;
+
+      // 2. Insertar novedad/alerta para la administración
+      const { error: noveltyErr } = await supabase
+        .from('novelties')
+        .insert({
+          cod_novedad: `Orden ${so.confeccion_code} devuelta`,
+          nombre: `El taller ${workshopName} ha devuelto la orden ${so.confeccion_code}. Motivo: ${declineReason}`,
+          modulo_relac: 'alerta_general',
+          criticidad: 'Alta',
+          estado: 'pendiente'
+        });
+
+      if (noveltyErr) throw noveltyErr;
+
+      alert('✓ Orden devuelta correctamente a la plataforma principal para su gestión.');
+      setShowDeclineModal(false);
+      setDeclineDetails('');
+      window.location.reload();
+    } catch (err: any) {
+      alert('Error al devolver la orden: ' + err.message);
+    } finally {
+      setSavingDecline(false);
     }
   };
 
@@ -1829,6 +1882,83 @@ export default function Dashboard() {
               <div className="no-print" style={{ display: 'flex', gap: '1rem', borderTop: '1px solid #f1f5f9', marginTop: '2.5rem', paddingTop: '1.5rem' }}>
                 <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '0.85rem', fontWeight: '800', borderRadius: '12px', backgroundColor: '#1e293b', color: 'white', border: 'none', cursor: 'pointer' }} onClick={() => { setViewingOrderDetails(null); setPrintMode('report'); }}>Cerrar Orden</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Decline Order Modal (Satélite Portal) ──────────────────────────── */}
+        {showDeclineModal && selectedSewingOrderForDecline && (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3100, padding: '1rem' }}>
+            <div className="card" style={{ width: '90%', maxWidth: '480px', padding: '2rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid #cbd5e1', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontWeight: '950', fontSize: '1.15rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span>⚠️</span> Devolver Orden a Planta
+                </h3>
+                <button onClick={() => setShowDeclineModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+              </div>
+
+              <p style={{ margin: 0, fontSize: '0.825rem', color: '#475569', lineHeight: '1.4' }}>
+                ¿Estás seguro de que no puedes aceptar la orden de confección <strong>{selectedSewingOrderForDecline.confeccion_code}</strong>? Al devolverla, la administración principal recibirá una alerta inmediata para reasignar el lote a otro taller.
+              </p>
+
+              <form onSubmit={handleDeclineSewingOrder} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Motivo de la devolución</label>
+                  <select
+                    value={declineReason}
+                    onChange={e => setDeclineReason(e.target.value)}
+                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700', backgroundColor: '#f8fafc' }}
+                  >
+                    <option value="Sin capacidad operativa">Sin capacidad operativa / Sobrecarga</option>
+                    <option value="Insumos o cortes incompletos">Insumos o cortes incompletos / Defectuosos</option>
+                    <option value="Discrepancia en tarifa de pago">Discrepancia en tarifa de pago / Precio bajo</option>
+                    <option value="Problemas de maquinaria">Problemas de maquinaria o averías técnicas</option>
+                    <option value="Otro motivo">Otro motivo (especificar abajo)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Detalles / Observaciones adicionales</label>
+                  <textarea
+                    rows={3}
+                    required={declineReason === 'Otro motivo'}
+                    value={declineDetails}
+                    onChange={e => setDeclineDetails(e.target.value)}
+                    placeholder="Describe brevemente la razón por la cual devuelves esta orden..."
+                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeclineModal(false)}
+                    disabled={savingDecline}
+                    style={{ padding: '0.55rem 1.25rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingDecline}
+                    style={{
+                      padding: '0.55rem 1.5rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#dc2626',
+                      color: 'white',
+                      fontSize: '0.8rem',
+                      fontWeight: '900',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    {savingDecline ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Devolución'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -4148,15 +4278,18 @@ export default function Dashboard() {
                             backgroundColor: 
                               so.status === 'En Confección' ? '#eff6ff' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#fffbeb' :
-                              so.status === 'Terminada' || so.status === 'Enviada' ? '#ecfdf5' : '#f1f5f9',
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '#ecfdf5' : 
+                              so.status === 'Devuelta por Taller' ? '#fef2f2' : '#f1f5f9',
                             color: 
                               so.status === 'En Confección' ? '#1e4ed8' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#b45309' :
-                              so.status === 'Terminada' || so.status === 'Enviada' ? '#15803d' : '#475569',
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '#15803d' : 
+                              so.status === 'Devuelta por Taller' ? '#b91c1c' : '#475569',
                             border: 
                               so.status === 'En Confección' ? '1px solid #bfdbfe' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '1px solid #fef08a' :
-                              so.status === 'Terminada' || so.status === 'Enviada' ? '1px solid #bbf7d0' : '1px solid #cbd5e1'
+                              so.status === 'Terminada' || so.status === 'Enviada' ? '1px solid #bbf7d0' : 
+                              so.status === 'Devuelta por Taller' ? '1px solid #fca5a5' : '1px solid #cbd5e1'
                           }}>
                             {so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad' ? 'VALIDACIÓN CALIDAD' : so.status.toUpperCase()}
                           </span>
@@ -4264,25 +4397,49 @@ export default function Dashboard() {
                               </button>
                             )}
 
-                            {/* 4. Botón Recibir */}
+                            {/* 4. Botón Recibir y Botón Devolver */}
                             {so.status === 'Enviado a Taller' && (
-                              <button
-                                onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
-                                className="btn"
-                                style={{ 
-                                  backgroundColor: '#3b82f6', 
-                                  color: 'white', 
-                                  border: 'none', 
-                                  padding: '0.45rem 0.85rem', 
-                                  borderRadius: '8px', 
-                                  fontSize: '0.72rem', 
-                                  fontWeight: '800', 
-                                  cursor: 'pointer',
-                                  transition: 'all 0.2s'
-                                }}
-                              >
-                                📥 Recibir
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
+                                  className="btn"
+                                  style={{ 
+                                    backgroundColor: '#3b82f6', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    padding: '0.45rem 0.85rem', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.72rem', 
+                                    fontWeight: '800', 
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                  }}
+                                >
+                                  📥 Recibir
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedSewingOrderForDecline(so);
+                                    setDeclineReason('Sin capacidad operativa');
+                                    setDeclineDetails('');
+                                    setShowDeclineModal(true);
+                                  }}
+                                  className="btn"
+                                  style={{ 
+                                    backgroundColor: '#ef4444', 
+                                    color: 'white', 
+                                    border: 'none', 
+                                    padding: '0.45rem 0.85rem', 
+                                    borderRadius: '8px', 
+                                    fontSize: '0.72rem', 
+                                    fontWeight: '800', 
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                  }}
+                                >
+                                  ❌ Devolver
+                                </button>
+                              </>
                             )}
                           </div>
                         </td>

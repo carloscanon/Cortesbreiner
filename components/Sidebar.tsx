@@ -17,7 +17,8 @@ import {
   Factory,
   ShieldCheck,
   Calculator,
-  DollarSign
+  DollarSign,
+  CreditCard
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -31,6 +32,7 @@ const allMenuItems = [
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
+  { icon: CreditCard, label: 'Pagos Talleres', href: '/payments', module: 'payments' },
   { icon: DollarSign, label: 'Módulo Financiero', href: '/financial', module: 'financial' },
 ];
 

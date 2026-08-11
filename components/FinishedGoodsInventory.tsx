@@ -10,7 +10,87 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 
-type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load';
+// Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
+// Renderiza en canvas oculto y exporta como <img> para impresión confiable
+function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: string; height: number; garmentId?: string }) {
+  const [imgSrc, setImgSrc] = useState<string>('');
+
+  useEffect(() => {
+    if (!text) return;
+
+    if (type === 'qr') return;
+
+    const canvas = document.createElement('canvas');
+    const bcid = type === 'code39' ? 'code39' : 'code128';
+    const encodetext = type === 'code39'
+      ? text.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '')
+      : text;
+
+    import('bwip-js').then((bwipjs) => {
+      try {
+        bwipjs.toCanvas(canvas, {
+          bcid,
+          text: encodetext,
+          scale: 4,
+          height: 14,
+          includetext: false,
+          paddingleft: 8,
+          paddingright: 8,
+          paddingtop: 2,
+          paddingbottom: 2,
+          backgroundcolor: 'ffffff',
+          barcolor: '000000',
+        });
+        setImgSrc(canvas.toDataURL('image/png'));
+      } catch (e) {
+        console.error('bwip-js error:', e);
+      }
+    });
+  }, [text, type, height]);
+
+  if (type === 'qr') {
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}&margin=6&ecc=M`;
+    return (
+      <img
+        src={qrUrl}
+        alt={text}
+        data-barcode-garment-id={garmentId}
+        style={{
+          width: `${height * 1.6}px`,
+          height: `${height * 1.6}px`,
+          display: 'block',
+          margin: '0 auto',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact'
+        }}
+      />
+    );
+  }
+
+  if (!imgSrc) {
+    return <div style={{ height: `${height}px`, width: '100%' }} />;
+  }
+
+  return (
+    <img
+      src={imgSrc}
+      alt={text}
+      data-barcode-garment-id={garmentId}
+      style={{
+        display: 'block',
+        margin: '0 auto',
+        maxWidth: '100%',
+        height: `${height}px`,
+        objectFit: 'contain',
+        imageRendering: 'crisp-edges',
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact'
+      }}
+    />
+  );
+}
+
+type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 export default function FinishedGoodsInventory() {
   const { user, profile } = useAuth();
@@ -70,6 +150,247 @@ export default function FinishedGoodsInventory() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [savingTransfer, setSavingTransfer] = useState(false);
+
+  // Historical Inventory States
+  const [histDocName, setHistDocName] = useState('Inventario Histórico ' + new Date().toLocaleDateString('es-CO'));
+  const [histProduct, setHistProduct] = useState('');
+  const [histColor, setHistColor] = useState('');
+  const [histSize, setHistSize] = useState('');
+  const [histQty, setHistQty] = useState<number>(1);
+  const [histNotes, setHistNotes] = useState('');
+  const [histCountedList, setHistCountedList] = useState<any[]>([]);
+  const [histSuccessGarments, setHistSuccessGarments] = useState<any[]>([]);
+  const [histProcessing, setHistProcessing] = useState(false);
+  const [showHistLabelsModal, setShowHistLabelsModal] = useState(false);
+  const [stickerConfig, setStickerConfig] = useState({
+    headerText: 'CORTES BREINER',
+    stickerWidthMm: 50,
+    stickerHeightMm: 80,
+    columnsPerRow: 3,
+    gapMm: 2,
+    headerFontSize: 14,
+    refFontSize: 15,
+    refFontWeight: '900',
+    barcodeHeight: 55,
+    barcodeLineWidth: 2,
+    barcodeFontSize: 13,
+    barcodeType: 'code128',
+    sizeFontSize: 16,
+    sizeBgColor: '#0f172a'
+  });
+
+  const handleAddHistItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!histProduct) return alert('Selecciona un producto.');
+    if (!histSize) return alert('Selecciona una talla.');
+    if (histQty <= 0) return alert('La cantidad debe ser mayor a 0.');
+
+    const selectedProd = products.find(p => p.id === histProduct);
+    const selectedColor = colors.find(c => c.id === histColor);
+    const selectedSize = sizes.find(s => s.id === histSize);
+
+    const newItem = {
+      id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
+      productId: histProduct,
+      productRef: selectedProd?.codigo_referencia || '',
+      productName: selectedProd?.nombre_producto || selectedProd?.name || 'Desconocido',
+      colorId: histColor || null,
+      colorName: selectedColor?.nombre_color || '—',
+      sizeId: histSize,
+      sizeCode: selectedSize?.codigo_talla || 'ST',
+      qty: histQty,
+      notes: histNotes
+    };
+
+    setHistCountedList([...histCountedList, newItem]);
+    setHistQty(1);
+    setHistNotes('');
+  };
+
+  const handleRemoveHistItem = (id: string) => {
+    setHistCountedList(histCountedList.filter(item => item.id !== id));
+  };
+
+  const handleProcessHistLoad = async () => {
+    if (histCountedList.length === 0) {
+      alert('Debes agregar al menos una referencia al conteo.');
+      return;
+    }
+
+    const totalQty = histCountedList.reduce((sum, item) => sum + item.qty, 0);
+
+    if (!confirm(`¿Confirmas la carga de este inventario histórico?\n\n• Se generarán ${totalQty} códigos individuales.\n• Se alimentará la Bodega Principal.\n• Se registrarán los ingresos correspondientes en el Kardex.`)) {
+      return;
+    }
+
+    setHistProcessing(true);
+    try {
+      const res = await fetch('/api/inventory/historical-load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: histCountedList,
+          docName: histDocName,
+          userEmail: user?.email || 'Sistema'
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al procesar inventario histórico.');
+
+      alert(`✅ CARGA EXITOSA:\n\n• Se crearon ${data.createdCount} prendas individuales con códigos de barras.\n• El stock consolidado fue actualizado en Bodega Principal.`);
+      setHistSuccessGarments(data.garments || []);
+      setHistCountedList([]);
+      setShowHistLabelsModal(true);
+      await fetchStock();
+      await fetchKardex();
+    } catch (err: any) {
+      console.error(err);
+      alert('❌ Error al cargar inventario: ' + err.message);
+    } finally {
+      setHistProcessing(false);
+    }
+  };
+
+  const handlePrintHistLabels = () => {
+    const cols = stickerConfig.columnsPerRow || 3;
+    const wMm = stickerConfig.stickerWidthMm || 50;
+    const hMm = stickerConfig.stickerHeightMm || 80;
+    const gapMm = stickerConfig.gapMm ?? 2;
+    const pageWMm = (wMm * cols) + (gapMm * (cols - 1));
+
+    const rows: any[][] = [];
+    for (let i = 0; i < histSuccessGarments.length; i += cols) {
+      rows.push(histSuccessGarments.slice(i, i + cols));
+    }
+
+    const barcodeImages: Record<string, string> = {};
+    histSuccessGarments.forEach((g: any) => {
+      const imgEl = document.querySelector(`#hist-barcode-container-${g.barcode} img`);
+      if (imgEl) {
+        barcodeImages[g.barcode] = (imgEl as HTMLImageElement).src;
+      }
+    });
+
+    const rowsHtml = rows.map(rowGarments => {
+      const cardsHtml = rowGarments.map((g: any, idx: number) => {
+        const imgSrc = barcodeImages[g.barcode] || '';
+        const refName = (g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim();
+        const marginRight = (idx < rowGarments.length - 1) ? `margin-right:${gapMm}mm;` : '';
+        return `
+          <div class="card" style="${marginRight}">
+            <div class="top">
+              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:#80082E;">
+                ${stickerConfig.headerText || 'CORTES BREINER'}
+              </span>
+            </div>
+            <div class="mid">
+              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#1e293b;text-align:center;">
+                ${refName}
+              </span>
+              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:#64748b;">${g.color_name}</span>` : ''}
+              ${imgSrc ? `<img src="${imgSrc}" style="max-width:90%;height:auto;" />` : ''}
+              <span style="font-size:${stickerConfig.barcodeFontSize || 12}px;font-family:monospace;letter-spacing:0.12em;font-weight:900;">
+                ${g.barcode || '00420001'}
+              </span>
+            </div>
+            <div class="bot">
+              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${stickerConfig.sizeBgColor || '#0f172a'};color:white;padding:1px 8px;border-radius:3px;">
+                ${g.size_code || 'S/T'}
+              </span>
+            </div>
+          </div>`;
+      }).join('');
+      return `<div class="row">${cardsHtml}</div>`;
+    }).join('');
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return alert('Por favor habilita las ventanas emergentes para imprimir.');
+
+    const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Impresión de Etiquetas de Inventario Histórico</title>
+  <style>
+    @media print {
+      @page {
+        size: ${pageWMm}mm ${hMm}mm;
+        margin: 0;
+      }
+      body { margin: 0; }
+    }
+    body {
+      background: #f1f5f9;
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 10px;
+    }
+    .page-container {
+      display: flex;
+      flex-direction: column;
+      gap: ${gapMm}mm;
+    }
+    .row {
+      display: flex;
+      width: ${pageWMm}mm;
+      height: ${hMm}mm;
+      box-sizing: border-box;
+      page-break-after: always;
+      background: white;
+    }
+    .card {
+      width: ${wMm}mm;
+      height: ${hMm}mm;
+      box-sizing: border-box;
+      padding: 3.5mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px dashed #cbd5e1;
+      background: white;
+    }
+    @media print {
+      body { background: white; margin: 0; }
+      .card { border: none; }
+    }
+    .top {
+      text-align: center;
+      border-bottom: 1.5px solid #000;
+      padding-bottom: 1mm;
+      margin-bottom: 1mm;
+    }
+    .mid {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 1.2mm;
+    }
+    .bot {
+      display: flex;
+      justify-content: center;
+      border-top: 1.5px solid #000;
+      padding-top: 1mm;
+      margin-top: 1mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    ${rowsHtml}
+  </div>
+  <script>
+    window.onload = function() {
+      window.print();
+      setTimeout(function() { window.close(); }, 500);
+    };
+  </script>
+</body>
+</html>`;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   useEffect(() => {
     fetchMasters().then(() => {
@@ -822,7 +1143,8 @@ export default function FinishedGoodsInventory() {
           { id: 'kardex', label: 'Kardex Historial' },
           { id: 'transfers', label: 'Transferencias' },
           { id: 'locations', label: 'Bodegas y Ubicaciones' },
-          { id: 'initial_load', label: 'Carga Inicial Excel' }
+          { id: 'initial_load', label: 'Carga Inicial Excel' },
+          { id: 'historical_inventory', label: 'Inventario Histórico' }
         ].map(t => (
           <button
             key={t.id}
@@ -1426,6 +1748,199 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
+      {/* 7. HISTORICAL INVENTORY ASSISTANT */}
+      {activeTab === 'historical_inventory' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Counted Form Card */}
+          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              📝 Registrar Conteo de Inventario Histórico
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1.5rem' }}>
+              Registra los productos físicos que deseas ingresar al sistema. Cada prenda recibirá un código único correlativo y se registrará como ingreso histórico en la Bodega Principal.
+            </p>
+
+            <form onSubmit={handleAddHistItem} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Nombre de Documento / Lote</label>
+                  <input
+                    type="text"
+                    required
+                    value={histDocName}
+                    onChange={e => setHistDocName(e.target.value)}
+                    placeholder="Ej. Carga Inicial 2026"
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid #f1f5f9', padding: '1rem 0 0' }} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Referencia / Producto</label>
+                  <select
+                    value={histProduct}
+                    onChange={e => setHistProduct(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Color</label>
+                  <select
+                    value={histColor}
+                    onChange={e => setHistColor(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    <option value="">Ninguno / Sin color</option>
+                    {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Talla</label>
+                  <select
+                    value={histSize}
+                    onChange={e => setHistSize(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Cantidad Física Contada</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={histQty}
+                    onChange={e => setHistQty(Math.max(1, parseInt(e.target.value) || 0))}
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Notas / Observaciones del Conteo</label>
+                <input
+                  type="text"
+                  value={histNotes}
+                  onChange={e => setHistNotes(e.target.value)}
+                  placeholder="Ej. Caja 1 - Saldo del año pasado"
+                  style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
+                  <Plus size={16} /> Agregar al Conteo
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* List of Counted Items */}
+          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>📋 Referencias Agregadas ({histCountedList.length})</h3>
+                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Lista de productos pendientes por ingresar a base de datos.</p>
+              </div>
+              
+              {histCountedList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleProcessHistLoad}
+                  disabled={histProcessing}
+                  style={{
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '0.6rem 1.5rem',
+                    fontSize: '0.8rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
+                  }}
+                >
+                  {histProcessing ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Procesando Carga...
+                    </>
+                  ) : (
+                    <>
+                      ⚡ Guardar y Generar Códigos ({histCountedList.reduce((sum, item) => sum + item.qty, 0)} uds)
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {histCountedList.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
+                <Package size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay referencias agregadas al conteo.</p>
+                <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Usa el formulario superior para relacionar los productos físicos que tienes.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencia</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Color</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Talla</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Cantidad</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Observaciones</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {histCountedList.map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#80082E' }}>{item.productName} ({item.productRef})</td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#334155' }}>{item.colorName}</td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: '900' }}>
+                          <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>{item.sizeCode}</span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: '850', textAlign: 'center', fontSize: '0.9rem', color: '#0f172a' }}>{item.qty} uds</td>
+                        <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{item.notes || '—'}</td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveHistItem(item.id)}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#ef4444',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              fontSize: '0.78rem'
+                            }}
+                          >
+                            Quitar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ADJUSTMENT MODAL */}
       {showAdjustmentModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
@@ -1913,6 +2428,99 @@ export default function FinishedGoodsInventory() {
               >
                 Cerrar
               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 🏷️ MODAL PARA IMPRIMIR ETIQUETAS DE INVENTARIO HISTÓRICO */}
+      {showHistLabelsModal && histSuccessGarments.length > 0 && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(8px)' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '20px', maxWidth: '780px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 2rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div>
+                <span style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Proceso Exitoso</span>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: '950', color: 'white', margin: '0.15rem 0 0' }}>🏷️ Imprimir Etiquetas de Lote Histórico</h3>
+              </div>
+              <button type="button" onClick={() => setShowHistLabelsModal(false)} style={{ border: 'none', background: 'rgba(255,255,255,0.2)', fontSize: '1rem', color: 'white', cursor: 'pointer', borderRadius: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>✕</button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', backgroundColor: '#f8fafc' }}>
+              <div style={{ padding: '1rem 1.25rem', backgroundColor: '#ecfdf5', borderRadius: '12px', border: '1px solid #a7f3d0', color: '#065f46', fontSize: '0.8rem', fontWeight: '700' }}>
+                ✓ Se han cargado exitosamente {histSuccessGarments.length} prendas. A continuación puedes previsualizar y generar los archivos de impresión.
+              </div>
+
+              {/* Grid of Garments and canvas generator */}
+              <div style={{ display: 'none' }}>
+                {histSuccessGarments.map((g: any) => (
+                  <div key={g.barcode} id={`hist-barcode-container-${g.barcode}`}>
+                    <BarcodeCanvas text={g.barcode} type={stickerConfig.barcodeType || 'code128'} height={stickerConfig.barcodeHeight || 55} garmentId={g.barcode} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Table of new barcodes */}
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1.5px solid #e2e8f0', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Código Único</th>
+                      <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Producto</th>
+                      <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569' }}>Color</th>
+                      <th style={{ padding: '0.75rem 1.25rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Talla</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {histSuccessGarments.map((g: any) => (
+                      <tr key={g.barcode} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.6rem 1.25rem', fontWeight: '950', fontFamily: 'monospace', color: '#0f172a' }}>{g.barcode}</td>
+                        <td style={{ padding: '0.6rem 1.25rem', fontWeight: '750', color: '#334155' }}>{g.reference_name}</td>
+                        <td style={{ padding: '0.6rem 1.25rem', color: '#475569' }}>{g.color_name}</td>
+                        <td style={{ padding: '0.6rem 1.25rem', fontWeight: '850', textAlign: 'center' }}>
+                          <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>{g.size_code}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer / print triggers */}
+            <div style={{ padding: '1.25rem 2rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f1f5f9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569' }}>Barras:</span>
+                <select
+                  value={stickerConfig.barcodeType || 'code128'}
+                  onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                  style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '700', backgroundColor: 'white' }}
+                >
+                  <option value="code128">CODE 128 — Universal</option>
+                  <option value="code39">CODE 39 — Alfanumérico</option>
+                  <option value="qr">QR 2D</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowHistLabelsModal(false)}
+                  style={{ padding: '0.6rem 1.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer' }}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintHistLabels}
+                  style={{ padding: '0.6rem 1.75rem', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontSize: '0.8rem', fontWeight: '900', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)' }}
+                >
+                  🖨️ Generar PDF e Imprimir
+                </button>
+              </div>
             </div>
 
           </div>

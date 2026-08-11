@@ -18,7 +18,8 @@ import {
   Database,
   Edit2,
   Save,
-  XCircle
+  XCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 
 type TabType = 'rollos' | 'movimientos';
@@ -449,6 +450,9 @@ export default function FabricsInventory() {
         </div>
         {activeTab === 'rollos' && (
           <div style={{ display: 'flex', gap: '1rem' }}>
+            <button className="btn btn-secondary" onClick={() => window.location.href = '/orders/design?tab=manage'}>
+              <FileSpreadsheet size={18} /> Gestión Facturas Telas
+            </button>
             <button className="btn btn-secondary">
               <MoveHorizontal size={18} /> Traslado
             </button>
