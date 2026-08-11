@@ -213,10 +213,26 @@ export default function WorkshopPaymentsPage() {
   const [viewingPayment, setViewingPayment] = useState<Payment | null>(null);
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
+  // ── Realtime & Subscriptions ──────────────────────────────────────────────
   useEffect(() => {
     fetchAll();
     loadCompany();
     loadUser();
+
+    // Suscripción Realtime para actualizar la pantalla automáticamente al autorizar un pago en Calidad
+    const channel = supabase
+      .channel('payments_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quality_inspections' }, () => {
+        fetchAll();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_payments' }, () => {
+        fetchAll();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadUser = async () => {
@@ -235,8 +251,12 @@ export default function WorkshopPaymentsPage() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [inspRes, paymRes] = await Promise.all([
-        supabase
+      // 1. Obtener todas las inspecciones con pago_status = 'Autorizado para Pago' usando paginación
+      let allInspections: any[] = [];
+      let from = 0;
+      const step = 1000;
+      while (true) {
+        const { data, error } = await supabase
           .from('quality_inspections')
           .select(`
             *,
@@ -248,15 +268,25 @@ export default function WorkshopPaymentsPage() {
             orders ( id, consecutive, internal_code, client_name, brand )
           `)
           .eq('pago_status', 'Autorizado para Pago')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('workshop_payments')
-          .select('*')
           .order('created_at', { ascending: false })
-          .limit(200)
-      ]);
-      setPendingInspections(inspRes.data || []);
-      setPayments(paymRes.data || []);
+          .range(from, from + step - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allInspections = [...allInspections, ...data];
+          from += step;
+          if (data.length < step) break;
+        } else break;
+      }
+
+      // 2. Obtener historial de pagos
+      const { data: paymData } = await supabase
+        .from('workshop_payments')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      setPendingInspections(allInspections);
+      setPayments(paymData || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
