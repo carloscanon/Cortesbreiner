@@ -1527,7 +1527,22 @@ export default function QualityPage() {
                     {(item.sewing_orders?.status === 'Enviado a Calidad' || item.sewing_orders?.status === 'Validación Calidad') ? (
                       <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: '#fffbeb', color: '#d97706', border: '1.5px solid #fcd34d', fontWeight: '900', letterSpacing: '0.02em' }}>⚠️ PENDIENTE RECIBO</span>
                     ) : (
-                      <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1.5px solid ${statusColor.border}`, fontWeight: '900', letterSpacing: '0.02em' }}>{item.status.toUpperCase()}</span>
+                      <>
+                        <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', borderRadius: '999px', backgroundColor: statusColor.bg, color: statusColor.color, border: `1.5px solid ${statusColor.border}`, fontWeight: '900', letterSpacing: '0.02em' }}>{item.status.toUpperCase()}</span>
+                        {item.pago_status === 'Autorizado para Pago' ? (
+                          <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.65rem', borderRadius: '999px', backgroundColor: '#dcfce7', color: '#15803d', border: '1.5px solid #86efac', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                            ✅ Autorizado para Pago
+                          </span>
+                        ) : item.pago_status === 'Pagado' ? (
+                          <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.65rem', borderRadius: '999px', backgroundColor: '#e0e7ff', color: '#3730a3', border: '1.5px solid #a5b4fc', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                            💵 Pagado
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.65rem', borderRadius: '999px', backgroundColor: '#fef3c7', color: '#b45309', border: '1.5px solid #fde68a', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                            ⏳ Pendiente Aprobación Pago
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -2351,7 +2366,6 @@ export default function QualityPage() {
                                 style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1.5px solid #c084fc', fontSize: '0.75rem', fontWeight: '700', color: '#5b21b6', cursor: 'pointer' }}>
                                 <option value="Pendiente de aprobación financiera">⏳ Pendiente de aprobación</option>
                                 <option value="Autorizado para Pago">✅ Autorizado para Pago</option>
-                                <option value="Pagado">💵 Pagado</option>
                               </select>
                             </div>
                           </div>
