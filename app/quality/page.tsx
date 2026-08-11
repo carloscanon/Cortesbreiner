@@ -1220,7 +1220,13 @@ export default function QualityPage() {
     const client = i.orders?.client_name || '';
     const workshop = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || '';
     const matchSearch = orderCode.toLowerCase().includes(search.toLowerCase()) || client.toLowerCase().includes(search.toLowerCase()) || workshop.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus ? i.status === filterStatus : true;
+    
+    let matchStatus = true;
+    if (filterStatus === 'Pendientes de Pago') {
+      matchStatus = i.pago_status === 'Pendiente de aprobación financiera';
+    } else if (filterStatus) {
+      matchStatus = i.status === filterStatus;
+    }
     return matchSearch && matchStatus;
   });
 
@@ -1470,13 +1476,17 @@ export default function QualityPage() {
               style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.85rem' }} />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {['', ...STATUS_OPTIONS].map(s => (
+            {['', 'Pendientes de Pago', ...STATUS_OPTIONS].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)} className="btn" style={{
-                fontSize: '0.72rem', fontWeight: '700', padding: '0.5rem 0.875rem',
-                backgroundColor: filterStatus === s ? '#80082E' : 'white',
+                fontSize: '0.72rem', fontWeight: '800', padding: '0.5rem 0.875rem',
+                backgroundColor: filterStatus === s ? (s === 'Pendientes de Pago' ? '#d97706' : '#80082E') : 'white',
                 color: filterStatus === s ? 'white' : 'var(--text)',
-                border: '1px solid var(--border)', borderRadius: '8px'
-              }}>{s === '' ? 'Todos' : s}</button>
+                border: filterStatus === s ? 'none' : '1px solid var(--border)', borderRadius: '8px',
+                display: 'inline-flex', alignItems: 'center', gap: '0.35rem'
+              }}>
+                {s === 'Pendientes de Pago' && <span>⏳</span>}
+                {s === '' ? 'Todos' : s}
+              </button>
             ))}
           </div>
         </div>
