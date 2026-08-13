@@ -483,7 +483,11 @@ export default function FinishedGoodsInventory() {
         .from('individual_garments')
         .select(`
           *,
-          quality_inspections (id, status, created_at)
+          quality_inspections (
+            id, status, created_at,
+            sewing_orders (id, confeccion_code),
+            orders (id, internal_code, consecutive)
+          )
         `)
         .order('barcode', { ascending: true });
 
@@ -1451,7 +1455,24 @@ export default function FinishedGoodsInventory() {
                             {mov.tipo_movimiento}
                           </span>
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.documento_origen || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>
+                          {mov.documento_origen ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              padding: '0.2rem 0.65rem',
+                              borderRadius: '6px',
+                              fontSize: '0.78rem',
+                              fontWeight: '850',
+                              backgroundColor: '#fdf2f4',
+                              color: '#80082E',
+                              border: '1px solid #fecdd3'
+                            }}>
+                              📦 {mov.documento_origen}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{mov.products?.nombre_producto || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
@@ -2378,39 +2399,52 @@ export default function FinishedGoodsInventory() {
                   <thead>
                     <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left', backgroundColor: '#edf2f7' }}>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>ID Único (Código de Barras)</th>
+                      <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Orden de Ingreso</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Estado</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Ubicación / Origen</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Fecha Registro</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {unitGarments.map((g: any) => (
-                      <tr key={g.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
-                        <td style={{ padding: '0.65rem 1rem', fontWeight: 950, fontFamily: 'monospace', fontSize: '0.9rem', color: '#0f172a' }}>
-                          <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                            {g.barcode}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.65rem 1rem' }}>
-                          <span style={{
-                            padding: '0.2rem 0.55rem',
-                            borderRadius: '12px',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            backgroundColor: g.status === 'Aprobada' || g.status === 'Disponible' ? '#d1fae5' : g.status === 'Vendido' ? '#dbeafe' : '#fee2e2',
-                            color: g.status === 'Aprobada' || g.status === 'Disponible' ? '#065f46' : g.status === 'Vendido' ? '#1e40af' : '#991b1b'
-                          }}>
-                            {g.status || 'Disponible'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.65rem 1rem', color: '#475569', fontWeight: 700 }}>
-                          {selectedStockItemForDetail.warehouses?.nombre_bodega || 'Bodega Principal'}
-                        </td>
-                        <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
-                          {new Date(g.created_at).toLocaleDateString('es-CO')}
-                        </td>
-                      </tr>
-                    ))}
+                    {unitGarments.map((g: any) => {
+                      const orderCode = g.quality_inspections?.sewing_orders?.confeccion_code ||
+                        g.quality_inspections?.orders?.internal_code ||
+                        (g.quality_inspections?.orders?.consecutive ? `OC-${g.quality_inspections.orders.consecutive.toString().padStart(4, '0')}` : null) ||
+                        (g.is_historical ? (g.historical_doc || 'Inventario Histórico') : '—');
+
+                      return (
+                        <tr key={g.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                          <td style={{ padding: '0.65rem 1rem', fontWeight: 950, fontFamily: 'monospace', fontSize: '0.9rem', color: '#0f172a' }}>
+                            <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                              {g.barcode}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem' }}>
+                            <span style={{ fontWeight: 900, color: '#80082E', backgroundColor: '#fdf2f4', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', border: '1px solid #fecdd3' }}>
+                              📦 {orderCode}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem' }}>
+                            <span style={{
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '12px',
+                              fontSize: '0.7rem',
+                              fontWeight: 800,
+                              backgroundColor: g.status === 'Aprobada' || g.status === 'Disponible' ? '#d1fae5' : g.status === 'Vendido' ? '#dbeafe' : '#fee2e2',
+                              color: g.status === 'Aprobada' || g.status === 'Disponible' ? '#065f46' : g.status === 'Vendido' ? '#1e40af' : '#991b1b'
+                            }}>
+                              {g.status || 'Disponible'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', color: '#475569', fontWeight: 700 }}>
+                            {selectedStockItemForDetail.warehouses?.nombre_bodega || 'Bodega Principal'}
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
+                            {new Date(g.created_at).toLocaleDateString('es-CO')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
