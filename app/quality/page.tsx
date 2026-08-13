@@ -386,8 +386,20 @@ export default function QualityPage() {
       const newRejected: Record<string, number> = {};
       rows.forEach((row: any) => {
         if (garments.length > 0) {
+          const isRefMatch = (garmentRef: string, rowProdName: string) => {
+            if (!garmentRef || !rowProdName) return false;
+            const gClean = garmentRef.replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+            const rClean = rowProdName.replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+            if (gClean === rClean) return true;
+            const gFirst = gClean.split(' ')[0];
+            const rFirst = rClean.split(' ')[0];
+            const gPrefix = (gFirst + ' ' + (gClean.split(' ')[1] || '')).trim();
+            const rPrefix = (rFirst + ' ' + (rClean.split(' ')[1] || '')).trim();
+            return gClean.includes(rPrefix) || rClean.includes(gPrefix) || (gFirst.length >= 3 && gFirst === rFirst);
+          };
+
           const matchingGarments = garments.filter(g =>
-            (g.reference_name || '').toUpperCase().trim() === (row.productName || '').toUpperCase().trim() &&
+            isRefMatch(g.reference_name || '', row.productName || '') &&
             (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
             (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
           );

@@ -51,9 +51,27 @@ export async function POST(req: Request) {
       const rejectedQty = Number(rowRejected?.[row.key]) || 0;
       const sizeCode = row.size || 'ST';
 
-      // Filtrar existentes para esta combinación
+      // Helper de coincidencia flexible de nombre de referencia
+      const isRefMatch = (garmentRef: string, rowProdName: string) => {
+        if (!garmentRef || !rowProdName) return false;
+        const gClean = garmentRef.replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+        const rClean = rowProdName.replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+        if (gClean === rClean) return true;
+
+        const gFirst = gClean.split(' ')[0];
+        const rFirst = rClean.split(' ')[0];
+        const gSecond = gClean.split(' ')[1] || '';
+        const rSecond = rClean.split(' ')[1] || '';
+
+        const gPrefix = (gFirst + ' ' + gSecond).trim();
+        const rPrefix = (rFirst + ' ' + rSecond).trim();
+
+        return gClean.includes(rPrefix) || rClean.includes(gPrefix) || (gFirst.length >= 3 && gFirst === rFirst);
+      };
+
+      // Filtrar existentes para esta combinación (coincidencia flexible de referencia)
       const existing = (garments || []).filter(g =>
-        (g.reference_name || '').toUpperCase().trim() === (row.productName || '').toUpperCase().trim() &&
+        isRefMatch(g.reference_name || '', row.productName || '') &&
         (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
         (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
       );
