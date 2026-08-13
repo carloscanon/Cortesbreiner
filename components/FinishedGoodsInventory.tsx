@@ -552,24 +552,106 @@ export default function FinishedGoodsInventory() {
       if (error) throw error;
       setStock(data || []);
 
-      // Resolver mapeo de Orden de Ingreso por combinación SKU (product_id + color_id + size_id + warehouse_id)
+      // Resolver mapeo de Orden de Ingreso limpia por combinación SKU
       try {
-        const { data: kardexMovs } = await supabase
-          .from('finished_goods_kardex')
-          .select('product_id, color_id, size_id, warehouse_dest_id, documento_origen')
+        const { data: garmsData } = await supabase
+          .from('individual_garments')
+          .select(`
+            reference_name, color_name, size_code,
+            quality_inspections (
+              id,
+              sewing_orders (confeccion_code),
+              orders (internal_code, consecutive)
+            )
+          `)
+          .not('quality_inspection_id', 'is', null)
           .order('created_at', { ascending: false });
 
         const orderMap: Record<string, string> = {};
-        if (kardexMovs) {
-          for (const k of kardexMovs) {
-            if (!k.documento_origen) continue;
-            const key = `${k.product_id}_${k.color_id || 'null'}_${k.size_id}_${k.warehouse_dest_id}`;
+
+        if (garmsData && garmsData.length > 0) {
+          for (const g of garmsData) {
+            const ins: any = Array.isArray(g.quality_inspections) ? g.quality_inspections[0] : g.quality_inspections;
+            const code = ins?.sewing_orders?.confeccion_code ||
+              ins?.orders?.internal_code ||
+              (ins?.orders?.consecutive ? `OC-${ins.orders.consecutive.toString().padStart(4, '0')}` : null);
+
+            if (!code) continue;
+
+            const refKey = (g.reference_name || '').replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+            const colorKey = (g.color_name || '—').trim().toUpperCase();
+            const sizeKey = (g.size_code || '').trim().toUpperCase();
+
+            const key = `${refKey}___${colorKey}___${sizeKey}`;
             if (!orderMap[key]) {
-              const doc = k.documento_origen.replace(/^Inspección #/, 'Inspección ');
-              orderMap[key] = doc;
+              orderMap[key] = code;
             }
           }
         }
+
+        // Fallback desde Kardex con resolución de ID a código limpio
+        const { data: kardexMovs } = await supabase
+          .from('finished_goods_kardex')
+          .select(`
+            product_id, color_id, size_id, warehouse_dest_id, documento_origen,
+            products (codigo_referencia, nombre_producto),
+            colors (nombre_color),
+            sizes (codigo_talla)
+          `)
+          .order('created_at', { ascending: false });
+
+        if (kardexMovs) {
+          // Extraer IDs de inspecciones para consultar sus códigos limpios
+          const inspIdsToFetch: string[] = [];
+          for (const k of kardexMovs) {
+            if (k.documento_origen && k.documento_origen.startsWith('Inspección #')) {
+              const uuid = k.documento_origen.replace('Inspección #', '').trim();
+              if (uuid.length > 20) inspIdsToFetch.push(uuid);
+            }
+          }
+
+          let inspCodeMap: Record<string, string> = {};
+          if (inspIdsToFetch.length > 0) {
+            const { data: inspDetails } = await supabase
+              .from('quality_inspections')
+              .select(`
+                id,
+                sewing_orders (confeccion_code),
+                orders (internal_code, consecutive)
+              `)
+              .in('id', Array.from(new Set(inspIdsToFetch)));
+
+            if (inspDetails) {
+              inspDetails.forEach((ins: any) => {
+                const cleanCode = ins.sewing_orders?.confeccion_code ||
+                  ins.orders?.internal_code ||
+                  (ins.orders?.consecutive ? `OC-${ins.orders.consecutive.toString().padStart(4, '0')}` : null);
+                if (cleanCode) {
+                  inspCodeMap[ins.id] = cleanCode;
+                }
+              });
+            }
+          }
+
+          for (const k of kardexMovs) {
+            if (!k.documento_origen) continue;
+            let displayCode = k.documento_origen;
+            if (k.documento_origen.startsWith('Inspección #')) {
+              const uuid = k.documento_origen.replace('Inspección #', '').trim();
+              if (inspCodeMap[uuid]) {
+                displayCode = inspCodeMap[uuid];
+              } else {
+                continue;
+              }
+            }
+
+            const stockKey = `${k.product_id}_${k.color_id || 'null'}_${k.size_id}_${k.warehouse_dest_id}`;
+            if (!orderMap[stockKey]) {
+              orderMap[stockKey] = displayCode;
+            }
+          }
+        }
+
         setStockOrderMap(orderMap);
       } catch (errK) {
         console.error('Error resolving stock orders mapping:', errK);
@@ -1350,8 +1432,15 @@ export default function FinishedGoodsInventory() {
                   filteredStock.map(item => {
                     const isCritical = item.cantidad_disponible <= (item.stock_minimo || 0) && item.stock_minimo > 0;
                     const isOver = item.cantidad_disponible >= (item.stock_maximo || 999999) && item.stock_maximo > 0;
+                    
                     const stockKey = `${item.product_id}_${item.color_id || 'null'}_${item.size_id}_${item.warehouse_id}`;
-                    const linkedOrder = stockOrderMap[stockKey] || '—';
+                    
+                    const refNameKey = (item.products?.nombre_producto || item.products?.codigo_referencia || '').replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
+                    const colorNameKey = (item.colors?.nombre_color || item.fabrics?.nombre_tela || '—').trim().toUpperCase();
+                    const sizeCodeKey = (item.sizes?.codigo_talla || '').trim().toUpperCase();
+                    const refKey = `${refNameKey}___${colorNameKey}___${sizeCodeKey}`;
+                    
+                    const linkedOrder = stockOrderMap[refKey] || stockOrderMap[stockKey] || '—';
 
                     return (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background-color 0.2s' }}>

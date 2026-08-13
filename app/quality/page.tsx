@@ -179,7 +179,7 @@ export default function QualityPage() {
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
   const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
   const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'ranking' | 'alerts'>('ranking');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'tracking' | 'ranking' | 'alerts'>('tracking');
   const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
   const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
@@ -1326,16 +1326,17 @@ export default function QualityPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
+          gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '0.5rem',
           padding: '0.35rem',
           backgroundColor: '#f1f5f9',
           borderRadius: '14px',
           border: '1.5px solid #cbd5e1',
-          maxWidth: '500px',
+          maxWidth: '720px',
           width: '100%'
         }}>
           {[
+            { key: 'tracking', label: '📊 Tablero de Seguimiento de Etapas' },
             { key: 'ranking', label: '🏆 Ranking de Satélites' },
             { key: 'alerts', label: '🔔 Alertas y Novedades' }
           ].map(({ key, label }) => {
@@ -1363,6 +1364,167 @@ export default function QualityPage() {
             );
           })}
         </div>
+
+        {/* 📊 TABLERO DE SEGUIMIENTO DE ETAPAS Y TIEMPOS */}
+        {activeDashboardTab === 'tracking' && (
+          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  📊 Tablero de Seguimiento de Etapas y Tiempos de Gestión
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                  Monitoreo en tiempo real del flujo de lotes a través de Recepción, Arreglos/Reproceso, Doblado/Empaque y Cierre Financiero.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.3rem 0.75rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                  ⚡ Total Órdenes: {inspections.length}
+                </span>
+              </div>
+            </div>
+
+            {/* KPIs Por Etapas */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+              {[
+                {
+                  stage: 'Etapa 1',
+                  name: 'Recepción e Inspección',
+                  count: inspections.filter(i => (i.current_stage === 1 || !i.current_stage) && i.status !== 'Aprobado' && i.status !== 'Rechazado').length,
+                  icon: '📥',
+                  color: '#3b82f6',
+                  bgColor: '#eff6ff',
+                  borderColor: '#bfdbfe',
+                  desc: 'Lotes recibidos o en revisión'
+                },
+                {
+                  stage: 'Etapa 2',
+                  name: 'Reproceso y Arreglos',
+                  count: inspections.filter(i => i.current_stage === 2 || i.status === 'Reproceso').length,
+                  icon: '🛠️',
+                  color: '#d97706',
+                  bgColor: '#fffbeb',
+                  borderColor: '#fde68a',
+                  desc: 'Prendas con novedades o en ajuste'
+                },
+                {
+                  stage: 'Etapa 3',
+                  name: 'Doblado y Empaque',
+                  count: inspections.filter(i => i.current_stage === 3 || i.status === 'Doblado' || i.status === 'Empacado').length,
+                  icon: '📦',
+                  color: '#8b5cf6',
+                  bgColor: '#f5f3ff',
+                  borderColor: '#ddd6fe',
+                  desc: 'Etiquetado e inventariado'
+                },
+                {
+                  stage: 'Etapa 4',
+                  name: 'Aprobación Financiera',
+                  count: inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').length,
+                  icon: '⏳',
+                  color: '#059669',
+                  bgColor: '#ecfdf5',
+                  borderColor: '#a7f3d0',
+                  desc: 'Pendiente autorizar pago a taller'
+                }
+              ].map((st, idx) => (
+                <div key={idx} style={{ padding: '1.1rem', borderRadius: '14px', backgroundColor: st.bgColor, border: `1.5px solid ${st.borderColor}`, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: '900', color: st.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{st.stage}</span>
+                    <span style={{ fontSize: '1.25rem' }}>{st.icon}</span>
+                  </div>
+                  <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', marginTop: '0.2rem' }}>
+                    <span style={{ fontSize: '1.6rem', fontWeight: '950', color: st.color }}>{st.count}</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>lote{st.count !== 1 ? 's' : ''}</span>
+                  </div>
+                  <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.1rem' }}>{st.desc}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Tabla Detallada de Trazabilidad de Tiempos */}
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ padding: '0.85rem 1.25rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>
+                  ⏱️ Trazabilidad de Gestión de Lotes por Etapas
+                </h4>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
+                  Promedio ciclo completo: <strong>{avgHours.toFixed(1)} horas</strong>
+                </span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Etapa Actual</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Recibido el</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Empacado el</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Cerrado el</th>
+                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Transcurrido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inspections.slice(0, 15).map((item: any) => {
+                      const code = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
+                      const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
+                      
+                      const stageName = item.current_stage === 4 || item.status === 'Aprobado' ? '4. Cierre Financiero'
+                        : item.current_stage === 3 || item.status === 'Empacado' || item.status === 'Doblado' ? '3. Doblado y Empaque'
+                        : item.current_stage === 2 || item.status === 'Reproceso' ? '2. Reproceso y Arreglos'
+                        : '1. Recepción e Inspección';
+
+                      const recDate = item.received_at ? new Date(item.received_at) : null;
+                      const closeDate = item.closed_at ? new Date(item.closed_at) : null;
+                      
+                      let durationText = 'En proceso';
+                      if (recDate && closeDate) {
+                        const h = (closeDate.getTime() - recDate.getTime()) / 3600000;
+                        durationText = `${h.toFixed(1)}h`;
+                      } else if (recDate) {
+                        const h = (new Date().getTime() - recDate.getTime()) / 3600000;
+                        durationText = `${h.toFixed(1)}h (transcurridas)`;
+                      }
+
+                      return (
+                        <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#80082E' }}>{code}</td>
+                          <td style={{ padding: '0.65rem 1rem', fontWeight: '750', color: '#334155' }}>{workshop}</td>
+                          <td style={{ padding: '0.65rem 1rem' }}>
+                            <span style={{
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '6px',
+                              fontSize: '0.7rem',
+                              fontWeight: '850',
+                              backgroundColor: item.current_stage === 4 || item.status === 'Aprobado' ? '#dcfce7' : item.current_stage === 3 ? '#f5f3ff' : item.current_stage === 2 ? '#fffbeb' : '#eff6ff',
+                              color: item.current_stage === 4 || item.status === 'Aprobado' ? '#15803d' : item.current_stage === 3 ? '#6d28d9' : item.current_stage === 2 ? '#b45309' : '#1d4ed8'
+                            }}>
+                              {stageName}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
+                            {recDate ? recDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
+                            {item.packaged_at ? new Date(item.packaged_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
+                            {closeDate ? closeDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                          <td style={{ padding: '0.65rem 1rem', fontWeight: '900', textAlign: 'right', color: closeDate ? '#059669' : '#d97706' }}>
+                            {durationText}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activeDashboardTab === 'ranking' && (
           <div className="card" style={{ padding: 0, borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', overflow: 'hidden' }}>
