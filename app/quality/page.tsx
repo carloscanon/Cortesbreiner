@@ -179,7 +179,7 @@ export default function QualityPage() {
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
   const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
   const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'tracking' | 'ranking' | 'alerts'>('tracking');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'tracking' | 'ranking' | 'alerts' | null>(null);
   const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
   const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
@@ -1345,7 +1345,7 @@ export default function QualityPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setActiveDashboardTab(key as any)}
+                onClick={() => setActiveDashboardTab(prev => prev === key ? null : key as any)}
                 style={{
                   border: 'none',
                   borderRadius: '10px',
@@ -1559,97 +1559,123 @@ export default function QualityPage() {
                         </div>
                       </div>
 
-                      {/* Fila 2: Timeline Gráfico Interactivo de Etapas */}
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(4, 1fr)',
-                        gap: '0.5rem',
-                        backgroundColor: '#f8fafc',
-                        padding: '1rem',
-                        borderRadius: '12px',
-                        border: '1px solid #edf2f7',
-                        position: 'relative'
-                      }}>
-                        
-                        {/* Etapa 1 */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 1 ? 1 : 0.45 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 1 ? '#2563eb' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              1
-                            </div>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 1 ? '#1e3a8a' : '#64748b' }}>
-                              Recepción
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
-                            {recDate ? recDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pendiente'}
-                          </span>
-                          {hrsRecToInsp !== null && (
-                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#2563eb', paddingLeft: '1.75rem' }}>
-                              ⚡ {hrsRecToInsp.toFixed(1)} hrs hasta revisión
-                            </span>
-                          )}
-                        </div>
+                      {/* Fila 2: Barra de Progreso y Timeline Gráfico Interactivo */}
+                      {(() => {
+                        const progressPct = currStage === 4 ? 100 : currStage === 3 ? 75 : currStage === 2 ? 50 : 25;
+                        const barColor = currStage === 4 ? '#10b981' : currStage === 3 ? '#8b5cf6' : currStage === 2 ? '#f59e0b' : '#3b82f6';
 
-                        {/* Etapa 2 */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 2 ? 1 : 0.45 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 2 ? '#d97706' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              2
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                            {/* Barra de Avance de Progreso */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <div style={{ flex: 1, height: '8px', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                                <div style={{
+                                  width: `${progressPct}%`,
+                                  height: '100%',
+                                  backgroundColor: barColor,
+                                  borderRadius: '999px',
+                                  transition: 'width 0.4s ease-in-out'
+                                }} />
+                              </div>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 900, color: barColor }}>
+                                {progressPct}% Avance ({currStage}/4 Etapas)
+                              </span>
                             </div>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 2 ? '#78350f' : '#64748b' }}>
-                              Reproceso / Arreglos
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
-                            {inspDate ? inspDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.status === 'Reproceso' ? 'En ajuste' : 'Sin reproceso')}
-                          </span>
-                          {hrsInspToPack !== null && (
-                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#d97706', paddingLeft: '1.75rem' }}>
-                              ⚡ {hrsInspToPack.toFixed(1)} hrs hasta empaque
-                            </span>
-                          )}
-                        </div>
 
-                        {/* Etapa 3 */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 3 ? 1 : 0.45 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 3 ? '#7c3aed' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              3
+                            {/* Timeline de Etapas */}
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(4, 1fr)',
+                              gap: '0.5rem',
+                              backgroundColor: '#f8fafc',
+                              padding: '1rem',
+                              borderRadius: '12px',
+                              border: '1px solid #edf2f7',
+                              position: 'relative'
+                            }}>
+                              
+                              {/* Etapa 1 */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 1 ? 1 : 0.45 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 1 ? '#2563eb' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    1
+                                  </div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 1 ? '#1e3a8a' : '#64748b' }}>
+                                    Recepción
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                                  {recDate ? recDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pendiente'}
+                                </span>
+                                {hrsRecToInsp !== null && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#2563eb', paddingLeft: '1.75rem' }}>
+                                    ⚡ {hrsRecToInsp.toFixed(1)} hrs hasta revisión
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Etapa 2 */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 2 ? 1 : 0.45 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 2 ? '#d97706' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    2
+                                  </div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 2 ? '#78350f' : '#64748b' }}>
+                                    Reproceso / Arreglos
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                                  {inspDate ? inspDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.status === 'Reproceso' ? 'En ajuste' : 'Sin reproceso')}
+                                </span>
+                                {hrsInspToPack !== null && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#d97706', paddingLeft: '1.75rem' }}>
+                                    ⚡ {hrsInspToPack.toFixed(1)} hrs hasta empaque
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Etapa 3 */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 3 ? 1 : 0.45 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 3 ? '#7c3aed' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    3
+                                  </div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 3 ? '#4c1d95' : '#64748b' }}>
+                                    Doblado y Empaque
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                                  {packDate ? packDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'En proceso'}
+                                </span>
+                                {hrsPackToClose !== null && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#7c3aed', paddingLeft: '1.75rem' }}>
+                                    ⚡ {hrsPackToClose.toFixed(1)} hrs hasta cierre
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Etapa 4 */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 4 ? 1 : 0.45 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 4 ? '#059669' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    4
+                                  </div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 4 ? '#064e3b' : '#64748b' }}>
+                                    Aprobación Financiera
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                                  {closeDate ? closeDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.pago_status || 'Pendiente')}
+                                </span>
+                                <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#059669', paddingLeft: '1.75rem' }}>
+                                  {item.pago_status === 'Autorizado para Pago' ? '✅ Autorizado Pago' : item.pago_status === 'Pagado' ? '💵 Pagado' : '⏳ Pendiente Pago'}
+                                </span>
+                              </div>
+
                             </div>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 3 ? '#4c1d95' : '#64748b' }}>
-                              Doblado y Empaque
-                            </span>
                           </div>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
-                            {packDate ? packDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'En proceso'}
-                          </span>
-                          {hrsPackToClose !== null && (
-                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#7c3aed', paddingLeft: '1.75rem' }}>
-                              ⚡ {hrsPackToClose.toFixed(1)} hrs hasta cierre
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Etapa 4 */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 4 ? 1 : 0.45 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 4 ? '#059669' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              4
-                            </div>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 4 ? '#064e3b' : '#64748b' }}>
-                              Aprobación Financiera
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
-                            {closeDate ? closeDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.pago_status || 'Pendiente')}
-                          </span>
-                          <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#059669', paddingLeft: '1.75rem' }}>
-                            {item.pago_status === 'Autorizado para Pago' ? '✅ Autorizado Pago' : item.pago_status === 'Pagado' ? '💵 Pagado' : '⏳ Pendiente Pago'}
-                          </span>
-                        </div>
-
-                      </div>
+                        );
+                      })()}
 
                     </div>
                   );
