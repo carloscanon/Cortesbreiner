@@ -1365,164 +1365,298 @@ export default function QualityPage() {
           })}
         </div>
 
-        {/* 📊 TABLERO DE SEGUIMIENTO DE ETAPAS Y TIEMPOS */}
+        {/* 📊 TABLERO DE SEGUIMIENTO DE ETAPAS Y TIEMPOS (UX MEJORADA) */}
         {activeDashboardTab === 'tracking' && (
-          <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+          <div className="card" style={{ padding: '1.75rem', borderRadius: '20px', backgroundColor: 'white', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.75rem', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.03)' }}>
+            
+            {/* Header del Tablero */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1.5px solid #f1f5f9', paddingBottom: '1.25rem' }}>
               <div>
-                <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  📊 Tablero de Seguimiento de Etapas y Tiempos de Gestión
+                <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.2rem 0.65rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  ⚡ TRAZABILIDAD Y PERFORMANCE EN TIEMPO REAL
+                </span>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '950', color: '#0f172a', margin: '0.3rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  📊 Tablero Visual de Tiempos y Flujo por Etapas
                 </h3>
-                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>
-                  Monitoreo en tiempo real del flujo de lotes a través de Recepción, Arreglos/Reproceso, Doblado/Empaque y Cierre Financiero.
+                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                  Mide el tiempo de permanencia de cada orden en Recepción, Reproceso, Doblado/Empaque y Autorización Financiera.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.3rem 0.75rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                  ⚡ Total Órdenes: {inspections.length}
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '850', backgroundColor: '#f8fafc', color: '#334155', padding: '0.4rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>
+                  ⏱️ Promedio General: <strong style={{ color: '#80082E' }}>{avgHours.toFixed(1)} hrs</strong>
+                </span>
+                <span style={{ fontSize: '0.75rem', fontWeight: '850', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '0.4rem 0.85rem', borderRadius: '10px', border: '1.5px solid #c7d2fe' }}>
+                  📦 {inspections.length} Lotes Monitoreados
                 </span>
               </div>
             </div>
 
-            {/* KPIs Por Etapas */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            {/* Stepper Superior Global de Etapas */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+              gap: '1rem',
+              backgroundColor: '#f8fafc',
+              padding: '1.25rem',
+              borderRadius: '16px',
+              border: '1px solid #e2e8f0'
+            }}>
               {[
                 {
-                  stage: 'Etapa 1',
+                  stageNum: '1',
                   name: 'Recepción e Inspección',
                   count: inspections.filter(i => (i.current_stage === 1 || !i.current_stage) && i.status !== 'Aprobado' && i.status !== 'Rechazado').length,
                   icon: '📥',
-                  color: '#3b82f6',
-                  bgColor: '#eff6ff',
+                  themeColor: '#2563eb',
+                  bgColor: '#ffffff',
                   borderColor: '#bfdbfe',
-                  desc: 'Lotes recibidos o en revisión'
+                  sub: 'Inspección física inicial'
                 },
                 {
-                  stage: 'Etapa 2',
+                  stageNum: '2',
                   name: 'Reproceso y Arreglos',
                   count: inspections.filter(i => i.current_stage === 2 || i.status === 'Reproceso').length,
                   icon: '🛠️',
-                  color: '#d97706',
-                  bgColor: '#fffbeb',
+                  themeColor: '#d97706',
+                  bgColor: '#ffffff',
                   borderColor: '#fde68a',
-                  desc: 'Prendas con novedades o en ajuste'
+                  sub: 'Novedades y costuras'
                 },
                 {
-                  stage: 'Etapa 3',
+                  stageNum: '3',
                   name: 'Doblado y Empaque',
                   count: inspections.filter(i => i.current_stage === 3 || i.status === 'Doblado' || i.status === 'Empacado').length,
                   icon: '📦',
-                  color: '#8b5cf6',
-                  bgColor: '#f5f3ff',
+                  themeColor: '#7c3aed',
+                  bgColor: '#ffffff',
                   borderColor: '#ddd6fe',
-                  desc: 'Etiquetado e inventariado'
+                  sub: 'Etiquetado e inventario'
                 },
                 {
-                  stage: 'Etapa 4',
-                  name: 'Aprobación Financiera',
+                  stageNum: '4',
+                  name: 'Cierre y Autorización',
                   count: inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').length,
-                  icon: '⏳',
+                  icon: '💰',
                   color: '#059669',
-                  bgColor: '#ecfdf5',
+                  themeColor: '#059669',
+                  bgColor: '#ffffff',
                   borderColor: '#a7f3d0',
-                  desc: 'Pendiente autorizar pago a taller'
+                  sub: 'Validación de pago a taller'
                 }
               ].map((st, idx) => (
-                <div key={idx} style={{ padding: '1.1rem', borderRadius: '14px', backgroundColor: st.bgColor, border: `1.5px solid ${st.borderColor}`, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div key={idx} style={{
+                  padding: '1.1rem',
+                  borderRadius: '14px',
+                  backgroundColor: st.bgColor,
+                  border: `2px solid ${st.borderColor}`,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.4rem',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', backgroundColor: st.themeColor }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: '900', color: st.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{st.stage}</span>
-                    <span style={{ fontSize: '1.25rem' }}>{st.icon}</span>
+                    <span style={{ fontSize: '0.68rem', fontWeight: '950', color: st.themeColor, backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                      ETAPA {st.stageNum}
+                    </span>
+                    <span style={{ fontSize: '1.35rem' }}>{st.icon}</span>
                   </div>
-                  <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', marginTop: '0.2rem' }}>
-                    <span style={{ fontSize: '1.6rem', fontWeight: '950', color: st.color }}>{st.count}</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>lote{st.count !== 1 ? 's' : ''}</span>
+                  <h4 style={{ margin: '0.1rem 0 0', fontSize: '0.92rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '1.75rem', fontWeight: '950', color: st.themeColor }}>{st.count}</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>orden{st.count !== 1 ? 'es' : ''} en cola</span>
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.1rem' }}>{st.desc}</span>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{st.sub}</span>
                 </div>
               ))}
             </div>
 
-            {/* Tabla Detallada de Trazabilidad de Tiempos */}
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
-              <div style={{ padding: '0.85rem 1.25rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>
-                  ⏱️ Trazabilidad de Gestión de Lotes por Etapas
+            {/* Listado Gráfico Tipo Timeline para Cada Orden */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  📍 Trazabilidad Detallada de Tiempos por Orden ({inspections.length})
                 </h4>
-                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
-                  Promedio ciclo completo: <strong>{avgHours.toFixed(1)} horas</strong>
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  💡 Pasa el cursor sobre la línea de tiempo para ver la duración en horas transcurridas en cada hito.
                 </span>
               </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Lote / Código</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Taller</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Etapa Actual</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Recibido el</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Empacado el</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Cerrado el</th>
-                      <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Transcurrido</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inspections.slice(0, 15).map((item: any) => {
-                      const code = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
-                      const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Interno';
-                      
-                      const stageName = item.current_stage === 4 || item.status === 'Aprobado' ? '4. Cierre Financiero'
-                        : item.current_stage === 3 || item.status === 'Empacado' || item.status === 'Doblado' ? '3. Doblado y Empaque'
-                        : item.current_stage === 2 || item.status === 'Reproceso' ? '2. Reproceso y Arreglos'
-                        : '1. Recepción e Inspección';
 
-                      const recDate = item.received_at ? new Date(item.received_at) : null;
-                      const closeDate = item.closed_at ? new Date(item.closed_at) : null;
-                      
-                      let durationText = 'En proceso';
-                      if (recDate && closeDate) {
-                        const h = (closeDate.getTime() - recDate.getTime()) / 3600000;
-                        durationText = `${h.toFixed(1)}h`;
-                      } else if (recDate) {
-                        const h = (new Date().getTime() - recDate.getTime()) / 3600000;
-                        durationText = `${h.toFixed(1)}h (transcurridas)`;
-                      }
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {inspections.slice(0, 20).map((item: any) => {
+                  const code = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
+                  const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Satélite';
+                  const approvedCount = item.items_approved || 0;
+                  const totalInspected = item.items_inspected || 0;
 
-                      return (
-                        <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#80082E' }}>{code}</td>
-                          <td style={{ padding: '0.65rem 1rem', fontWeight: '750', color: '#334155' }}>{workshop}</td>
-                          <td style={{ padding: '0.65rem 1rem' }}>
-                            <span style={{
-                              padding: '0.2rem 0.55rem',
-                              borderRadius: '6px',
-                              fontSize: '0.7rem',
-                              fontWeight: '850',
-                              backgroundColor: item.current_stage === 4 || item.status === 'Aprobado' ? '#dcfce7' : item.current_stage === 3 ? '#f5f3ff' : item.current_stage === 2 ? '#fffbeb' : '#eff6ff',
-                              color: item.current_stage === 4 || item.status === 'Aprobado' ? '#15803d' : item.current_stage === 3 ? '#6d28d9' : item.current_stage === 2 ? '#b45309' : '#1d4ed8'
-                            }}>
-                              {stageName}
+                  const recDate = item.received_at ? new Date(item.received_at) : null;
+                  const inspDate = item.inspected_at ? new Date(item.inspected_at) : null;
+                  const packDate = item.packaged_at ? new Date(item.packaged_at) : null;
+                  const closeDate = item.closed_at ? new Date(item.closed_at) : null;
+
+                  // Cálculo de Duraciones por Tramo (Horas)
+                  let hrsRecToInsp = inspDate && recDate ? (inspDate.getTime() - recDate.getTime()) / 3600000 : null;
+                  let hrsInspToPack = packDate && inspDate ? (packDate.getTime() - inspDate.getTime()) / 3600000 : null;
+                  let hrsPackToClose = closeDate && packDate ? (closeDate.getTime() - packDate.getTime()) / 3600000 : null;
+                  
+                  let totalHrs = closeDate && recDate ? (closeDate.getTime() - recDate.getTime()) / 3600000
+                    : recDate ? (new Date().getTime() - recDate.getTime()) / 3600000
+                    : 0;
+
+                  // Estado actual
+                  const currStage = item.current_stage || (item.status === 'Aprobado' ? 4 : item.status === 'Empacado' ? 3 : item.status === 'Reproceso' ? 2 : 1);
+
+                  return (
+                    <div key={item.id} style={{
+                      padding: '1.25rem 1.5rem',
+                      borderRadius: '16px',
+                      backgroundColor: '#ffffff',
+                      border: '1.5px solid #e2e8f0',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '1rem',
+                      transition: 'border-color 0.2s'
+                    }}>
+                      
+                      {/* Fila 1: Datos de la Orden */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontSize: '1rem', fontWeight: 950, color: '#80082E', backgroundColor: '#fdf2f4', padding: '0.3rem 0.75rem', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                            📦 {code}
+                          </span>
+                          <div>
+                            <strong style={{ fontSize: '0.88rem', color: '#0f172a', display: 'block' }}>{workshop}</strong>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                              Prendas: <strong>{approvedCount}</strong> aprobadas de {totalInspected} inspeccionadas
                             </span>
-                          </td>
-                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
-                            {recDate ? recDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                          </td>
-                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
-                            {item.packaged_at ? new Date(item.packaged_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                          </td>
-                          <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
-                            {closeDate ? closeDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
-                          </td>
-                          <td style={{ padding: '0.65rem 1rem', fontWeight: '900', textAlign: 'right', color: closeDate ? '#059669' : '#d97706' }}>
-                            {durationText}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{
+                            fontSize: '0.75rem',
+                            fontWeight: '850',
+                            padding: '0.3rem 0.7rem',
+                            borderRadius: '8px',
+                            backgroundColor: closeDate ? '#dcfce7' : '#fffbeb',
+                            color: closeDate ? '#15803d' : '#b45309',
+                            border: `1px solid ${closeDate ? '#bbf7d0' : '#fde68a'}`
+                          }}>
+                            ⏱️ Tiempo Total: {totalHrs.toFixed(1)} hrs {closeDate ? '(Cerrado)' : '(En transcurso)'}
+                          </span>
+
+                          <button
+                            onClick={() => openReview(item)}
+                            className="btn"
+                            style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: 800, border: '1px solid #cbd5e1' }}
+                          >
+                            👁️ Ver Gestión
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Fila 2: Timeline Gráfico Interactivo de Etapas */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: '0.5rem',
+                        backgroundColor: '#f8fafc',
+                        padding: '1rem',
+                        borderRadius: '12px',
+                        border: '1px solid #edf2f7',
+                        position: 'relative'
+                      }}>
+                        
+                        {/* Etapa 1 */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 1 ? 1 : 0.45 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 1 ? '#2563eb' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              1
+                            </div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 1 ? '#1e3a8a' : '#64748b' }}>
+                              Recepción
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                            {recDate ? recDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Pendiente'}
+                          </span>
+                          {hrsRecToInsp !== null && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#2563eb', paddingLeft: '1.75rem' }}>
+                              ⚡ {hrsRecToInsp.toFixed(1)} hrs hasta revisión
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Etapa 2 */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 2 ? 1 : 0.45 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 2 ? '#d97706' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              2
+                            </div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 2 ? '#78350f' : '#64748b' }}>
+                              Reproceso / Arreglos
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                            {inspDate ? inspDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.status === 'Reproceso' ? 'En ajuste' : 'Sin reproceso')}
+                          </span>
+                          {hrsInspToPack !== null && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#d97706', paddingLeft: '1.75rem' }}>
+                              ⚡ {hrsInspToPack.toFixed(1)} hrs hasta empaque
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Etapa 3 */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 3 ? 1 : 0.45 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 3 ? '#7c3aed' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              3
+                            </div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 3 ? '#4c1d95' : '#64748b' }}>
+                              Doblado y Empaque
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                            {packDate ? packDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'En proceso'}
+                          </span>
+                          {hrsPackToClose !== null && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#7c3aed', paddingLeft: '1.75rem' }}>
+                              ⚡ {hrsPackToClose.toFixed(1)} hrs hasta cierre
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Etapa 4 */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', opacity: currStage >= 4 ? 1 : 0.45 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', backgroundColor: currStage >= 4 ? '#059669' : '#94a3b8', color: 'white', fontSize: '0.7rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              4
+                            </div>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: currStage >= 4 ? '#064e3b' : '#64748b' }}>
+                              Aprobación Financiera
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', paddingLeft: '1.75rem' }}>
+                            {closeDate ? closeDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : (item.pago_status || 'Pendiente')}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#059669', paddingLeft: '1.75rem' }}>
+                            {item.pago_status === 'Autorizado para Pago' ? '✅ Autorizado Pago' : item.pago_status === 'Pagado' ? '💵 Pagado' : '⏳ Pendiente Pago'}
+                          </span>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  );
+                })}
               </div>
             </div>
+
           </div>
         )}
 

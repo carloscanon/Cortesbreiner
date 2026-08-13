@@ -479,6 +479,24 @@ export default function FinishedGoodsInventory() {
       const colorName = item.colors?.nombre_color || '';
       const sizeCode = item.sizes?.codigo_talla || '';
 
+      // 1. Intentar obtener la inspección exacta de calidad desde el último movimiento de ingreso al Kardex
+      let targetInspectionId: string | null = null;
+      const { data: kardexMovs } = await supabase
+        .from('finished_goods_kardex')
+        .select('documento_origen')
+        .eq('product_id', item.product_id)
+        .eq('size_id', item.size_id)
+        .eq('warehouse_dest_id', item.warehouse_id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (kardexMovs && kardexMovs.length > 0 && kardexMovs[0].documento_origen) {
+        const doc = kardexMovs[0].documento_origen;
+        if (doc.startsWith('Inspección #')) {
+          targetInspectionId = doc.replace('Inspección #', '').trim();
+        }
+      }
+
       let query = supabase
         .from('individual_garments')
         .select(`
@@ -491,19 +509,30 @@ export default function FinishedGoodsInventory() {
         `)
         .order('barcode', { ascending: true });
 
-      if (refName) {
-        query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
-      }
-      if (sizeCode) {
-        query = query.eq('size_code', sizeCode);
-      }
-      if (colorName) {
-        query = query.eq('color_name', colorName);
+      if (targetInspectionId) {
+        query = query.eq('quality_inspection_id', targetInspectionId);
+      } else {
+        if (refName) {
+          query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
+        }
+        if (sizeCode) {
+          query = query.eq('size_code', sizeCode);
+        }
+        if (colorName) {
+          query = query.eq('color_name', colorName);
+        }
       }
 
       const { data, error } = await query;
       if (error) throw error;
-      setUnitGarments(data || []);
+      
+      let finalGarments = data || [];
+      // Si no se filtró por inspección directa y hay más prendas de las disponibles en el stock, acotar a la cantidad real disponible
+      if (!targetInspectionId && item.cantidad_disponible > 0 && finalGarments.length > item.cantidad_disponible) {
+        finalGarments = finalGarments.slice(0, item.cantidad_disponible);
+      }
+
+      setUnitGarments(finalGarments);
     } catch (err: any) {
       console.error('Error fetching unit details:', err);
     } finally {
