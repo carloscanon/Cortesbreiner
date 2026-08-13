@@ -534,6 +534,8 @@ export default function FinishedGoodsInventory() {
     }
   };
 
+  const [stockOrderMap, setStockOrderMap] = useState<Record<string, string>>({});
+
   const fetchStock = async () => {
     try {
       const { data, error } = await supabase
@@ -549,6 +551,29 @@ export default function FinishedGoodsInventory() {
         `);
       if (error) throw error;
       setStock(data || []);
+
+      // Resolver mapeo de Orden de Ingreso por combinación SKU (product_id + color_id + size_id + warehouse_id)
+      try {
+        const { data: kardexMovs } = await supabase
+          .from('finished_goods_kardex')
+          .select('product_id, color_id, size_id, warehouse_dest_id, documento_origen')
+          .order('created_at', { ascending: false });
+
+        const orderMap: Record<string, string> = {};
+        if (kardexMovs) {
+          for (const k of kardexMovs) {
+            if (!k.documento_origen) continue;
+            const key = `${k.product_id}_${k.color_id || 'null'}_${k.size_id}_${k.warehouse_dest_id}`;
+            if (!orderMap[key]) {
+              const doc = k.documento_origen.replace(/^Inspección #/, 'Inspección ');
+              orderMap[key] = doc;
+            }
+          }
+        }
+        setStockOrderMap(orderMap);
+      } catch (errK) {
+        console.error('Error resolving stock orders mapping:', errK);
+      }
     } catch (err) {
       console.error('Error fetching stock:', err);
     }
@@ -1309,7 +1334,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Referencia', 'Producto', 'Color', 'Categoría', 'Bodega', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
+                  {['Referencia', 'Orden de Ingreso', 'Producto', 'Color', 'Categoría', 'Bodega', 'Talla', 'Disponible', 'Reservado', 'En Tránsito', 'Stock Mín / Máx', 'Estado/Alerta', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -1317,7 +1342,7 @@ export default function FinishedGoodsInventory() {
               <tbody>
                 {filteredStock.length === 0 ? (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={13} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                       No se encontraron existencias con los filtros aplicados.
                     </td>
                   </tr>
@@ -1325,9 +1350,28 @@ export default function FinishedGoodsInventory() {
                   filteredStock.map(item => {
                     const isCritical = item.cantidad_disponible <= (item.stock_minimo || 0) && item.stock_minimo > 0;
                     const isOver = item.cantidad_disponible >= (item.stock_maximo || 999999) && item.stock_maximo > 0;
+                    const stockKey = `${item.product_id}_${item.color_id || 'null'}_${item.size_id}_${item.warehouse_id}`;
+                    const linkedOrder = stockOrderMap[stockKey] || '—';
+
                     return (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background-color 0.2s' }}>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            padding: '0.25rem 0.65rem',
+                            borderRadius: '6px',
+                            fontSize: '0.78rem',
+                            fontWeight: '850',
+                            backgroundColor: linkedOrder !== '—' ? '#fdf2f4' : '#f8fafc',
+                            color: linkedOrder !== '—' ? '#80082E' : '#94a3b8',
+                            border: `1px solid ${linkedOrder !== '—' ? '#fecdd3' : '#e2e8f0'}`
+                          }}>
+                            📦 {linkedOrder}
+                          </span>
+                        </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           {(() => {
