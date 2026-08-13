@@ -1414,76 +1414,125 @@ export default function QualityPage() {
               borderRadius: '16px',
               border: '1px solid #e2e8f0'
             }}>
-              {[
-                {
-                  stageNum: '1',
-                  name: 'Recepción e Inspección',
-                  count: inspections.filter(i => (i.current_stage === 1 || !i.current_stage) && i.status !== 'Aprobado' && i.status !== 'Rechazado').length,
-                  icon: '📥',
-                  themeColor: '#2563eb',
-                  bgColor: '#ffffff',
-                  borderColor: '#bfdbfe',
-                  sub: 'Inspección física inicial'
-                },
-                {
-                  stageNum: '2',
-                  name: 'Reproceso y Arreglos',
-                  count: inspections.filter(i => i.current_stage === 2 || i.status === 'Reproceso').length,
-                  icon: '🛠️',
-                  themeColor: '#d97706',
-                  bgColor: '#ffffff',
-                  borderColor: '#fde68a',
-                  sub: 'Novedades y costuras'
-                },
-                {
-                  stageNum: '3',
-                  name: 'Doblado y Empaque',
-                  count: inspections.filter(i => i.current_stage === 3 || i.status === 'Doblado' || i.status === 'Empacado').length,
-                  icon: '📦',
-                  themeColor: '#7c3aed',
-                  bgColor: '#ffffff',
-                  borderColor: '#ddd6fe',
-                  sub: 'Etiquetado e inventario'
-                },
-                {
-                  stageNum: '4',
-                  name: 'Cierre y Autorización',
-                  count: inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera').length,
-                  icon: '💰',
-                  color: '#059669',
-                  themeColor: '#059669',
-                  bgColor: '#ffffff',
-                  borderColor: '#a7f3d0',
-                  sub: 'Validación de pago a taller'
-                }
-              ].map((st, idx) => (
-                <div key={idx} style={{
-                  padding: '1.1rem',
-                  borderRadius: '14px',
-                  backgroundColor: st.bgColor,
-                  border: `2px solid ${st.borderColor}`,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.4rem',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', backgroundColor: st.themeColor }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: '950', color: st.themeColor, backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
-                      ETAPA {st.stageNum}
-                    </span>
-                    <span style={{ fontSize: '1.35rem' }}>{st.icon}</span>
-                  </div>
-                  <h4 style={{ margin: '0.1rem 0 0', fontSize: '0.92rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-                    <span style={{ fontSize: '1.75rem', fontWeight: '950', color: st.themeColor }}>{st.count}</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>orden{st.count !== 1 ? 'es' : ''} en cola</span>
-                  </div>
-                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{st.sub}</span>
-                </div>
-              ))}
+              {(() => {
+                const now = new Date();
+                const curMonth = now.getMonth();
+                const curYear = now.getFullYear();
+
+                const getStageInspections = (stNum: number) => {
+                  if (stNum === 1) return inspections.filter(i => (i.current_stage === 1 || !i.current_stage) && i.status !== 'Aprobado' && i.status !== 'Rechazado');
+                  if (stNum === 2) return inspections.filter(i => i.current_stage === 2 || i.status === 'Reproceso');
+                  if (stNum === 3) return inspections.filter(i => i.current_stage === 3 || i.status === 'Doblado' || i.status === 'Empacado');
+                  return inspections.filter(i => i.pago_status === 'Pendiente de aprobación financiera' || i.current_stage === 4);
+                };
+
+                return [
+                  {
+                    stageNum: 1,
+                    name: 'Recepción e Inspección',
+                    icon: '📥',
+                    themeColor: '#2563eb',
+                    bgColor: '#ffffff',
+                    borderColor: '#bfdbfe',
+                    sub: 'Inspección física inicial'
+                  },
+                  {
+                    stageNum: 2,
+                    name: 'Reproceso y Arreglos',
+                    icon: '🛠️',
+                    themeColor: '#d97706',
+                    bgColor: '#ffffff',
+                    borderColor: '#fde68a',
+                    sub: 'Novedades y costuras'
+                  },
+                  {
+                    stageNum: 3,
+                    name: 'Doblado y Empaque',
+                    icon: '📦',
+                    themeColor: '#7c3aed',
+                    bgColor: '#ffffff',
+                    borderColor: '#ddd6fe',
+                    sub: 'Etiquetado e inventario'
+                  },
+                  {
+                    stageNum: 4,
+                    name: 'Cierre y Autorización',
+                    icon: '💰',
+                    themeColor: '#059669',
+                    bgColor: '#ffffff',
+                    borderColor: '#a7f3d0',
+                    sub: 'Validación de pago a taller'
+                  }
+                ].map((st, idx) => {
+                  const stageList = getStageInspections(st.stageNum);
+                  const queueCount = stageList.length;
+
+                  // Calcular métricas de gestión del mes por usuario/responsable para esta etapa
+                  const monthOpsMap: Record<string, number> = {};
+                  inspections.forEach(ins => {
+                    const insStage = ins.current_stage || (ins.status === 'Aprobado' ? 4 : ins.status === 'Empacado' ? 3 : ins.status === 'Reproceso' ? 2 : 1);
+                    if (insStage === st.stageNum) {
+                      const d = ins.created_at ? new Date(ins.created_at) : null;
+                      if (d && d.getMonth() === curMonth && d.getFullYear() === curYear) {
+                        const op = (ins.operator_name || 'Gestor Calidad').trim();
+                        monthOpsMap[op] = (monthOpsMap[op] || 0) + 1;
+                      }
+                    }
+                  });
+
+                  const topOperators = Object.entries(monthOpsMap).sort((a, b) => b[1] - a[1]);
+
+                  return (
+                    <div key={idx} style={{
+                      padding: '1.1rem',
+                      borderRadius: '14px',
+                      backgroundColor: st.bgColor,
+                      border: `2px solid ${st.borderColor}`,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.5rem',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: '4px', height: '100%', backgroundColor: st.themeColor }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '950', color: st.themeColor, backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                          ETAPA {st.stageNum}
+                        </span>
+                        <span style={{ fontSize: '1.35rem' }}>{st.icon}</span>
+                      </div>
+                      <h4 style={{ margin: '0.1rem 0 0', fontSize: '0.92rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
+                      
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '1.6rem', fontWeight: '950', color: st.themeColor }}>{queueCount}</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>lote{queueCount !== 1 ? 's' : ''} en cola</span>
+                      </div>
+
+                      {/* Desglose de Responsables en Gestión en el Mes */}
+                      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', marginTop: '0.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <span style={{ fontSize: '0.66rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          👤 Responsable(s) en el Mes:
+                        </span>
+                        {topOperators.length === 0 ? (
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>Sin lotes registrados este mes</span>
+                        ) : (
+                          topOperators.slice(0, 2).map(([opName, opCount], opIdx) => (
+                            <div key={opIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem' }}>
+                              <span style={{ fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                👤 {opName}
+                              </span>
+                              <span style={{ fontWeight: '900', color: st.themeColor, backgroundColor: '#f8fafc', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                {opCount} lote{opCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {/* Listado Gráfico Tipo Timeline para Cada Orden */}
@@ -1541,8 +1590,13 @@ export default function QualityPage() {
                             📦 {code}
                           </span>
                           <div>
-                            <strong style={{ fontSize: '0.88rem', color: '#0f172a', display: 'block' }}>{workshop}</strong>
-                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <strong style={{ fontSize: '0.88rem', color: '#0f172a' }}>{workshop}</strong>
+                              <span style={{ fontSize: '0.7rem', fontWeight: '850', color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.15rem 0.55rem', borderRadius: '12px', border: '1px solid #c7d2fe' }}>
+                                👤 {item.operator_name || 'Gestor Calidad'}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginTop: '0.15rem' }}>
                               Prendas: <strong>{approvedCount}</strong> aprobadas de {totalInspected} inspeccionadas
                             </span>
                           </div>
