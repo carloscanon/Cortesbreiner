@@ -1467,20 +1467,26 @@ export default function QualityPage() {
                   const stageList = getStageInspections(st.stageNum);
                   const queueCount = stageList.length;
 
-                  // Calcular métricas de gestión del mes por usuario/responsable para esta etapa
-                  const monthOpsMap: Record<string, number> = {};
+                  // Calcular métricas de gestión del mes por usuario/responsable para esta etapa (Lotes y Horas gastadas)
+                  const monthOpsMap: Record<string, { count: number; totalHours: number }> = {};
                   inspections.forEach(ins => {
                     const insStage = ins.current_stage || (ins.status === 'Aprobado' ? 4 : ins.status === 'Empacado' ? 3 : ins.status === 'Reproceso' ? 2 : 1);
                     if (insStage === st.stageNum) {
                       const d = ins.created_at ? new Date(ins.created_at) : null;
                       if (d && d.getMonth() === curMonth && d.getFullYear() === curYear) {
                         const op = (ins.operator_name || 'Gestor Calidad').trim();
-                        monthOpsMap[op] = (monthOpsMap[op] || 0) + 1;
+                        const recDate = ins.received_at ? new Date(ins.received_at) : d;
+                        const endDate = ins.closed_at ? new Date(ins.closed_at) : ins.packaged_at ? new Date(ins.packaged_at) : ins.inspected_at ? new Date(ins.inspected_at) : new Date();
+                        const hrsSpent = Math.max(0.1, (endDate.getTime() - recDate.getTime()) / 3600000);
+
+                        if (!monthOpsMap[op]) monthOpsMap[op] = { count: 0, totalHours: 0 };
+                        monthOpsMap[op].count += 1;
+                        monthOpsMap[op].totalHours += hrsSpent;
                       }
                     }
                   });
 
-                  const topOperators = Object.entries(monthOpsMap).sort((a, b) => b[1] - a[1]);
+                  const topOperators = Object.entries(monthOpsMap).sort((a, b) => b[1].count - a[1].count);
 
                   return (
                     <div key={idx} style={{
@@ -1509,21 +1515,23 @@ export default function QualityPage() {
                         <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>lote{queueCount !== 1 ? 's' : ''} en cola</span>
                       </div>
 
-                      {/* Desglose de Responsables en Gestión en el Mes */}
-                      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', marginTop: '0.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      {/* Desglose de Responsables en Gestión en el Mes con Tiempo Gastado */}
+                      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', marginTop: '0.1rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                         <span style={{ fontSize: '0.66rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          👤 Responsable(s) en el Mes:
+                          👤 Responsable(s) y Tiempos en el Mes:
                         </span>
                         {topOperators.length === 0 ? (
                           <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>Sin lotes registrados este mes</span>
                         ) : (
-                          topOperators.slice(0, 2).map(([opName, opCount], opIdx) => (
+                          topOperators.slice(0, 3).map(([opName, data], opIdx) => (
                             <div key={opIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem' }}>
                               <span style={{ fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                 👤 {opName}
                               </span>
-                              <span style={{ fontWeight: '900', color: st.themeColor, backgroundColor: '#f8fafc', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                {opCount} lote{opCount !== 1 ? 's' : ''}
+                              <span style={{ fontWeight: '900', color: st.themeColor, backgroundColor: '#f8fafc', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <span>{data.count} lote{data.count !== 1 ? 's' : ''}</span>
+                                <span style={{ color: '#94a3b8' }}>|</span>
+                                <span>⏱️ {data.totalHours.toFixed(1)}h</span>
                               </span>
                             </div>
                           ))
