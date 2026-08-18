@@ -179,7 +179,12 @@ export default function QualityPage() {
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
   const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
   const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'tracking' | 'ranking' | 'alerts' | null>(null);
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'daily_user' | 'tracking' | 'ranking' | 'alerts' | null>(null);
+  
+  // Dashboard diario por usuario state
+  const [dailyUserDateFilter, setDailyUserDateFilter] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [dailyUserMode, setDailyUserMode] = useState<'day' | 'week'>('day');
+  const [dailySelectedUser, setDailySelectedUser] = useState<string>('all');
   const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
   const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
@@ -1338,16 +1343,17 @@ export default function QualityPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: '0.5rem',
           padding: '0.35rem',
           backgroundColor: '#f1f5f9',
           borderRadius: '14px',
           border: '1.5px solid #cbd5e1',
-          maxWidth: '720px',
+          maxWidth: '960px',
           width: '100%'
         }}>
           {[
+            { key: 'daily_user', label: '📅 Gestión Diaria y Semanal por Usuario' },
             { key: 'tracking', label: '📊 Tablero de Seguimiento de Etapas' },
             { key: 'ranking', label: '🏆 Ranking de Satélites' },
             { key: 'alerts', label: '🔔 Alertas y Novedades' }
@@ -1376,6 +1382,360 @@ export default function QualityPage() {
             );
           })}
         </div>
+
+        {/* 📅 DASHBOARD DE GESTIÓN DIARIA Y SEMANAL POR USUARIO */}
+        {activeDashboardTab === 'daily_user' && (
+          <div className="card" style={{ padding: '1.75rem', borderRadius: '20px', backgroundColor: 'white', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.03)' }}>
+            
+            {/* Header y Filtros Configurables (Día vs Semana / Fecha / Usuario) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1.5px solid #f1f5f9', paddingBottom: '1.25rem' }}>
+              <div>
+                <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#059669', backgroundColor: '#ecfdf5', padding: '0.2rem 0.65rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  📅 MONITOREO DE ACTIVIDAD DIARIA & SEMANAL
+                </span>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '950', color: '#0f172a', margin: '0.3rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  📅 Dashboard de Gestión Diaria y Semanal por Usuario
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                  Analiza exactamente la carga de trabajo, órdenes gestionadas, prendas auditadas e historial detallado por usuario.
+                </p>
+              </div>
+
+              {/* Barra de Filtros Configurables */}
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Selector Día vs Semana */}
+                <div style={{ display: 'flex', gap: '0.2rem', backgroundColor: '#f1f5f9', padding: '0.2rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDailyUserMode('day')}
+                    style={{
+                      padding: '0.35rem 0.75rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '800',
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: dailyUserMode === 'day' ? '#80082E' : 'transparent',
+                      color: dailyUserMode === 'day' ? 'white' : '#64748b'
+                    }}
+                  >
+                    📆 Vista Día
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDailyUserMode('week')}
+                    style={{
+                      padding: '0.35rem 0.75rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '800',
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: dailyUserMode === 'week' ? '#80082E' : 'transparent',
+                      color: dailyUserMode === 'week' ? 'white' : '#64748b'
+                    }}
+                  >
+                    🗓️ Vista Semana
+                  </button>
+                </div>
+
+                {/* Input de Fecha Base */}
+                <input
+                  type="date"
+                  value={dailyUserDateFilter}
+                  onChange={(e) => setDailyUserDateFilter(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.65rem',
+                    borderRadius: '8px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    color: '#0f172a',
+                    backgroundColor: '#ffffff'
+                  }}
+                />
+
+                {/* Selector de Usuario / Gestor */}
+                <select
+                  value={dailySelectedUser}
+                  onChange={(e) => setDailySelectedUser(e.target.value)}
+                  style={{
+                    padding: '0.4rem 0.65rem',
+                    borderRadius: '8px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.78rem',
+                    fontWeight: '700',
+                    color: '#0f172a',
+                    backgroundColor: '#ffffff'
+                  }}
+                >
+                  <option value="all">👥 Todos los Usuarios</option>
+                  {Array.from(new Set(inspections.map(i => (i.operator_name || 'Gestor Calidad').trim()))).filter(Boolean).map(op => (
+                    <option key={op} value={op}>👤 {op}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Cálculo de Rangos y Filtrado de Inspecciones */}
+            {(() => {
+              const selectedDate = new Date(dailyUserDateFilter + 'T00:00:00');
+
+              // Rango del Día
+              const dayStart = new Date(selectedDate);
+              dayStart.setHours(0,0,0,0);
+              const dayEnd = new Date(selectedDate);
+              dayEnd.setHours(23,59,59,999);
+
+              // Rango de la Semana (Lunes a Domingo)
+              const dayOfWeek = selectedDate.getDay();
+              const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+              const monday = new Date(selectedDate);
+              monday.setDate(selectedDate.getDate() + diffToMonday);
+              monday.setHours(0,0,0,0);
+
+              const sunday = new Date(monday);
+              sunday.setDate(monday.getDate() + 6);
+              sunday.setHours(23,59,59,999);
+
+              const rangeStart = dailyUserMode === 'day' ? dayStart : monday;
+              const rangeEnd = dailyUserMode === 'day' ? dayEnd : sunday;
+
+              // Inspecciones que tuvieron actividad en el rango
+              const filteredInspections = inspections.filter(i => {
+                // Filtro por Usuario
+                if (dailySelectedUser !== 'all') {
+                  const op = (i.operator_name || 'Gestor Calidad').trim();
+                  if (op !== dailySelectedUser) return false;
+                }
+
+                // Filtro por Rango de Fecha (por created_at, received_at, inspected_at, packaged_at o closed_at)
+                const timestamps = [
+                  i.created_at ? new Date(i.created_at) : null,
+                  i.received_at ? new Date(i.received_at) : null,
+                  i.inspected_at ? new Date(i.inspected_at) : null,
+                  i.packaged_at ? new Date(i.packaged_at) : null,
+                  i.closed_at ? new Date(i.closed_at) : null
+                ].filter(Boolean) as Date[];
+
+                return timestamps.some(t => t >= rangeStart && t <= rangeEnd);
+              });
+
+              // Agrupación por Usuario para Métricas Resumidas
+              const userMetricsMap: Record<string, {
+                inspectionsCount: number;
+                approvedGarments: number;
+                rejectedGarments: number;
+                totalHours: number;
+                stagesHandled: Record<number, number>;
+              }> = {};
+
+              filteredInspections.forEach(i => {
+                const op = (i.operator_name || 'Gestor Calidad').trim();
+                if (!userMetricsMap[op]) {
+                  userMetricsMap[op] = {
+                    inspectionsCount: 0,
+                    approvedGarments: 0,
+                    rejectedGarments: 0,
+                    totalHours: 0,
+                    stagesHandled: { 1: 0, 2: 0, 3: 0, 4: 0 }
+                  };
+                }
+
+                userMetricsMap[op].inspectionsCount += 1;
+                userMetricsMap[op].approvedGarments += (i.items_approved || 0);
+                userMetricsMap[op].rejectedGarments += (i.items_rejected || 0);
+
+                const rec = i.received_at ? new Date(i.received_at) : new Date(i.created_at);
+                const end = i.closed_at ? new Date(i.closed_at) : i.packaged_at ? new Date(i.packaged_at) : new Date();
+                const hrs = Math.max(0.1, (end.getTime() - rec.getTime()) / 3600000);
+                userMetricsMap[op].totalHours += hrs;
+
+                const st = i.current_stage || (i.status === 'Aprobado' ? 4 : i.status === 'Empacado' ? 3 : i.status === 'Reproceso' ? 2 : 1);
+                userMetricsMap[op].stagesHandled[st] = (userMetricsMap[op].stagesHandled[st] || 0) + 1;
+              });
+
+              const userEntries = Object.entries(userMetricsMap);
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  
+                  {/* Banner de Rango de Fecha Activo */}
+                  <div style={{ padding: '0.85rem 1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '850', color: '#0f172a' }}>
+                      📌 Periodo Evaluado: <strong style={{ color: '#80082E' }}>
+                        {dailyUserMode === 'day'
+                          ? rangeStart.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                          : `Semana del ${monday.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} al ${sunday.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        }
+                      </strong>
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#059669', backgroundColor: '#ecfdf5', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                      ⚡ Total {filteredInspections.length} Orden(es) Gestionadas en Periodo
+                    </span>
+                  </div>
+
+                  {/* Resumen por Tarjetas de Usuario */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                    {userEntries.length === 0 ? (
+                      <div style={{ gridColumn: '1 / -1', padding: '2.5rem', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px dashed #cbd5e1', color: '#64748b' }}>
+                        <p style={{ margin: 0, fontWeight: 800 }}>No se encontraron registros de gestión para los filtros seleccionados.</p>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Prueba cambiando la fecha o el usuario en los controles superiores.</span>
+                      </div>
+                    ) : (
+                      userEntries.map(([opName, metrics], idx) => (
+                        <div key={idx} style={{
+                          padding: '1.2rem',
+                          borderRadius: '16px',
+                          backgroundColor: '#ffffff',
+                          border: '2px solid #e2e8f0',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.75rem'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 950, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              👤 {opName}
+                            </h4>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                              {metrics.inspectionsCount} Ordenes
+                            </span>
+                          </div>
+
+                          {/* Métricas de Prendas y Tiempos */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem', backgroundColor: '#f8fafc', padding: '0.65rem', borderRadius: '10px', textAlign: 'center' }}>
+                            <div>
+                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: 700 }}>Aprobadas</span>
+                              <strong style={{ fontSize: '1rem', color: '#16a34a' }}>{metrics.approvedGarments}</strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: 700 }}>Rechazadas</span>
+                              <strong style={{ fontSize: '1rem', color: '#dc2626' }}>{metrics.rejectedGarments}</strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: '700' }}>Hrs Total</span>
+                              <strong style={{ fontSize: '1rem', color: '#2563eb' }}>{metrics.totalHours.toFixed(1)}h</strong>
+                            </div>
+                          </div>
+
+                          {/* Distribución por Etapas */}
+                          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                              E1: {metrics.stagesHandled[1] || 0}
+                            </span>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#fffbeb', color: '#b45309', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                              E2: {metrics.stagesHandled[2] || 0}
+                            </span>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#f5f3ff', color: '#6d28d9', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                              E3: {metrics.stagesHandled[3] || 0}
+                            </span>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#ecfdf5', color: '#15803d', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                              E4: {metrics.stagesHandled[4] || 0}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Tabla de Detalle Completo de las Órdenes del Periodo */}
+                  <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+                    <div style={{ padding: '0.85rem 1.25rem', backgroundColor: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 950, color: '#0f172a' }}>
+                        📋 Detalle de Gestión de Órdenes en el Periodo Seleccionado
+                      </h4>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                        Mostrando {filteredInspections.length} orden(es)
+                      </span>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Código Orden</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Responsable</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Etapa Actual</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Aprob / Rech</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Última Actividad</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Transcurrido</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInspections.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
+                                Sin registros de órdenes en la fecha seleccionada.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredInspections.map((item: any) => {
+                              const code = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
+                              const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Satélite';
+                              const op = item.operator_name || 'Gestor Calidad';
+                              
+                              const currStage = item.current_stage || (item.status === 'Aprobado' ? 4 : item.status === 'Empacado' ? 3 : item.status === 'Reproceso' ? 2 : 1);
+                              const stageName = currStage === 4 ? '4. Cierre Financiero' : currStage === 3 ? '3. Doblado y Empaque' : currStage === 2 ? '2. Reproceso y Arreglos' : '1. Recepción';
+
+                              const recDate = item.received_at ? new Date(item.received_at) : new Date(item.created_at);
+                              const endDate = item.closed_at ? new Date(item.closed_at) : item.packaged_at ? new Date(item.packaged_at) : new Date();
+                              const hrs = Math.max(0.1, (endDate.getTime() - recDate.getTime()) / 3600000);
+
+                              const lastDate = item.closed_at ? new Date(item.closed_at) : item.packaged_at ? new Date(item.packaged_at) : item.inspected_at ? new Date(item.inspected_at) : recDate;
+
+                              return (
+                                <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 950, color: '#80082E' }}>📦 {code}</td>
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 750, color: '#334155' }}>{workshop}</td>
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 800, color: '#1e293b' }}>👤 {op}</td>
+                                  <td style={{ padding: '0.65rem 1rem' }}>
+                                    <span style={{
+                                      padding: '0.2rem 0.55rem',
+                                      borderRadius: '6px',
+                                      fontSize: '0.7rem',
+                                      fontWeight: '850',
+                                      backgroundColor: currStage === 4 ? '#dcfce7' : currStage === 3 ? '#f5f3ff' : currStage === 2 ? '#fffbeb' : '#eff6ff',
+                                      color: currStage === 4 ? '#15803d' : currStage === 3 ? '#6d28d9' : currStage === 2 ? '#b45309' : '#1d4ed8'
+                                    }}>
+                                      {stageName}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 800 }}>
+                                    <span style={{ color: '#16a34a' }}>{item.items_approved || 0}</span> / <span style={{ color: '#dc2626' }}>{item.items_rejected || 0}</span>
+                                  </td>
+                                  <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
+                                    {lastDate ? lastDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                  </td>
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 900, textAlign: 'right', color: item.closed_at ? '#059669' : '#d97706' }}>
+                                    ⏱️ {hrs.toFixed(1)} hrs
+                                  </td>
+                                  <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                                    <button
+                                      onClick={() => openReview(item)}
+                                      className="btn"
+                                      style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: 800, border: '1px solid #cbd5e1' }}
+                                    >
+                                      👁️ Ver Orden
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })()}
+
+          </div>
+        )}
 
         {/* 📊 TABLERO DE SEGUIMIENTO DE ETAPAS Y TIEMPOS (UX MEJORADA) */}
         {activeDashboardTab === 'tracking' && (
