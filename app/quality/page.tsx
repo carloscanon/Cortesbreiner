@@ -188,6 +188,7 @@ export default function QualityPage() {
   const [selectedKpiCard, setSelectedKpiCard] = useState<'avg_time' | 'pending_finance' | 'discounts' | 'quality_pct' | 'workshop_consolidated' | null>(null);
   const [activeSewingOrdersList, setActiveSewingOrdersList] = useState<any[]>([]);
   const [isRankingOpen, setIsRankingOpen] = useState(false);
+  const [userOrdersModal, setUserOrdersModal] = useState<{ title: string; orders: any[] } | null>(null);
 
   // Dynamic Sticker Config State
   const [stickerConfig, setStickerConfig] = useState<{
@@ -1630,9 +1631,31 @@ export default function QualityPage() {
                               <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                 👤 {opName}
                               </h4>
-                              <span style={{ fontSize: '0.72rem', fontWeight: 900, color: palette.badgeText, backgroundColor: palette.badgeBg, padding: '0.2rem 0.65rem', borderRadius: '20px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }}>
-                                📦 {metrics.inspectionsCount} Lote{metrics.inspectionsCount !== 1 ? 's' : ''}
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const userOrders = filteredInspections.filter(ins => (ins.operator_name || 'Gestor Calidad').trim() === opName);
+                                  setUserOrdersModal({
+                                    title: `📦 Órdenes Gestionadas por ${opName} (${userOrders.length})`,
+                                    orders: userOrders
+                                  });
+                                }}
+                                style={{
+                                  border: 'none',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 900,
+                                  color: palette.badgeText,
+                                  backgroundColor: palette.badgeBg,
+                                  padding: '0.25rem 0.7rem',
+                                  borderRadius: '20px',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                  cursor: 'pointer',
+                                  transition: 'transform 0.1s ease-in-out'
+                                }}
+                                title="Haz clic para ver las órdenes de este usuario"
+                              >
+                                📦 {metrics.inspectionsCount} Lote{metrics.inspectionsCount !== 1 ? 's' : ''} (Ver Órdenes 👁️)
+                              </button>
                             </div>
 
                             {/* Métricas de Prendas y Tiempos Destacadas */}
@@ -1937,10 +1960,29 @@ export default function QualityPage() {
                       </div>
                       <h4 style={{ margin: '0.1rem 0 0', fontSize: '0.92rem', fontWeight: '900', color: '#0f172a' }}>{st.name}</h4>
                       
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserOrdersModal({
+                            title: `${st.icon} Órdenes en Etapa ${st.stageNum}: ${st.name} (${stageList.length})`,
+                            orders: stageList
+                          });
+                        }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          padding: 0,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: '0.4rem',
+                          textAlign: 'left'
+                        }}
+                        title="Haz clic para ver las órdenes de esta etapa"
+                      >
                         <span style={{ fontSize: '1.6rem', fontWeight: '950', color: st.themeColor }}>{queueCount}</span>
-                        <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>lote{queueCount !== 1 ? 's' : ''} en cola</span>
-                      </div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textDecoration: 'underline' }}>lote{queueCount !== 1 ? 's' : ''} en cola 👁️</span>
+                      </button>
 
                       {/* Desglose de Responsables en Gestión en el Mes con Tiempo Gastado */}
                       <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', marginTop: '0.1rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
@@ -3764,6 +3806,149 @@ export default function QualityPage() {
                 type="button"
                 onClick={() => setSelectedKpiCard(null)}
                 style={{ padding: '0.6rem 1.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
+              >
+                Cerrar Ventana
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 📦 MODAL POPUP PARA DESGLOSAR ÓRDENES AL HACER CLIC EN LOS LOTES DE USUARIO O ETAPA */}
+      {userOrdersModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, padding: '1rem' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '100%', maxWidth: '960px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden', border: '1px solid #cbd5e1' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {userOrdersModal.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setUserOrdersModal(null)}
+                style={{ border: 'none', background: '#e2e8f0', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', fontWeight: '900', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body: Tabla Completa de Órdenes */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Código Lote</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Taller</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Responsable</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Etapa Actual</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Aprobadas / Rechazadas</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Flujo de Tiempos (E1 → E2 → E3 → E4)</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Total</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userOrdersModal.orders.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
+                          Sin órdenes asociadas en este momento.
+                        </td>
+                      </tr>
+                    ) : (
+                      userOrdersModal.orders.map((item: any) => {
+                        const code = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
+                        const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || 'Taller Satélite';
+                        const op = item.operator_name || 'Gestor Calidad';
+                        
+                        const currStage = item.current_stage || (item.status === 'Aprobado' ? 4 : item.status === 'Empacado' ? 3 : item.status === 'Reproceso' ? 2 : 1);
+                        const stageName = currStage === 4 ? '4. Cierre Financiero' : currStage === 3 ? '3. Doblado y Empaque' : currStage === 2 ? '2. Reproceso y Arreglos' : '1. Recepción';
+
+                        const recDate = item.received_at ? new Date(item.received_at) : new Date(item.created_at);
+                        const inspDate = item.inspected_at ? new Date(item.inspected_at) : null;
+                        const packDate = item.packaged_at ? new Date(item.packaged_at) : null;
+                        const closeDate = item.closed_at ? new Date(item.closed_at) : null;
+                        const now = new Date();
+
+                        const tE1 = inspDate ? ((inspDate.getTime() - recDate.getTime()) / 3600000) : ((now.getTime() - recDate.getTime()) / 3600000);
+                        const tE2 = inspDate && packDate ? ((packDate.getTime() - inspDate.getTime()) / 3600000) : inspDate ? ((now.getTime() - inspDate.getTime()) / 3600000) : null;
+                        const tE3 = packDate && closeDate ? ((closeDate.getTime() - packDate.getTime()) / 3600000) : packDate ? ((now.getTime() - packDate.getTime()) / 3600000) : null;
+                        const tE4 = closeDate && packDate ? ((closeDate.getTime() - packDate.getTime()) / 3600000) : null;
+
+                        const endDate = closeDate || packDate || inspDate || now;
+                        const totalHrs = Math.max(0.1, (endDate.getTime() - recDate.getTime()) / 3600000);
+
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 950, color: '#80082E' }}>📦 {code}</td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 750, color: '#334155' }}>{workshop}</td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#1e293b' }}>👤 {op}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '6px',
+                                fontSize: '0.7rem',
+                                fontWeight: '850',
+                                backgroundColor: currStage === 4 ? '#dcfce7' : currStage === 3 ? '#f5f3ff' : currStage === 2 ? '#fffbeb' : '#eff6ff',
+                                color: currStage === 4 ? '#15803d' : currStage === 3 ? '#6d28d9' : currStage === 2 ? '#b45309' : '#1d4ed8'
+                              }}>
+                                {stageName}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>
+                              <span style={{ color: '#16a34a' }}>{item.items_approved || 0}</span> / <span style={{ color: '#dc2626' }}>{item.items_rejected || 0}</span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                              <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center', fontSize: '0.68rem', fontWeight: 850 }}>
+                                <span style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                                  E1: {tE1.toFixed(1)}h
+                                </span>
+                                <span style={{ color: '#cbd5e1' }}>→</span>
+                                <span style={{ backgroundColor: tE2 !== null ? '#fffbeb' : '#f8fafc', color: tE2 !== null ? '#b45309' : '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid #fde68a' }}>
+                                  E2: {tE2 !== null ? `${tE2.toFixed(1)}h` : '—'}
+                                </span>
+                                <span style={{ color: '#cbd5e1' }}>→</span>
+                                <span style={{ backgroundColor: tE3 !== null ? '#f5f3ff' : '#f8fafc', color: tE3 !== null ? '#6d28d9' : '#94a3b8', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #ddd6fe' }}>
+                                  E3: {tE3 !== null ? `${tE3.toFixed(1)}h` : '—'}
+                                </span>
+                                <span style={{ color: '#cbd5e1' }}>→</span>
+                                <span style={{ backgroundColor: tE4 !== null ? '#ecfdf5' : '#f8fafc', color: tE4 !== null ? '#15803d' : '#94a3b8', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #a7f3d0' }}>
+                                  E4: {tE4 !== null ? `${tE4.toFixed(1)}h` : '—'}
+                                </span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 950, textAlign: 'right', color: item.closed_at ? '#059669' : '#d97706' }}>
+                              ⏱️ {totalHrs.toFixed(1)} hrs
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setUserOrdersModal(null);
+                                  openReview(item);
+                                }}
+                                className="btn"
+                                style={{ fontSize: '0.72rem', padding: '0.3rem 0.75rem', backgroundColor: '#80082E', color: 'white', fontWeight: 800, borderRadius: '6px', border: 'none', cursor: 'pointer' }}
+                              >
+                                👁️ Abrir Inspección
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1.25rem 2rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc' }}>
+              <button
+                type="button"
+                onClick={() => setUserOrdersModal(null)}
+                style={{ padding: '0.6rem 1.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer' }}
               >
                 Cerrar Ventana
               </button>
