@@ -668,14 +668,12 @@ export default function SewingPage() {
           }
         });
 
-        // Generar correlativo de confección preservando exactamente el código interno de la orden base
-        let displayIdx = 0;
+        // Generar correlativo de confección usando SIEMPRE el código interno exacto de la orden base sin modificar
         const baseCode = selectedOrder.internal_code || (selectedOrder.consecutive ? `OC-${selectedOrder.consecutive}` : '—');
 
         // Insertar cada orden de confección independiente
         for (const lot of Object.values(sewingOrdersMap)) {
-          displayIdx++;
-          const confCode = Object.keys(sewingOrdersMap).length > 1 ? `${baseCode}-${displayIdx}` : baseCode;
+          const confCode = baseCode;
 
           // Insertar en sewing_orders
           const { data: insertedOrder, error: orderErr } = await supabase.from('sewing_orders').insert({
@@ -771,7 +769,7 @@ export default function SewingPage() {
                   specialRate: null
                 };
               }
-              (c.cut_sizes || []).forEach((cs: any) => {
+          (c.cut_sizes || []).forEach((cs: any) => {
                 const q = Number(cs.quantity_produced) || Number(cs.quantity) || 0;
                 childSewingOrdersMap[k].cantidadPlaneada += q;
                 const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
@@ -785,7 +783,7 @@ export default function SewingPage() {
             const childBaseCode = child.internal_code || (child.consecutive ? `OC-${child.consecutive}` : '—');
             for (const cLot of Object.values(childSewingOrdersMap)) {
               childDisplayIdx++;
-              const cConfCode = Object.keys(childSewingOrdersMap).length > 1 ? `${childBaseCode}-${childDisplayIdx}` : childBaseCode;
+              const cConfCode = childBaseCode;
               const { data: cInserted, error: cErr } = await supabase.from('sewing_orders').insert({
                 parent_order_id: child.id,
                 confeccion_code: cConfCode,
