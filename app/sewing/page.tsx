@@ -1725,6 +1725,26 @@ export default function SewingPage() {
                       )}
                     </div>
                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
+
+                    {/* Desglose Informativo de Órdenes Hijas que se Arrastran */}
+                    {order.internal_code?.startsWith('CMP-P-') && (() => {
+                      const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === order.internal_code);
+                      if (childOrders.length === 0) return null;
+                      return (
+                        <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.65rem', backgroundColor: '#ecfdf5', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#065f46', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            🔗 Órdenes Hijas vinculadas que se ARRASTRARÁN automáticamente al taller ({childOrders.length}):
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                            {childOrders.map(ch => (
+                              <span key={ch.id} style={{ fontSize: '0.66rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#047857', padding: '0.1rem 0.45rem', borderRadius: '5px', border: '1px solid #6ee7b7' }}>
+                                🎨 OC-{ch.internal_code} ({ch.fabrics?.nombre_tela || 'Tela Secund.'} · {getTotalPrendas(ch)} uds)
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <button
                     className="btn btn-primary"
@@ -2068,6 +2088,26 @@ export default function SewingPage() {
                 <X size={20} />
               </button>
             </div>
+
+            {/* Banner Informativo de Órdenes Hijas que se Arrastran */}
+            {selectedOrder.internal_code?.startsWith('CMP-P-') && (() => {
+              const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === selectedOrder.internal_code);
+              if (childOrders.length === 0) return null;
+              return (
+                <div style={{ padding: '0.85rem 2rem', backgroundColor: '#ecfdf5', borderBottom: '1.5px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#065f46', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    ✨ ATENCIÓN: Esta Orden Padre arrastrará automáticamente {childOrders.length} orden(es) hija(s) al taller seleccionado:
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    {childOrders.map(ch => (
+                      <span key={ch.id} style={{ fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#047857', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #6ee7b7', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                        🎨 OC-{ch.internal_code} — Tela: {ch.fabrics?.nombre_tela || 'Secundaria'} ({getTotalPrendas(ch)} uds)
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Step indicator */}
             <div style={{ padding: '1.25rem 2rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
