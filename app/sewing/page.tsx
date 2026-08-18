@@ -717,6 +717,82 @@ export default function SewingPage() {
 
         // ── MOVIMIENTOS DE INVENTARIO → estado: 'confeccion' ────────────────────────────
         await syncOrderMovements(selectedOrder.id, 'En Confección');
+
+        // ── ARRASTRE AUTOMÁTICO DE ÓRDENES HIJAS SI LA ORDEN ES PADRE (CMP-P-) ──────────
+        if (selectedOrder.internal_code?.startsWith('CMP-P-')) {
+          const parentCode = selectedOrder.internal_code;
+          // Buscar todas las órdenes hijas en estado 'Cortado' vinculadas a esta orden padre
+          const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === parentCode);
+          
+          for (const child of childOrders) {
+            // Actualizar estado de la orden hija a 'En Confección'
+            await supabase.from('orders').update({
+              status: 'En Confección',
+              workshop_id: firstWorkshopId,
+              observaciones: (child.observaciones || '') + `\n\n[ARRASTRE AUTOMÁTICO POR ORDEN PADRE ${parentCode}] Despachada al taller id ${firstWorkshopId}`
+            }).eq('id', child.id);
+
+            // Replicar las órdenes de confección (sewing_orders) para la orden hija asignándola al mismo taller
+            const childSewingOrdersMap: Record<string, {
+              workshopId: string | null;
+              productId: string;
+              cantidadPlaneada: number;
+              sizes: { sizeId: string; qty: number }[];
+              specialRate: number | null;
+            }> = {};
+
+            // Mapear cortes de la orden hija
+            (child.cuts || []).forEach((c: any) => {
+              const pId = c.product_id;
+              const k = `${firstWorkshopId}_${pId}`;
+              if (!childSewingOrdersMap[k]) {
+                childSewingOrdersMap[k] = {
+                  workshopId: firstWorkshopId,
+                  productId: pId,
+                  cantidadPlaneada: 0,
+                  sizes: [],
+                  specialRate: null
+                };
+              }
+              (c.cut_sizes || []).forEach((cs: any) => {
+                const q = Number(cs.quantity_produced) || Number(cs.quantity) || 0;
+                childSewingOrdersMap[k].cantidadPlaneada += q;
+                const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
+                if (sizeObj) {
+                  childSewingOrdersMap[k].sizes.push({ sizeId: sizeObj.id, qty: q });
+                }
+              });
+            });
+
+            let childDisplayIdx = 0;
+            const childCleanCode = (child.internal_code || '').replace(/^OC-?/i, '') || child.consecutive || '—';
+            for (const cLot of Object.values(childSewingOrdersMap)) {
+              childDisplayIdx++;
+              const cConfCode = `${childCleanCode}-${childDisplayIdx}`;
+              const { data: cInserted, error: cErr } = await supabase.from('sewing_orders').insert({
+                parent_order_id: child.id,
+                confeccion_code: cConfCode,
+                workshop_id: cLot.workshopId,
+                product_id: cLot.productId,
+                status: 'Enviado a Taller',
+                cantidad_planeada: cLot.cantidadPlaneada,
+                cantidad_confeccionada: 0,
+                tarifa_especial: cLot.specialRate
+              }).select().single();
+
+              if (!cErr && cInserted && cLot.sizes.length > 0) {
+                const cSizesToInsert = cLot.sizes.map(s => ({
+                  sewing_order_id: cInserted.id,
+                  size_id: s.sizeId,
+                  cantidad_planeada: s.qty,
+                  cantidad_confeccionada: 0
+                }));
+                await supabase.from('sewing_order_sizes').insert(cSizesToInsert);
+              }
+            }
+            await syncOrderMovements(child.id, 'En Confección');
+          }
+        }
       } catch (dbErr: any) {
         console.warn("DB operations failed:", dbErr.message);
       }
@@ -1454,11 +1530,11 @@ export default function SewingPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Cortadas son las órdenes padre que están listas para iniciar
-  const totalCortadasCount = orders.filter(o => o.status === 'Cortado').length;
-  const cortadas = orders
+  // Cortadas son las órdenes padre o independientes que están listas para iniciar confección
+  const cortadasBase = orders.filter(o => o.status === 'Cortado' && !o.internal_code?.startsWith('CMP-S-'));
+  const totalCortadasCount = cortadasBase.length;
+  const cortadas = cortadasBase
     .filter(o => {
-      if (o.status !== 'Cortado') return false;
       const term = searchCortadas.toLowerCase();
       return (
         (o.internal_code || '').toLowerCase().includes(term) ||
