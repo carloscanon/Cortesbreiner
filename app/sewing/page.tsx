@@ -1560,9 +1560,13 @@ export default function SewingPage() {
     })
     .sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''));
 
-  // Filtrado de las órdenes de confección (hijas) para la tabla y contadores
+  // Filtrado de las órdenes de confección para la tabla (mostrando únicamente la Orden Principal por lote)
   const filteredSewingOrders = sewingOrders.filter(so => {
     const parentCode = so.parent_order?.internal_code || '';
+
+    // Si es una orden hija/secundaria (CMP-S-), no se muestra como fila individual en la tabla principal
+    if (parentCode.startsWith('CMP-S-')) return false;
+
     const consecutive = so.parent_order?.consecutive?.toString() || '';
     const client = so.parent_order?.client_name || '';
     const code = so.confeccion_code || '';
