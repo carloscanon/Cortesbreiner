@@ -1624,12 +1624,29 @@ export default function SewingPage() {
                 <div key={order.id} style={{
                   padding: '1rem 1.5rem', borderBottom: '1px solid #fef3c7',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  backgroundColor: 'white'
+                  backgroundColor: order.internal_code?.startsWith('CMP-P-') ? '#f0fdf4' : order.internal_code?.startsWith('CMP-S-') ? '#fffbeb' : 'white'
                 }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
                        <span style={{ fontWeight: '900', color: '#0f172a' }}>OC-{order.internal_code}</span>
                       <span style={{ fontSize: '0.65rem', backgroundColor: '#fef3c7', color: '#92400e', padding: '0.15rem 0.4rem', borderRadius: '4px', fontWeight: '700' }}>CORTADO</span>
+                      {order.internal_code?.startsWith('CMP-P-') && (
+                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#15803d', backgroundColor: '#dcfce7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #86efac' }}>
+                          ⭐ Prenda Compuesta · Tela Primaria (Padre)
+                        </span>
+                      )}
+                      {order.internal_code?.startsWith('CMP-S-') && (
+                        <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                            🎨 Prenda Compuesta · Tela Secundaria (Hijo)
+                          </span>
+                          {order.parent_primary_code && (
+                            <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                              🔗 Hija de: {order.parent_primary_code}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
                   </div>
@@ -1712,7 +1729,24 @@ export default function SewingPage() {
                         textDecoration: 'underline'
                       }}
                     >
-                      {so.confeccion_code || '—'}
+                      <div>{so.confeccion_code || '—'}</div>
+                      {so.parent_order?.internal_code?.startsWith('CMP-P-') && (
+                        <div style={{ fontSize: '0.65rem', fontWeight: '900', color: '#15803d', backgroundColor: '#dcfce7', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #86efac', marginTop: '0.2rem', textDecoration: 'none', display: 'inline-block' }}>
+                          ⭐ Padre (Tela Primaria)
+                        </div>
+                      )}
+                      {so.parent_order?.internal_code?.startsWith('CMP-S-') && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', marginTop: '0.2rem', textDecoration: 'none' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #fde68a', display: 'inline-block' }}>
+                            🎨 Hijo (Tela Secundaria)
+                          </span>
+                          {so.parent_order?.parent_primary_code && (
+                            <span style={{ fontSize: '0.64rem', fontWeight: '800', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid #bfdbfe', display: 'inline-block' }}>
+                              🔗 Hija de: {so.parent_order.parent_primary_code}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#0f172a' }}>{so.parent_order?.client_name || '—'}</div>
