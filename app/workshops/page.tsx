@@ -2188,21 +2188,23 @@ export default function WorkshopsPage() {
 
                                 {/* Fila Informativa Anidada de Órdenes Secundarias (Telas de Complemento) */}
                                 {hasChildren && (
-                                  <tr style={{ borderBottom: '1.5px solid #cbd5e1', backgroundColor: '#fffbeb' }}>
-                                    <td colSpan={6} style={{ padding: '0.6rem 1rem 0.75rem 2.25rem' }}>
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                          🎨 ÓRDENES SECUNDARIAS COMPLEMENTARIAS (SE RECIBIERON CON EL LOTE — NO GENERAN LIQUIDACIÓN ADICIONAL):
+                                  <tr style={{ borderBottom: '1.5px solid #cbd5e1', backgroundColor: '#ecfdf5' }}>
+                                    <td colSpan={6} style={{ padding: '0.65rem 1rem 0.85rem 2.25rem' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                        <span style={{ fontSize: '0.72rem', fontWeight: '950', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                          🎨 ÓRDENES SECUNDARIAS COMPLEMENTARIAS ARRASTRADAS (Telas de complemento entregadas con el lote):
                                         </span>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
                                           {order.childOrders.map((ch: any) => (
-                                            <div key={ch.id} style={{ fontSize: '0.68rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#78350f', padding: '0.25rem 0.65rem', borderRadius: '6px', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                              <span>🎨 Lote Secundario: <strong>OC-{ch.internal_code}</strong></span>
-                                              <span style={{ color: '#cbd5e1' }}>•</span>
+                                            <div key={ch.id} style={{ fontSize: '0.7rem', fontWeight: '850', backgroundColor: '#ffffff', color: '#065f46', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #6ee7b7', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                              <span>🎨 Lote Secundario: <strong style={{ color: '#047857' }}>OC-{ch.internal_code}</strong></span>
+                                              <span style={{ color: '#a7f3d0' }}>•</span>
                                               <span>Tela: <strong>{ch.fabrics?.nombre_tela || 'Secundaria'}</strong></span>
-                                              <span style={{ color: '#cbd5e1' }}>•</span>
-                                              <span>{ch.workshopKilos} kg tela</span>
-                                              <span style={{ fontSize: '0.62rem', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.05rem 0.35rem', borderRadius: '4px', border: '1px solid #fde68a' }}>ℹ️ Solo Material</span>
+                                              <span style={{ color: '#a7f3d0' }}>•</span>
+                                              <span>Ref: {ch.productName}</span>
+                                              <span style={{ color: '#a7f3d0' }}>•</span>
+                                              <span><strong>{ch.workshopGarments}</strong> prendas ({ch.workshopKilos} kg)</span>
+                                              <span style={{ fontSize: '0.62rem', fontWeight: 900, color: '#065f46', backgroundColor: '#d1fae5', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #6ee7b7' }}>ℹ️ Material Informativo (Sin costo adic.)</span>
                                             </div>
                                           ))}
                                         </div>

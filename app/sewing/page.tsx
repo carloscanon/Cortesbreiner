@@ -668,15 +668,14 @@ export default function SewingPage() {
           }
         });
 
-        // Inicializar contador global de correlativos de confección
+        // Generar correlativo de confección preservando exactamente el código interno de la orden base
         let displayIdx = 0;
-
-        const cleanCode = (selectedOrder.internal_code || '').replace(/^OC-?/i, '') || selectedOrder.consecutive || '—';
+        const baseCode = selectedOrder.internal_code || (selectedOrder.consecutive ? `OC-${selectedOrder.consecutive}` : '—');
 
         // Insertar cada orden de confección independiente
         for (const lot of Object.values(sewingOrdersMap)) {
           displayIdx++;
-          const confCode = `${cleanCode}-${displayIdx}`;
+          const confCode = Object.keys(sewingOrdersMap).length > 1 ? `${baseCode}-${displayIdx}` : baseCode;
 
           // Insertar en sewing_orders
           const { data: insertedOrder, error: orderErr } = await supabase.from('sewing_orders').insert({
@@ -783,10 +782,10 @@ export default function SewingPage() {
             });
 
             let childDisplayIdx = 0;
-            const childCleanCode = (child.internal_code || '').replace(/^OC-?/i, '') || child.consecutive || '—';
+            const childBaseCode = child.internal_code || (child.consecutive ? `OC-${child.consecutive}` : '—');
             for (const cLot of Object.values(childSewingOrdersMap)) {
               childDisplayIdx++;
-              const cConfCode = `${childCleanCode}-${childDisplayIdx}`;
+              const cConfCode = Object.keys(childSewingOrdersMap).length > 1 ? `${childBaseCode}-${childDisplayIdx}` : childBaseCode;
               const { data: cInserted, error: cErr } = await supabase.from('sewing_orders').insert({
                 parent_order_id: child.id,
                 confeccion_code: cConfCode,
@@ -1902,6 +1901,41 @@ export default function SewingPage() {
                       <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
                         Ref: {so.products?.nombre_producto || '—'} | Tela: {so.parent_order?.fabrics?.nombre_tela || '—'}
                       </div>
+                      
+                      {/* Desglose Informativo de Órdenes Hijas Asociadas al mismo Lote */}
+                      {so.parent_order?.internal_code?.startsWith('CMP-P-') && (() => {
+                        const parentCode = so.parent_order.internal_code;
+                        const cleanParent = parentCode.replace(/^(CMP-P-|OC-)/i, '').trim();
+                        const linkedChildren = sewingOrders.filter(otherSo => {
+                          if (otherSo.id === so.id) return false;
+                          const otherParent = otherSo.parent_order || {};
+                          const otherInternal = otherParent.internal_code || '';
+                          const otherParentCode = (otherParent.parent_primary_code || '').trim();
+
+                          return (
+                            otherParentCode === parentCode ||
+                            otherParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent ||
+                            otherInternal.startsWith(`CMP-S-${cleanParent}`)
+                          );
+                        });
+
+                        if (linkedChildren.length === 0) return null;
+
+                        return (
+                          <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.6rem', backgroundColor: '#ecfdf5', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <span style={{ fontSize: '0.66rem', fontWeight: '900', color: '#065f46' }}>
+                              🔗 Telas Secundarias / Órdenes Hijas Arrastradas ({linkedChildren.length}):
+                            </span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                              {linkedChildren.map(chSo => (
+                                <span key={chSo.id} style={{ fontSize: '0.64rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#047857', padding: '0.1rem 0.45rem', borderRadius: '4px', border: '1px solid #6ee7b7' }}>
+                                  🎨 {chSo.confeccion_code || chSo.parent_order?.internal_code} ({chSo.parent_order?.fabrics?.nombre_tela || 'Tela Secund.'})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <>
