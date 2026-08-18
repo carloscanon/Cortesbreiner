@@ -718,11 +718,29 @@ export default function SewingPage() {
         // ── MOVIMIENTOS DE INVENTARIO → estado: 'confeccion' ────────────────────────────
         await syncOrderMovements(selectedOrder.id, 'En Confección');
 
-        // ── ARRASTRE AUTOMÁTICO DE ÓRDENES HIJAS SI LA ORDEN ES PADRE (CMP-P-) ──────────
-        if (selectedOrder.internal_code?.startsWith('CMP-P-')) {
-          const parentCode = selectedOrder.internal_code;
-          // Buscar todas las órdenes hijas en estado 'Cortado' vinculadas a esta orden padre
-          const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === parentCode);
+        // ── ARRASTRE AUTOMÁTICO DE ÓRDENES HIJAS SI LA ORDEN ES COMPUESTA ──────────
+        const parentCode = selectedOrder.internal_code || '';
+        const isParent = selectedOrder.is_composite || parentCode.startsWith('CMP-P-') || parentCode.startsWith('CMP-');
+
+        if (isParent) {
+          const cleanParent = parentCode.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/i, '').trim();
+
+          // Buscar todas las órdenes hijas en estado 'Cortado' o 'En Confección' vinculadas a esta orden padre
+          const childOrders = orders.filter(o => {
+            if (o.id === selectedOrder.id) return false;
+            const childParentCode = (o.parent_primary_code || '').trim();
+            const childInternalCode = (o.internal_code || '').trim();
+
+            const matchExplicit = childParentCode && (
+              childParentCode === parentCode ||
+              childParentCode === `CMP-P-${cleanParent}` ||
+              childParentCode === `OC-${cleanParent}` ||
+              childParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent
+            );
+
+            const matchPrefix = childInternalCode.startsWith(`CMP-S-${cleanParent}`);
+            return o.status === 'Cortado' && (matchExplicit || matchPrefix);
+          });
           
           for (const child of childOrders) {
             // Actualizar estado de la orden hija a 'En Confección'
@@ -1727,18 +1745,53 @@ export default function SewingPage() {
                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
 
                     {/* Desglose Informativo de Órdenes Hijas que se Arrastran */}
-                    {order.internal_code?.startsWith('CMP-P-') && (() => {
-                      const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === order.internal_code);
-                      if (childOrders.length === 0) return null;
+                    {(() => {
+                      const parentCode = order.internal_code || '';
+                      const isParent = order.is_composite || parentCode.startsWith('CMP-P-') || parentCode.startsWith('CMP-');
+                      if (!isParent && !order.parent_primary_code) return null;
+
+                      const cleanParent = parentCode.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/i, '').trim();
+
+                      // Buscar hijas por parent_primary_code exacto, o por prefijo de código interno o consecutivos vinculados
+                      const childOrders = orders.filter(o => {
+                        if (o.id === order.id) return false;
+                        const childParentCode = (o.parent_primary_code || '').trim();
+                        const childInternalCode = (o.internal_code || '').trim();
+                        
+                        const matchExplicit = childParentCode && (
+                          childParentCode === parentCode ||
+                          childParentCode === `CMP-P-${cleanParent}` ||
+                          childParentCode === `OC-${cleanParent}` ||
+                          childParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent
+                        );
+
+                        const matchPrefix = childInternalCode.startsWith(`CMP-S-${cleanParent}`);
+
+                        return (o.status === 'Cortado' || o.status === 'En Confección') && (matchExplicit || matchPrefix);
+                      });
+
+                      if (childOrders.length === 0) {
+                        if (parentCode.startsWith('CMP-P-')) {
+                          return (
+                            <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.65rem', backgroundColor: '#fef2f2', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                              <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#991b1b' }}>
+                                ⚠️ Prenda Compuesta Padre: No se encontraron órdenes hijas creadas o en estado Cortado.
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }
+
                       return (
-                        <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.65rem', backgroundColor: '#ecfdf5', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#065f46', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            🔗 Órdenes Hijas vinculadas que se ARRASTRARÁN automáticamente al taller ({childOrders.length}):
+                        <div style={{ marginTop: '0.45rem', padding: '0.5rem 0.75rem', backgroundColor: '#ecfdf5', borderRadius: '10px', border: '1.5px solid #6ee7b7', boxShadow: '0 2px 4px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: '950', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            🔗 ÓRDENES HIJAS (TELAS COMPLEMENTARIAS) QUE SE ARRASTRAN AUTOMÁTICAMENTE ({childOrders.length}):
                           </span>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                             {childOrders.map(ch => (
-                              <span key={ch.id} style={{ fontSize: '0.66rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#047857', padding: '0.1rem 0.45rem', borderRadius: '5px', border: '1px solid #6ee7b7' }}>
-                                🎨 OC-{ch.internal_code} ({ch.fabrics?.nombre_tela || 'Tela Secund.'} · {getTotalPrendas(ch)} uds)
+                              <span key={ch.id} style={{ fontSize: '0.7rem', fontWeight: '850', backgroundColor: '#ffffff', color: '#065f46', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #a7f3d0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                🎨 OC-{ch.internal_code} — {ch.fabrics?.nombre_tela || 'Tela Secund.'} ({getTotalPrendas(ch)} uds)
                               </span>
                             ))}
                           </div>
@@ -2090,17 +2143,39 @@ export default function SewingPage() {
             </div>
 
             {/* Banner Informativo de Órdenes Hijas que se Arrastran */}
-            {selectedOrder.internal_code?.startsWith('CMP-P-') && (() => {
-              const childOrders = orders.filter(o => o.status === 'Cortado' && o.parent_primary_code === selectedOrder.internal_code);
+            {(() => {
+              const parentCode = selectedOrder.internal_code || '';
+              const isParent = selectedOrder.is_composite || parentCode.startsWith('CMP-P-') || parentCode.startsWith('CMP-');
+              if (!isParent && !selectedOrder.parent_primary_code) return null;
+
+              const cleanParent = parentCode.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/i, '').trim();
+
+              const childOrders = orders.filter(o => {
+                if (o.id === selectedOrder.id) return false;
+                const childParentCode = (o.parent_primary_code || '').trim();
+                const childInternalCode = (o.internal_code || '').trim();
+
+                const matchExplicit = childParentCode && (
+                  childParentCode === parentCode ||
+                  childParentCode === `CMP-P-${cleanParent}` ||
+                  childParentCode === `OC-${cleanParent}` ||
+                  childParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent
+                );
+
+                const matchPrefix = childInternalCode.startsWith(`CMP-S-${cleanParent}`);
+                return (o.status === 'Cortado' || o.status === 'En Confección') && (matchExplicit || matchPrefix);
+              });
+
               if (childOrders.length === 0) return null;
+
               return (
-                <div style={{ padding: '0.85rem 2rem', backgroundColor: '#ecfdf5', borderBottom: '1.5px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#065f46', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <div style={{ padding: '0.9rem 2rem', backgroundColor: '#ecfdf5', borderBottom: '1.5px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '950', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     ✨ ATENCIÓN: Esta Orden Padre arrastrará automáticamente {childOrders.length} orden(es) hija(s) al taller seleccionado:
                   </span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {childOrders.map(ch => (
-                      <span key={ch.id} style={{ fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#047857', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #6ee7b7', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                      <span key={ch.id} style={{ fontSize: '0.72rem', fontWeight: '850', backgroundColor: '#ffffff', color: '#065f46', padding: '0.25rem 0.65rem', borderRadius: '6px', border: '1px solid #6ee7b7', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                         🎨 OC-{ch.internal_code} — Tela: {ch.fabrics?.nombre_tela || 'Secundaria'} ({getTotalPrendas(ch)} uds)
                       </span>
                     ))}
