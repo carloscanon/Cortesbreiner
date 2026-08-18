@@ -1548,8 +1548,8 @@ export default function SewingPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Cortadas son las órdenes padre o independientes que están listas para iniciar confección
-  const cortadasBase = orders.filter(o => o.status === 'Cortado' && !o.internal_code?.startsWith('CMP-S-'));
+  // Cortadas son las órdenes de corte que están listas para iniciar confección
+  const cortadasBase = orders.filter(o => o.status === 'Cortado');
   const totalCortadasCount = cortadasBase.length;
   const cortadas = cortadasBase
     .filter(o => {

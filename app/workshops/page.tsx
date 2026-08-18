@@ -454,6 +454,7 @@ export default function WorkshopsPage() {
       // 3. Separar en Principales (Padres / Independientes) y Secundarias (Hijas)
       const primaryOrders: any[] = [];
       const childOrdersMap: Record<string, any[]> = {};
+      const claimedChildIds = new Set<string>();
 
       richOrders.forEach(o => {
         const orderCode = o.order_internal_code || '';
@@ -473,10 +474,23 @@ export default function WorkshopsPage() {
       const structuredOrders = primaryOrders.map(p => {
         const cleanCode = (p.order_internal_code || '').replace(/^(CMP-P-|OC-)/i, '');
         const children = childOrdersMap[cleanCode] || [];
+        children.forEach(c => claimedChildIds.add(c.id));
         return {
           ...p,
           childOrders: children
         };
+      });
+
+      // Añadir de forma persistente cualquier orden hija cuyos padres no estén presentes como fila propia
+      richOrders.forEach(o => {
+        const orderCode = o.order_internal_code || '';
+        const isChild = orderCode.startsWith('CMP-S-') || !!o.parent_primary_code;
+        if (isChild && !claimedChildIds.has(o.id)) {
+          structuredOrders.push({
+            ...o,
+            childOrders: []
+          });
+        }
       });
 
       setWorkshopOrders(structuredOrders);
