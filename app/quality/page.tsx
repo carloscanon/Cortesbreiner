@@ -1578,64 +1578,80 @@ export default function QualityPage() {
                   {/* Resumen por Tarjetas de Usuario */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
                     {userEntries.length === 0 ? (
-                      <div style={{ gridColumn: '1 / -1', padding: '2.5rem', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px dashed #cbd5e1', color: '#64748b' }}>
+                      <div style={{ gridColumn: '1 / -1', padding: '2.5rem', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '16px', border: '2px dashed #cbd5e1', color: '#64748b' }}>
                         <p style={{ margin: 0, fontWeight: 800 }}>No se encontraron registros de gestión para los filtros seleccionados.</p>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Prueba cambiando la fecha o el usuario en los controles superiores.</span>
                       </div>
                     ) : (
-                      userEntries.map(([opName, metrics], idx) => (
-                        <div key={idx} style={{
-                          padding: '1.2rem',
-                          borderRadius: '16px',
-                          backgroundColor: '#ffffff',
-                          border: '2px solid #e2e8f0',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.75rem'
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 950, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              👤 {opName}
-                            </h4>
-                            <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
-                              {metrics.inspectionsCount} Ordenes
-                            </span>
-                          </div>
+                      userEntries.map(([opName, metrics], idx) => {
+                        const palettes = [
+                          { border: '#818cf8', gradient: 'linear-gradient(135deg, #e0e7ff 0%, #ffffff 100%)', badgeBg: '#4338ca', badgeText: '#ffffff', accent: '#3730a3' },
+                          { border: '#6ee7b7', gradient: 'linear-gradient(135deg, #d1fae5 0%, #ffffff 100%)', badgeBg: '#059669', badgeText: '#ffffff', accent: '#065f46' },
+                          { border: '#c084fc', gradient: 'linear-gradient(135deg, #f3e8ff 0%, #ffffff 100%)', badgeBg: '#7e22ce', badgeText: '#ffffff', accent: '#581c87' },
+                          { border: '#fde047', gradient: 'linear-gradient(135deg, #fef9c3 0%, #ffffff 100%)', badgeBg: '#d97706', badgeText: '#ffffff', accent: '#78350f' }
+                        ];
+                        const palette = palettes[idx % palettes.length];
 
-                          {/* Métricas de Prendas y Tiempos */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem', backgroundColor: '#f8fafc', padding: '0.65rem', borderRadius: '10px', textAlign: 'center' }}>
-                            <div>
-                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: 700 }}>Aprobadas</span>
-                              <strong style={{ fontSize: '1rem', color: '#16a34a' }}>{metrics.approvedGarments}</strong>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: 700 }}>Rechazadas</span>
-                              <strong style={{ fontSize: '1rem', color: '#dc2626' }}>{metrics.rejectedGarments}</strong>
-                            </div>
-                            <div>
-                              <span style={{ fontSize: '0.65rem', color: '#64748b', display: 'block', fontWeight: '700' }}>Hrs Total</span>
-                              <strong style={{ fontSize: '1rem', color: '#2563eb' }}>{metrics.totalHours.toFixed(1)}h</strong>
-                            </div>
-                          </div>
+                        return (
+                          <div key={idx} style={{
+                            padding: '1.25rem',
+                            borderRadius: '18px',
+                            background: palette.gradient,
+                            border: `2px solid ${palette.border}`,
+                            boxShadow: '0 10px 20px -5px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.85rem',
+                            position: 'relative',
+                            overflow: 'hidden'
+                          }}>
+                            {/* Barra Superior Decorativa */}
+                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '5px', backgroundColor: palette.badgeBg }} />
 
-                          {/* Distribución por Etapas */}
-                          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
-                              E1: {metrics.stagesHandled[1] || 0}
-                            </span>
-                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#fffbeb', color: '#b45309', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
-                              E2: {metrics.stagesHandled[2] || 0}
-                            </span>
-                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#f5f3ff', color: '#6d28d9', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
-                              E3: {metrics.stagesHandled[3] || 0}
-                            </span>
-                            <span style={{ fontSize: '0.68rem', fontWeight: 800, backgroundColor: '#ecfdf5', color: '#15803d', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
-                              E4: {metrics.stagesHandled[4] || 0}
-                            </span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.2rem' }}>
+                              <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                👤 {opName}
+                              </h4>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 900, color: palette.badgeText, backgroundColor: palette.badgeBg, padding: '0.2rem 0.65rem', borderRadius: '20px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }}>
+                                📦 {metrics.inspectionsCount} Lote{metrics.inspectionsCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+
+                            {/* Métricas de Prendas y Tiempos Destacadas */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', backgroundColor: 'rgba(255, 255, 255, 0.85)', backdropFilter: 'blur(4px)', padding: '0.75rem', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(226, 232, 240, 0.8)' }}>
+                              <div style={{ backgroundColor: '#f0fdf4', padding: '0.4rem 0.2rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                                <span style={{ fontSize: '0.62rem', color: '#166534', display: 'block', fontWeight: 800, textTransform: 'uppercase' }}>✅ Aprobadas</span>
+                                <strong style={{ fontSize: '1.05rem', color: '#15803d', fontWeight: 950 }}>{metrics.approvedGarments}</strong>
+                              </div>
+                              <div style={{ backgroundColor: '#fef2f2', padding: '0.4rem 0.2rem', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                                <span style={{ fontSize: '0.62rem', color: '#991b1b', display: 'block', fontWeight: 800, textTransform: 'uppercase' }}>❌ Rechazadas</span>
+                                <strong style={{ fontSize: '1.05rem', color: '#b91c1c', fontWeight: 950 }}>{metrics.rejectedGarments}</strong>
+                              </div>
+                              <div style={{ backgroundColor: '#eff6ff', padding: '0.4rem 0.2rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                <span style={{ fontSize: '0.62rem', color: '#1e40af', display: 'block', fontWeight: 800, textTransform: 'uppercase' }}>⏱️ Hrs Total</span>
+                                <strong style={{ fontSize: '1.05rem', color: '#1d4ed8', fontWeight: 950 }}>{metrics.totalHours.toFixed(1)}h</strong>
+                              </div>
+                            </div>
+
+                            {/* Distribución de Trabajo por Etapas */}
+                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', marginRight: '0.2rem' }}>ETAPAS:</span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#dbeafe', color: '#1e40af', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                📥 E1: {metrics.stagesHandled[1] || 0}
+                              </span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#fef3c7', color: '#92400e', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                                🛠️ E2: {metrics.stagesHandled[2] || 0}
+                              </span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#f3e8ff', color: '#6b21a8', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #ddd6fe' }}>
+                                📦 E3: {metrics.stagesHandled[3] || 0}
+                              </span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#d1fae5', color: '#065f46', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
+                                💰 E4: {metrics.stagesHandled[4] || 0}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 
