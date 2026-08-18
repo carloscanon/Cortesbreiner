@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -437,6 +437,9 @@ export default function WorkshopsPage() {
         return {
           id: so.id,
           internal_code: so.confeccion_code,
+          order_internal_code: order.internal_code || '',
+          parent_primary_code: order.parent_primary_code || '',
+          is_composite: !!order.is_composite,
           client_name: order.client_name || '—',
           fabrics: order.fabrics,
           workshopGarments: totalGarments,
@@ -448,7 +451,35 @@ export default function WorkshopsPage() {
         };
       });
 
-      setWorkshopOrders(richOrders);
+      // 3. Separar en Principales (Padres / Independientes) y Secundarias (Hijas)
+      const primaryOrders: any[] = [];
+      const childOrdersMap: Record<string, any[]> = {};
+
+      richOrders.forEach(o => {
+        const orderCode = o.order_internal_code || '';
+        const isChild = orderCode.startsWith('CMP-S-') || !!o.parent_primary_code;
+
+        if (isChild) {
+          const parentKey = o.parent_primary_code || orderCode.replace(/^(CMP-S-[^-]+-|CMP-S-)/i, 'CMP-P-');
+          const cleanParentKey = parentKey.replace(/^(CMP-P-|OC-)/i, '');
+          if (!childOrdersMap[cleanParentKey]) childOrdersMap[cleanParentKey] = [];
+          childOrdersMap[cleanParentKey].push(o);
+        } else {
+          primaryOrders.push(o);
+        }
+      });
+
+      // Ensamblar la lista estructurada: Las hijas quedan anidadas dentro de su padre principal
+      const structuredOrders = primaryOrders.map(p => {
+        const cleanCode = (p.order_internal_code || '').replace(/^(CMP-P-|OC-)/i, '');
+        const children = childOrdersMap[cleanCode] || [];
+        return {
+          ...p,
+          childOrders: children
+        };
+      });
+
+      setWorkshopOrders(structuredOrders);
     } catch (err: any) {
       console.error("Error fetching workshop details:", err.message);
     } finally {
@@ -2108,30 +2139,64 @@ export default function WorkshopsPage() {
                               : order.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
                               : { bg: '#f1f5f9', color: '#475569' };
 
+                            const hasChildren = (order.childOrders || []).length > 0;
+
                             return (
-                              <tr key={order.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#7c3aed' }}>
-                                  OC-{order.internal_code}
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem' }}>
-                                  <div style={{ fontWeight: '700', color: '#0f172a' }}>{order.client_name}</div>
-                                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{order.fabrics?.nombre_tela || 'Tela Externa'}</div>
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700' }}>
-                                  {order.workshopGarments}
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '800', color: isPending ? '#eab308' : '#94a3b8' }}>
-                                  {order.pendingGarments}
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700' }}>
-                                  {Number(order.workshopKilos || 0).toFixed(2)} kg
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                                  <span style={{ padding: '0.2rem 0.5rem', borderRadius: '999px', fontSize: '0.625rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color, whiteSpace: 'nowrap' }}>
-                                    {order.status.toUpperCase()}
-                                  </span>
-                                </td>
-                              </tr>
+                              <React.Fragment key={order.id}>
+                                <tr style={{ borderBottom: hasChildren ? 'none' : '1px solid #f1f5f9', backgroundColor: order.order_internal_code?.startsWith('CMP-P-') ? '#f0fdf4' : 'white' }}>
+                                  <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#7c3aed' }}>
+                                    <div>OC-{order.internal_code}</div>
+                                    {order.order_internal_code?.startsWith('CMP-P-') && (
+                                      <span style={{ fontSize: '0.63rem', fontWeight: 900, color: '#15803d', backgroundColor: '#dcfce7', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #86efac' }}>
+                                        ⭐ Orden Principal (A Liquidar)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '0.75rem 1rem' }}>
+                                    <div style={{ fontWeight: '700', color: '#0f172a' }}>{order.client_name}</div>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Ref: {order.productName} · Tela: {order.fabrics?.nombre_tela || 'Tela Externa'}</div>
+                                  </td>
+                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#0f172a' }}>
+                                    {order.workshopGarments} <span style={{ fontSize: '0.65rem', color: '#64748b' }}>prendas</span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '800', color: isPending ? '#eab308' : '#94a3b8' }}>
+                                    {order.pendingGarments}
+                                  </td>
+                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '700' }}>
+                                    {Number(order.workshopKilos || 0).toFixed(2)} kg
+                                  </td>
+                                  <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                    <span style={{ padding: '0.2rem 0.5rem', borderRadius: '999px', fontSize: '0.625rem', fontWeight: '800', backgroundColor: statusColor.bg, color: statusColor.color, whiteSpace: 'nowrap' }}>
+                                      {order.status.toUpperCase()}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Fila Informativa Anidada de Órdenes Secundarias (Telas de Complemento) */}
+                                {hasChildren && (
+                                  <tr style={{ borderBottom: '1.5px solid #cbd5e1', backgroundColor: '#fffbeb' }}>
+                                    <td colSpan={6} style={{ padding: '0.6rem 1rem 0.75rem 2.25rem' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                          🎨 ÓRDENES SECUNDARIAS COMPLEMENTARIAS (SE RECIBIERON CON EL LOTE — NO GENERAN LIQUIDACIÓN ADICIONAL):
+                                        </span>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                          {order.childOrders.map((ch: any) => (
+                                            <div key={ch.id} style={{ fontSize: '0.68rem', fontWeight: '800', backgroundColor: '#ffffff', color: '#78350f', padding: '0.25rem 0.65rem', borderRadius: '6px', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                              <span>🎨 Lote Secundario: <strong>OC-{ch.internal_code}</strong></span>
+                                              <span style={{ color: '#cbd5e1' }}>•</span>
+                                              <span>Tela: <strong>{ch.fabrics?.nombre_tela || 'Secundaria'}</strong></span>
+                                              <span style={{ color: '#cbd5e1' }}>•</span>
+                                              <span>{ch.workshopKilos} kg tela</span>
+                                              <span style={{ fontSize: '0.62rem', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.05rem 0.35rem', borderRadius: '4px', border: '1px solid #fde68a' }}>ℹ️ Solo Material</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
                             );
                           })}
                         </tbody>
