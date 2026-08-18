@@ -1521,13 +1521,14 @@ export default function QualityPage() {
                 return timestamps.some(t => t >= rangeStart && t <= rangeEnd);
               });
 
-              // Agrupación por Usuario para Métricas Resumidas
+              // Agrupación por Usuario para Métricas Resumidas y Tiempos por Etapa
               const userMetricsMap: Record<string, {
                 inspectionsCount: number;
                 approvedGarments: number;
                 rejectedGarments: number;
                 totalHours: number;
                 stagesHandled: Record<number, number>;
+                stageHoursTotal: Record<number, number>;
               }> = {};
 
               filteredInspections.forEach(i => {
@@ -1538,7 +1539,8 @@ export default function QualityPage() {
                     approvedGarments: 0,
                     rejectedGarments: 0,
                     totalHours: 0,
-                    stagesHandled: { 1: 0, 2: 0, 3: 0, 4: 0 }
+                    stagesHandled: { 1: 0, 2: 0, 3: 0, 4: 0 },
+                    stageHoursTotal: { 1: 0, 2: 0, 3: 0, 4: 0 }
                   };
                 }
 
@@ -1547,9 +1549,25 @@ export default function QualityPage() {
                 userMetricsMap[op].rejectedGarments += (i.items_rejected || 0);
 
                 const rec = i.received_at ? new Date(i.received_at) : new Date(i.created_at);
-                const end = i.closed_at ? new Date(i.closed_at) : i.packaged_at ? new Date(i.packaged_at) : new Date();
-                const hrs = Math.max(0.1, (end.getTime() - rec.getTime()) / 3600000);
-                userMetricsMap[op].totalHours += hrs;
+                const insp = i.inspected_at ? new Date(i.inspected_at) : null;
+                const pack = i.packaged_at ? new Date(i.packaged_at) : null;
+                const close = i.closed_at ? new Date(i.closed_at) : null;
+                const now = new Date();
+
+                // Tiempos individuales por tramos de etapa
+                const hrsE1 = insp ? Math.max(0.1, (insp.getTime() - rec.getTime()) / 3600000) : Math.max(0.1, (now.getTime() - rec.getTime()) / 3600000);
+                const hrsE2 = insp && pack ? Math.max(0, (pack.getTime() - insp.getTime()) / 3600000) : insp ? Math.max(0, (now.getTime() - insp.getTime()) / 3600000) : 0;
+                const hrsE3 = pack && close ? Math.max(0, (close.getTime() - pack.getTime()) / 3600000) : pack ? Math.max(0, (now.getTime() - pack.getTime()) / 3600000) : 0;
+                const hrsE4 = close && pack ? Math.max(0, (close.getTime() - pack.getTime()) / 3600000) : 0;
+
+                userMetricsMap[op].stageHoursTotal[1] += hrsE1;
+                userMetricsMap[op].stageHoursTotal[2] += hrsE2;
+                userMetricsMap[op].stageHoursTotal[3] += hrsE3;
+                userMetricsMap[op].stageHoursTotal[4] += hrsE4;
+
+                const end = close || pack || insp || now;
+                const hrsTotal = Math.max(0.1, (end.getTime() - rec.getTime()) / 3600000);
+                userMetricsMap[op].totalHours += hrsTotal;
 
                 const st = i.current_stage || (i.status === 'Aprobado' ? 4 : i.status === 'Empacado' ? 3 : i.status === 'Reproceso' ? 2 : 1);
                 userMetricsMap[op].stagesHandled[st] = (userMetricsMap[op].stagesHandled[st] || 0) + 1;
@@ -1575,8 +1593,8 @@ export default function QualityPage() {
                     </span>
                   </div>
 
-                  {/* Resumen por Tarjetas de Usuario */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                  {/* Resumen por Tarjetas de Usuario con Discriminación de Tiempo por Etapa */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
                     {userEntries.length === 0 ? (
                       <div style={{ gridColumn: '1 / -1', padding: '2.5rem', textAlign: 'center', backgroundColor: '#f8fafc', borderRadius: '16px', border: '2px dashed #cbd5e1', color: '#64748b' }}>
                         <p style={{ margin: 0, fontWeight: 800 }}>No se encontraron registros de gestión para los filtros seleccionados.</p>
@@ -1633,33 +1651,42 @@ export default function QualityPage() {
                               </div>
                             </div>
 
-                            {/* Distribución de Trabajo por Etapas */}
-                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', marginRight: '0.2rem' }}>ETAPAS:</span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#dbeafe', color: '#1e40af', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                                📥 E1: {metrics.stagesHandled[1] || 0}
+                            {/* Discriminación Detallada de Tiempos Gastados por Etapa */}
+                            <div style={{ backgroundColor: '#ffffff', padding: '0.75rem', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                              <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                ⏱️ TIEMPO ACUMULADO DISCRIMINADO POR ETAPA:
                               </span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#fef3c7', color: '#92400e', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                                🛠️ E2: {metrics.stagesHandled[2] || 0}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#f3e8ff', color: '#6b21a8', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #ddd6fe' }}>
-                                📦 E3: {metrics.stagesHandled[3] || 0}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 900, backgroundColor: '#d1fae5', color: '#065f46', padding: '0.2rem 0.55rem', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
-                                💰 E4: {metrics.stagesHandled[4] || 0}
-                              </span>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid #bfdbfe' }}>
+                                  <span style={{ fontWeight: 800, color: '#1e40af' }}>📥 E1 Recepción</span>
+                                  <strong style={{ fontWeight: 950, color: '#1d4ed8' }}>{metrics.stageHoursTotal[1].toFixed(1)}h</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fffbeb', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid #fde68a' }}>
+                                  <span style={{ fontWeight: 800, color: '#92400e' }}>🛠️ E2 Reproceso</span>
+                                  <strong style={{ fontWeight: 950, color: '#b45309' }}>{metrics.stageHoursTotal[2].toFixed(1)}h</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f3e8ff', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid #ddd6fe' }}>
+                                  <span style={{ fontWeight: 800, color: '#6b21a8' }}>📦 E3 Empaque</span>
+                                  <strong style={{ fontWeight: 950, color: '#7c3aed' }}>{metrics.stageHoursTotal[3].toFixed(1)}h</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ecfdf5', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid #a7f3d0' }}>
+                                  <span style={{ fontWeight: 800, color: '#065f46' }}>💰 E4 Cierre</span>
+                                  <strong style={{ fontWeight: 950, color: '#059669' }}>{metrics.stageHoursTotal[4].toFixed(1)}h</strong>
+                                </div>
+                              </div>
                             </div>
+
                           </div>
                         );
                       })
                     )}
                   </div>
 
-                  {/* Tabla de Detalle Completo de las Órdenes del Periodo */}
+                  {/* Tabla de Detalle Completo de las Órdenes del Periodo con Tiempos por Etapa */}
                   <div style={{ border: '1.5px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
                     <div style={{ padding: '0.85rem 1.25rem', backgroundColor: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 950, color: '#0f172a' }}>
-                        📋 Detalle de Gestión de Órdenes en el Periodo Seleccionado
+                        📋 Detalle y Tiempos Discriminados por Etapa de Órdenes
                       </h4>
                       <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
                         Mostrando {filteredInspections.length} orden(es)
@@ -1675,8 +1702,8 @@ export default function QualityPage() {
                             <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Responsable</th>
                             <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Etapa Actual</th>
                             <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Aprob / Rech</th>
-                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569' }}>Última Actividad</th>
-                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Transcurrido</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Tiempos por Etapa (E1 → E2 → E3 → E4)</th>
+                            <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Tiempo Total</th>
                             <th style={{ padding: '0.65rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Acciones</th>
                           </tr>
                         </thead>
@@ -1697,10 +1724,18 @@ export default function QualityPage() {
                               const stageName = currStage === 4 ? '4. Cierre Financiero' : currStage === 3 ? '3. Doblado y Empaque' : currStage === 2 ? '2. Reproceso y Arreglos' : '1. Recepción';
 
                               const recDate = item.received_at ? new Date(item.received_at) : new Date(item.created_at);
-                              const endDate = item.closed_at ? new Date(item.closed_at) : item.packaged_at ? new Date(item.packaged_at) : new Date();
-                              const hrs = Math.max(0.1, (endDate.getTime() - recDate.getTime()) / 3600000);
+                              const inspDate = item.inspected_at ? new Date(item.inspected_at) : null;
+                              const packDate = item.packaged_at ? new Date(item.packaged_at) : null;
+                              const closeDate = item.closed_at ? new Date(item.closed_at) : null;
+                              const now = new Date();
 
-                              const lastDate = item.closed_at ? new Date(item.closed_at) : item.packaged_at ? new Date(item.packaged_at) : item.inspected_at ? new Date(item.inspected_at) : recDate;
+                              const tE1 = inspDate ? ((inspDate.getTime() - recDate.getTime()) / 3600000) : ((now.getTime() - recDate.getTime()) / 3600000);
+                              const tE2 = inspDate && packDate ? ((packDate.getTime() - inspDate.getTime()) / 3600000) : inspDate ? ((now.getTime() - inspDate.getTime()) / 3600000) : null;
+                              const tE3 = packDate && closeDate ? ((closeDate.getTime() - packDate.getTime()) / 3600000) : packDate ? ((now.getTime() - packDate.getTime()) / 3600000) : null;
+                              const tE4 = closeDate && packDate ? ((closeDate.getTime() - packDate.getTime()) / 3600000) : null;
+
+                              const endDate = closeDate || packDate || inspDate || now;
+                              const totalHrs = Math.max(0.1, (endDate.getTime() - recDate.getTime()) / 3600000);
 
                               return (
                                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -1722,11 +1757,27 @@ export default function QualityPage() {
                                   <td style={{ padding: '0.65rem 1rem', fontWeight: 800 }}>
                                     <span style={{ color: '#16a34a' }}>{item.items_approved || 0}</span> / <span style={{ color: '#dc2626' }}>{item.items_rejected || 0}</span>
                                   </td>
-                                  <td style={{ padding: '0.65rem 1rem', color: '#64748b' }}>
-                                    {lastDate ? lastDate.toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                  <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                                    <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center', fontSize: '0.68rem', fontWeight: 850 }}>
+                                      <span style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                                        E1: {tE1.toFixed(1)}h
+                                      </span>
+                                      <span style={{ color: '#cbd5e1' }}>→</span>
+                                      <span style={{ backgroundColor: tE2 !== null ? '#fffbeb' : '#f8fafc', color: tE2 !== null ? '#b45309' : '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid #fde68a' }}>
+                                        E2: {tE2 !== null ? `${tE2.toFixed(1)}h` : '—'}
+                                      </span>
+                                      <span style={{ color: '#cbd5e1' }}>→</span>
+                                      <span style={{ backgroundColor: tE3 !== null ? '#f5f3ff' : '#f8fafc', color: tE3 !== null ? '#6d28d9' : '#94a3b8', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #ddd6fe' }}>
+                                        E3: {tE3 !== null ? `${tE3.toFixed(1)}h` : '—'}
+                                      </span>
+                                      <span style={{ color: '#cbd5e1' }}>→</span>
+                                      <span style={{ backgroundColor: tE4 !== null ? '#ecfdf5' : '#f8fafc', color: tE4 !== null ? '#15803d' : '#94a3b8', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #a7f3d0' }}>
+                                        E4: {tE4 !== null ? `${tE4.toFixed(1)}h` : '—'}
+                                      </span>
+                                    </div>
                                   </td>
-                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 900, textAlign: 'right', color: item.closed_at ? '#059669' : '#d97706' }}>
-                                    ⏱️ {hrs.toFixed(1)} hrs
+                                  <td style={{ padding: '0.65rem 1rem', fontWeight: 950, textAlign: 'right', color: item.closed_at ? '#059669' : '#d97706' }}>
+                                    ⏱️ {totalHrs.toFixed(1)} hrs
                                   </td>
                                   <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
                                     <button
