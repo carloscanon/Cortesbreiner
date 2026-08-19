@@ -142,7 +142,7 @@ export default function SewingPage() {
       ] = await Promise.all([
         supabase
           .from('orders')
-          .select('id, internal_code, consecutive, client_name, parent_primary_code, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))')
+          .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))')
           .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
           .order('created_at', { ascending: false })
           .limit(300),
@@ -155,7 +155,7 @@ export default function SewingPage() {
         fetchAll(() => supabase.from('products').select('*')),
         fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')),
         supabase.from('sewing_orders')
-          .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, parent_primary_code, status, fabric_id, fabrics(nombre_tela), cuts(id, order_id, product_id, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
+          .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, status, fabric_id, fabrics(nombre_tela), cuts(id, order_id, product_id, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
           .order('created_at', { ascending: false })
           .limit(100)
       ]);
