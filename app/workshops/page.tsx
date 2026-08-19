@@ -2173,6 +2173,11 @@ export default function WorkshopsPage() {
                                   <td style={{ padding: '0.75rem 1rem' }}>
                                     <div style={{ fontWeight: '700', color: '#0f172a' }}>{order.client_name}</div>
                                     <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Ref: {order.productName} · Tela: {order.fabrics?.nombre_tela || 'Tela Externa'}</div>
+                                    {hasChildren && (
+                                      <div style={{ fontSize: '0.67rem', fontWeight: '800', color: '#047857', backgroundColor: '#d1fae5', padding: '0.15rem 0.45rem', borderRadius: '4px', border: '1px solid #6ee7b7', marginTop: '0.2rem', display: 'inline-block' }}>
+                                        🧩 Orden Compuesta: Confección con {order.childOrders.length} tela(s) de complemento anidada(s)
+                                      </div>
+                                    )}
                                   </td>
                                   <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#0f172a' }}>
                                     {order.workshopGarments} <span style={{ fontSize: '0.65rem', color: '#64748b' }}>prendas</span>
