@@ -669,6 +669,28 @@ export default function SewingPage() {
           }
         });
 
+        // Si sewingOrdersMap estuviera vacío, construir un lote por defecto con el producto y taller principal de la orden
+        if (Object.keys(sewingOrdersMap).length === 0 && selectedOrder.workshop_id) {
+          const mainCut = (selectedOrder.cuts || [])[0];
+          const prodId = mainCut ? mainCut.product_id : (products[0]?.id || null);
+          if (prodId) {
+            const fallbackKey = `${selectedOrder.workshop_id}_${prodId}`;
+            let fallbackQty = 0;
+            (selectedOrder.cuts || []).forEach((c: any) => {
+              (c.cut_sizes || []).forEach((cs: any) => {
+                fallbackQty += Number(cs.quantity_produced) || Number(cs.quantity) || 0;
+              });
+            });
+            sewingOrdersMap[fallbackKey] = {
+              workshopId: selectedOrder.workshop_id,
+              productId: prodId,
+              cantidadPlaneada: fallbackQty || selectedOrder.capas_proyectadas || 0,
+              sizes: [],
+              specialRate: null
+            };
+          }
+        }
+
         // Generar correlativo de confección usando SIEMPRE el código interno exacto de la orden base sin modificar
         const baseCode = selectedOrder.internal_code || (selectedOrder.consecutive ? `OC-${selectedOrder.consecutive}` : '—');
 
@@ -782,6 +804,28 @@ export default function SewingPage() {
                 }
               });
             });
+
+            // Si childSewingOrdersMap estuviera vacío, construir un lote por defecto para la orden hija
+            if (Object.keys(childSewingOrdersMap).length === 0) {
+              const cCut = (child.cuts || [])[0];
+              const cProdId = cCut ? cCut.product_id : (products[0]?.id || null);
+              if (cProdId) {
+                const cKey = `${firstWorkshopId}_${cProdId}`;
+                let cQty = 0;
+                (child.cuts || []).forEach((c: any) => {
+                  (c.cut_sizes || []).forEach((cs: any) => {
+                    cQty += Number(cs.quantity_produced) || Number(cs.quantity) || 0;
+                  });
+                });
+                childSewingOrdersMap[cKey] = {
+                  workshopId: firstWorkshopId,
+                  productId: cProdId,
+                  cantidadPlaneada: cQty || child.capas_proyectadas || 0,
+                  sizes: [],
+                  specialRate: null
+                };
+              }
+            }
 
             let childDisplayIdx = 0;
             const childBaseCode = child.internal_code || (child.consecutive ? `OC-${child.consecutive}` : '—');
