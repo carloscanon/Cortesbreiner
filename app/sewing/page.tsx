@@ -1907,19 +1907,14 @@ export default function SewingPage() {
                       
                       {/* Desglose Informativo de Órdenes Hijas Asociadas al mismo Lote */}
                       {so.parent_order?.internal_code?.startsWith('CMP-P-') && (() => {
-                        const parentCode = so.parent_order.internal_code;
-                        const cleanParent = parentCode.replace(/^(CMP-P-|OC-)/i, '').trim();
+                        const parentCode = so.parent_order.internal_code || '';
+                        const cleanParent = parentCode.replace(/^CMP-P-/i, '').replace(/^OC-/i, '').trim();
                         const linkedChildren = sewingOrders.filter(otherSo => {
                           if (otherSo.id === so.id) return false;
                           const otherParent = otherSo.parent_order || {};
-                          const otherInternal = otherParent.internal_code || '';
-                          const otherParentCode = (otherParent.parent_primary_code || '').trim();
+                          const otherInternal = (otherParent.internal_code || otherSo.confeccion_code || '').trim();
 
-                          return (
-                            otherParentCode === parentCode ||
-                            otherParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent ||
-                            otherInternal.startsWith(`CMP-S-${cleanParent}`)
-                          );
+                          return otherInternal.startsWith(`CMP-S-${cleanParent}`);
                         });
 
                         if (linkedChildren.length === 0) return null;

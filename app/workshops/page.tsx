@@ -457,12 +457,14 @@ export default function WorkshopsPage() {
       const claimedChildIds = new Set<string>();
 
       richOrders.forEach(o => {
-        const orderCode = o.order_internal_code || '';
-        const isChild = orderCode.startsWith('CMP-S-') || !!o.parent_primary_code;
+        const orderCode = (o.order_internal_code || o.internal_code || '').trim();
+        const isChild = orderCode.startsWith('CMP-S-');
 
         if (isChild) {
-          const parentKey = o.parent_primary_code || orderCode.replace(/^(CMP-S-[^-]+-|CMP-S-)/i, 'CMP-P-');
-          const cleanParentKey = parentKey.replace(/^(CMP-P-|OC-)/i, '');
+          // Extraer la clave base de la orden padre (ej: CMP-S-P06XX-P1 -> P06XX)
+          const match = orderCode.match(/^CMP-S-(.*?)(?:-P\d+)?$/i);
+          const cleanParentKey = match ? match[1] : orderCode.replace(/^CMP-S-/i, '');
+          
           if (!childOrdersMap[cleanParentKey]) childOrdersMap[cleanParentKey] = [];
           childOrdersMap[cleanParentKey].push(o);
         } else {
@@ -472,7 +474,9 @@ export default function WorkshopsPage() {
 
       // Ensamblar la lista estructurada: Las hijas quedan anidadas dentro de su padre principal
       const structuredOrders = primaryOrders.map(p => {
-        const cleanCode = (p.order_internal_code || '').replace(/^(CMP-P-|OC-)/i, '');
+        const pCode = (p.order_internal_code || p.internal_code || '').trim();
+        const match = pCode.match(/^CMP-P-(.*)$/i);
+        const cleanCode = match ? match[1] : pCode.replace(/^(CMP-P-|OC-)/i, '');
         const children = childOrdersMap[cleanCode] || [];
         children.forEach(c => claimedChildIds.add(c.id));
         return {
