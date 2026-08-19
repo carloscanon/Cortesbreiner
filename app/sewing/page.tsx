@@ -682,7 +682,7 @@ export default function SewingPage() {
             confeccion_code: confCode,
             workshop_id: lot.workshopId,
             product_id: lot.productId,
-            status: 'Enviado a Taller', // Starts as Enviado a Taller
+            status: 'En Confección',
             cantidad_planeada: lot.cantidadPlaneada,
             cantidad_confeccionada: 0,
             tarifa_especial: lot.specialRate
@@ -790,7 +790,7 @@ export default function SewingPage() {
                 confeccion_code: cConfCode,
                 workshop_id: cLot.workshopId,
                 product_id: cLot.productId,
-                status: 'Enviado a Taller',
+                status: 'En Confección',
                 cantidad_planeada: cLot.cantidadPlaneada,
                 cantidad_confeccionada: 0,
                 tarifa_especial: cLot.specialRate
