@@ -741,6 +741,9 @@ export default function SewingPage() {
           });
           
           for (const child of childOrders) {
+            // Limpiar asignaciones previas de la orden hija
+            await supabase.from('sewing_orders').delete().eq('parent_order_id', child.id);
+
             // Actualizar estado de la orden hija a 'En Confección'
             await supabase.from('orders').update({
               status: 'En Confección',
