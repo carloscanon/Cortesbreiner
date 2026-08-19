@@ -136,8 +136,8 @@ export default function SewingPage() {
         { data: fabData, error: fabError },
         { data: sizesData, error: sizesError },
         { data: colorsData, error: colorsError },
-        productsList,
-        allProductAccs,
+        { data: productsData, error: prodError },
+        { data: prodAccsData, error: prodAccsError },
         { data: sewingOrdersData, error: sewingOrdersError }
       ] = await Promise.all([
         supabase
@@ -152,13 +152,13 @@ export default function SewingPage() {
         supabase.from('fabrics').select('*'),
         supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
         supabase.from('colors').select('*'),
-        fetchAll(() => supabase.from('products').select('*')),
-        fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)')),
+        supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto'),
+        supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida), products(nombre_producto)'),
         supabase.from('sewing_orders')
           .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, status, fabric_id, fabrics(nombre_tela)), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
           .in('status', ['En Confección', 'Enviado a Taller', 'Terminada', 'Devuelta por Taller'])
           .order('created_at', { ascending: false })
-          .limit(300)
+          .limit(100)
       ]);
 
       if (ordersError) throw ordersError;
@@ -173,12 +173,12 @@ export default function SewingPage() {
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
       setAccessories(accData || []);
-      setProducts(productsList || []);
+      setProducts(productsData || []);
       setCategoriesMaster(catData || []);
       setFabricsMaster(fabData || []);
       setSizesMaster(sizesData || []);
       setColorsMaster(colorsData || []);
-      setProductAccessoriesList(allProductAccs || []);
+      setProductAccessoriesList(prodAccsData || []);
       setSewingOrders(sewingOrdersData || []);
 
       // Cargar parámetros de configuración de despacho a confección
