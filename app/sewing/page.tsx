@@ -142,7 +142,7 @@ export default function SewingPage() {
       ] = await Promise.all([
         supabase
           .from('orders')
-          .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, kilos, layers, layers_produced)')
+          .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))')
           .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
           .order('created_at', { ascending: false })
           .limit(100),

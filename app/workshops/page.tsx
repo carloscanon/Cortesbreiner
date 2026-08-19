@@ -415,16 +415,36 @@ export default function WorkshopsPage() {
       const richOrders = sewingOrders.map(so => {
         const order = so.parent_order || {};
         
-        // Sumar prendas del lote
-        const totalGarments = (so.sewing_order_sizes || []).reduce(
+        // Sumar prendas del lote (o calcular fallback desde los cortes reales de la orden padre)
+        let totalGarments = (so.sewing_order_sizes || []).reduce(
           (sum: number, sz: any) => sum + (sz.cantidad_planeada || 0), 
           0
         );
 
+        if (totalGarments === 0 && order.cuts) {
+          totalGarments = (order.cuts || []).reduce((sum: number, cut: any) => {
+            return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => {
+              const qtyReal = (cs.quantity_produced !== undefined && cs.quantity_produced !== null)
+                ? Number(cs.quantity_produced)
+                : (Number(cs.quantity) || 0);
+              return s + qtyReal;
+            }, 0);
+          }, 0);
+        }
+
+        if (totalGarments === 0 && so.cantidad_planeada) {
+          totalGarments = Number(so.cantidad_planeada);
+        }
+
         // Kilos proporcionales: Si la orden padre tiene kilos, prorratear en base a prendas del lote respecto a prendas totales de la orden
         let workshopKilos = 0;
         const totalOrderGarments = (order.cuts || []).reduce((sum: number, cut: any) => {
-          return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
+          return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => {
+            const qtyReal = (cs.quantity_produced !== undefined && cs.quantity_produced !== null)
+              ? Number(cs.quantity_produced)
+              : (Number(cs.quantity) || 0);
+            return s + qtyReal;
+          }, 0);
         }, 0);
 
         if (totalOrderGarments > 0) {
