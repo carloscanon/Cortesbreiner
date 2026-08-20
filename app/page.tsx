@@ -2296,15 +2296,18 @@ export default function Dashboard() {
         });
       } else {
         // Fallback dinámico desde las órdenes asignadas a los talleres
-        assignedOrders.forEach(o => {
-          const targetWsId = activeTallerId === 'all' ? (finalWorkshopsList[0]?.id || '') : activeTallerId;
-          const prendasWs = getPrendasParaTaller(o, targetWsId);
-          const planQty = prendasWs.planeadas || 0;
-          const confQty = prendasWs.confeccionadas || 0;
-          plannedUnitsSum += planQty;
-          confeccionadasSum += confQty;
-          const rate = getRateForOrder(o.id) || 4500;
-          totalValueEstimate += confQty * rate;
+        workshopsToAggregate.forEach(currentWs => {
+          assignedOrders.forEach(o => {
+            const prendasWs = getPrendasParaTaller(o, currentWs.id);
+            const planQty = prendasWs.planeadas || 0;
+            const confQty = prendasWs.confeccionadas || 0;
+            if (planQty <= 0 && confQty <= 0) return;
+
+            plannedUnitsSum += planQty;
+            confeccionadasSum += confQty;
+            const rate = getRateForOrder(o.id) || 4500;
+            totalValueEstimate += confQty * rate;
+          });
         });
       }
 
