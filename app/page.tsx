@@ -2282,18 +2282,31 @@ export default function Dashboard() {
       let rejectedSum = 0;
       let totalValueEstimate = 0;
 
-      filteredSewingOrders.forEach(so => {
-        const planQty = getSewingOrderTotalUnits(so);
-        plannedUnitsSum += planQty;
-        
-        // Simular variación en vivo en unidades confeccionadas
-        const baseConfeccionadas = so.cantidad_confeccionada || 0;
-        const liveOffset = liveCounterOffset > 0 && Math.random() > 0.5 ? Math.floor(Math.random() * 2) + 1 : 0;
-        confeccionadasSum += Math.min(baseConfeccionadas + liveOffset, planQty);
+      if (filteredSewingOrders.length > 0) {
+        filteredSewingOrders.forEach(so => {
+          const planQty = getSewingOrderTotalUnits(so);
+          plannedUnitsSum += planQty;
+          
+          const baseConfeccionadas = so.cantidad_confeccionada || 0;
+          const liveOffset = liveCounterOffset > 0 && Math.random() > 0.5 ? Math.floor(Math.random() * 2) + 1 : 0;
+          confeccionadasSum += Math.min(baseConfeccionadas + liveOffset, planQty);
 
-        const rate = getRateForOrder(so.parent_order_id) || 4500;
-        totalValueEstimate += (so.cantidad_confeccionada || 0) * rate;
-      });
+          const rate = getRateForOrder(so.parent_order_id) || 4500;
+          totalValueEstimate += (so.cantidad_confeccionada || 0) * rate;
+        });
+      } else {
+        // Fallback dinámico desde las órdenes asignadas a los talleres
+        assignedOrders.forEach(o => {
+          const targetWsId = activeTallerId === 'all' ? (finalWorkshopsList[0]?.id || '') : activeTallerId;
+          const prendasWs = getPrendasParaTaller(o, targetWsId);
+          const planQty = prendasWs.planeadas || 0;
+          const confQty = prendasWs.confeccionadas || 0;
+          plannedUnitsSum += planQty;
+          confeccionadasSum += confQty;
+          const rate = getRateForOrder(o.id) || 4500;
+          totalValueEstimate += confQty * rate;
+        });
+      }
 
       // Calcular porcentaje de rechazo desde auditorías
       const relatedInspections = inspections.filter(i => {
