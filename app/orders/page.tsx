@@ -907,6 +907,86 @@ export default function OrdersPage() {
     }
   };
 
+  const handleCancelOrder = async (id: number, code: string) => {
+    if (!confirm(`⚠️ ACCIÓN SUPERADMINISTRADOR: ¿Estás seguro de ANULAR la orden OC-${code || id}?\n\nLa orden cambiará su estado a 'Anulada', se deshabilitará su procesamiento en Corte y Confección y se liberará el inventario reservado de tela.`)) return;
+
+    try {
+      setLoading(true);
+
+      // 1. Obtener los cortes de la orden para restaurar telas a inventario
+      const { data: orderCuts } = await supabase
+        .from('cuts')
+        .select('fabric_id, layers, stroke_length')
+        .eq('order_id', id);
+
+      if (orderCuts && orderCuts.length > 0) {
+        const layoutGroups: Record<string, { fabric_id: string, layers: number, stroke_length: number }> = {};
+        orderCuts.forEach((cut: any) => {
+          if (!cut.fabric_id) return;
+          const key = `${cut.fabric_id}_${cut.stroke_length}`;
+          if (!layoutGroups[key]) {
+            layoutGroups[key] = {
+              fabric_id: cut.fabric_id,
+              layers: Number(cut.layers || 0),
+              stroke_length: Number(cut.stroke_length || 0)
+            };
+          } else {
+            layoutGroups[key].layers = Math.max(layoutGroups[key].layers, Number(cut.layers || 0));
+          }
+        });
+
+        // Restaurar inventarios en la tabla fabrics
+        for (const group of Object.values(layoutGroups)) {
+          const { data: fab } = await supabase
+            .from('fabrics')
+            .select('capas, metros')
+            .eq('id', group.fabric_id)
+            .single();
+
+          if (fab) {
+            const restoredCapas = (Number(fab.capas) || 0) + group.layers;
+            const restoredMetros = (Number(fab.metros) || 0) + (group.layers * group.stroke_length);
+            await supabase
+              .from('fabrics')
+              .update({ capas: restoredCapas, metros: restoredMetros })
+              .eq('id', group.fabric_id);
+          }
+        }
+      }
+
+      // 2. Cancelar sub-órdenes de confección relacionadas en sewing_orders si existen
+      const { data: sewingOrds } = await supabase.from('sewing_orders').select('id').eq('parent_order_id', id);
+      if (sewingOrds && sewingOrds.length > 0) {
+        const sIds = sewingOrds.map(s => s.id);
+        await supabase.from('sewing_order_sizes').delete().in('sewing_order_id', sIds);
+        await supabase.from('sewing_orders').update({ status: 'Anulada' }).eq('parent_order_id', id);
+      }
+
+      // 3. Marcar la orden como 'Anulada'
+      const timestamp = new Date().toLocaleString('es-ES');
+      const cancelLog = `\n\n[ANULACIÓN (${timestamp})] Orden anulada por Superadministrador.`;
+      const { data: currentOrder } = await supabase.from('orders').select('observaciones').eq('id', id).single();
+      const currentObs = currentOrder?.observaciones || '';
+
+      const { error: cancelError } = await supabase
+        .from('orders')
+        .update({
+          status: 'Anulada',
+          observaciones: currentObs + cancelLog
+        })
+        .eq('id', id);
+
+      if (cancelError) throw cancelError;
+
+      alert(`✓ La orden OC-${code || id} ha sido ANULADA exitosamente.`);
+      fetchData();
+    } catch (err: any) {
+      alert('Error al anular la orden: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEdit = async (order: any) => {
     setEditingId(order.id);
     
@@ -1676,15 +1756,15 @@ export default function OrdersPage() {
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', color: '#64748b' }}>{order.total_kilos_proyectados || 0} kg</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <span className="badge" style={{ 
-                        backgroundColor: order.status === 'Planeada' ? '#f1f5f9' : order.status === 'En Corte' ? '#fffbeb' : '#ecfdf5',
-                        color: order.status === 'Planeada' ? '#64748b' : order.status === 'En Corte' ? '#b45309' : '#059669',
+                        backgroundColor: order.status === 'Anulada' ? '#fef2f2' : order.status === 'Planeada' ? '#f1f5f9' : order.status === 'En Corte' ? '#fffbeb' : '#ecfdf5',
+                        color: order.status === 'Anulada' ? '#dc2626' : order.status === 'Planeada' ? '#64748b' : order.status === 'En Corte' ? '#b45309' : '#059669',
                         padding: '0.4rem 0.8rem',
                         fontWeight: '800',
                         fontSize: '0.7rem',
                         borderRadius: '999px',
                         border: '1px solid currentColor'
                       }}>
-                        {order.status.toUpperCase()}
+                        {(order.status || 'Planeada').toUpperCase()}
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
@@ -1765,6 +1845,28 @@ export default function OrdersPage() {
                             }}
                           >
                             <RotateCcw size={14} /> {order.status === 'Planeada' ? 'Limpiar' : 'A Planeada'}
+                          </button>
+                        )}
+                        {isSuperAdmin && order.status !== 'Anulada' && (
+                          <button
+                            onClick={() => handleCancelOrder(order.id, order.internal_code)}
+                            title="Anular Orden (Superadministrador)"
+                            style={{
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '8px',
+                              border: '1.5px solid #fca5a5',
+                              backgroundColor: '#fef2f2',
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              fontSize: '0.75rem',
+                              fontWeight: '700',
+                              flexShrink: 0
+                            }}
+                          >
+                            <X size={14} /> Anular
                           </button>
                         )}
                       </div>

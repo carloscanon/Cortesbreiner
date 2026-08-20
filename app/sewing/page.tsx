@@ -1682,8 +1682,10 @@ export default function SewingPage() {
   // Filtrado de las órdenes de confección para la tabla (mostrando únicamente la Orden Principal por lote)
   const filteredSewingOrders = baseTableList.filter(so => {
     const parentCode = so.parent_order?.internal_code || '';
+    const currentStatus = so.status || so.parent_order?.status || '';
 
-    // Si es una orden hija/secundaria (CMP-S-), no se muestra como fila individual en la tabla principal
+    // Si la orden o su orden padre está Anulada o es una orden secundaria (CMP-S-), no se muestra en la lista principal
+    if (currentStatus === 'Anulada') return false;
     if (parentCode.startsWith('CMP-S-')) return false;
 
     const consecutive = so.parent_order?.consecutive?.toString() || '';
