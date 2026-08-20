@@ -1622,10 +1622,12 @@ export default function SewingPage() {
   const baseTableList: any[] = [...sewingOrders];
   if (sewingOrders.length === 0) {
     orders.filter(o => o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada').forEach(o => {
-      const dataAss = getAssignmentsData(o);
-      const rowWorkshopsMap = dataAss?.rowWorkshops || {};
-      const uniqueWIds = Array.from(new Set(Object.values(rowWorkshopsMap))).filter(Boolean);
-      if (uniqueWIds.length === 0 && o.workshop_id) uniqueWIds.push(String(o.workshop_id));
+      const rawAss = getAssignmentsFromJson(o);
+      const rawMap = rawAss?.rowWorkshops || {};
+      let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
+      if (uniqueWIds.length === 0 && o.workshop_id) {
+        uniqueWIds = [String(o.workshop_id).toLowerCase().trim()];
+      }
 
       if (uniqueWIds.length === 0) {
         baseTableList.push({
@@ -1640,8 +1642,9 @@ export default function SewingPage() {
         });
       } else {
         uniqueWIds.forEach((wId, idx) => {
-          const wObj = workshops.find(w => String(w.id) === String(wId));
-          const confCode = uniqueWIds.length > 1 ? `${o.internal_code}-${idx + 1}` : o.internal_code;
+          const wObj = workshops.find(w => String(w.id).toLowerCase().trim() === String(wId).toLowerCase().trim());
+          const baseCode = o.internal_code || (o.consecutive ? `OC-${o.consecutive}` : '—');
+          const confCode = uniqueWIds.length > 1 ? `${baseCode}-${idx + 1}` : baseCode;
           baseTableList.push({
             id: `fallback-${o.id}-${wId}`,
             parent_order_id: o.id,
@@ -2834,11 +2837,11 @@ export default function SewingPage() {
                 );
                 
                 if (activeSewingOrders.length === 0) {
-                  const dataAss = getAssignmentsData(printOrder);
-                  const rowWorkshopsMap = dataAss?.rowWorkshops || {};
-                  const uniqueWIds = Array.from(new Set(Object.values(rowWorkshopsMap))).filter(Boolean);
+                  const rawAss = getAssignmentsFromJson(printOrder);
+                  const rawMap = rawAss?.rowWorkshops || {};
+                  let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
                   if (uniqueWIds.length === 0 && printOrder.workshop_id) {
-                    uniqueWIds.push(String(printOrder.workshop_id));
+                    uniqueWIds = [String(printOrder.workshop_id).toLowerCase().trim()];
                   }
 
                   if (uniqueWIds.length === 0) {
