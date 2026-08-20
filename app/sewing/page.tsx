@@ -161,7 +161,7 @@ export default function SewingPage() {
         fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto')),
         fetchAll(() => supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida)')),
         fetchAll(() => supabase.from('sewing_orders')
-          .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, status, fabric_id, fabrics(nombre_tela)), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
+          .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable)')
           .order('created_at', { ascending: false }))
       ]);
 
@@ -172,6 +172,14 @@ export default function SewingPage() {
       if (sizesError) throw sizesError;
       if (colorsError) throw colorsError;
 
+      const hydratedSewingOrders = (sewingOrdersData || []).map((so: any) => {
+        const parent = (ordersData || []).find((o: any) => String(o.id) === String(so.parent_order_id));
+        return {
+          ...so,
+          parent_order: parent || so.parent_order
+        };
+      });
+
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
       setAccessories(accData || []);
@@ -181,7 +189,7 @@ export default function SewingPage() {
       setSizesMaster(sizesData || []);
       setColorsMaster(colorsData || []);
       setProductAccessoriesList(prodAccsData || []);
-      setSewingOrders(sewingOrdersData || []);
+      setSewingOrders(hydratedSewingOrders);
 
       // Cargar parámetros de configuración de despacho a confección
       supabase.from('company_params').select('*').eq('name', 'sewing_despatch_config').maybeSingle().then(({ data }) => {
