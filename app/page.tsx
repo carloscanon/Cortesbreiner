@@ -501,6 +501,19 @@ export default function Dashboard() {
           return allAccs;
         };
 
+        const fetchAllGeneric = async (builderFn: () => any) => {
+          let allRecords: any[] = [];
+          let page = 0;
+          const pageSize = 1000;
+          while (true) {
+            const { data, error } = await builderFn().range(page * pageSize, (page + 1) * pageSize - 1);
+            if (error || !data || data.length === 0) break;
+            allRecords = allRecords.concat(data);
+            if (data.length < pageSize) break;
+            page++;
+          }
+          return allRecords;
+        };
         const [
           res1,
           res2,
@@ -514,15 +527,11 @@ export default function Dashboard() {
           res10,
           res11,
           res12,
-          res13,
-          res14,
-          res15
+          sewingOrdersData,
+          fabricsData,
+          companyParamsData
         ] = await Promise.all([
-          supabase
-            .from('orders')
-            .select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))')
-            .order('created_at', { ascending: false })
-            .limit(150),
+          fetchAllGeneric(() => supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))').order('created_at', { ascending: false })),
           supabase.from('workshops').select('*'),
           supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(*))').limit(250).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
@@ -535,14 +544,13 @@ export default function Dashboard() {
           // novelties preloaded with workshop module filter applied in UI
           supabase.from('sewing_assignments').select('*'),
           supabase.from('workshop_special_costs').select('*'),
-          supabase.from('sewing_orders')
+          fetchAllGeneric(() => supabase.from('sewing_orders')
             .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
-            .order('created_at', { ascending: false })
-            .limit(150),
+            .order('created_at', { ascending: false })),
           supabase.from('fabrics').select('*'),
           supabase.from('company_params').select('*')
         ]);
-        const ordersData = res1.data;
+        const ordersData = res1;
         const workshopsData = res2.data;
         const inspectionsData = res3.data;
         const baseCostsData = res4.data;
@@ -552,9 +560,8 @@ export default function Dashboard() {
         const ratesData = res10.data;
         const sewingAssData = res11.data;
         const specCostsData = res12.data;
-        const sewingOrdersData = res13.data;
-        const fabricsData = res14.data;
-        const companyParamsData = res15.data;
+        const fabricsDataList = fabricsData.data;
+        const companyParamsDataList = companyParamsData.data;
 
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
@@ -569,15 +576,15 @@ export default function Dashboard() {
         if (sewingAssData) setSewingAssignments(sewingAssData);
         if (sewingOrdersData) setSewingOrdersList(sewingOrdersData);
         if (specCostsData) setSpecialCosts(specCostsData);
-        if (fabricsData) setFabricsList(fabricsData);
-        if (companyParamsData) setCompanyParams(companyParamsData);
+        if (fabricsDataList) setFabricsList(fabricsDataList);
+        if (companyParamsDataList) setCompanyParams(companyParamsDataList);
 
         // Migración automática de asignaciones antiguas
         if (ordersData && sewingOrdersData && sData) {
           const missingMigrations: any[] = [];
           
-          ordersData.forEach(order => {
-            const hasSewingOrders = sewingOrdersData.some(so => String(so.parent_order_id) === String(order.id));
+          ordersData.forEach((order: any) => {
+            const hasSewingOrders = sewingOrdersData.some((so: any) => String(so.parent_order_id) === String(order.id));
             if (!hasSewingOrders && order.observaciones) {
               const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:([\s\S]*?)-->/);
               if (match) {
@@ -600,7 +607,7 @@ export default function Dashboard() {
                     const cut = order.cuts?.find((c: any) => String(c.product_id) === String(productId));
                     if (!cut) return;
                     
-                    const sizeObj = sData.find(s => String(s.codigo_talla).toLowerCase() === szCode.toLowerCase());
+                    const sizeObj = sData.find((s: any) => String(s.codigo_talla).toLowerCase() === szCode.toLowerCase());
                     if (!sizeObj) return;
 
                     const szQty = cut.cut_sizes?.find((sc: any) => String(sc.size_id) === String(sizeObj.id));
