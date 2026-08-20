@@ -376,17 +376,52 @@ export default function WorkshopsPage() {
     }
   };
 
+  const getAssignmentsFromJson = (order: any) => {
+    if (!order || !order.observaciones) return null;
+    const matches = Array.from((order.observaciones || '').matchAll(/<!--ASSIGNMENTS_JSON:(.*?)-->/g));
+    if (!matches || matches.length === 0) return null;
+    const lastMatch: any = matches[matches.length - 1];
+    try {
+      return JSON.parse(lastMatch[1]);
+    } catch (e) {
+      return null;
+    }
+  };
+
   const fetchOrderCounts = async () => {
     try {
+      const counts: Record<string, number> = {};
+
+      // 1. Conteo desde sewing_orders
       const { data: activeSewing } = await supabase
         .from('sewing_orders')
         .select('id, parent_order_id, workshop_id')
         .eq('status', 'En Confección');
 
-      const counts: Record<string, number> = {};
       (activeSewing || []).forEach((so: any) => {
-        const wId = String(so.workshop_id);
-        counts[wId] = (counts[wId] || 0) + 1;
+        if (so.workshop_id) {
+          const wId = String(so.workshop_id).toLowerCase().trim();
+          counts[wId] = (counts[wId] || 0) + 1;
+        }
+      });
+
+      // 2. Conteo fallback desde orders activas con asignación por matriz o taller directo
+      const { data: activeOrders } = await supabase
+        .from('orders')
+        .select('id, workshop_id, observaciones, status')
+        .in('status', ['En Confección', 'Enviada']);
+
+      (activeOrders || []).forEach((o: any) => {
+        const rawAss = getAssignmentsFromJson(o);
+        const rawMap = rawAss?.rowWorkshops || {};
+        let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
+        if (uniqueWIds.length === 0 && o.workshop_id) {
+          uniqueWIds = [String(o.workshop_id).toLowerCase().trim()];
+        }
+
+        uniqueWIds.forEach(wId => {
+          counts[wId] = (counts[wId] || 0) + 1;
+        });
       });
 
       setOrderCounts(counts);
@@ -399,23 +434,18 @@ export default function WorkshopsPage() {
     setSelectedWorkshopForOrders(w);
     setLoadingOrders(true);
     try {
-      // 1. Obtener todas las órdenes de confección activas para este taller
+      const targetWorkshopId = String(w.id).toLowerCase().trim();
+
+      // 1. Obtener órdenes de confección directas de sewing_orders
       const { data: sewingOrders } = await supabase
         .from('sewing_orders')
         .select('*, parent_order:orders(*, fabrics(nombre_tela), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
         .eq('workshop_id', w.id);
 
-      if (!sewingOrders || sewingOrders.length === 0) {
-        setWorkshopOrders([]);
-        setLoadingOrders(false);
-        return;
-      }
+      const richOrders: any[] = [];
 
-      // 2. Mapear cada orden de confección en la información rica para mostrar
-      const richOrders = sewingOrders.map(so => {
+      (sewingOrders || []).forEach(so => {
         const order = so.parent_order || {};
-        
-        // Sumar prendas del lote (o calcular fallback desde los cortes reales de la orden padre)
         let totalGarments = (so.sewing_order_sizes || []).reduce(
           (sum: number, sz: any) => sum + (sz.cantidad_planeada || 0), 
           0
@@ -436,7 +466,6 @@ export default function WorkshopsPage() {
           totalGarments = Number(so.cantidad_planeada);
         }
 
-        // Kilos proporcionales: Si la orden padre tiene kilos, prorratear en base a prendas del lote respecto a prendas totales de la orden
         let workshopKilos = 0;
         const totalOrderGarments = (order.cuts || []).reduce((sum: number, cut: any) => {
           return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => {
@@ -454,8 +483,9 @@ export default function WorkshopsPage() {
 
         const isPending = so.status !== 'Terminada';
 
-        return {
+        richOrders.push({
           id: so.id,
+          parent_order_id: so.parent_order_id,
           internal_code: so.confeccion_code,
           order_internal_code: order.internal_code || '',
           parent_primary_code: order.parent_primary_code || '',
@@ -468,8 +498,63 @@ export default function WorkshopsPage() {
           productName: so.products?.nombre_producto || 'Referencia',
           status: so.status || 'En Confección',
           isPending
-        };
+        });
       });
+
+      // 2. Si no hay sewing_orders o para complementar, consultar orders en estado 'En Confección' / 'Enviada' / 'Terminada'
+      const { data: parentOrders } = await supabase
+        .from('orders')
+        .select('*, fabrics(nombre_tela), cuts(*, cut_sizes(*))')
+        .in('status', ['En Confección', 'Enviada', 'Terminada']);
+
+      (parentOrders || []).forEach(o => {
+        const alreadyIncluded = richOrders.some(r => String(r.parent_order_id) === String(o.id));
+        if (alreadyIncluded) return;
+
+        const rawAss = getAssignmentsFromJson(o);
+        const rawMap = rawAss?.rowWorkshops || {};
+        let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
+        if (uniqueWIds.length === 0 && o.workshop_id) {
+          uniqueWIds = [String(o.workshop_id).toLowerCase().trim()];
+        }
+
+        if (uniqueWIds.includes(targetWorkshopId)) {
+          const totalGarments = (o.cuts || []).reduce((sum: number, cut: any) => {
+            return sum + (cut.cut_sizes || []).reduce((s: number, cs: any) => {
+              const qtyReal = (cs.quantity_produced !== undefined && cs.quantity_produced !== null)
+                ? Number(cs.quantity_produced)
+                : (Number(cs.quantity) || 0);
+              return s + qtyReal;
+            }, 0);
+          }, 0);
+
+          const totalKilos = (o.cuts || []).reduce((sum: number, cut: any) => sum + (Number(cut.kilos) || 0), 0);
+          const isPending = o.status !== 'Terminada';
+
+          richOrders.push({
+            id: `fallback-${o.id}-${w.id}`,
+            parent_order_id: o.id,
+            internal_code: o.internal_code || (o.consecutive ? `OC-${o.consecutive}` : '—'),
+            order_internal_code: o.internal_code || '',
+            parent_primary_code: o.parent_primary_code || '',
+            is_composite: !!o.is_composite,
+            client_name: o.client_name || '—',
+            fabrics: o.fabrics,
+            workshopGarments: totalGarments,
+            pendingGarments: isPending ? totalGarments : 0,
+            workshopKilos: parseFloat(totalKilos.toFixed(2)),
+            productName: 'Prendas del Lote',
+            status: o.status || 'En Confección',
+            isPending
+          });
+        }
+      });
+
+      if (richOrders.length === 0) {
+        setWorkshopOrders([]);
+        setLoadingOrders(false);
+        return;
+      }
 
       // 3. Separar en Principales (Padres / Independientes) y Secundarias (Hijas)
       const primaryOrders: any[] = [];
@@ -481,10 +566,8 @@ export default function WorkshopsPage() {
         const isChild = orderCode.startsWith('CMP-S-');
 
         if (isChild) {
-          // Extraer la clave base de la orden padre (ej: CMP-S-P06XX-P1 -> P06XX)
           const match = orderCode.match(/^CMP-S-(.*?)(?:-P\d+)?$/i);
           const cleanParentKey = match ? match[1] : orderCode.replace(/^CMP-S-/i, '');
-          
           if (!childOrdersMap[cleanParentKey]) childOrdersMap[cleanParentKey] = [];
           childOrdersMap[cleanParentKey].push(o);
         } else {
@@ -492,7 +575,6 @@ export default function WorkshopsPage() {
         }
       });
 
-      // Ensamblar la lista estructurada: Las hijas quedan anidadas dentro de su padre principal
       const structuredOrders = primaryOrders.map(p => {
         const pCode = (p.order_internal_code || p.internal_code || '').trim();
         const match = pCode.match(/^CMP-P-(.*)$/i);
@@ -505,7 +587,6 @@ export default function WorkshopsPage() {
         };
       });
 
-      // Añadir de forma persistente cualquier orden hija cuyos padres no estén presentes como fila propia
       richOrders.forEach(o => {
         const orderCode = o.order_internal_code || '';
         const isChild = orderCode.startsWith('CMP-S-') || !!o.parent_primary_code;
