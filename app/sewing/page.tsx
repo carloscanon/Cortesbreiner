@@ -3060,10 +3060,10 @@ export default function SewingPage() {
                     const sizeObj = sizesMaster.find(s => String(s.id) === String(cs.size_id));
                     const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
                     const cellKey = `${targetProdId}_${sz}`;
-                    const assignedWId = rowWorkshopsMap[cellKey];
+                    const assignedWId = rowWorkshopsMap[cellKey] || printWorkshop.id;
 
                     // Only include cells assigned to the selected workshop
-                    if (!assignedWId || String(assignedWId) !== String(printWorkshop.id)) return;
+                    if (String(assignedWId) !== String(printWorkshop.id)) return;
 
                     let realQty = 0;
                     if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
