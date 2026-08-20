@@ -136,7 +136,7 @@ export default function SewingPage() {
     setLoading(true);
     try {
       const [
-        { data: ordersData, error: ordersError },
+        ordersData,
         { data: workshopsData, error: workshopsError },
         { data: accData, error: accError },
         { data: catData, error: catError },
@@ -147,28 +147,24 @@ export default function SewingPage() {
         prodAccsData,
         sewingOrdersData
       ] = await Promise.all([
-        supabase
+        fetchAll(() => supabase
           .from('orders')
           .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, fabric_id, color_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced)))')
-          .in('status', ['Cortado', 'En Confección'])
-          .order('created_at', { ascending: false })
-          .limit(50),
+          .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
+          .order('created_at', { ascending: false })),
         supabase.from('workshops').select('*').order('nombre_taller'),
         supabase.from('accessories').select('*').order('nombre'),
         supabase.from('categories').select('*'),
         supabase.from('fabrics').select('*'),
         supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
         supabase.from('colors').select('*'),
-        supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto').limit(200),
-        supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida)').limit(250),
-        supabase.from('sewing_orders')
+        fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto')),
+        fetchAll(() => supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida)')),
+        fetchAll(() => supabase.from('sewing_orders')
           .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, status, fabric_id, fabrics(nombre_tela)), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
-          .in('status', ['En Confección', 'Enviado a Taller', 'Devuelta por Taller'])
-          .order('created_at', { ascending: false })
-          .limit(100)
+          .order('created_at', { ascending: false }))
       ]);
 
-      if (ordersError) throw ordersError;
       if (workshopsError) throw workshopsError;
       if (accError) throw accError;
       if (catError) throw catError;
@@ -179,13 +175,13 @@ export default function SewingPage() {
       setOrders(ordersData || []);
       setWorkshops(workshopsData || []);
       setAccessories(accData || []);
-      setProducts(productsData?.data || []);
+      setProducts(productsData || []);
       setCategoriesMaster(catData || []);
       setFabricsMaster(fabData || []);
       setSizesMaster(sizesData || []);
       setColorsMaster(colorsData || []);
-      setProductAccessoriesList(prodAccsData?.data || []);
-      setSewingOrders(sewingOrdersData?.data || []);
+      setProductAccessoriesList(prodAccsData || []);
+      setSewingOrders(sewingOrdersData || []);
 
       // Cargar parámetros de configuración de despacho a confección
       supabase.from('company_params').select('*').eq('name', 'sewing_despatch_config').maybeSingle().then(({ data }) => {
