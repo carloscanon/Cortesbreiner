@@ -1007,10 +1007,11 @@ export default function SewingPage() {
 
   const getAssignmentsFromJson = (order: any) => {
     if (!order || !order.observaciones) return null;
-    const match = order.observaciones.match(/<!--ASSIGNMENTS_JSON:(.*?)-->/);
-    if (!match) return null;
+    const matches = Array.from(order.observaciones.matchAll(/<!--ASSIGNMENTS_JSON:(.*?)-->/g));
+    if (!matches || matches.length === 0) return null;
+    const lastMatch: any = matches[matches.length - 1];
     try {
-      return JSON.parse(match[1]);
+      return JSON.parse(lastMatch[1]);
     } catch (e) {
       return null;
     }
