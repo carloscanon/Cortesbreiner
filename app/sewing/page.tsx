@@ -3360,6 +3360,7 @@ export default function SewingPage() {
                       </h3>
                       {(() => {
                         const groupedItems: {
+                          productName: string;
                           colorName: string;
                           categoryName: string;
                           fabricName: string;
@@ -3369,7 +3370,7 @@ export default function SewingPage() {
 
                         workshopItems.forEach((item: any) => {
                           const existing = groupedItems.find(g => 
-                            g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
+                            g.productName.toLowerCase() === item.productName.toLowerCase() && 
                             g.colorName.toLowerCase() === item.colorName.toLowerCase()
                           );
                           if (existing) {
@@ -3381,6 +3382,7 @@ export default function SewingPage() {
                             }
                           } else {
                             groupedItems.push({
+                              productName: item.productName,
                               categoryName: item.categoryName,
                               colorName: item.colorName,
                               fabricName: item.fabricName,
@@ -3390,13 +3392,13 @@ export default function SewingPage() {
                           }
                         });
 
-                        groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                        groupedItems.sort((a, b) => a.productName.localeCompare(b.productName, 'es'));
 
                         return (
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
                             <thead>
                               <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
-                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Categoría</th>
+                                <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Referencia / Producto</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Color</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'left', fontWeight: '800' }}>Tela</th>
                                 <th style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800' }}>Distribución Tallas</th>
@@ -3406,13 +3408,18 @@ export default function SewingPage() {
                             <tbody>
                               {groupedItems.map((item, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '0.5rem', color: '#475569', fontWeight: '700' }}>{item.categoryName}</td>
-                                  <td style={{ padding: '0.5rem', fontWeight: '600' }}>{item.colorName}</td>
+                                  <td style={{ padding: '0.5rem', color: '#0f172a', fontWeight: '800' }}>
+                                    {item.productName}
+                                    {item.categoryName && item.categoryName !== item.productName && (
+                                      <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: '600' }}>{item.categoryName}</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '0.5rem', fontWeight: '700', color: '#1e293b' }}>{item.colorName}</td>
                                   <td style={{ padding: '0.5rem', color: '#475569' }}>{item.fabricName}</td>
                                   <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: '800', color: '#7c3aed' }}>
                                     {Object.entries(item.sizes).map(([sz, qty]) => `${sz}(${qty})`).join(' · ')}
                                   </td>
-                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '800' }}>{item.totalQuantity} uds</td>
+                                  <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '900' }}>{item.totalQuantity} uds</td>
                                 </tr>
                               ))}
                               <tr style={{ backgroundColor: '#f8fafc', fontWeight: '900', borderTop: '1.5px solid #cbd5e1' }}>
