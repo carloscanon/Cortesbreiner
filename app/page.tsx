@@ -3784,10 +3784,42 @@ export default function Dashboard() {
 
     // Orders tab inside Taller view
     if (currentTab === 'orders') {
-      const myWorkshopsIds = finalWorkshopsList.map(w => String(w.id));
-      const mySewingOrders = sewingOrdersList.filter(so => 
-        myWorkshopsIds.includes(String(so.workshop_id))
+      const myWorkshopsIds = finalWorkshopsList.map(w => String(w.id).toLowerCase().trim());
+      let mySewingOrders = sewingOrdersList.filter(so => 
+        myWorkshopsIds.includes(String(so.workshop_id).toLowerCase().trim())
       );
+
+      if (mySewingOrders.length === 0) {
+        // Fallback dinámico desde assignedOrders
+        const fallbackItems: any[] = [];
+        assignedOrders.forEach(o => {
+          finalWorkshopsList.forEach(w => {
+            const wId = String(w.id).toLowerCase().trim();
+            const prendasWs = getPrendasParaTaller(o, w.id);
+            const planQty = prendasWs.planeadas || 0;
+            const confQty = prendasWs.confeccionadas || 0;
+            if (planQty <= 0 && confQty <= 0) return;
+
+            const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+
+            fallbackItems.push({
+              id: `fallback-${o.id}-${w.id}`,
+              parent_order_id: o.id,
+              workshop_id: w.id,
+              product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
+              confeccion_code: getConfeccionCode(o, w.id),
+              status: o.status,
+              cantidad_planeada: planQty,
+              cantidad_confeccionada: confQty,
+              created_at: o.created_at,
+              parent_order: o,
+              products: prodObj,
+              workshops: w
+            });
+          });
+        });
+        mySewingOrders = fallbackItems;
+      }
 
       const getSewingOrderRate = (so: any, wsId: string) => {
         // Use the joined `so.products` from the sewing_orders query (already includes category_id)
