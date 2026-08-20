@@ -1002,59 +1002,7 @@ export default function SewingPage() {
   };
 
   const fetchOrderAssignmentsFromDB = async (orderId: string) => {
-    try {
-      const { data: assignmentsData, error: assError } = await supabase
-        .from('sewing_assignments')
-        .select('*')
-        .eq('order_id', orderId);
-
-      const { data: accessoriesData, error: accError } = await supabase
-        .from('sewing_accessories')
-        .select('*')
-        .eq('order_id', orderId);
-
-      if (assError || accError) {
-        console.warn("Could not fetch assignments from DB, falling back to JSON serialization:", assError || accError);
-        return null;
-      }
-
-      if (!assignmentsData || assignmentsData.length === 0) {
-        return null;
-      }
-
-      // Reconstruct rowWorkshops
-      const rowWorkshops: Record<string, string> = {};
-      assignmentsData.forEach((asg: any) => {
-        const cellKey = `${asg.category_id}_${asg.size_code}`;
-        rowWorkshops[cellKey] = asg.workshop_id;
-        
-        // Map to product ID if saved as category ID
-        const matchingProducts = products.filter(p => String(p.category_id) === String(asg.category_id));
-        matchingProducts.forEach(p => {
-          rowWorkshops[`${p.id}_${asg.size_code}`] = asg.workshop_id;
-        });
-      });
-
-      // Reconstruct cutAccessories
-      const cutAccessories: Record<string, { accId: string; qty: string }[]> = {};
-      (accessoriesData || []).forEach((acc: any) => {
-        if (!cutAccessories[acc.cut_id]) {
-          cutAccessories[acc.cut_id] = [];
-        }
-        cutAccessories[acc.cut_id].push({
-          accId: acc.accessory_id,
-          qty: String(acc.quantity)
-        });
-      });
-
-      return {
-        rowWorkshops,
-        cutAccessories
-      };
-    } catch (err) {
-      console.error("Error fetching assignments from DB:", err);
-      return null;
-    }
+    return null;
   };
 
   const getAssignmentsFromJson = (order: any) => {
