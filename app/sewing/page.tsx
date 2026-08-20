@@ -3050,8 +3050,8 @@ export default function SewingPage() {
                 (printOrder.cuts || []).forEach((cut: any) => {
                   const targetProdId = cut.product_id;
                   
-                  // Si se está imprimiendo una orden de confección específica, filtrar solo sus prendas
-                  if (printSewingOrder && String(targetProdId) !== String(printSewingOrder.product_id)) return;
+                  // Si se está imprimiendo una orden de confección específica que tiene product_id, filtrar solo sus prendas
+                  if (printSewingOrder && printSewingOrder.product_id && String(targetProdId) !== String(printSewingOrder.product_id)) return;
 
                   const layersProyec = cut.layers || 1;
                   const layersProduced = cut.layers_produced || 0;
@@ -3085,8 +3085,8 @@ export default function SewingPage() {
                 (printOrder.cuts || []).forEach((cut: any) => {
                   const targetProdId = cut.product_id;
 
-                  // Si se está imprimiendo una orden de confección específica, filtrar solo sus prendas
-                  if (printSewingOrder && String(targetProdId) !== String(printSewingOrder.product_id)) return;
+                  // Si se está imprimiendo una orden de confección específica que tiene product_id, filtrar solo sus prendas
+                  if (printSewingOrder && printSewingOrder.product_id && String(targetProdId) !== String(printSewingOrder.product_id)) return;
 
                   const prodObj = products.find(p => String(p.id) === String(targetProdId));
                   const prodName = prodObj?.nombre_producto || 'Referencia';
