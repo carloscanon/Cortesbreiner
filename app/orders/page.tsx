@@ -401,8 +401,7 @@ export default function OrdersPage() {
         .from('fabrics')
         .select('*')
         .eq('factura_relacionada', invoiceNo)
-        .neq('is_active', false)
-        .gt('metros', 0);
+        .neq('is_active', false);
       if (error) throw error;
       if (data && data.length > 0) {
         const corte = cortesAdicionales.find(c => c.id === corteId);
@@ -533,8 +532,7 @@ export default function OrdersPage() {
         .from('fabrics')
         .select('*')
         .eq('factura_relacionada', formData.factura_relacionada)
-        .neq('is_active', false)
-        .gt('metros', 0);
+        .neq('is_active', false);
       
       if (error) throw error;
       
@@ -2289,7 +2287,7 @@ export default function OrdersPage() {
                           onChange={e => setFormData({...formData, factura_relacionada: e.target.value})} 
                         >
                           <option value="">Seleccionar Factura...</option>
-                          {Array.from(new Set(fabrics.filter(f => (Number(f.metros) || 0) > 0).map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
+                          {Array.from(new Set(fabrics.filter(f => f.is_active !== false && ((Number(f.metros) || 0) > 0 || (Number(f.kilos) || 0) > 0)).map(f => f.factura_relacionada).filter(Boolean))).map(factura => (
                             <option key={String(factura)} value={String(factura)}>{String(factura)}</option>
                           ))}
                         </select>
