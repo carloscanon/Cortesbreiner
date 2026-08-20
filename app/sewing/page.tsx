@@ -147,7 +147,7 @@ export default function SewingPage() {
       ] = await Promise.all([
         supabase
           .from('orders')
-          .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced))')
+          .select('id, internal_code, consecutive, client_name, status, created_at, fabric_id, workshop_id, observaciones, capas_proyectadas, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(id, order_id, product_id, fabric_id, color_id, kilos, layers, layers_produced, cut_sizes(id, cut_id, size_id, quantity, quantity_produced)))')
           .in('status', ['Cortado', 'En Confección', 'Terminada', 'Enviada'])
           .order('created_at', { ascending: false })
           .limit(100),
@@ -3090,10 +3090,12 @@ export default function SewingPage() {
                   const categoryObj = prodObj ? categoriesMaster.find(c => String(c.id) === String(prodObj.category_id)) : null;
                   const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
 
-                  const fabricObj = cut ? fabricsMaster.find(f => String(f.id) === String(cut.fabric_id)) : null;
-                  const fabricName = fabricObj ? fabricObj.nombre_tela : '—';
+                  const fabricObj = cut?.fabric_id 
+                    ? fabricsMaster.find(f => String(f.id) === String(cut.fabric_id)) 
+                    : (printOrder.fabric_id ? fabricsMaster.find(f => String(f.id) === String(printOrder.fabric_id)) : (printOrder.fabrics || null));
+                  const fabricName = fabricObj ? (fabricObj.nombre_tela || '—') : (printOrder.fabrics?.nombre_tela || '—');
 
-                  const colorObj = cut ? colorsMaster.find(c => String(c.id) === String(cut.color_id)) : null;
+                  const colorObj = cut?.color_id ? colorsMaster.find(c => String(c.id) === String(cut.color_id)) : null;
                   const colorName = colorObj ? colorObj.nombre_color : 'Sin Color';
 
                   let displayFabricName = fabricName;
@@ -3103,6 +3105,12 @@ export default function SewingPage() {
                     displayFabricName = fabricName.substring(0, commaIdx).trim();
                     const extractedColor = fabricName.substring(commaIdx + 1).trim();
                     if (extractedColor) {
+                      displayColorName = extractedColor;
+                    }
+                  } else if (fabricName.includes('-')) {
+                    const dashIdx = fabricName.lastIndexOf('-');
+                    const extractedColor = fabricName.substring(dashIdx + 1).trim();
+                    if (extractedColor && displayColorName === 'Sin Color') {
                       displayColorName = extractedColor;
                     }
                   }
