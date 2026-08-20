@@ -568,10 +568,12 @@ export default function SewingPage() {
       };
       const serializedData = `\n\n<!--ASSIGNMENTS_JSON:${JSON.stringify(assignmentsJson)}-->`;
 
+      const baseObs = (selectedOrder.observaciones || '').replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '');
+
       const { error } = await supabase.from('orders').update({
         status: 'En Confección',
         workshop_id: firstWorkshopId,
-        observaciones: (selectedOrder.observaciones || '') + confLog + serializedData
+        observaciones: baseObs + confLog + serializedData
       }).eq('id', selectedOrder.id);
 
       if (error) throw error;
@@ -1427,12 +1429,13 @@ export default function SewingPage() {
         const rollbackLog = `\n\n[REVERSIÓN A CORTADO (${timestamp})] Revertida por Superadministrador.`;
 
         const parentOrder = orders.find(o => o.id === parentId);
+        const cleanObs = (parentOrder?.observaciones || '').replace(/<!--ASSIGNMENTS_JSON:[\s\S]*?-->/g, '');
         await supabase
           .from('orders')
           .update({
             status: 'Cortado',
             workshop_id: null,
-            observaciones: (parentOrder?.observaciones || '') + rollbackLog
+            observaciones: cleanObs + rollbackLog
           })
           .eq('id', parentId);
       }
