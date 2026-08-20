@@ -2794,7 +2794,53 @@ export default function SewingPage() {
                 );
                 
                 if (activeSewingOrders.length === 0) {
-                  return <p style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>No hay órdenes de confección creadas para esta orden.</p>;
+                  const dataAss = getAssignmentsData(printOrder);
+                  const rowWorkshopsMap = dataAss?.rowWorkshops || {};
+                  const uniqueWIds = Array.from(new Set(Object.values(rowWorkshopsMap))).filter(Boolean);
+                  if (uniqueWIds.length === 0 && printOrder.workshop_id) {
+                    uniqueWIds.push(String(printOrder.workshop_id));
+                  }
+
+                  if (uniqueWIds.length === 0) {
+                    return <p style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>No hay talleres asignados a esta orden.</p>;
+                  }
+
+                  return uniqueWIds.map((wId: any, idx) => {
+                    const workshopObj = workshops.find(w => String(w.id) === String(wId));
+                    const baseCode = printOrder.internal_code || (printOrder.consecutive ? `OC-${printOrder.consecutive}` : '—');
+                    const confCode = uniqueWIds.length > 1 ? `${baseCode}-${idx + 1}` : baseCode;
+
+                    return (
+                      <div key={String(wId)} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '1rem', border: '1px solid #e2e8f0', borderRadius: '12px',
+                        backgroundColor: '#f8fafc'
+                      }}>
+                        <div>
+                          <h4 style={{ fontWeight: '800', fontSize: '0.875rem', color: '#0f172a', margin: 0 }}>
+                            {workshopObj ? workshopObj.nombre_taller : `Taller ID: ${wId}`}
+                          </h4>
+                          <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
+                            Código Seguimiento: <strong style={{ color: '#7c3aed' }}>{confCode}</strong>
+                          </p>
+                        </div>
+                        <button
+                          className="btn"
+                          style={{
+                            backgroundColor: '#7c3aed', color: 'white', border: 'none',
+                            padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800',
+                            display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer'
+                          }}
+                          onClick={() => {
+                            setPrintWorkshop(workshopObj || { id: wId, nombre_taller: `Taller ${wId}` });
+                            setPrintSewingOrder(null);
+                          }}
+                        >
+                          <Printer size={13} /> Generar PDF
+                        </button>
+                      </div>
+                    );
+                  });
                 }
 
                 return activeSewingOrders.map((so: any) => {
