@@ -136,8 +136,8 @@ export default function SewingPage() {
         { data: fabData, error: fabError },
         { data: sizesData, error: sizesError },
         { data: colorsData, error: colorsError },
-        { data: productsData, error: prodError },
-        { data: prodAccsData, error: prodAccsError },
+        productsData,
+        prodAccsData,
         { data: sewingOrdersData, error: sewingOrdersError }
       ] = await Promise.all([
         supabase
@@ -152,8 +152,8 @@ export default function SewingPage() {
         supabase.from('fabrics').select('*'),
         supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
         supabase.from('colors').select('*'),
-        supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto'),
-        supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida), products(nombre_producto)'),
+        fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto')),
+        fetchAll(() => supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida), products(nombre_producto)')),
         supabase.from('sewing_orders')
           .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, parent_order:orders(id, internal_code, client_name, status, fabric_id, fabrics(nombre_tela)), products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable), sewing_order_sizes(id, sewing_order_id, size_id, cantidad_planeada, cantidad_confeccionada, sizes(id, codigo_talla))')
           .in('status', ['En Confección', 'Enviado a Taller', 'Terminada', 'Devuelta por Taller'])
@@ -446,8 +446,8 @@ export default function SewingPage() {
 
     order.cuts.forEach((cut: any) => {
       const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
-      const catId = prod ? String(prod.id) : 'sin_prod';
-      const catName = prod ? (prod.nombre_producto || 'Sin Referencia') : 'Sin Referencia';
+      const catId = String(cut.product_id || (prod ? prod.id : 'sin_prod'));
+      const catName = prod ? (prod.nombre_producto || 'Referencia de Corte') : 'Referencia de Corte';
 
       if (!categoryAssignments[catId]) {
         categoryAssignments[catId] = {
