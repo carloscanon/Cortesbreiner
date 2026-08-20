@@ -962,16 +962,16 @@ export default function OrdersPage() {
         await supabase.from('sewing_orders').update({ status: 'Anulada' }).eq('parent_order_id', id);
       }
 
-      // 3. Marcar la orden como 'Anulada'
+      // 3. Marcar la orden como 'Cerrada' (Anulada) para cumplir la restricción CHECK de Postgres
       const timestamp = new Date().toLocaleString('es-ES');
-      const cancelLog = `\n\n[ANULACIÓN (${timestamp})] Orden anulada por Superadministrador.`;
+      const cancelLog = `\n\n[ANULACIÓN (${timestamp})] === ORDEN ANULADA POR SUPERADMINISTRADOR ===`;
       const { data: currentOrder } = await supabase.from('orders').select('observaciones').eq('id', id).single();
       const currentObs = currentOrder?.observaciones || '';
 
       const { error: cancelError } = await supabase
         .from('orders')
         .update({
-          status: 'Anulada',
+          status: 'Cerrada',
           observaciones: currentObs + cancelLog
         })
         .eq('id', id);
@@ -1755,17 +1755,26 @@ export default function OrdersPage() {
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', backgroundColor: '#f1f5f9', padding: '0.25rem 0.75rem', borderRadius: '6px' }}>{order.capas_proyectadas}</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', color: '#64748b' }}>{order.total_kilos_proyectados || 0} kg</span></td>
                     <td style={{ padding: '1rem 1.5rem' }}>
-                      <span className="badge" style={{ 
-                        backgroundColor: order.status === 'Anulada' ? '#fef2f2' : order.status === 'Planeada' ? '#f1f5f9' : order.status === 'En Corte' ? '#fffbeb' : '#ecfdf5',
-                        color: order.status === 'Anulada' ? '#dc2626' : order.status === 'Planeada' ? '#64748b' : order.status === 'En Corte' ? '#b45309' : '#059669',
-                        padding: '0.4rem 0.8rem',
-                        fontWeight: '800',
-                        fontSize: '0.7rem',
-                        borderRadius: '999px',
-                        border: '1px solid currentColor'
-                      }}>
-                        {(order.status || 'Planeada').toUpperCase()}
-                      </span>
+                      {(() => {
+                        const isCancelled = order.status === 'Cerrada' && (order.observaciones || '').includes('ORDEN ANULADA POR SUPERADMINISTRADOR');
+                        const statusLabel = isCancelled ? 'ANULADA' : (order.status || 'Planeada').toUpperCase();
+                        const badgeBg = isCancelled ? '#fef2f2' : order.status === 'Planeada' ? '#f1f5f9' : order.status === 'En Corte' ? '#fffbeb' : '#ecfdf5';
+                        const badgeColor = isCancelled ? '#dc2626' : order.status === 'Planeada' ? '#64748b' : order.status === 'En Corte' ? '#b45309' : '#059669';
+
+                        return (
+                          <span className="badge" style={{ 
+                            backgroundColor: badgeBg,
+                            color: badgeColor,
+                            padding: '0.4rem 0.8rem',
+                            fontWeight: '800',
+                            fontSize: '0.7rem',
+                            borderRadius: '999px',
+                            border: '1px solid currentColor'
+                          }}>
+                            {statusLabel}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -1847,7 +1856,7 @@ export default function OrdersPage() {
                             <RotateCcw size={14} /> {order.status === 'Planeada' ? 'Limpiar' : 'A Planeada'}
                           </button>
                         )}
-                        {isSuperAdmin && order.status !== 'Anulada' && (
+                        {isSuperAdmin && !((order.status === 'Cerrada' && (order.observaciones || '').includes('ORDEN ANULADA POR SUPERADMINISTRADOR'))) && (
                           <button
                             onClick={() => handleCancelOrder(order.id, order.internal_code)}
                             title="Anular Orden (Superadministrador)"
