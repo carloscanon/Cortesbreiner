@@ -1993,44 +1993,75 @@ export default function Dashboard() {
       : finalWorkshopsList.filter(w => String(w.id) === String(activeWorkshopId));
 
     workshopsToAggregate.forEach(currentWs => {
+      const currentWsId = String(currentWs.id).toLowerCase().trim();
       const wsSewingOrders = sewingOrdersList.filter(so => 
-        String(so.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim()
+        String(so.workshop_id).toLowerCase().trim() === currentWsId
       );
 
-      // Calcular Autorizados (lo planeado que se le envió al taller)
-      wsSewingOrders.forEach(so => {
-        if (so.status !== 'En Confección' && so.status !== 'Terminada' && so.status !== 'Enviada') return;
+      if (wsSewingOrders.length > 0) {
+        wsSewingOrders.forEach(so => {
+          if (so.status !== 'En Confección' && so.status !== 'Terminada' && so.status !== 'Enviada') return;
 
-        const prod = productsList.find(p => String(p.id) === String(so.product_id));
-        const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
-        const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
+          const prod = productsList.find(p => String(p.id) === String(so.product_id));
+          const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+          const catBaseRate = categoryObj?.base_rate || baseSewingGlobal;
 
-        let itemRate = catBaseRate;
-        if (categoryObj) {
-          const rateObj = workshopRates.find(r => 
-            String(r.workshop_id).toLowerCase().trim() === String(currentWs.id).toLowerCase().trim() && 
-            String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
-          );
-          if (rateObj && Number(rateObj.rate) > 0) {
-            itemRate = Number(rateObj.rate);
+          let itemRate = catBaseRate;
+          if (categoryObj) {
+            const rateObj = workshopRates.find(r => 
+              String(r.workshop_id).toLowerCase().trim() === currentWsId && 
+              String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+            );
+            if (rateObj && Number(rateObj.rate) > 0) {
+              itemRate = Number(rateObj.rate);
+            }
           }
-        }
 
-        let finalRate = itemRate;
-        if (so.tarifa_especial !== null && so.tarifa_especial !== undefined && Number(so.tarifa_especial) > 0) {
-          const specCostObj = specialCosts.find(sc => 
-            String(sc.workshop_id).toLowerCase() === String(currentWs.id).toLowerCase() && 
-            String(sc.product_id).toLowerCase() === String(so.product_id).toLowerCase()
-          );
-          if (specCostObj && Number(specCostObj.special_rate) > 0) {
-            finalRate = Number(specCostObj.special_rate);
+          let finalRate = itemRate;
+          if (so.tarifa_especial !== null && so.tarifa_especial !== undefined && Number(so.tarifa_especial) > 0) {
+            const specCostObj = specialCosts.find(sc => 
+              String(sc.workshop_id).toLowerCase() === currentWsId && 
+              String(sc.product_id).toLowerCase() === String(so.product_id).toLowerCase()
+            );
+            if (specCostObj && Number(specCostObj.special_rate) > 0) {
+              finalRate = Number(specCostObj.special_rate);
+            }
           }
-        }
 
-        const plannedQty = getSewingOrderTotalUnits(so);
-        totalAuthorizedUnits += plannedQty;
-        totalAuthorizedPayment += plannedQty * finalRate;
-      });
+          const plannedQty = getSewingOrderTotalUnits(so);
+          totalAuthorizedUnits += plannedQty;
+          totalAuthorizedPayment += plannedQty * finalRate;
+        });
+      } else {
+        // Fallback desde la matriz persistentemente guardada en orders
+        orders.forEach(o => {
+          if (o.status !== 'En Confección' && o.status !== 'Terminada' && o.status !== 'Enviada') return;
+
+          const prendasWs = getPrendasParaTaller(o, currentWs.id);
+          const plannedQty = prendasWs.confeccionadas || prendasWs.planeadas || 0;
+          if (plannedQty <= 0) return;
+
+          let itemRate = baseSewingGlobal;
+          if (o.cuts && o.cuts.length > 0) {
+            const prod = productsList.find(p => String(p.id) === String(o.cuts![0].product_id));
+            const categoryObj = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
+            if (categoryObj) {
+              const rateObj = workshopRates.find(r => 
+                String(r.workshop_id).toLowerCase().trim() === currentWsId && 
+                String(r.category_id).toLowerCase().trim() === String(categoryObj.id).toLowerCase().trim()
+              );
+              if (rateObj && Number(rateObj.rate) > 0) {
+                itemRate = Number(rateObj.rate);
+              } else if (categoryObj.base_rate) {
+                itemRate = categoryObj.base_rate;
+              }
+            }
+          }
+
+          totalAuthorizedUnits += plannedQty;
+          totalAuthorizedPayment += plannedQty * itemRate;
+        });
+      }
 
       // Calcular Confeccionados/Aprobados reales a pagar basados en las inspecciones de calidad aprobadas
       const wsInsps = inspections.filter(i => 
