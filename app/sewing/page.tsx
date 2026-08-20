@@ -1617,8 +1617,47 @@ export default function SewingPage() {
     })
     .sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''));
 
+  // Lista de órdenes para la tabla principal (sewing_orders + fallback de orders en estado 'En Confección')
+  const baseTableList: any[] = [...sewingOrders];
+  if (sewingOrders.length === 0) {
+    orders.filter(o => o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada').forEach(o => {
+      const dataAss = getAssignmentsData(o);
+      const rowWorkshopsMap = dataAss?.rowWorkshops || {};
+      const uniqueWIds = Array.from(new Set(Object.values(rowWorkshopsMap))).filter(Boolean);
+      if (uniqueWIds.length === 0 && o.workshop_id) uniqueWIds.push(String(o.workshop_id));
+
+      if (uniqueWIds.length === 0) {
+        baseTableList.push({
+          id: `fallback-${o.id}`,
+          parent_order_id: o.id,
+          confeccion_code: o.internal_code,
+          workshop_id: o.workshop_id,
+          status: o.status,
+          created_at: o.created_at,
+          parent_order: o,
+          workshops: o.workshops
+        });
+      } else {
+        uniqueWIds.forEach((wId, idx) => {
+          const wObj = workshops.find(w => String(w.id) === String(wId));
+          const confCode = uniqueWIds.length > 1 ? `${o.internal_code}-${idx + 1}` : o.internal_code;
+          baseTableList.push({
+            id: `fallback-${o.id}-${wId}`,
+            parent_order_id: o.id,
+            confeccion_code: confCode,
+            workshop_id: wId,
+            status: o.status,
+            created_at: o.created_at,
+            parent_order: o,
+            workshops: wObj || o.workshops
+          });
+        });
+      }
+    });
+  }
+
   // Filtrado de las órdenes de confección para la tabla (mostrando únicamente la Orden Principal por lote)
-  const filteredSewingOrders = sewingOrders.filter(so => {
+  const filteredSewingOrders = baseTableList.filter(so => {
     const parentCode = so.parent_order?.internal_code || '';
 
     // Si es una orden hija/secundaria (CMP-S-), no se muestra como fila individual en la tabla principal
@@ -1646,8 +1685,8 @@ export default function SewingPage() {
     return dateB - dateA;
   });
 
-  const enConfeccion = sewingOrders.filter(so => so.status === 'En Confección');
-  const terminadas = sewingOrders.filter(so => so.status === 'Terminada');
+  const enConfeccion = baseTableList.filter(so => so.status === 'En Confección');
+  const terminadas = baseTableList.filter(so => so.status === 'Terminada');
 
   const totalItems = filteredSewingOrders.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
