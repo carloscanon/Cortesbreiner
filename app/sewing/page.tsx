@@ -639,6 +639,11 @@ export default function SewingPage() {
       // Try database insertion
       try {
         // Limpiar asignaciones previas
+        const { data: oldSewingOrders } = await supabase.from('sewing_orders').select('id').eq('parent_order_id', selectedOrder.id);
+        if (oldSewingOrders && oldSewingOrders.length > 0) {
+          const oldIds = oldSewingOrders.map(so => so.id);
+          await supabase.from('sewing_order_sizes').delete().in('sewing_order_id', oldIds);
+        }
         await supabase.from('sewing_orders').delete().eq('parent_order_id', selectedOrder.id);
         await supabase.from('sewing_assignments').delete().eq('order_id', selectedOrder.id);
         await supabase.from('sewing_accessories').delete().eq('order_id', selectedOrder.id);
