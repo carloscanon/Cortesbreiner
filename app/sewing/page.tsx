@@ -15,12 +15,14 @@ type Stage = 'matriz_corte' | 'talleres';
 const fetchAll = async (queryFn: () => any) => {
   let allData: any[] = [];
   let from = 0;
-  const step = 1000;
-  while (true) {
+  const step = 250;
+  let safetyLimit = 10;
+  while (safetyLimit > 0) {
+    safetyLimit--;
     const { data, error } = await queryFn().range(from, from + step - 1);
     if (error) throw error;
     if (data && data.length > 0) {
-      allData = [...allData, ...data];
+      allData = allData.concat(data);
       from += step;
       if (data.length < step) break;
     } else {
