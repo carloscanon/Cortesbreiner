@@ -2622,34 +2622,56 @@ export default function Dashboard() {
                   sewingOrderId: string;
                 }[] = [];
 
-                wsSewingOrders.forEach(so => {
-                  const parentOrder = so.parent_order || {};
-                  const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
-                  const plannedQty = getSewingOrderTotalUnits(so);
-                  if (plannedQty <= 0) return;
+                if (wsSewingOrders.length > 0) {
+                  wsSewingOrders.forEach(so => {
+                    const parentOrder = so.parent_order || {};
+                    const prodObj = productsList.find(p => String(p.id) === String(so.product_id));
+                    const plannedQty = getSewingOrderTotalUnits(so);
+                    if (plannedQty <= 0) return;
 
-                  const parentCuts = parentOrder.cuts || [];
-                  const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
-                  let actualSewedQty = 0;
-                  if (cut) {
-                    const layersProyec = cut.layers || 1;
-                    const layersProduced = cut.layers_produced || 0;
-                    const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
-                    actualSewedQty = Math.round(plannedQty * pct);
-                  } else {
-                    actualSewedQty = so.cantidad_confeccionada || 0;
-                  }
+                    const parentCuts = parentOrder.cuts || [];
+                    const cut = parentCuts.find((c: any) => String(c.product_id) === String(so.product_id));
+                    let actualSewedQty = 0;
+                    if (cut) {
+                      const layersProyec = cut.layers || 1;
+                      const layersProduced = cut.layers_produced || 0;
+                      const pct = layersProyec > 0 ? layersProduced / layersProyec : 0;
+                      actualSewedQty = Math.round(plannedQty * pct);
+                    } else {
+                      actualSewedQty = so.cantidad_confeccionada || 0;
+                    }
 
-                  wsLotes.push({
-                    order: parentOrder,
-                    productId: so.product_id,
-                    productName: prodObj ? prodObj.nombre_producto : 'Referencia',
-                    planeadas: plannedQty,
-                    confeccionadas: actualSewedQty,
-                    confeccionCode: so.confeccion_code,
-                    sewingOrderId: so.id
+                    wsLotes.push({
+                      order: parentOrder,
+                      productId: so.product_id,
+                      productName: prodObj ? prodObj.nombre_producto : 'Referencia',
+                      planeadas: plannedQty,
+                      confeccionadas: actualSewedQty,
+                      confeccionCode: so.confeccion_code,
+                      sewingOrderId: so.id
+                    });
                   });
-                });
+                } else {
+                  // Fallback desde assignedOrders
+                  assignedOrders.forEach(o => {
+                    const prendasWs = getPrendasParaTaller(o, w.id);
+                    const planQty = prendasWs.planeadas || 0;
+                    const confQty = prendasWs.confeccionadas || 0;
+                    if (planQty <= 0 && confQty <= 0) return;
+
+                    const confeccionCode = getConfeccionCode(o, w.id);
+                    const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+                    wsLotes.push({
+                      order: o,
+                      productId: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : 'ref',
+                      productName: prodObj?.nombre_producto || 'Referencia de Corte',
+                      planeadas: planQty,
+                      confeccionadas: confQty,
+                      confeccionCode: confeccionCode,
+                      sewingOrderId: `fallback-${o.id}-${w.id}`
+                    });
+                  });
+                }
 
                 const wsPending = wsLotes.filter(lot => lot.confeccionadas < lot.planeadas);
                 const wsCompleted = wsLotes.filter(lot => lot.confeccionadas >= lot.planeadas);
