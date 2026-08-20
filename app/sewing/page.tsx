@@ -3084,6 +3084,10 @@ export default function SewingPage() {
                 const seenCutSizes = new Set<string>();
                 (printOrder.cuts || []).forEach((cut: any) => {
                   const targetProdId = cut.product_id;
+
+                  // Si se está imprimiendo una orden de confección específica, filtrar solo sus prendas
+                  if (printSewingOrder && String(targetProdId) !== String(printSewingOrder.product_id)) return;
+
                   const prodObj = products.find(p => String(p.id) === String(targetProdId));
                   const prodName = prodObj?.nombre_producto || 'Referencia';
 
