@@ -1643,8 +1643,9 @@ export default function SewingPage() {
       } else {
         uniqueWIds.forEach((wId, idx) => {
           const wObj = workshops.find(w => String(w.id).toLowerCase().trim() === String(wId).toLowerCase().trim());
-          const baseCode = o.internal_code || (o.consecutive ? `OC-${o.consecutive}` : '—');
-          const confCode = uniqueWIds.length > 1 ? `${baseCode}-${idx + 1}` : baseCode;
+          const rawCode = o.internal_code || (o.consecutive ? `${o.consecutive}` : '—');
+          const cleanCode = rawCode.replace(/^(OC-|CMP-P-|CMP-S-|CMP-)/i, '').trim();
+          const confCode = uniqueWIds.length > 1 ? `${cleanCode}-${idx + 1}` : cleanCode;
           baseTableList.push({
             id: `fallback-${o.id}-${wId}`,
             parent_order_id: o.id,
@@ -2850,8 +2851,9 @@ export default function SewingPage() {
 
                   return uniqueWIds.map((wId: any, idx) => {
                     const workshopObj = workshops.find(w => String(w.id) === String(wId));
-                    const baseCode = printOrder.internal_code || (printOrder.consecutive ? `OC-${printOrder.consecutive}` : '—');
-                    const confCode = uniqueWIds.length > 1 ? `${baseCode}-${idx + 1}` : baseCode;
+                    const rawCode = printOrder.internal_code || (printOrder.consecutive ? `${printOrder.consecutive}` : '—');
+                    const cleanCode = rawCode.replace(/^(OC-|CMP-P-|CMP-S-|CMP-)/i, '').trim();
+                    const confCode = uniqueWIds.length > 1 ? `${cleanCode}-${idx + 1}` : cleanCode;
 
                     return (
                       <div key={String(wId)} style={{
