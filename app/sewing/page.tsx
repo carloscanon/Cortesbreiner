@@ -1619,47 +1619,61 @@ export default function SewingPage() {
     .sort((a, b) => (a.client_name || '').localeCompare(b.client_name || ''));
 
   // Lista de órdenes para la tabla principal (sewing_orders + fallback de orders en estado 'En Confección')
-  const baseTableList: any[] = [...sewingOrders];
-  if (sewingOrders.length === 0) {
-    orders.filter(o => o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada').forEach(o => {
-      const rawAss = getAssignmentsFromJson(o);
-      const rawMap = rawAss?.rowWorkshops || {};
-      let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
-      if (uniqueWIds.length === 0 && o.workshop_id) {
-        uniqueWIds = [String(o.workshop_id).toLowerCase().trim()];
-      }
+  const rawTableList: any[] = [...sewingOrders];
+  orders.filter(o => o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada').forEach(o => {
+    const hasExisting = sewingOrders.some(so => String(so.parent_order_id) === String(o.id));
+    if (hasExisting) return;
 
-      if (uniqueWIds.length === 0) {
-        baseTableList.push({
-          id: `fallback-${o.id}`,
+    const rawAss = getAssignmentsFromJson(o);
+    const rawMap = rawAss?.rowWorkshops || {};
+    let uniqueWIds = Array.from(new Set(Object.values(rawMap).map(v => String(v).toLowerCase().trim()))).filter(Boolean);
+    if (uniqueWIds.length === 0 && o.workshop_id) {
+      uniqueWIds = [String(o.workshop_id).toLowerCase().trim()];
+    }
+
+    if (uniqueWIds.length === 0) {
+      rawTableList.push({
+        id: `fallback-${o.id}`,
+        parent_order_id: o.id,
+        confeccion_code: o.internal_code,
+        workshop_id: o.workshop_id,
+        status: o.status,
+        created_at: o.created_at,
+        parent_order: o,
+        workshops: o.workshops
+      });
+    } else {
+      uniqueWIds.forEach((wId, idx) => {
+        const wObj = workshops.find(w => String(w.id).toLowerCase().trim() === String(wId).toLowerCase().trim());
+        const rawCode = o.internal_code || (o.consecutive ? `${o.consecutive}` : '—');
+        const cleanCode = rawCode.replace(/^(OC-|CMP-P-|CMP-S-|CMP-)/i, '').trim();
+        const confCode = uniqueWIds.length > 1 ? `${cleanCode}-${idx + 1}` : cleanCode;
+        rawTableList.push({
+          id: `fallback-${o.id}-${wId}`,
           parent_order_id: o.id,
-          confeccion_code: o.internal_code,
-          workshop_id: o.workshop_id,
+          confeccion_code: confCode,
+          workshop_id: wId,
           status: o.status,
           created_at: o.created_at,
           parent_order: o,
-          workshops: o.workshops
+          workshops: wObj || o.workshops
         });
-      } else {
-        uniqueWIds.forEach((wId, idx) => {
-          const wObj = workshops.find(w => String(w.id).toLowerCase().trim() === String(wId).toLowerCase().trim());
-          const rawCode = o.internal_code || (o.consecutive ? `${o.consecutive}` : '—');
-          const cleanCode = rawCode.replace(/^(OC-|CMP-P-|CMP-S-|CMP-)/i, '').trim();
-          const confCode = uniqueWIds.length > 1 ? `${cleanCode}-${idx + 1}` : cleanCode;
-          baseTableList.push({
-            id: `fallback-${o.id}-${wId}`,
-            parent_order_id: o.id,
-            confeccion_code: confCode,
-            workshop_id: wId,
-            status: o.status,
-            created_at: o.created_at,
-            parent_order: o,
-            workshops: wObj || o.workshops
-          });
-        });
-      }
-    });
-  }
+      });
+    }
+  });
+
+  // Deduplicación estricta por (parent_order_id + workshop_id)
+  const seenKeys = new Set<string>();
+  const baseTableList: any[] = [];
+  rawTableList.forEach(item => {
+    const pId = item.parent_order_id || item.parent_order?.id || item.id;
+    const wId = item.workshop_id || 'no_ws';
+    const key = `${pId}_${wId}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      baseTableList.push(item);
+    }
+  });
 
   // Filtrado de las órdenes de confección para la tabla (mostrando únicamente la Orden Principal por lote)
   const filteredSewingOrders = baseTableList.filter(so => {
