@@ -1980,6 +1980,40 @@ export default function Dashboard() {
       return { planeadas, confeccionadas };
     };
 
+    // ─── Prendas asignadas A UN TALLER específico en una orden ────────────────
+    const getPrendasParaTaller = (order: any, workshopId: string) => {
+      if (!order.cuts) return { planeadas: 0, confeccionadas: 0 };
+      const assignments = getOrderAssignments(order);
+      if (!assignments || !assignments.rowWorkshops) return { planeadas: 0, confeccionadas: 0 };
+
+      let planeadas = 0;
+      let confeccionadas = 0;
+      const wid = String(workshopId).toLowerCase().trim();
+
+      order.cuts.forEach((cut: any) => {
+        const prod = productsList.find(p => String(p.id) === String(cut.product_id));
+        const prodId = prod ? String(prod.id) : 'sin_prod';
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const qty = Number(cs.quantity) || 0;
+          const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+          const cellKey = `${prodId}_${sz}`;
+
+          const assignedTo = assignments.rowWorkshops[cellKey];
+          if (assignedTo && String(assignedTo).toLowerCase().trim() === wid) {
+            planeadas += qty;
+            const ppc = qty / layersProyec;
+            confeccionadas += layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
+          }
+        });
+      });
+
+      return { planeadas, confeccionadas };
+    };
+
     let totalAuthorizedUnits = 0;
     let totalSewedUnits = 0;
     let totalAuthorizedPayment = 0;
@@ -2168,41 +2202,6 @@ export default function Dashboard() {
           return s + Math.round(ppc * layersProduced);
         }, 0);
       }, 0);
-    };
-
-    // ─── Prendas asignadas A UN TALLER específico en una orden ────────────────
-    // La clave rowWorkshops es `{product.id}_{size_code}` → workshop_id (UUID)
-    const getPrendasParaTaller = (order: any, workshopId: string) => {
-      if (!order.cuts) return { planeadas: 0, confeccionadas: 0 };
-      const assignments = getOrderAssignments(order);
-      if (!assignments || !assignments.rowWorkshops) return { planeadas: 0, confeccionadas: 0 };
-
-      let planeadas = 0;
-      let confeccionadas = 0;
-      const wid = String(workshopId).toLowerCase().trim();
-
-      order.cuts.forEach((cut: any) => {
-        const prod = productsList.find(p => String(p.id) === String(cut.product_id));
-        const prodId = prod ? String(prod.id) : 'sin_prod';
-        const layersProyec = cut.layers || 1;
-        const layersProduced = cut.layers_produced || 0;
-
-        (cut.cut_sizes || []).forEach((cs: any) => {
-          const qty = Number(cs.quantity) || 0;
-          const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-          const cellKey = `${prodId}_${sz}`;
-
-          const assignedTo = assignments.rowWorkshops[cellKey];
-          if (assignedTo && String(assignedTo).toLowerCase().trim() === wid) {
-            planeadas += qty;
-            const ppc = qty / layersProyec;
-            confeccionadas += layersProduced > 0 ? Math.round(ppc * layersProduced) : 0;
-          }
-        });
-      });
-
-      return { planeadas, confeccionadas };
     };
 
     // Calculate generic progression percentage for orders
