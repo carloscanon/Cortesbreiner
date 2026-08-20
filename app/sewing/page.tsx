@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { syncOrderMovements } from '@/lib/inventory-sync';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Truck, Factory, CheckCircle, Clock, Search,
   Loader2, Package, ArrowRight, ArrowLeft, Plus, X,
-  Scissors, Layers, ShirtIcon, Clipboard, Tag, Printer
+  Scissors, Layers, ShirtIcon, Clipboard, Tag, Printer, RotateCcw
 } from 'lucide-react';
 
 type Stage = 'matriz_corte' | 'talleres';
@@ -30,6 +31,10 @@ const fetchAll = async (queryFn: () => any) => {
 };
 
 export default function SewingPage() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.roles?.name?.toLowerCase() === 'administrador';
+  const isSuperAdmin = profile?.roles?.name?.toLowerCase().includes('super') || isAdmin;
+
   const [orders, setOrders] = useState<any[]>([]);
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [accessories, setAccessories] = useState<any[]>([]);
@@ -1448,6 +1453,50 @@ export default function SewingPage() {
     }
   };
 
+  const handleRollbackToCortado = async (so: any) => {
+    const code = so.confeccion_code || so.parent_order?.internal_code || 'esta orden';
+    if (!window.confirm(`⚠️ ACCIÓN SUPERADMINISTRADOR: ¿Estás seguro de revertir la orden ${code} al paso anterior ("Cortado")?\n\nEsto eliminará la asignación de taller y devolverá la orden a la lista de órdenes cortadas pendientes por despachar.`)) {
+      return;
+    }
+
+    try {
+      const parentId = so.parent_order_id;
+
+      // 1. Eliminar los registros de confección asociados en sewing_orders y sewing_order_sizes
+      await supabase.from('sewing_order_sizes').delete().eq('sewing_order_id', so.id);
+      await supabase.from('sewing_orders').delete().eq('id', so.id);
+      await supabase.from('sewing_assignments').delete().eq('order_id', parentId);
+      await supabase.from('sewing_accessories').delete().eq('order_id', parentId);
+
+      // 2. Verificar si quedan otras órdenes de confección activas para este parent_order
+      const { data: remainingSewing } = await supabase
+        .from('sewing_orders')
+        .select('id')
+        .eq('parent_order_id', parentId);
+
+      if (!remainingSewing || remainingSewing.length === 0) {
+        // Si no quedan más lotes, actualizar la orden principal de vuelta a 'Cortado'
+        const timestamp = new Date().toLocaleString('es-ES');
+        const rollbackLog = `\n\n[REVERSIÓN A CORTADO (${timestamp})] Revertida por Superadministrador.`;
+
+        const parentOrder = orders.find(o => o.id === parentId);
+        await supabase
+          .from('orders')
+          .update({
+            status: 'Cortado',
+            workshop_id: null,
+            observaciones: (parentOrder?.observaciones || '') + rollbackLog
+          })
+          .eq('id', parentId);
+      }
+
+      alert(`✅ La orden ${code} ha sido revertida exitosamente al estado "Cortado".`);
+      fetchData();
+    } catch (err: any) {
+      alert('Error al revertir la orden: ' + err.message);
+    }
+  };
+
   const handleReassignWorkshop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrderForReassign || !reassignWorkshopId || savingReassign) return;
@@ -2108,6 +2157,40 @@ export default function SewingPage() {
                             }}
                           >
                             👁️
+                          </button>
+                        )}
+
+                        {/* 3. Botón Revertir a Cortado (SuperAdministrador) */}
+                        {isSuperAdmin && (so.status === 'En Confección' || so.status === 'Enviado a Taller' || so.status === 'Devuelta por Taller') && (
+                          <button
+                            style={{ 
+                              padding: '0.4rem 0.75rem',
+                              borderRadius: '8px',
+                              backgroundColor: '#fff1f2',
+                              color: '#e11d48',
+                              border: '1px solid #fecdd3',
+                              fontSize: '0.72rem',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                              transition: 'all 0.2s',
+                              whiteSpace: 'nowrap'
+                            }}
+                            onClick={() => handleRollbackToCortado(so)}
+                            title="Revertir orden al paso anterior (Cortado)"
+                            onMouseEnter={e => {
+                              e.currentTarget.style.backgroundColor = '#ffe4e6';
+                              e.currentTarget.style.transform = 'scale(1.03)';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.backgroundColor = '#fff1f2';
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                          >
+                            <RotateCcw size={13} /> Revertir a Cortado
                           </button>
                         )}
 
