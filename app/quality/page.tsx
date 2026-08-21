@@ -285,43 +285,42 @@ export default function QualityPage() {
 
   const fetchInspections = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('quality_inspections')
-      .select(`
-        *,
-        orders (
-          id,
-          consecutive,
-          internal_code,
-          client_name,
-          brand,
-          cuts (
-            id,
-            color,
-            color_id,
-            fabric_id,
-            product_id
-          )
-        ),
-        sewing_orders (
-          id,
-          confeccion_code,
-          product_id,
-          parent_order_id,
-          status,
-          sewing_order_sizes (
-            cantidad_planeada
-          ),
-          workshops (
-            nombre_taller
-          )
-        )
-      `)
-      .order('created_at', { ascending: false });
+    try {
+      const [{ data: insData, error: insErr }, { data: soData }, { data: ordData }] = await Promise.all([
+        supabase.from('quality_inspections').select('*').order('created_at', { ascending: false }),
+        supabase.from('sewing_orders').select('*, workshops(nombre_taller), products(id, nombre_producto, name, codigo_referencia), sewing_order_sizes(cantidad_planeada)'),
+        supabase.from('orders').select('*, cuts(*, products(id, nombre_producto, name, codigo_referencia), colors(*), fabrics(*))')
+      ]);
 
-    if (error) console.error('Error fetching inspections:', error);
-    setInspections(data || []);
-    setLoading(false);
+      if (insErr) {
+        console.error('Error fetching quality inspections:', insErr);
+      }
+
+      if (insData) {
+        const enriched = insData.map((item: any) => {
+          const matchedSo = item.sewing_order_id ? soData?.find((so: any) => String(so.id) === String(item.sewing_order_id)) : null;
+          const matchedOrd = item.order_id ? ordData?.find((o: any) => String(o.id) === String(item.order_id)) : (matchedSo?.parent_order_id ? ordData?.find((o: any) => String(o.id) === String(matchedSo.parent_order_id)) : null);
+
+          if (matchedSo && matchedOrd) {
+            matchedSo.parent_order = matchedOrd;
+          }
+
+          return {
+            ...item,
+            sewing_orders: matchedSo || item.sewing_orders,
+            orders: matchedOrd || item.orders
+          };
+        });
+        setInspections(enriched);
+      } else {
+        setInspections([]);
+      }
+    } catch (err: any) {
+      console.error('Exception fetching inspections:', err);
+      setInspections([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchSewingOrders = async () => {
