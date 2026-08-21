@@ -306,7 +306,14 @@ export default function QualityPage() {
         sewing_orders (
           id,
           confeccion_code,
+          product_id,
           status,
+          products (
+            id,
+            nombre_producto,
+            name,
+            codigo_referencia
+          ),
           sewing_order_sizes (
             cantidad_planeada
           ),
@@ -317,9 +324,12 @@ export default function QualityPage() {
             id,
             cuts (
               id,
+              product_id,
               products (
+                id,
                 nombre_producto,
-                name
+                name,
+                codigo_referencia
               )
             )
           )
@@ -2374,16 +2384,22 @@ export default function QualityPage() {
               : item.status === 'Rechazado' ? { bg: '#fff1f2', color: '#9f1239', border: '#fecdd3' }
               : { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
 
-            // Obtener el nombre del producto
+            // Obtener el nombre del producto de forma robusta
             let productName = 'Sin Referencia';
             if (item.sewing_orders) {
+              const directProd = item.sewing_orders.products;
               const parentCuts = item.sewing_orders.parent_order?.cuts || [];
-              const prodObj = parentCuts[0]?.products;
-              productName = prodObj?.nombre_producto || prodObj?.name || 'Sin Referencia';
+              let matchedCutProd = null;
+              if (item.sewing_orders.product_id) {
+                const matchedCut = parentCuts.find((c: any) => String(c.product_id) === String(item.sewing_orders.product_id));
+                matchedCutProd = matchedCut?.products;
+              }
+              const prodObj = directProd || matchedCutProd || parentCuts[0]?.products || (item.sewing_orders.product_id ? products.find((p: any) => String(p.id) === String(item.sewing_orders.product_id)) : null);
+              productName = prodObj?.nombre_producto || prodObj?.name || prodObj?.codigo_referencia || 'Sin Referencia';
             } else if (item.orders) {
               const cuts = item.orders.cuts || [];
               const prodObj = cuts[0]?.products;
-              productName = prodObj?.nombre_producto || prodObj?.name || 'Sin Referencia';
+              productName = prodObj?.nombre_producto || prodObj?.name || prodObj?.codigo_referencia || 'Sin Referencia';
             }
 
             // Obtener cantidad planeada de la orden
