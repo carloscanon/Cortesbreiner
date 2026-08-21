@@ -119,7 +119,7 @@ export default function SettingsPage() {
   });
 
   // Relación de Despacho a Confección Configuration State
-  const [printSubTab, setPrintSubTab] = useState<'quality' | 'sewing_despatch'>('quality');
+  const [printSubTab, setPrintSubTab] = useState<'quality' | 'historical_labels' | 'sewing_despatch'>('quality');
   const [sewingDespatchConfig, setSewingDespatchConfig] = useState({
     companyTitle: 'CORTES BREINER S.A.S.',
     titleFontSize: 15,
@@ -788,6 +788,23 @@ export default function SettingsPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setPrintSubTab('historical_labels')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'historical_labels' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'historical_labels' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      🏷️ Etiquetas Inventario Histórico
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setPrintSubTab('sewing_despatch')}
                       style={{
                         padding: '0.6rem 1.25rem',
@@ -1119,6 +1136,270 @@ export default function SettingsPage() {
 
                       <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '280px' }}>
                         💡 Cambia los deslizadores de la izquierda para ver cómo se ajusta el código de barras y textos en tiempo real.
+                      </p>
+                    </div>
+                  </div>
+                  ) : printSubTab === 'historical_labels' ? (
+                  /* ──── Pestaña: Etiquetas de Inventario Histórico ──── */
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Banner Explicativo */}
+                      <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '1rem 1.25rem', color: '#166534' }}>
+                        <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.9rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          📦 Parametrización de Etiquetas de Inventario Histórico
+                        </h4>
+                        <p style={{ margin: 0, fontSize: '0.78rem', lineHeight: '1.4' }}>
+                          Configura las dimensiones, tipografía, tamaño de código de barras y textos de las etiquetas que se generan automáticamente al realizar cargas históricas en el módulo de Inventario.
+                        </p>
+                      </div>
+
+                      {/* 1. Encabezado / Marca */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Texto del Encabezado (Marca)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Texto del Encabezado</label>
+                            <input
+                              type="text"
+                              value={stickerConfig.headerText}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Encabezado (px)</label>
+                            <input
+                              type="range" min="8" max="22" value={stickerConfig.headerFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.headerFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Referencia & Color */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Referencia y Color</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Referencia (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={stickerConfig.refFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.refFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Grosor Referencia</label>
+                            <select
+                              value={stickerConfig.refFontWeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontWeight: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="400">Normal (400)</option>
+                              <option value="600">Semibold (600)</option>
+                              <option value="800">Bold (800)</option>
+                              <option value="900">Black (900)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Código de Barras */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Código de Barras (Barcode / QR)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Formato de Simbología</label>
+                            <select
+                              value={stickerConfig.barcodeType || 'code128'}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '700' }}
+                            >
+                              <option value="code128">CODE-128 (Estándar Industrial)</option>
+                              <option value="code39">CODE-39 (Alfanumérico)</option>
+                              <option value="qr">Código QR (Matricial 2D)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Altura Barcode (px)</label>
+                            <input
+                              type="range" min="25" max="140" value={stickerConfig.barcodeHeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeHeight: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeHeight}px</span>
+                          </div>
+
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Numérico Barcode (px)</label>
+                            <input
+                              type="range" min="10" max="22" value={stickerConfig.barcodeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Dimensiones Físicas */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Dimensiones Físicas del Sticker (Milímetros)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Ancho (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerWidthMm || 50}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerWidthMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerWidthMm || 50} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerHeightMm || 80}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerHeightMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerHeightMm || 80} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Separador entre etiquetas (mm)</label>
+                            <input
+                              type="number" min="0" max="20"
+                              value={stickerConfig.gapMm ?? 2}
+                              onChange={e => setStickerConfig({ ...stickerConfig, gapMm: Math.max(0, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.gapMm ?? 2} mm</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 5. Talla Badge & Columnas */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>5. Talla Badge & Columnas por Fila</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Columnas por Fila</label>
+                            <select
+                              value={stickerConfig.columnsPerRow}
+                              onChange={e => setStickerConfig({ ...stickerConfig, columnsPerRow: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            >
+                              <option value="1">1 Columna (Rollo Térmico Zebra)</option>
+                              <option value="2">2 Columnas (Doble Fila)</option>
+                              <option value="3">3 Columnas (Estándar Hoja/Rollo)</option>
+                              <option value="4">4 Columnas (Micro-Etiquetas)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Talla (px)</label>
+                            <input
+                              type="range" min="10" max="32" value={stickerConfig.sizeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.sizeFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Fondo Badge Talla</label>
+                            <input
+                              type="color" value={stickerConfig.sizeBgColor}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeBgColor: e.target.value })}
+                              style={{ width: '100%', height: '32px', borderRadius: '6px', border: '1px solid var(--border)', cursor: 'pointer', padding: '2px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vista Previa Simulación en Tiempo Real (Inventario Histórico) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        👁️ Simulación Etiqueta Histórica
+                      </h4>
+
+                      <div style={{
+                        width: '260px',
+                        backgroundColor: 'white',
+                        border: '2px solid #000000',
+                        borderRadius: '6px',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 12px 28px -6px rgba(0,0,0,0.15)',
+                        gap: '8px',
+                        fontFamily: stickerConfig.fontFamily || 'system-ui, sans-serif'
+                      }}>
+                        {/* Header */}
+                        <div style={{ textAlign: 'center', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: '#80082E', letterSpacing: '0.05em' }}>
+                            {stickerConfig.headerText || 'CORTES BREINER'}
+                          </span>
+                        </div>
+
+                        {/* Ref, Color & Barcode */}
+                        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', lineHeight: 1.1 }}>
+                            POLO CLASSIC HISTÓRICO
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>
+                            AZUL OBSCURO (CARGA INICIAL)
+                          </span>
+
+                          <div style={{ margin: '0.4rem 0 0.1rem', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            {stickerConfig.barcodeType === 'qr' ? (
+                              <img
+                                src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=HIST-00420001"
+                                alt="QR Preview"
+                                style={{ width: `${(stickerConfig.barcodeHeight || 55) * 1.5}px`, height: `${(stickerConfig.barcodeHeight || 55) * 1.5}px` }}
+                              />
+                            ) : (
+                              <svg width="100%" height={stickerConfig.barcodeHeight || 55} viewBox="0 0 200 50" preserveAspectRatio="none">
+                                <rect x="0" y="0" width="200" height="50" fill="#ffffff" />
+                                {(() => {
+                                  const bars = [];
+                                  let currentX = 10;
+                                  bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4;
+                                  bars.push(<rect key="start-2" x={currentX} y="2" width="2" height="38" fill="#000000" />); currentX += 5;
+                                  for (let i = 0; i < 22; i++) {
+                                    const w = (i % 3 === 0) ? 4 : (i % 2 === 0) ? 2 : 3;
+                                    const gap = (i % 4 === 0) ? 4 : 2;
+                                    bars.push(<rect key={`bar-${i}`} x={currentX} y="2" width={w} height="38" fill="#000000" />);
+                                    currentX += w + gap;
+                                  }
+                                  bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
+                                  bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
+                                  return bars;
+                                })()}
+                              </svg>
+                            )}
+                            <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                              HIST-00420001
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Size Badge */}
+                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.sizeBgColor, color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                            L
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '280px' }}>
+                        💡 Cambia los controles de la izquierda para parametrizar las etiquetas que se imprimen en el Inventario Histórico.
                       </p>
                     </div>
                   </div>

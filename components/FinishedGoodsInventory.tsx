@@ -393,6 +393,14 @@ export default function FinishedGoodsInventory() {
   };
 
   useEffect(() => {
+    supabase.from('company_params').select('*').eq('name', 'print_sticker_config').maybeSingle().then(({ data }) => {
+      if (data && data.value) {
+        try {
+          const parsed = JSON.parse(data.value);
+          setStickerConfig(prev => ({ ...prev, ...parsed }));
+        } catch (e) {}
+      }
+    });
     fetchMasters().then(() => {
       fetchStock();
       fetchKardex();
