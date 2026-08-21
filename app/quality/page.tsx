@@ -315,7 +315,10 @@ export default function QualityPage() {
             codigo_referencia
           ),
           sewing_order_sizes (
-            cantidad_planeada
+            cantidad_planeada,
+            sizes (
+              codigo_talla
+            )
           ),
           workshops (
             nombre_taller
@@ -325,6 +328,20 @@ export default function QualityPage() {
             cuts (
               id,
               product_id,
+              color_id,
+              fabric_id,
+              color,
+              colors (
+                id,
+                nombre_color,
+                codigo_color,
+                hex_color
+              ),
+              fabrics (
+                id,
+                nombre_tela,
+                codigo_tela
+              ),
               products (
                 id,
                 nombre_producto,
@@ -2402,6 +2419,31 @@ export default function QualityPage() {
               productName = prodObj?.nombre_producto || prodObj?.name || prodObj?.codigo_referencia || 'Sin Referencia';
             }
 
+            // Obtener Color y Tela de forma robusta
+            let colorName = '—';
+            let colorHex = '';
+            let fabricName = '—';
+
+            const cutsList = item.sewing_orders?.parent_order?.cuts || item.orders?.cuts || [];
+            let relevantCut = cutsList[0];
+            if (item.sewing_orders?.product_id) {
+              const match = cutsList.find((c: any) => String(c.product_id) === String(item.sewing_orders.product_id));
+              if (match) relevantCut = match;
+            }
+
+            if (relevantCut) {
+              const joinedColor = relevantCut.colors;
+              const localColor = relevantCut.color_id ? colors.find((c: any) => String(c.id) === String(relevantCut.color_id)) : null;
+              const colorObj = joinedColor || localColor;
+              colorName = colorObj?.nombre_color || colorObj?.codigo_color || relevantCut.color || relevantCut.color_name || 'Sin Especificar';
+              colorHex = colorObj?.hex_color || '';
+
+              const joinedFabric = relevantCut.fabrics;
+              const localFabric = relevantCut.fabric_id ? fabrics.find((f: any) => String(f.id) === String(relevantCut.fabric_id)) : null;
+              const fabObj = joinedFabric || localFabric;
+              fabricName = fabObj?.nombre_tela || fabObj?.codigo_tela || relevantCut.fabric_name || '—';
+            }
+
             // Obtener cantidad planeada de la orden
             let orderQty = 0;
             if (item.sewing_orders) {
@@ -2437,10 +2479,25 @@ export default function QualityPage() {
                     )}
                   </div>
 
-                  {/* Detalle del Producto */}
-                  <div style={{ marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  {/* Detalle del Producto, Color y Tela */}
+                  <div style={{ marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: '750' }}>Producto:</span>
                     <span style={{ fontSize: '0.88rem', fontWeight: '950', color: '#0f172a', backgroundColor: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>{productName}</span>
+
+                    <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: '750', marginLeft: '0.3rem' }}>Color:</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: '900', color: '#334155', backgroundColor: '#f8fafc', padding: '0.2rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: colorHex || '#94a3b8', border: '1px solid #cbd5e1', flexShrink: 0 }} />
+                      {colorName}
+                    </span>
+
+                    {fabricName !== '—' && (
+                      <>
+                        <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: '750', marginLeft: '0.3rem' }}>Tela:</span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#475569', backgroundColor: '#f8fafc', padding: '0.2rem 0.6rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                          🧵 {fabricName}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.74rem', color: '#475569', flexWrap: 'wrap', alignItems: 'center' }}>
