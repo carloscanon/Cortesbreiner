@@ -1510,6 +1510,7 @@ export default function Dashboard() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                         <thead>
                           <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Producto / Ref</th>
                             <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Categoría</th>
                             <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Color</th>
                             <th style={{ padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: '800', color: '#475569' }}>Tela</th>
@@ -1519,10 +1520,10 @@ export default function Dashboard() {
                         </thead>
                         <tbody>
                           {(() => {
-                            const parentOrder = viewingOrderDetails.parent_order || {};
+                            const parentOrder = viewingOrderDetails.parent_order || viewingOrderDetails;
                             const assignments = getOrderAssignments(parentOrder);
                             const rowWorkshopsMap = assignments?.rowWorkshops || {};
-                            const workshopId = viewingOrderDetails.workshop_id;
+                            const targetWorkshopId = String(viewingOrderDetails.workshop_id || userWorkshop?.id || '').toLowerCase().trim();
 
                             const qtyByCutSize: Record<string, number> = {};
                             (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
@@ -1533,15 +1534,22 @@ export default function Dashboard() {
                                 const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
                                 const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
                                 const cellKey = `${targetProdId}_${sz}`;
-                                const assignedWId = rowWorkshopsMap[cellKey];
-                                if (!assignedWId || String(assignedWId) !== String(workshopId)) return;
+                                const assignedWId = rowWorkshopsMap[cellKey] ? String(rowWorkshopsMap[cellKey]).toLowerCase().trim() : '';
+
+                                // Si la matriz tiene asignación, validar coincidencia. Si no hay asignación por matriz pero la orden está asignada directa al taller, incluir todos los cortes
+                                if (assignedWId) {
+                                  if (assignedWId !== targetWorkshopId) return;
+                                } else if (targetWorkshopId && parentOrder.workshop_id && String(parentOrder.workshop_id).toLowerCase().trim() !== targetWorkshopId) {
+                                  return;
+                                }
+
                                 let realQty = 0;
-                                if (cs.quantity_produced !== undefined && cs.quantity_produced !== null) {
+                                if (cs.quantity_produced !== undefined && cs.quantity_produced !== null && Number(cs.quantity_produced) > 0) {
                                   realQty = Number(cs.quantity_produced);
                                 } else {
                                   const proyecQty = Number(cs.quantity) || 0;
                                   const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-                                  realQty = Math.round(ppc * layersProduced);
+                                  realQty = layersProduced > 0 ? Math.round(ppc * layersProduced) : proyecQty;
                                 }
                                 if (realQty <= 0) return;
                                 const key = `${cut.id}_${sz}`;
@@ -1554,6 +1562,7 @@ export default function Dashboard() {
                             (parentOrder.cuts || []).filter((cut: any) => !viewingOrderDetails.product_id || String(cut.product_id) === String(viewingOrderDetails.product_id)).forEach((cut: any) => {
                               const targetProdId = cut.product_id;
                               const prodObj = (viewingOrderDetails.products && String(viewingOrderDetails.products.id) === String(targetProdId) ? viewingOrderDetails.products : null) || productsList.find(p => String(p.id) === String(targetProdId));
+                              const productName = prodObj?.nombre_producto || 'Referencia de Corte';
                               const categoryObj = prodObj ? categories.find(c => String(c.id) === String(prodObj.category_id)) : null;
                               const categoryName = categoryObj ? categoryObj.categoria : (prodObj ? (prodObj.categoria || 'Sin Categoría') : 'Sin Categoría');
                               const colorObj = cut ? colorsList.find(c => String(c.id) === String(cut.color_id)) : null;
@@ -1567,7 +1576,7 @@ export default function Dashboard() {
                                 const commaIdx = fabricName.indexOf(',');
                                 displayFabricName = fabricName.substring(0, commaIdx).trim();
                                 const extractedColor = fabricName.substring(commaIdx + 1).trim();
-                                if (extractedColor) {
+                                if (extractedColor && displayColorName === 'Sin Color') {
                                   displayColorName = extractedColor;
                                 }
                               }
@@ -1580,6 +1589,7 @@ export default function Dashboard() {
                                 if (!qtyByCutSize[key] || seenKeys.has(key)) return;
                                 seenKeys.add(key);
                                 itemsList.push({
+                                  productName,
                                   categoryName,
                                   colorName: displayColorName,
                                   fabricName: displayFabricName,
@@ -1590,6 +1600,7 @@ export default function Dashboard() {
                             });
 
                             const groupedItems: {
+                              productName: string;
                               colorName: string;
                               categoryName: string;
                               fabricName: string;
@@ -1599,6 +1610,7 @@ export default function Dashboard() {
 
                             itemsList.forEach((item: any) => {
                               const existing = groupedItems.find(g => 
+                                g.productName.toLowerCase() === item.productName.toLowerCase() &&
                                 g.categoryName.toLowerCase() === item.categoryName.toLowerCase() && 
                                 g.colorName.toLowerCase() === item.colorName.toLowerCase() &&
                                 g.fabricName.toLowerCase() === item.fabricName.toLowerCase()
@@ -1608,6 +1620,7 @@ export default function Dashboard() {
                                 existing.totalQuantity += item.quantity;
                               } else {
                                 groupedItems.push({
+                                  productName: item.productName,
                                   categoryName: item.categoryName,
                                   colorName: item.colorName,
                                   fabricName: item.fabricName,
@@ -1617,14 +1630,15 @@ export default function Dashboard() {
                               }
                             });
 
-                            groupedItems.sort((a, b) => a.categoryName.localeCompare(b.categoryName, 'es'));
+                            groupedItems.sort((a, b) => a.productName.localeCompare(b.productName, 'es'));
 
                             return (
                               <>
                                 {groupedItems.map((item, idx) => (
                                   <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                    <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#0f172a' }}>{item.categoryName}</td>
-                                    <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '600' }}>{item.colorName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', fontWeight: '850', color: '#0f172a' }}>{item.productName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', fontWeight: '700', color: '#475569' }}>{item.categoryName}</td>
+                                    <td style={{ padding: '0.6rem 0.75rem', color: '#1e293b', fontWeight: '700' }}>{item.colorName}</td>
                                     <td style={{ padding: '0.6rem 0.75rem', color: '#475569' }}>{item.fabricName}</td>
                                     <td style={{ padding: '0.6rem 0.75rem', textAlign: 'center' }}>
                                       <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -1639,7 +1653,7 @@ export default function Dashboard() {
                                   </tr>
                                 ))}
                                 <tr style={{ borderTop: '2px solid #cbd5e1', fontWeight: '800', backgroundColor: '#f8fafc' }}>
-                                  <td colSpan={4} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
+                                  <td colSpan={5} style={{ padding: '0.75rem 0.75rem', textTransform: 'uppercase', color: '#334155', fontSize: '0.7rem' }}>Total Unidades Despachadas</td>
                                   <td style={{ padding: '0.75rem 0.75rem', textAlign: 'right', color: '#80082E', fontSize: '0.9rem', fontWeight: '950' }}>
                                     {groupedItems.reduce((sum, item) => sum + item.totalQuantity, 0)} uds
                                   </td>
