@@ -285,7 +285,7 @@ export default function QualityPage() {
 
   const fetchInspections = async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('quality_inspections')
       .select(`
         *,
@@ -297,9 +297,15 @@ export default function QualityPage() {
           brand,
           cuts (
             id,
+            color,
+            color_id,
+            fabric_id,
+            product_id,
             products (
+              id,
               nombre_producto,
-              name
+              name,
+              codigo_referencia
             )
           )
         ),
@@ -315,10 +321,7 @@ export default function QualityPage() {
             codigo_referencia
           ),
           sewing_order_sizes (
-            cantidad_planeada,
-            sizes (
-              codigo_talla
-            )
+            cantidad_planeada
           ),
           workshops (
             nombre_taller
@@ -327,21 +330,10 @@ export default function QualityPage() {
             id,
             cuts (
               id,
-              product_id,
+              color,
               color_id,
               fabric_id,
-              color,
-              colors (
-                id,
-                nombre_color,
-                codigo_color,
-                hex_color
-              ),
-              fabrics (
-                id,
-                nombre_tela,
-                codigo_tela
-              ),
+              product_id,
               products (
                 id,
                 nombre_producto,
@@ -353,6 +345,7 @@ export default function QualityPage() {
         )
       `)
       .order('created_at', { ascending: false });
+    if (error) console.error('Error fetching inspections:', error);
     setInspections(data || []);
     setLoading(false);
   };
