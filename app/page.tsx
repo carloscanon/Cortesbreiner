@@ -1930,34 +1930,50 @@ export default function Dashboard() {
     const totalApprovedGarments = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
     const totalRejectedGarments = workshopInspections.reduce((s, i) => s + (Number(i.items_rejected) || Number(i.costuras) || 0), 0);
 
-    // Obtener código único de confección por taller (ej. 12XKE-1, 12XKE-2)
+    // Obtener código único de confección por taller (ej. PROBO-45 o PROBO-1)
     const getConfeccionCode = (order: any, workshopId: string, productId?: string) => {
-      const cleanCode = (order.internal_code || '').replace(/^OC-?/i, '') || order.consecutive || '—';
+      const cleanCode = (order.internal_code || '').replace(/^OC-?/i, '') || (order.consecutive ? `PROBO-${order.consecutive}` : '—');
       const assignments = getOrderAssignments(order);
       if (!assignments || !assignments.rowWorkshops) return `${cleanCode}-1`;
 
-      // Encontrar todos los talleres únicos asignados a esta orden en rowWorkshops
-      const uniqueWorkshops: string[] = [];
+      const targetWId = String(workshopId).toLowerCase().trim();
       
-      // Si el taller de la cabecera está y no está en la matriz, lo agregamos primero para mantener consistencia
-      const headWorkshopId = order.workshop_id ? String(order.workshop_id).toLowerCase().trim() : '';
-      if (headWorkshopId) {
-        uniqueWorkshops.push(headWorkshopId);
-      }
+      // Construir lotes idénticos a los generados al despachar en confección
+      const sewingOrdersMapKeys: string[] = [];
+      (order.cuts || []).forEach((cut: any) => {
+        const prodId = String(cut.product_id);
+        const layersProyec = cut.layers || 1;
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+          const cellKey = `${prodId}_${sz}`;
+          const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
 
-      Object.values(assignments.rowWorkshops).forEach(wId => {
-        if (wId) {
-          const cleanWId = String(wId).toLowerCase().trim();
-          if (!uniqueWorkshops.includes(cleanWId)) {
-            uniqueWorkshops.push(cleanWId);
+          const wIdForLot = assignedWId || (order.workshop_id ? String(order.workshop_id).toLowerCase().trim() : '');
+          if (wIdForLot) {
+            const key = `${wIdForLot}_${prodId}`;
+            if (!sewingOrdersMapKeys.includes(key)) {
+              sewingOrdersMapKeys.push(key);
+            }
           }
-        }
+        });
       });
 
-      const targetWId = String(workshopId).toLowerCase().trim();
-      const idx = uniqueWorkshops.indexOf(targetWId) + 1;
-      const displayIdx = idx > 0 ? idx : 1;
-      return `${cleanCode}-${displayIdx}`;
+      if (productId) {
+        const targetKey = `${targetWId}_${String(productId).toLowerCase().trim()}`;
+        const idx = sewingOrdersMapKeys.indexOf(targetKey) + 1;
+        if (idx > 0) {
+          return sewingOrdersMapKeys.length > 1 ? `${cleanCode}-${idx}` : cleanCode;
+        }
+      }
+
+      // Si no hay productId específico, buscar el primer lote que corresponda a este taller
+      const matchingIdx = sewingOrdersMapKeys.findIndex(k => k.startsWith(`${targetWId}_`));
+      if (matchingIdx >= 0) {
+        return sewingOrdersMapKeys.length > 1 ? `${cleanCode}-${matchingIdx + 1}` : cleanCode;
+      }
+
+      return `${cleanCode}-1`;
     };
 
     // Obtener prendas asignadas a un taller y un producto específico
@@ -2666,23 +2682,67 @@ export default function Dashboard() {
                     });
                   });
                 } else {
-                  // Fallback desde assignedOrders
+                  // Fallback desde assignedOrders agrupando por producto asignado al taller
                   assignedOrders.forEach(o => {
-                    const prendasWs = getPrendasParaTaller(o, w.id);
-                    const planQty = prendasWs.planeadas || 0;
-                    const confQty = prendasWs.confeccionadas || 0;
-                    if (planQty <= 0 && confQty <= 0) return;
+                    const assignments = getOrderAssignments(o);
+                    if (!assignments || !assignments.rowWorkshops) {
+                      const prendasWs = getPrendasParaTaller(o, w.id);
+                      const planQty = prendasWs.planeadas || 0;
+                      const confQty = prendasWs.confeccionadas || 0;
+                      if (planQty <= 0 && confQty <= 0) return;
 
-                    const confeccionCode = getConfeccionCode(o, w.id);
-                    const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
-                    wsLotes.push({
-                      order: o,
-                      productId: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : 'ref',
-                      productName: prodObj?.nombre_producto || 'Referencia de Corte',
-                      planeadas: planQty,
-                      confeccionadas: confQty,
-                      confeccionCode: confeccionCode,
-                      sewingOrderId: `fallback-${o.id}-${w.id}`
+                      const confeccionCode = getConfeccionCode(o, w.id);
+                      const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+                      wsLotes.push({
+                        order: o,
+                        productId: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : 'ref',
+                        productName: prodObj?.nombre_producto || 'Referencia de Corte',
+                        planeadas: planQty,
+                        confeccionadas: confQty,
+                        confeccionCode: confeccionCode,
+                        sewingOrderId: `fallback-${o.id}-${w.id}`
+                      });
+                      return;
+                    }
+
+                    // Extraer productos únicos asignados a este taller en la orden
+                    const prodIdsForWs: string[] = [];
+                    (o.cuts || []).forEach((c: any) => {
+                      const pId = String(c.product_id);
+                      (c.cut_sizes || []).forEach((cs: any) => {
+                        const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                        const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                        const cellKey = `${pId}_${sz}`;
+                        const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
+                        if (assignedWId === String(w.id).toLowerCase().trim() && !prodIdsForWs.includes(pId)) {
+                          prodIdsForWs.push(pId);
+                        }
+                      });
+                    });
+
+                    if (prodIdsForWs.length === 0 && o.workshop_id && String(o.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim()) {
+                      (o.cuts || []).forEach((c: any) => {
+                        const pId = String(c.product_id);
+                        if (!prodIdsForWs.includes(pId)) prodIdsForWs.push(pId);
+                      });
+                    }
+
+                    prodIdsForWs.forEach(pId => {
+                      const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
+                      if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
+
+                      const confeccionCode = getConfeccionCode(o, w.id, pId);
+                      const prodObj = productsList.find(p => String(p.id) === String(pId));
+
+                      wsLotes.push({
+                        order: o,
+                        productId: pId,
+                        productName: prodObj?.nombre_producto || 'Referencia de Corte',
+                        planeadas: prendas.planeadas,
+                        confeccionadas: prendas.confeccionadas,
+                        confeccionCode: confeccionCode,
+                        sewingOrderId: `fallback-${o.id}-${w.id}-${pId}`
+                      });
                     });
                   });
                 }
@@ -2890,6 +2950,21 @@ export default function Dashboard() {
                                     const realSewingOrder = sewingOrdersList.find(so => so.confeccion_code === confeccionCode);
                                     if (realSewingOrder) {
                                       setViewingOrderDetails(realSewingOrder);
+                                    } else {
+                                      const prodObj = productsList.find(p => String(p.id) === String(productId));
+                                      setViewingOrderDetails({
+                                        id: sewingOrderId,
+                                        parent_order_id: order.id,
+                                        workshop_id: w.id,
+                                        product_id: productId,
+                                        confeccion_code: confeccionCode,
+                                        status: order.status,
+                                        cantidad_planeada: planeadas,
+                                        cantidad_confeccionada: confeccionadas,
+                                        parent_order: order,
+                                        products: prodObj,
+                                        workshops: w
+                                      });
                                     }
                                   }}
                                   style={{
