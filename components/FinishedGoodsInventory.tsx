@@ -2573,6 +2573,9 @@ export default function FinishedGoodsInventory() {
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Estado</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Ubicación / Origen</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Fecha Registro</th>
+                      {profile?.role?.name?.toLowerCase().includes('super') && (
+                        <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#dc2626', textAlign: 'right' }}>Acciones (SuperAdmin)</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -2612,6 +2615,65 @@ export default function FinishedGoodsInventory() {
                           <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
                             {new Date(g.created_at).toLocaleDateString('es-CO')}
                           </td>
+                          {profile?.role?.name?.toLowerCase().includes('super') && (
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!confirm(`⚠️ ACCIÓN SUPERADMINISTRADOR:\n\n¿Estás seguro de eliminar la prenda ${g.barcode}?\n\n• Se eliminará la unidad física.\n• Se descontará 1 unidad del stock de la bodega.\n• Se revertirá el saldo y registrará la salida en el Kardex.`)) return;
+
+                                  try {
+                                    // 1. Eliminar prenda individual
+                                    const { error: delErr } = await supabase.from('individual_garments').delete().eq('id', g.id);
+                                    if (delErr) throw delErr;
+
+                                    // 2. Descontar del stock consolidado
+                                    if (selectedStockItemForDetail?.id) {
+                                      const newQty = Math.max(0, (selectedStockItemForDetail.cantidad_disponible || 1) - 1);
+                                      await supabase.from('finished_goods_stock')
+                                        .update({ cantidad_disponible: newQty, updated_at: new Date().toISOString() })
+                                        .eq('id', selectedStockItemForDetail.id);
+
+                                      // 3. Registrar Kardex de Reversión
+                                      await supabase.from('finished_goods_kardex').insert({
+                                        product_id: selectedStockItemForDetail.product_id,
+                                        color_id: selectedStockItemForDetail.color_id || null,
+                                        fabric_id: selectedStockItemForDetail.fabric_id || null,
+                                        size_id: selectedStockItemForDetail.size_id,
+                                        tipo_movimiento: 'Eliminación Histórica (SuperAdmin)',
+                                        cantidad: 1,
+                                        stock_anterior: selectedStockItemForDetail.cantidad_disponible,
+                                        stock_nuevo: newQty,
+                                        warehouse_dest_id: selectedStockItemForDetail.warehouse_id,
+                                        documento_origen: g.historical_doc || 'Reversión SuperAdmin',
+                                        usuario_email: user?.email || 'SuperAdmin',
+                                        observaciones: `Eliminación individual de prenda código ${g.barcode}`
+                                      });
+                                    }
+
+                                    alert(`✅ Prenda ${g.barcode} eliminada e inventario revertido correctamente.`);
+                                    setUnitGarments(prev => prev.filter(item => item.id !== g.id));
+                                    await fetchStock();
+                                    await fetchKardex();
+                                  } catch (err: any) {
+                                    alert('Error al eliminar prenda: ' + err.message);
+                                  }
+                                }}
+                                style={{
+                                  padding: '0.25rem 0.55rem',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '800',
+                                  backgroundColor: '#fee2e2',
+                                  color: '#dc2626',
+                                  border: '1px solid #fca5a5',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                🗑️ Eliminar y Reversar
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
