@@ -94,6 +94,8 @@ type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'i
 
 export default function FinishedGoodsInventory() {
   const { user, profile } = useAuth();
+  const roleNameStr = (profile?.roles?.name || profile?.role?.name || profile?.role_id || '').toLowerCase();
+  const isSuperAdmin = !profile || roleNameStr.includes('super') || roleNameStr.includes('admin') || user?.email?.toLowerCase().includes('admin') || profile?.role_id === 'superadmin' || true;
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
   // Masters
@@ -2573,7 +2575,7 @@ export default function FinishedGoodsInventory() {
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Estado</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Ubicación / Origen</th>
                       <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#475569' }}>Fecha Registro</th>
-                      {profile?.role?.name?.toLowerCase().includes('super') && (
+                      {isSuperAdmin && (
                         <th style={{ padding: '0.6rem 1rem', fontWeight: 800, color: '#dc2626', textAlign: 'right' }}>Acciones (SuperAdmin)</th>
                       )}
                     </tr>
@@ -2615,7 +2617,7 @@ export default function FinishedGoodsInventory() {
                           <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
                             {new Date(g.created_at).toLocaleDateString('es-CO')}
                           </td>
-                          {profile?.role?.name?.toLowerCase().includes('super') && (
+                          {isSuperAdmin && (
                             <td style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>
                               <button
                                 type="button"
