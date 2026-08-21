@@ -1235,6 +1235,9 @@ export default function QualityPage() {
     let matchStatus = true;
     if (filterStatus === 'Pendientes de Pago') {
       matchStatus = i.pago_status === 'Pendiente de aprobación financiera';
+    } else if (filterStatus === 'Pendiente') {
+      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' || i.sewing_orders?.status === 'Validación Calidad';
+      matchStatus = i.status === 'Pendiente' || isPendienteRecibo;
     } else if (filterStatus) {
       matchStatus = i.status === filterStatus;
     }
