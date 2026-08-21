@@ -859,24 +859,63 @@ export default function Dashboard() {
       }
       const finalNotes = notesStr.trim() || 'Envío confirmado por el satélite sin observaciones.';
 
-      // 1. Update sewing order status to 'Enviado a Calidad' (complying with database check constraint)
-      const { error: statusErr } = await supabase
-        .from('sewing_orders')
-        .update({ status: 'Enviado a Calidad' })
-        .eq('id', so.id);
-      if (statusErr) throw statusErr;
+      let targetSewingOrderId: string | null = String(so.id).startsWith('fallback-') ? null : so.id;
+
+      // If this is a dynamic fallback item, create/fetch the actual sewing order record first
+      if (!targetSewingOrderId) {
+        // Search if a real record already exists for this parent order, workshop and product
+        const { data: existingSo } = await supabase
+          .from('sewing_orders')
+          .select('id')
+          .eq('parent_order_id', so.parent_order_id)
+          .eq('workshop_id', so.workshop_id)
+          .maybeSingle();
+
+        if (existingSo) {
+          targetSewingOrderId = existingSo.id;
+          await supabase
+            .from('sewing_orders')
+            .update({ status: 'Enviado a Calidad' })
+            .eq('id', targetSewingOrderId);
+        } else {
+          // Insert real sewing order
+          const { data: newSo, error: insertSoErr } = await supabase
+            .from('sewing_orders')
+            .insert([{
+              parent_order_id: so.parent_order_id,
+              workshop_id: so.workshop_id,
+              product_id: so.product_id || null,
+              confeccion_code: so.confeccion_code || 'ORDEN',
+              cantidad_planeada: so.cantidad_planeada || 0,
+              cantidad_confeccionada: so.cantidad_confeccionada || 0,
+              status: 'Enviado a Calidad'
+            }])
+            .select('id')
+            .single();
+
+          if (insertSoErr) throw insertSoErr;
+          targetSewingOrderId = newSo.id;
+        }
+      } else {
+        // 1. Update sewing order status to 'Enviado a Calidad'
+        const { error: statusErr } = await supabase
+          .from('sewing_orders')
+          .update({ status: 'Enviado a Calidad' })
+          .eq('id', targetSewingOrderId);
+        if (statusErr) throw statusErr;
+      }
 
       // 2. Create or update quality inspection
       const { data: existingInspections } = await supabase
         .from('quality_inspections')
         .select('id')
-        .eq('sewing_order_id', so.id);
+        .eq('sewing_order_id', targetSewingOrderId);
 
       const workshopName = workshops.find(w => String(w.id) === String(so.workshop_id))?.nombre_taller || 'Taller Satélite';
       if (!existingInspections || existingInspections.length === 0) {
         await supabase.from('quality_inspections').insert([{
           order_id: so.parent_order_id,
-          sewing_order_id: so.id,
+          sewing_order_id: targetSewingOrderId,
           workshop_name: workshopName,
           items_inspected: so.cantidad_planeada || 0,
           items_approved: 0,
@@ -887,7 +926,7 @@ export default function Dashboard() {
       } else {
         await supabase.from('quality_inspections')
           .update({ notes: finalNotes })
-          .eq('sewing_order_id', so.id);
+          .eq('sewing_order_id', targetSewingOrderId);
       }
 
       alert('✓ Envío confirmado y reportado al módulo de Calidad con éxito.');

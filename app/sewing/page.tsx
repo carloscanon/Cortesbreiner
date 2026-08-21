@@ -1298,19 +1298,53 @@ export default function SewingPage() {
     setSavingEnvio(true);
     try {
       const so = selectedSewingOrderForEnvio;
-      // 1. Update status to 'Enviado a Calidad'
-      const { error: statusErr } = await supabase
-        .from('sewing_orders')
-        .update({ status: 'Enviado a Calidad' })
-        .eq('id', so.id);
+      let targetSewingOrderId: string | null = String(so.id).startsWith('fallback-') ? null : so.id;
 
-      if (statusErr) throw statusErr;
+      if (!targetSewingOrderId) {
+        const { data: existingSo } = await supabase
+          .from('sewing_orders')
+          .select('id')
+          .eq('parent_order_id', so.parent_order_id)
+          .eq('workshop_id', so.workshop_id)
+          .maybeSingle();
+
+        if (existingSo) {
+          targetSewingOrderId = existingSo.id;
+          await supabase
+            .from('sewing_orders')
+            .update({ status: 'Enviado a Calidad' })
+            .eq('id', targetSewingOrderId);
+        } else {
+          const { data: newSo, error: insertSoErr } = await supabase
+            .from('sewing_orders')
+            .insert([{
+              parent_order_id: so.parent_order_id,
+              workshop_id: so.workshop_id,
+              product_id: so.product_id || null,
+              confeccion_code: so.confeccion_code || 'ORDEN',
+              cantidad_planeada: so.cantidad_planeada || 0,
+              cantidad_confeccionada: so.cantidad_confeccionada || 0,
+              status: 'Enviado a Calidad'
+            }])
+            .select('id')
+            .single();
+
+          if (insertSoErr) throw insertSoErr;
+          targetSewingOrderId = newSo.id;
+        }
+      } else {
+        const { error: statusErr } = await supabase
+          .from('sewing_orders')
+          .update({ status: 'Enviado a Calidad' })
+          .eq('id', targetSewingOrderId);
+        if (statusErr) throw statusErr;
+      }
 
       // 2. Create quality inspection
       const { data: existingInspections } = await supabase
         .from('quality_inspections')
         .select('id')
-        .eq('sewing_order_id', so.id);
+        .eq('sewing_order_id', targetSewingOrderId);
 
       if (!existingInspections || existingInspections.length === 0) {
         const workshopName = so.workshops?.nombre_taller || 'Taller Satélite';
@@ -1318,7 +1352,7 @@ export default function SewingPage() {
           .from('quality_inspections')
           .insert([{
             order_id: so.parent_order_id,
-            sewing_order_id: so.id,
+            sewing_order_id: targetSewingOrderId,
             workshop_name: workshopName,
             items_inspected: so.cantidad_planeada || 0,
             items_approved: 0,
@@ -1332,7 +1366,7 @@ export default function SewingPage() {
           .update({
             notes: envioNotes || 'Envío confirmado por el satélite sin observaciones.'
           })
-          .eq('sewing_order_id', so.id);
+          .eq('sewing_order_id', targetSewingOrderId);
       }
 
       alert('✓ Envío confirmado y reportado al módulo de Calidad con éxito.');
