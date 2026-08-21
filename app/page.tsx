@@ -3879,31 +3879,78 @@ export default function Dashboard() {
       );
 
       if (mySewingOrders.length === 0) {
-        // Fallback dinámico desde assignedOrders
+        // Fallback dinámico desde assignedOrders agrupando por producto
         const fallbackItems: any[] = [];
         assignedOrders.forEach(o => {
           finalWorkshopsList.forEach(w => {
-            const wId = String(w.id).toLowerCase().trim();
-            const prendasWs = getPrendasParaTaller(o, w.id);
-            const planQty = prendasWs.planeadas || 0;
-            const confQty = prendasWs.confeccionadas || 0;
-            if (planQty <= 0 && confQty <= 0) return;
+            const assignments = getOrderAssignments(o);
+            if (!assignments || !assignments.rowWorkshops) {
+              const prendasWs = getPrendasParaTaller(o, w.id);
+              const planQty = prendasWs.planeadas || 0;
+              const confQty = prendasWs.confeccionadas || 0;
+              if (planQty <= 0 && confQty <= 0) return;
 
-            const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+              const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
 
-            fallbackItems.push({
-              id: `fallback-${o.id}-${w.id}`,
-              parent_order_id: o.id,
-              workshop_id: w.id,
-              product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
-              confeccion_code: getConfeccionCode(o, w.id),
-              status: o.status,
-              cantidad_planeada: planQty,
-              cantidad_confeccionada: confQty,
-              created_at: o.created_at,
-              parent_order: o,
-              products: prodObj,
-              workshops: w
+              fallbackItems.push({
+                id: `fallback-${o.id}-${w.id}`,
+                parent_order_id: o.id,
+                workshop_id: w.id,
+                product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
+                confeccion_code: getConfeccionCode(o, w.id),
+                status: o.status,
+                cantidad_planeada: planQty,
+                cantidad_confeccionada: confQty,
+                created_at: o.created_at,
+                parent_order: o,
+                products: prodObj,
+                workshops: w
+              });
+              return;
+            }
+
+            // Extraer productos únicos asignados a este taller en la orden
+            const prodIdsForWs: string[] = [];
+            (o.cuts || []).forEach((c: any) => {
+              const pId = String(c.product_id);
+              (c.cut_sizes || []).forEach((cs: any) => {
+                const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+                const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+                const cellKey = `${pId}_${sz}`;
+                const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
+                if (assignedWId === String(w.id).toLowerCase().trim() && !prodIdsForWs.includes(pId)) {
+                  prodIdsForWs.push(pId);
+                }
+              });
+            });
+
+            if (prodIdsForWs.length === 0 && o.workshop_id && String(o.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim()) {
+              (o.cuts || []).forEach((c: any) => {
+                const pId = String(c.product_id);
+                if (!prodIdsForWs.includes(pId)) prodIdsForWs.push(pId);
+              });
+            }
+
+            prodIdsForWs.forEach(pId => {
+              const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
+              if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
+
+              const prodObj = productsList.find(p => String(p.id) === String(pId));
+
+              fallbackItems.push({
+                id: `fallback-${o.id}-${w.id}-${pId}`,
+                parent_order_id: o.id,
+                workshop_id: w.id,
+                product_id: pId,
+                confeccion_code: getConfeccionCode(o, w.id, pId),
+                status: o.status,
+                cantidad_planeada: prendas.planeadas,
+                cantidad_confeccionada: prendas.confeccionadas,
+                created_at: o.created_at,
+                parent_order: o,
+                products: prodObj,
+                workshops: w
+              });
             });
           });
         });
