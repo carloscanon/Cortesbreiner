@@ -300,51 +300,25 @@ export default function QualityPage() {
             color,
             color_id,
             fabric_id,
-            product_id,
-            products (
-              id,
-              nombre_producto,
-              name,
-              codigo_referencia
-            )
+            product_id
           )
         ),
         sewing_orders (
           id,
           confeccion_code,
           product_id,
+          parent_order_id,
           status,
-          products (
-            id,
-            nombre_producto,
-            name,
-            codigo_referencia
-          ),
           sewing_order_sizes (
             cantidad_planeada
           ),
           workshops (
             nombre_taller
-          ),
-          parent_order:orders (
-            id,
-            cuts (
-              id,
-              color,
-              color_id,
-              fabric_id,
-              product_id,
-              products (
-                id,
-                nombre_producto,
-                name,
-                codigo_referencia
-              )
-            )
           )
         )
       `)
       .order('created_at', { ascending: false });
+
     if (error) console.error('Error fetching inspections:', error);
     setInspections(data || []);
     setLoading(false);
@@ -2394,22 +2368,14 @@ export default function QualityPage() {
               : item.status === 'Rechazado' ? { bg: '#fff1f2', color: '#9f1239', border: '#fecdd3' }
               : { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
 
-            // Obtener el nombre del producto de forma robusta
+            // Obtener el nombre del producto de forma robusta desde maestros o relaciones
             let productName = 'Sin Referencia';
-            if (item.sewing_orders) {
-              const directProd = item.sewing_orders.products;
-              const parentCuts = item.sewing_orders.parent_order?.cuts || [];
-              let matchedCutProd = null;
-              if (item.sewing_orders.product_id) {
-                const matchedCut = parentCuts.find((c: any) => String(c.product_id) === String(item.sewing_orders.product_id));
-                matchedCutProd = matchedCut?.products;
+            const targetProdId = item.sewing_orders?.product_id || item.sewing_orders?.parent_order?.cuts?.[0]?.product_id || item.orders?.cuts?.[0]?.product_id;
+            if (targetProdId) {
+              const prodObj = products.find((p: any) => String(p.id) === String(targetProdId));
+              if (prodObj) {
+                productName = prodObj.nombre_producto || prodObj.name || prodObj.codigo_referencia || 'Sin Referencia';
               }
-              const prodObj = directProd || matchedCutProd || parentCuts[0]?.products || (item.sewing_orders.product_id ? products.find((p: any) => String(p.id) === String(item.sewing_orders.product_id)) : null);
-              productName = prodObj?.nombre_producto || prodObj?.name || prodObj?.codigo_referencia || 'Sin Referencia';
-            } else if (item.orders) {
-              const cuts = item.orders.cuts || [];
-              const prodObj = cuts[0]?.products;
-              productName = prodObj?.nombre_producto || prodObj?.name || prodObj?.codigo_referencia || 'Sin Referencia';
             }
 
             // Obtener Color y Tela de forma robusta
@@ -2425,16 +2391,12 @@ export default function QualityPage() {
             }
 
             if (relevantCut) {
-              const joinedColor = relevantCut.colors;
               const localColor = relevantCut.color_id ? colors.find((c: any) => String(c.id) === String(relevantCut.color_id)) : null;
-              const colorObj = joinedColor || localColor;
-              colorName = colorObj?.nombre_color || colorObj?.codigo_color || relevantCut.color || relevantCut.color_name || 'Sin Especificar';
-              colorHex = colorObj?.hex_color || '';
+              colorName = localColor?.nombre_color || localColor?.codigo_color || relevantCut.color || relevantCut.color_name || 'Sin Especificar';
+              colorHex = localColor?.hex_color || '';
 
-              const joinedFabric = relevantCut.fabrics;
               const localFabric = relevantCut.fabric_id ? fabrics.find((f: any) => String(f.id) === String(relevantCut.fabric_id)) : null;
-              const fabObj = joinedFabric || localFabric;
-              fabricName = fabObj?.nombre_tela || fabObj?.codigo_tela || relevantCut.fabric_name || '—';
+              fabricName = localFabric?.nombre_tela || localFabric?.codigo_tela || relevantCut.fabric_name || '—';
             }
 
             // Obtener cantidad planeada de la orden
