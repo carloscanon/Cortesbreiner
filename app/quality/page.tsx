@@ -286,35 +286,79 @@ export default function QualityPage() {
   const fetchInspections = async () => {
     setLoading(true);
     try {
-      const [{ data: insData, error: insErr }, { data: soData }, { data: ordData }] = await Promise.all([
-        supabase.from('quality_inspections').select('*').order('created_at', { ascending: false }),
-        supabase.from('sewing_orders').select('*, workshops(nombre_taller), products(id, nombre_producto, name, codigo_referencia), sewing_order_sizes(cantidad_planeada)'),
-        supabase.from('orders').select('*, cuts(*, products(id, nombre_producto, name, codigo_referencia), colors(*), fabrics(*))')
-      ]);
+      const { data: insData, error: insErr } = await supabase
+        .from('quality_inspections')
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (insErr) {
         console.error('Error fetching quality inspections:', insErr);
-      }
-
-      if (insData) {
-        const enriched = insData.map((item: any) => {
-          const matchedSo = item.sewing_order_id ? soData?.find((so: any) => String(so.id) === String(item.sewing_order_id)) : null;
-          const matchedOrd = item.order_id ? ordData?.find((o: any) => String(o.id) === String(item.order_id)) : (matchedSo?.parent_order_id ? ordData?.find((o: any) => String(o.id) === String(matchedSo.parent_order_id)) : null);
-
-          if (matchedSo && matchedOrd) {
-            matchedSo.parent_order = matchedOrd;
-          }
-
-          return {
-            ...item,
-            sewing_orders: matchedSo || item.sewing_orders,
-            orders: matchedOrd || item.orders
-          };
-        });
-        setInspections(enriched);
-      } else {
         setInspections([]);
+        return;
       }
+
+      if (!insData || insData.length === 0) {
+        setInspections([]);
+        return;
+      }
+
+      const soIds = Array.from(new Set(insData.map((i: any) => i.sewing_order_id).filter(Boolean)));
+      const directOrdIds = Array.from(new Set(insData.map((i: any) => i.order_id).filter(Boolean)));
+
+      let soData: any[] = [];
+      if (soIds.length > 0) {
+        const { data: fetchedSo, error: soErr } = await supabase
+          .from('sewing_orders')
+          .select('id, confeccion_code, product_id, parent_order_id, status, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
+          .in('id', soIds);
+
+        if (soErr) console.error('Error fetching sewing_orders by IDs:', soErr);
+        else soData = fetchedSo || [];
+      }
+
+      const { data: pendingDispatches } = await supabase
+        .from('sewing_orders')
+        .select('id, confeccion_code, product_id, parent_order_id, status, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
+        .in('status', ['Enviado a Calidad', 'Validación Calidad']);
+
+      if (pendingDispatches && pendingDispatches.length > 0) {
+        const existingSoIds = new Set(soData.map((s: any) => String(s.id)));
+        pendingDispatches.forEach((pd: any) => {
+          if (!existingSoIds.has(String(pd.id))) {
+            soData.push(pd);
+          }
+        });
+      }
+
+      const parentOrdIds = soData.map((s: any) => s.parent_order_id).filter(Boolean);
+      const allOrdIds = Array.from(new Set([...directOrdIds, ...parentOrdIds]));
+
+      let ordData: any[] = [];
+      if (allOrdIds.length > 0) {
+        const { data: fetchedOrd, error: ordErr } = await supabase
+          .from('orders')
+          .select('id, consecutive, internal_code, client_name, brand, cuts(id, color_id, fabric_id, product_id, products(id, nombre_producto, codigo_referencia))')
+          .in('id', allOrdIds);
+
+        if (ordErr) console.error('Error fetching orders by IDs:', ordErr);
+        else ordData = fetchedOrd || [];
+      }
+
+      const enriched = insData.map((item: any) => {
+        const matchedSo = item.sewing_order_id ? soData.find((so: any) => String(so.id) === String(item.sewing_order_id)) : null;
+        const parentOrderId = item.order_id || matchedSo?.parent_order_id;
+        const matchedOrd = parentOrderId ? ordData.find((o: any) => String(o.id) === String(parentOrderId)) : null;
+
+        const enrichedSo = matchedSo ? { ...matchedSo, parent_order: matchedOrd } : null;
+
+        return {
+          ...item,
+          sewing_orders: enrichedSo || null,
+          orders: matchedOrd || null
+        };
+      });
+
+      setInspections(enriched);
     } catch (err: any) {
       console.error('Exception fetching inspections:', err);
       setInspections([]);
@@ -324,11 +368,15 @@ export default function QualityPage() {
   };
 
   const fetchSewingOrders = async () => {
-    const { data } = await supabase
-      .from('sewing_orders')
-      .select(`id,confeccion_code,parent_order_id,orders(id,consecutive,internal_code,client_name,brand),workshops(id,nombre_taller)`)
-      .order('created_at', { ascending: false });
-    setSewingOrders(data || []);
+    try {
+      const data = await fetchAll(() => supabase
+        .from('sewing_orders')
+        .select(`id,confeccion_code,parent_order_id,orders(id,consecutive,internal_code,client_name,brand),workshops(id,nombre_taller)`)
+        .order('created_at', { ascending: false }));
+      setSewingOrders(data || []);
+    } catch (err) {
+      console.error('Error fetching sewing orders dropdown:', err);
+    }
   };
 
   const fetchNotifications = async () => {
@@ -671,11 +719,11 @@ export default function QualityPage() {
     if (order.sewing_order_sizes) {
       const sewingOrder = order;
       const parent = sewingOrder.parent_order;
-      if (!parent?.cuts) return [];
+      const matchingCuts = parent.cuts.filter((cut: any) => !sewingOrder.product_id || String(cut.product_id) === String(sewingOrder.product_id));
+      const cutsToProcess = matchingCuts.length > 0 ? matchingCuts : parent.cuts;
       const rows: any[] = [];
-      parent.cuts.forEach((cut: any) => {
-        if (String(cut.product_id) !== String(sewingOrder.product_id)) return;
-        const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
+      cutsToProcess.forEach((cut: any) => {
+        const prod = sewingOrder.products || cut.products || products.find((p: any) => String(p.id) === String(cut.product_id));
         
         // Resolución de Tela y Color desde el objeto de Tela o Corte
         const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
@@ -722,15 +770,20 @@ export default function QualityPage() {
 
         const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
         const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
-        const productName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
+        const rawProdName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
+        const productName = rawProdName.trim();
         const layersProyec = cut.layers || 1;
         const layersProduced = cut.layers_produced || 0;
 
+        const sosList = sewingOrder.sewing_order_sizes || [];
         (cut.cut_sizes || []).forEach((cs: any) => {
           const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
           const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-          const sosMatch = sewingOrder.sewing_order_sizes.find((sos: any) => String(sos.size_id) === String(cs.size_id));
-          if (!sosMatch || (Number(sosMatch.cantidad_planeada) || 0) <= 0) return;
+
+          if (sosList.length > 0) {
+            const sosMatch = sosList.find((sos: any) => String(sos.size_id) === String(cs.size_id));
+            if (!sosMatch || (Number(sosMatch.cantidad_planeada) || 0) <= 0) return;
+          }
 
           let realQty = cs.quantity_produced !== undefined && cs.quantity_produced !== null
             ? Number(cs.quantity_produced)
@@ -1227,10 +1280,12 @@ export default function QualityPage() {
   }).sort((a, b) => b.quality - a.quality);
 
   const filtered = inspections.filter(i => {
-    const orderCode = i.sewing_orders?.confeccion_code || (i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : '');
-    const client = i.orders?.client_name || '';
+    const ordCons = i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : (i.sewing_orders?.parent_order?.consecutive ? `OC-${i.sewing_orders.parent_order.consecutive.toString().padStart(4, '0')}` : '');
+    const confCode = i.sewing_orders?.confeccion_code || '';
+    const orderCodeStr = `${ordCons} ${confCode}`;
+    const client = i.orders?.client_name || i.sewing_orders?.parent_order?.client_name || '';
     const workshop = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || '';
-    const matchSearch = orderCode.toLowerCase().includes(search.toLowerCase()) || client.toLowerCase().includes(search.toLowerCase()) || workshop.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = orderCodeStr.toLowerCase().includes(search.toLowerCase()) || client.toLowerCase().includes(search.toLowerCase()) || workshop.toLowerCase().includes(search.toLowerCase());
     
     let matchStatus = true;
     if (filterStatus === 'Pendientes de Pago') {
@@ -2361,8 +2416,16 @@ export default function QualityPage() {
               <p>No hay inspecciones registradas.</p>
             </div>
           ) : filtered.map((item: any) => {
-            const orderCode = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}` : '—');
-            const client = item.orders?.client_name || '—';
+            const ordCons = item.orders?.consecutive
+              ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}`
+              : (item.sewing_orders?.parent_order?.consecutive
+                ? `OC-${item.sewing_orders.parent_order.consecutive.toString().padStart(4, '0')}`
+                : (item.orders?.internal_code || item.sewing_orders?.parent_order?.internal_code || ''));
+            const confCode = item.sewing_orders?.confeccion_code || '';
+            const orderCode = ordCons && confCode
+              ? `${ordCons} • ${confCode}`
+              : (ordCons || confCode || '—');
+            const client = item.orders?.client_name || item.sewing_orders?.parent_order?.client_name || '—';
             const workshop = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || '—';
             const date = item.created_at ? new Date(item.created_at).toLocaleDateString('es-CO') : '—';
             const statusColor = item.status === 'Aprobado' ? { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' }
@@ -2370,21 +2433,7 @@ export default function QualityPage() {
               : item.status === 'Rechazado' ? { bg: '#fff1f2', color: '#9f1239', border: '#fecdd3' }
               : { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
 
-            // Obtener el nombre del producto de forma robusta desde maestros o relaciones
-            let productName = 'Sin Referencia';
-            const targetProdId = item.sewing_orders?.product_id || item.sewing_orders?.parent_order?.cuts?.[0]?.product_id || item.orders?.cuts?.[0]?.product_id;
-            if (targetProdId) {
-              const prodObj = products.find((p: any) => String(p.id) === String(targetProdId));
-              if (prodObj) {
-                productName = prodObj.nombre_producto || prodObj.name || prodObj.codigo_referencia || 'Sin Referencia';
-              }
-            }
-
-            // Obtener Color y Tela de forma robusta
-            let colorName = '—';
-            let colorHex = '';
-            let fabricName = '—';
-
+            // Obtener el nombre del producto de forma robusta desde relaciones o maestros
             const cutsList = item.sewing_orders?.parent_order?.cuts || item.orders?.cuts || [];
             let relevantCut = cutsList[0];
             if (item.sewing_orders?.product_id) {
@@ -2392,19 +2441,43 @@ export default function QualityPage() {
               if (match) relevantCut = match;
             }
 
-            if (relevantCut) {
-              const localColor = relevantCut.color_id ? colors.find((c: any) => String(c.id) === String(relevantCut.color_id)) : null;
-              colorName = localColor?.nombre_color || localColor?.codigo_color || relevantCut.color || relevantCut.color_name || 'Sin Especificar';
-              colorHex = localColor?.hex_color || '';
+            const targetProdId = item.sewing_orders?.product_id || relevantCut?.product_id || item.orders?.cuts?.[0]?.product_id;
+            const directProd = item.sewing_orders?.products;
+            const cutProd = relevantCut?.products;
+            const masterProd = targetProdId ? products.find((p: any) => String(p.id) === String(targetProdId)) : null;
 
+            const prodObj = directProd || cutProd || masterProd;
+            let productName = 'Sin Referencia';
+            if (prodObj) {
+              const rawName = prodObj.nombre_producto || prodObj.name || prodObj.codigo_referencia || '';
+              if (rawName) productName = rawName.trim();
+            }
+
+            // Obtener Color y Tela de forma robusta
+            let colorName = '—';
+            let colorHex = '';
+            let fabricName = '—';
+
+            if (relevantCut) {
+              const joinedColor = relevantCut.colors;
+              const localColor = relevantCut.color_id ? colors.find((c: any) => String(c.id) === String(relevantCut.color_id)) : null;
+              const colorObj = joinedColor || localColor;
+              colorName = colorObj?.nombre_color || colorObj?.codigo_color || relevantCut.color || relevantCut.color_name || 'Sin Especificar';
+              colorHex = colorObj?.hex_color || '';
+
+              const joinedFabric = relevantCut.fabrics;
               const localFabric = relevantCut.fabric_id ? fabrics.find((f: any) => String(f.id) === String(relevantCut.fabric_id)) : null;
-              fabricName = localFabric?.nombre_tela || localFabric?.codigo_tela || relevantCut.fabric_name || '—';
+              const fabObj = joinedFabric || localFabric;
+              fabricName = fabObj?.nombre_tela || fabObj?.codigo_tela || relevantCut.fabric_name || '—';
             }
 
             // Obtener cantidad planeada de la orden
             let orderQty = 0;
             if (item.sewing_orders) {
-              orderQty = item.sewing_orders.sewing_order_sizes?.reduce((sum: number, s: any) => sum + (Number(s.cantidad_planeada) || 0), 0) || 0;
+              const sosSum = item.sewing_orders.sewing_order_sizes?.reduce((sum: number, s: any) => sum + (Number(s.cantidad_planeada) || 0), 0) || 0;
+              orderQty = sosSum > 0 ? sosSum : (Number(item.sewing_orders.cantidad_planeada) || Number(item.items_inspected) || 0);
+            } else {
+              orderQty = Number(item.items_inspected) || 0;
             }
 
             return (
