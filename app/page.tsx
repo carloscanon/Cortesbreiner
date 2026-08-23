@@ -863,29 +863,53 @@ export default function Dashboard() {
 
       // If this is a dynamic fallback item, create/fetch the actual sewing order record first
       if (!targetSewingOrderId) {
-        // Search if a real record already exists for this parent order, workshop and product
-        const { data: existingSo } = await supabase
-          .from('sewing_orders')
-          .select('id')
-          .eq('parent_order_id', so.parent_order_id)
-          .eq('workshop_id', so.workshop_id)
-          .maybeSingle();
+        let existingSo: any = null;
+        if (so.confeccion_code) {
+          const { data: byCode } = await supabase
+            .from('sewing_orders')
+            .select('id')
+            .eq('confeccion_code', so.confeccion_code)
+            .maybeSingle();
+          existingSo = byCode;
+        }
+
+        if (!existingSo && so.parent_order_id && so.workshop_id) {
+          let query = supabase
+            .from('sewing_orders')
+            .select('id')
+            .eq('parent_order_id', so.parent_order_id)
+            .eq('workshop_id', so.workshop_id);
+          if (so.product_id) query = query.eq('product_id', so.product_id);
+          const { data: byRel } = await query.maybeSingle();
+          existingSo = byRel;
+        }
 
         if (existingSo) {
           targetSewingOrderId = existingSo.id;
           await supabase
             .from('sewing_orders')
-            .update({ status: 'Enviado a Calidad' })
+            .update({ status: 'Enviado a Calidad', workshop_id: so.workshop_id || undefined })
             .eq('id', targetSewingOrderId);
         } else {
-          // Insert real sewing order
+          let safeCode = so.confeccion_code || 'ORDEN';
+          if (safeCode) {
+            const { data: checkCode } = await supabase
+              .from('sewing_orders')
+              .select('id')
+              .eq('confeccion_code', safeCode)
+              .maybeSingle();
+            if (checkCode) {
+              safeCode = `${safeCode}-${Math.floor(100 + Math.random() * 900)}`;
+            }
+          }
+
           const { data: newSo, error: insertSoErr } = await supabase
             .from('sewing_orders')
             .insert([{
               parent_order_id: so.parent_order_id,
               workshop_id: so.workshop_id,
               product_id: so.product_id || null,
-              confeccion_code: so.confeccion_code || 'ORDEN',
+              confeccion_code: safeCode,
               cantidad_planeada: so.cantidad_planeada || 0,
               cantidad_confeccionada: so.cantidad_confeccionada || 0,
               status: 'Enviado a Calidad'
