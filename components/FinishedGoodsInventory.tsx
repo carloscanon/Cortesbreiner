@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase';
 import {
   Package, Search, Plus, MoveHorizontal, X, Loader2,
   TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle,
-  MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode
+  MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode,
+  Printer, Calendar, History, Tag
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
@@ -164,6 +165,64 @@ export default function FinishedGoodsInventory() {
   const [histSuccessGarments, setHistSuccessGarments] = useState<any[]>([]);
   const [histProcessing, setHistProcessing] = useState(false);
   const [showHistLabelsModal, setShowHistLabelsModal] = useState(false);
+
+  // Histórico de Lotes y Reimpresión de Etiquetas
+  const [histBatches, setHistBatches] = useState<any[]>([]);
+  const [loadingHistBatches, setLoadingHistBatches] = useState(false);
+  const [histSearchTerm, setHistSearchTerm] = useState('');
+
+  const fetchHistoricalBatches = async () => {
+    setLoadingHistBatches(true);
+    try {
+      const { data, error } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('is_historical', true)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching historical garments:', error);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setHistBatches([]);
+        return;
+      }
+
+      // Agrupar prendas por lote/documento y fecha
+      const batchesMap: Record<string, { docName: string; createdAt: string; garments: any[]; summary: Record<string, number> }> = {};
+
+      data.forEach((garment: any) => {
+        const docName = garment.historical_doc || 'Inventario Histórico';
+        const dateStr = garment.created_at ? new Date(garment.created_at).toISOString().slice(0, 16) : 'sin-fecha';
+        const batchKey = `${docName}___${dateStr}`;
+
+        if (!batchesMap[batchKey]) {
+          batchesMap[batchKey] = {
+            docName,
+            createdAt: garment.created_at || new Date().toISOString(),
+            garments: [],
+            summary: {}
+          };
+        }
+
+        batchesMap[batchKey].garments.push(garment);
+        const refName = garment.reference_name || 'Desconocido';
+        batchesMap[batchKey].summary[refName] = (batchesMap[batchKey].summary[refName] || 0) + 1;
+      });
+
+      const batchList = Object.values(batchesMap).sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      setHistBatches(batchList);
+    } catch (err) {
+      console.error('Error fetching historical batches:', err);
+    } finally {
+      setLoadingHistBatches(false);
+    }
+  };
   const [stickerConfig, setStickerConfig] = useState({
     headerText: 'CORTES BREINER',
     stickerWidthMm: 50,
@@ -246,6 +305,7 @@ export default function FinishedGoodsInventory() {
       setShowHistLabelsModal(true);
       await fetchStock();
       await fetchKardex();
+      await fetchHistoricalBatches();
     } catch (err: any) {
       console.error(err);
       alert('❌ Error al cargar inventario: ' + err.message);
@@ -407,8 +467,15 @@ export default function FinishedGoodsInventory() {
       fetchStock();
       fetchKardex();
       fetchTransfers();
+      fetchHistoricalBatches();
     });
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'historical_inventory') {
+      fetchHistoricalBatches();
+    }
+  }, [activeTab]);
 
   const fetchRecentApprovedInspections = async () => {
     try {
@@ -2126,6 +2193,154 @@ export default function FinishedGoodsInventory() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* 📜 HISTÓRICO DE LOTES Y ETIQUETAS GENERADAS */}
+          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  📜 Histórico de Lotes de Etiquetas Generadas
+                </h3>
+                <p style={{ fontSize: '0.76rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                  Consulta los conjuntos de etiquetas creados en cargas históricas y reimprímelos cuando lo necesites.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ position: 'relative', width: '240px' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    value={histSearchTerm}
+                    onChange={e => setHistSearchTerm(e.target.value)}
+                    placeholder="Buscar lote o ref..."
+                    style={{ width: '100%', padding: '0.45rem 0.6rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem', fontWeight: '600' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchHistoricalBatches}
+                  disabled={loadingHistBatches}
+                  title="Actualizar histórico"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0.5rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: '#f8fafc',
+                    color: '#475569',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RefreshCw size={16} className={loadingHistBatches ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {loadingHistBatches ? (
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
+                <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700' }}>Cargando lotes históricos...</p>
+              </div>
+            ) : histBatches.length === 0 ? (
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
+                <History size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay lotes históricos de etiquetas registrados.</p>
+                <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Al guardar inventario histórico se guardarán automáticamente aquí para su reimpresión.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Nombre de Documento / Lote</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Fecha de Registro</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Total Prendas</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencias Incluidas</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {histBatches
+                      .filter(b => {
+                        if (!histSearchTerm.trim()) return true;
+                        const term = histSearchTerm.toLowerCase();
+                        const matchDoc = b.docName.toLowerCase().includes(term);
+                        const matchGarments = b.garments.some((g: any) =>
+                          (g.reference_name || '').toLowerCase().includes(term) ||
+                          (g.barcode || '').includes(term) ||
+                          (g.color_name || '').toLowerCase().includes(term)
+                        );
+                        return matchDoc || matchGarments;
+                      })
+                      .map((batch, idx) => {
+                        const dateFormatted = new Date(batch.createdAt).toLocaleString('es-CO', {
+                          year: 'numeric', month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit'
+                        });
+
+                        const summaryEntries = Object.entries(batch.summary);
+
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#0f172a' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <FileText size={15} color="#80082E" />
+                                {batch.docName}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
+                              {dateFormatted}
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                              <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
+                                🏷️ {batch.garments.length} etiquetas
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                {summaryEntries.map(([refName, count], sIdx) => (
+                                  <span key={sIdx} style={{ backgroundColor: '#f1f5f9', color: '#334155', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                                    {refName} ({count as number})
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHistSuccessGarments(batch.garments);
+                                  setShowHistLabelsModal(true);
+                                }}
+                                style={{
+                                  backgroundColor: '#80082E',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  padding: '0.45rem 0.9rem',
+                                  fontSize: '0.76rem',
+                                  fontWeight: '900',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.4rem',
+                                  boxShadow: '0 2px 4px rgba(128, 8, 46, 0.15)'
+                                }}
+                              >
+                                <Printer size={14} /> Reimprimir Etiquetas
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
