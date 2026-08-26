@@ -171,6 +171,16 @@ export default function FinishedGoodsInventory() {
   const [loadingHistBatches, setLoadingHistBatches] = useState(false);
   const [histSearchTerm, setHistSearchTerm] = useState('');
 
+  // Filtro para mostrar por defecto solo referencias Premium o todo el maestro
+  const [showAllMasterProducts, setShowAllMasterProducts] = useState(false);
+
+  const displayProducts = products.filter(p => {
+    if (showAllMasterProducts) return true;
+    const name = (p.nombre_producto || p.name || '').toLowerCase();
+    const ref = (p.codigo_referencia || '').toLowerCase();
+    return name.includes('premium') || ref.includes('premium');
+  });
+
   const fetchHistoricalBatches = async () => {
     setLoadingHistBatches(true);
     try {
@@ -844,6 +854,11 @@ export default function FinishedGoodsInventory() {
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';
     
+    if (!showAllMasterProducts) {
+      const isPremium = name.toLowerCase().includes('premium') || ref.toLowerCase().includes('premium');
+      if (!isPremium) return false;
+    }
+
     const matchesSearch = 
       ref.toLowerCase().includes(searchQuery.toLowerCase()) ||
       name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1520,6 +1535,16 @@ export default function FinishedGoodsInventory() {
               <button onClick={() => setFilterAlert('critical')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: '700', borderRadius: '8px', border: 'none', cursor: 'pointer', backgroundColor: filterAlert === 'critical' ? 'white' : 'transparent', color: filterAlert === 'critical' ? '#b45309' : 'var(--text-muted)' }}>Crítico</button>
               <button onClick={() => setFilterAlert('over')} style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: '700', borderRadius: '8px', border: 'none', cursor: 'pointer', backgroundColor: filterAlert === 'over' ? 'white' : 'transparent', color: filterAlert === 'over' ? '#0f766e' : 'var(--text-muted)' }}>Sobre-stock</button>
             </div>
+
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', fontWeight: '800', color: showAllMasterProducts ? '#334155' : '#80082E', cursor: 'pointer', backgroundColor: showAllMasterProducts ? '#f1f5f9' : '#fff1f2', padding: '0.5rem 0.85rem', borderRadius: '10px', border: `1.5px solid ${showAllMasterProducts ? '#cbd5e1' : '#fecdd3'}`, transition: 'all 0.2s', marginLeft: 'auto' }}>
+              <input
+                type="checkbox"
+                checked={showAllMasterProducts}
+                onChange={e => setShowAllMasterProducts(e.target.checked)}
+                style={{ accentColor: '#80082E', width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              <span>Ver todo el maestro de productos (sin filtrar por "Premium")</span>
+            </label>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -2043,14 +2068,25 @@ export default function FinishedGoodsInventory() {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Referencia / Producto</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', margin: 0 }}>Referencia / Producto</label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#80082E', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={showAllMasterProducts}
+                        onChange={e => setShowAllMasterProducts(e.target.checked)}
+                        style={{ accentColor: '#80082E', cursor: 'pointer' }}
+                      />
+                      <span>Ver todo el maestro</span>
+                    </label>
+                  </div>
                   <select
                     value={histProduct}
                     onChange={e => setHistProduct(e.target.value)}
                     style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
                   >
                     <option value="">Seleccionar...</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
+                    {displayProducts.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
                   </select>
                 </div>
 
@@ -2379,7 +2415,18 @@ export default function FinishedGoodsInventory() {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Referencia / Producto</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', margin: 0 }}>Referencia / Producto</label>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#80082E', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showAllMasterProducts}
+                          onChange={e => setShowAllMasterProducts(e.target.checked)}
+                          style={{ accentColor: '#80082E', cursor: 'pointer' }}
+                        />
+                        <span>Ver todo el maestro</span>
+                      </label>
+                    </div>
                     <select
                       required
                       value={adjustmentForm.product_id}
@@ -2387,7 +2434,7 @@ export default function FinishedGoodsInventory() {
                       style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
                     >
                       <option value="">Seleccionar...</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
+                      {displayProducts.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
                     </select>
                   </div>
 
@@ -2510,7 +2557,18 @@ export default function FinishedGoodsInventory() {
 
               {/* Items manager */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Prendas a transferir</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', margin: 0 }}>Prendas a transferir</label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#80082E', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={showAllMasterProducts}
+                      onChange={e => setShowAllMasterProducts(e.target.checked)}
+                      style={{ accentColor: '#80082E', cursor: 'pointer' }}
+                    />
+                    <span>Ver todo el maestro</span>
+                  </label>
+                </div>
                 
                 <button
                   type="button"
@@ -2540,7 +2598,7 @@ export default function FinishedGoodsInventory() {
                         style={{ flex: 2, padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
                       >
                         <option value="">Producto...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto}</option>)}
+                        {displayProducts.map(p => <option key={p.id} value={p.id}>{p.nombre_producto}</option>)}
                       </select>
 
                       <select
