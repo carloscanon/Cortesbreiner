@@ -178,7 +178,7 @@ export default function FinishedGoodsInventory() {
     if (showAllMasterProducts) return true;
     const name = (p.nombre_producto || p.name || '').toLowerCase();
     const ref = (p.codigo_referencia || '').toLowerCase();
-    return name.includes('premium') || ref.includes('premium');
+    return name.includes('premium') || name.includes('premiun') || ref.includes('premium') || ref.includes('premiun');
   });
 
   const fetchHistoricalBatches = async () => {
@@ -855,7 +855,9 @@ export default function FinishedGoodsInventory() {
     const wh = item.warehouses?.nombre_bodega || '';
     
     if (!showAllMasterProducts) {
-      const isPremium = name.toLowerCase().includes('premium') || ref.toLowerCase().includes('premium');
+      const nameLower = name.toLowerCase();
+      const refLower = ref.toLowerCase();
+      const isPremium = nameLower.includes('premium') || nameLower.includes('premiun') || refLower.includes('premium') || refLower.includes('premiun');
       if (!isPremium) return false;
     }
 
