@@ -3360,11 +3360,11 @@ export default function SewingPage() {
                        fontFamily: 'system-ui, sans-serif'
                      }}>
                        <div style={{ display: 'flex', flexDirection: 'column', gap: `${sewingDespatchConfig.itemSpacing || 8}px` }}>
-                         <div style={{ textAlign: 'center', backgroundColor: sewingDespatchConfig.headerBgColor || 'transparent', borderBottom: `${sewingDespatchConfig.borderWidth || 3.75}px solid ${sewingDespatchConfig.borderColor || '#000'}`, paddingBottom: '0.5rem', marginBottom: '0.3rem' }}>
-                           <h2 style={{ fontSize: `${sewingDespatchConfig.titleFontSize ? (sewingDespatchConfig.titleFontSize * 1.6) : 28}px`, fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', color: sewingDespatchConfig.titleColor || '#000' }}>
+                         <div style={{ textAlign: 'center', backgroundColor: sewingDespatchConfig.monochromeMode ? 'transparent' : (sewingDespatchConfig.headerBgColor || 'transparent'), borderBottom: `${sewingDespatchConfig.borderWidth || 3.75}px solid ${sewingDespatchConfig.borderColor || '#000'}`, paddingBottom: '0.5rem', marginBottom: '0.3rem' }}>
+                           <h2 style={{ fontSize: `${sewingDespatchConfig.titleFontSize ? (sewingDespatchConfig.titleFontSize * 1.6) : 28}px`, fontWeight: '950', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', color: sewingDespatchConfig.monochromeMode ? '#000000' : (sewingDespatchConfig.titleColor || '#000') }}>
                              {sewingDespatchConfig.companyTitle || 'Cortesbreiner'}
                            </h2>
-                           <p style={{ fontSize: `${sewingDespatchConfig.subtitleFontSize || 14}px`, color: sewingDespatchConfig.subtitleColor || '#333', fontWeight: '750', margin: '0.1rem 0 0', letterSpacing: '0.05em' }}>
+                           <p style={{ fontSize: `${sewingDespatchConfig.subtitleFontSize || 14}px`, color: sewingDespatchConfig.monochromeMode ? '#000000' : (sewingDespatchConfig.subtitleColor || '#333'), fontWeight: '750', margin: '0.1rem 0 0', letterSpacing: '0.05em' }}>
                              {sewingDespatchConfig.subtitleText || 'DESPACHO DE PRENDAS A SATÉLITE'}
                            </p>
                          </div>
@@ -3373,7 +3373,7 @@ export default function SewingPage() {
                            {sewingDespatchConfig.showCutNumber !== false && (
                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                <span><strong>ORDEN CONFECCIÓN:</strong></span>
-                               <span style={{ fontWeight: '900', color: sewingDespatchConfig.titleColor || '#7c3aed', fontSize: '1.25rem' }}>{printSewingOrder.confeccion_code}</span>
+                               <span style={{ fontWeight: '900', color: sewingDespatchConfig.monochromeMode ? '#000000' : (sewingDespatchConfig.titleColor || '#7c3aed'), fontSize: '1.25rem' }}>{printSewingOrder.confeccion_code}</span>
                              </div>
                            )}
                            {sewingDespatchConfig.showWorkshop !== false && (

@@ -99,6 +99,7 @@ export default function SettingsPage() {
 
   // Sticker Configuration State
   const [stickerConfig, setStickerConfig] = useState({
+    monochromeMode: false,
     headerText: 'CORTES BREINER',
     headerFontSize: 11,
     refFontSize: 14,
@@ -121,6 +122,7 @@ export default function SettingsPage() {
   // Relación de Despacho a Confección Configuration State
   const [printSubTab, setPrintSubTab] = useState<'quality' | 'historical_labels' | 'sewing_despatch'>('quality');
   const [sewingDespatchConfig, setSewingDespatchConfig] = useState({
+    monochromeMode: false,
     companyTitle: 'CORTES BREINER S.A.S.',
     titleFontSize: 15,
     titleColor: '#80082E',
@@ -832,6 +834,22 @@ export default function SettingsPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                     {/* Panel de Controles */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: stickerConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: stickerConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!stickerConfig.monochromeMode}
+                            onChange={e => setStickerConfig({ ...stickerConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: stickerConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Fuerza a que todos los textos, encabezados, bordes y badges se impriman únicamente en negro puro y blanco. Ideal para impresoras térmicas directo o de cinta Zebra.
+                        </p>
+                      </div>
+
                       {/* 1. Encabezado / Marca */}
                       <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
                         <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Texto del Encabezado (Marca)</h4>
@@ -1051,15 +1069,15 @@ export default function SettingsPage() {
                         fontFamily: 'system-ui, sans-serif'
                       }}>
                         {/* Header */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #000000', paddingBottom: '0.4rem' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={stickerConfig.monochromeMode ? "#000000" : "#80082E"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="6" cy="6" r="3"/>
                             <circle cx="6" cy="18" r="3"/>
                             <line x1="20" y1="4" x2="8.12" y2="15.88"/>
                             <line x1="14.47" y1="14.48" x2="20" y2="20"/>
                             <line x1="8.12" y1="8.12" x2="12" y2="12"/>
                           </svg>
-                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: '#80082E', letterSpacing: '0.05em' }}>
+                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: stickerConfig.monochromeMode ? '#000000' : '#80082E', letterSpacing: '0.05em' }}>
                             {stickerConfig.headerText}
                           </span>
                         </div>
@@ -1069,7 +1087,7 @@ export default function SettingsPage() {
                           <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
                             POLO CLASSIC 100% ALGODÓN
                           </span>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>NEGRO INTENSO</span>
+                          <span style={{ fontSize: '0.7rem', color: stickerConfig.monochromeMode ? '#000000' : '#64748b', fontWeight: '700' }}>NEGRO INTENSO</span>
 
                           {/* Configurable 1D Vector / Font Barcode Container */}
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.2rem 0', width: '100%' }}>
@@ -1127,8 +1145,8 @@ export default function SettingsPage() {
                         </div>
 
                         {/* Size Badge */}
-                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
-                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.sizeBgColor, color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #000000', paddingTop: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.monochromeMode ? '#000000' : (stickerConfig.sizeBgColor || '#0f172a'), color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
                             M
                           </span>
                         </div>
@@ -1151,6 +1169,22 @@ export default function SettingsPage() {
                         </h4>
                         <p style={{ margin: 0, fontSize: '0.78rem', lineHeight: '1.4' }}>
                           Configura las dimensiones, tipografía, tamaño de código de barras y textos de las etiquetas que se generan automáticamente al realizar cargas históricas en el módulo de Inventario.
+                        </p>
+                      </div>
+
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: stickerConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: stickerConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!stickerConfig.monochromeMode}
+                            onChange={e => setStickerConfig({ ...stickerConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: stickerConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Imprime las etiquetas de inventario histórico en negro puro y blanco, optimizado para impresoras monocolor y térmicas directo.
                         </p>
                       </div>
 
@@ -1408,6 +1442,22 @@ export default function SettingsPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '1.5rem' }}>
                     {/* Panel de Controles de Despacho a Confección */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: sewingDespatchConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: sewingDespatchConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!sewingDespatchConfig.monochromeMode}
+                            onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: sewingDespatchConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Fuerza el documento de relación de despacho a confección a ser totalmente en negro puro y blanco, sin fondos corporativos a color.
+                        </p>
+                      </div>
+
                       {/* 1. Títulos y Encabezado */}
                       <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
                         <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Encabezado & Títulos</h4>

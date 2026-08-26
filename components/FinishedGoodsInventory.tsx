@@ -224,6 +224,7 @@ export default function FinishedGoodsInventory() {
     }
   };
   const [stickerConfig, setStickerConfig] = useState({
+    monochromeMode: false,
     headerText: 'CORTES BREINER',
     stickerWidthMm: 50,
     stickerHeightMm: 80,
@@ -339,25 +340,28 @@ export default function FinishedGoodsInventory() {
         const imgSrc = barcodeImages[g.barcode] || '';
         const refName = (g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim();
         const marginRight = (idx < rowGarments.length - 1) ? `margin-right:${gapMm}mm;` : '';
+        const headerColor = stickerConfig.monochromeMode ? '#000000' : '#80082E';
+        const colorTextColor = stickerConfig.monochromeMode ? '#000000' : '#64748b';
+        const sizeBg = stickerConfig.monochromeMode ? '#000000' : (stickerConfig.sizeBgColor || '#0f172a');
         return `
           <div class="card" style="${marginRight}">
             <div class="top">
-              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:#80082E;">
+              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:${headerColor};">
                 ${stickerConfig.headerText || 'CORTES BREINER'}
               </span>
             </div>
             <div class="mid">
-              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#1e293b;text-align:center;">
+              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#000000;text-align:center;">
                 ${refName}
               </span>
-              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:#64748b;">${g.color_name}</span>` : ''}
+              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:${colorTextColor};">${g.color_name}</span>` : ''}
               ${imgSrc ? `<img src="${imgSrc}" style="max-width:90%;height:auto;" />` : ''}
               <span style="font-size:${stickerConfig.barcodeFontSize || 12}px;font-family:monospace;letter-spacing:0.12em;font-weight:900;">
                 ${g.barcode || '00420001'}
               </span>
             </div>
             <div class="bot">
-              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${stickerConfig.sizeBgColor || '#0f172a'};color:white;padding:1px 8px;border-radius:3px;">
+              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${sizeBg};color:white;padding:1px 8px;border-radius:3px;">
                 ${g.size_code || 'S/T'}
               </span>
             </div>

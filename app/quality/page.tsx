@@ -192,6 +192,7 @@ export default function QualityPage() {
 
   // Dynamic Sticker Config State
   const [stickerConfig, setStickerConfig] = useState<{
+    monochromeMode?: boolean;
     headerText: string;
     headerFontSize: number;
     refFontSize: number;
@@ -209,6 +210,7 @@ export default function QualityPage() {
     sizeFontSize: number;
     sizeBgColor: string;
   }>({
+    monochromeMode: false,
     headerText: 'CORTES BREINER',
     headerFontSize: 11,
     refFontSize: 14,
@@ -3396,22 +3398,22 @@ export default function QualityPage() {
                           height: `${Math.max(260, Math.round((stickerConfig.stickerHeightMm || 80) * 3.8))}px`,
                           justifyContent: 'space-between', boxSizing: 'border-box', fontFamily: 'system-ui, sans-serif'
                         }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#80082E" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #000000', paddingBottom: '0.4rem' }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={stickerConfig.monochromeMode ? "#000000" : "#80082E"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
                               <line x1="20" y1="4" x2="8.12" y2="15.88"/>
                               <line x1="14.47" y1="14.48" x2="20" y2="20"/>
                               <line x1="8.12" y1="8.12" x2="12" y2="12"/>
                             </svg>
-                            <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: '900', color: '#80082E' }}>
+                            <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: '900', color: stickerConfig.monochromeMode ? '#000000' : '#80082E' }}>
                               {stickerConfig.headerText || 'CORTES BREINER'}
                             </span>
                           </div>
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.5rem 0' }}>
-                            <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                            <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#000000', textAlign: 'center', lineHeight: 1.2 }}>
                               {(g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim()}
                             </span>
-                            {g.color_name && <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: '#64748b', fontWeight: '800' }}>{g.color_name}</span>}
+                            {g.color_name && <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: stickerConfig.monochromeMode ? '#000000' : '#64748b', fontWeight: '800' }}>{g.color_name}</span>}
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
                               <BarcodeCanvas text={g.barcode || '00420001'} type={stickerConfig.barcodeType || 'code128'} height={stickerConfig.barcodeHeight || 55} garmentId={g.id} />
                               <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
@@ -3419,8 +3421,8 @@ export default function QualityPage() {
                               </span>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
-                            <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: '950', backgroundColor: stickerConfig.sizeBgColor || '#0f172a', color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #000000', paddingTop: '0.4rem' }}>
+                            <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: '950', backgroundColor: stickerConfig.monochromeMode ? '#000000' : (stickerConfig.sizeBgColor || '#0f172a'), color: 'white', padding: '0.1rem 0.75rem', borderRadius: '4px' }}>
                               {g.size_code || 'S/T'}
                             </span>
                           </div>
@@ -3486,25 +3488,28 @@ export default function QualityPage() {
                         const refName = (g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim();
                         // Separador a la derecha excepto en la última columna de la fila
                         const marginRight = (idx < rowGarments.length - 1) ? `margin-right:${gapMm}mm;` : '';
+                        const headerColor = stickerConfig.monochromeMode ? '#000000' : '#80082E';
+                        const colorTextColor = stickerConfig.monochromeMode ? '#000000' : '#64748b';
+                        const sizeBg = stickerConfig.monochromeMode ? '#000000' : (stickerConfig.sizeBgColor || '#0f172a');
                         return `
                           <div class="card" style="${marginRight}">
                             <div class="top">
-                              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:#80082E;">
+                              <span style="font-size:${stickerConfig.headerFontSize}px;font-weight:900;color:${headerColor};">
                                 ${stickerConfig.headerText || 'CORTES BREINER'}
                               </span>
                             </div>
                             <div class="mid">
-                              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#1e293b;text-align:center;">
+                              <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#000000;text-align:center;">
                                 ${refName}
                               </span>
-                              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:#64748b;">${g.color_name}</span>` : ''}
+                              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:${colorTextColor};">${g.color_name}</span>` : ''}
                               ${imgSrc ? `<img src="${imgSrc}" style="max-width:90%;height:auto;" />` : ''}
                               <span style="font-size:${stickerConfig.barcodeFontSize || 12}px;font-family:monospace;letter-spacing:0.12em;font-weight:900;">
                                 ${g.barcode || '00420001'}
                               </span>
                             </div>
                             <div class="bot">
-                              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${stickerConfig.sizeBgColor || '#0f172a'};color:white;padding:1px 8px;border-radius:3px;">
+                              <span style="font-size:${stickerConfig.sizeFontSize}px;font-weight:900;background:${sizeBg};color:white;padding:1px 8px;border-radius:3px;">
                                 ${g.size_code || 'S/T'}
                               </span>
                             </div>
