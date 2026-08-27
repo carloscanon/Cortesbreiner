@@ -472,6 +472,7 @@ export default function OrdersPage() {
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .neq('estado', 'inactivo')
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (error || !data || data.length === 0) break;
       allProds = allProds.concat(data);

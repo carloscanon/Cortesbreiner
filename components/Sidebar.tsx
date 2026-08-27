@@ -18,7 +18,8 @@ import {
   ShieldCheck,
   Calculator,
   DollarSign,
-  CreditCard
+  CreditCard,
+  Building2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -29,6 +30,7 @@ const allMenuItems = [
   { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
   { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: Package, label: 'Inventario General', href: '/inventory', module: 'inventory' },
+  { icon: Building2, label: 'Inventario & Bodegas WMS', href: '/inventory-finished', module: 'inventory' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },

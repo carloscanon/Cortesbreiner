@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Package, Search, Plus, MoveHorizontal, X, Loader2,
   TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle,
   MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode,
-  Printer, Calendar, History, Tag
+  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
@@ -93,6 +93,32 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
 
 type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
+function isSameWarehouse(item: any, w: any) {
+  if (!item) return false;
+  if (!w || w === 'all' || w.id === 'all') return true;
+  
+  // 1. Coincidencia directa de ID
+  const itemWhId = item.warehouse_id || item.warehouses?.id;
+  if (itemWhId && (itemWhId === w.id || itemWhId === w._id)) return true;
+  
+  // 2. Coincidencia por nombre de bodega
+  const nameA = (item.warehouses?.nombre_bodega || item.nombre_bodega || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const nameB = (w.nombre_bodega || w.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  
+  if (nameA && nameB && (nameA === nameB || nameA.includes(nameB) || nameB.includes(nameA))) return true;
+  
+  // 3. Palabras clave principales
+  const keywords = ['principal', '101', 'lavanderia', 'saldos', 'incompletos', 'transito', 'local 1', 'local 2', 'confeccion'];
+  for (const kw of keywords) {
+    if (nameA.includes(kw) && nameB.includes(kw)) return true;
+  }
+
+  // 4. Fallback: Si el ítem no tiene warehouse especificado pero la bodega es 'Principal', incluirlo por omisión
+  if (!itemWhId && !nameA && (nameB.includes('principal') || nameB.includes('101'))) return true;
+
+  return false;
+}
+
 export default function FinishedGoodsInventory() {
   const { user, profile } = useAuth();
   const roleNameStr = (profile?.roles?.name || profile?.role?.name || profile?.role_id || '').toLowerCase();
@@ -106,6 +132,7 @@ export default function FinishedGoodsInventory() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [fabrics, setFabrics] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
 
   // State
   const [loading, setLoading] = useState(true);
@@ -133,6 +160,7 @@ export default function FinishedGoodsInventory() {
   const [filterColor, setFilterColor] = useState('');
   const [filterSize, setFilterSize] = useState('');
   const [filterAlert, setFilterAlert] = useState('all');
+  const [showAllMasterProducts, setShowAllMasterProducts] = useState(false);
 
   // Modals
   const [showLocationModal, setShowLocationModal] = useState(false);
@@ -171,15 +199,25 @@ export default function FinishedGoodsInventory() {
   const [loadingHistBatches, setLoadingHistBatches] = useState(false);
   const [histSearchTerm, setHistSearchTerm] = useState('');
 
-  // Filtro para mostrar por defecto solo referencias Premium o todo el maestro
-  const [showAllMasterProducts, setShowAllMasterProducts] = useState(false);
+  // Buscador de productos UX para registro histórico
+  const [histProdSearchQuery, setHistProdSearchQuery] = useState('');
+  const [showHistProdDropdown, setShowHistProdDropdown] = useState(false);
 
-  const displayProducts = products.filter(p => {
-    if (showAllMasterProducts) return true;
-    const name = (p.nombre_producto || p.name || '').toLowerCase();
-    const ref = (p.codigo_referencia || '').toLowerCase();
-    return name.includes('premium') || name.includes('premiun') || ref.includes('premium') || ref.includes('premiun');
-  });
+  const displayProducts = useMemo(() => {
+    return (products || [])
+      .filter(p => p.estado !== 'inactivo')
+      .sort((a, b) => (a.nombre_producto || '').localeCompare(b.nombre_producto || ''));
+  }, [products]);
+
+  const filteredHistProducts = useMemo(() => {
+    if (!histProdSearchQuery.trim()) return displayProducts.slice(0, 35);
+    const q = histProdSearchQuery.toLowerCase().trim();
+    return displayProducts.filter(p => {
+      const name = (p.nombre_producto || p.name || '').toLowerCase();
+      const ref = (p.codigo_referencia || '').toLowerCase();
+      return name.includes(q) || ref.includes(q);
+    }).slice(0, 35);
+  }, [displayProducts, histProdSearchQuery]);
 
   const fetchHistoricalBatches = async () => {
     setLoadingHistBatches(true);
@@ -232,6 +270,172 @@ export default function FinishedGoodsInventory() {
     } finally {
       setLoadingHistBatches(false);
     }
+  };
+
+  const [histSubTab, setHistSubTab] = useState<'dashboard' | 'counted_form' | 'batches_list'>('dashboard');
+
+  const exportHistoricalReportToExcel = () => {
+    if (!histBatches || histBatches.length === 0) {
+      alert('No hay lotes históricos registrados para exportar.');
+      return;
+    }
+
+    const BOM = '\uFEFF';
+
+    // 1. Resumen por Lotes
+    const headersLotes = ['Lote / Documento', 'Fecha de Registro', 'Total Etiquetas/Prendas', 'Referencias Contenidas'];
+    const rowsLotes = histBatches.map(b => {
+      const summaryStr = Object.entries(b.summary || {}).map(([ref, count]) => `${ref}: ${count}`).join(' | ');
+      const dateFormatted = b.createdAt ? new Date(b.createdAt).toLocaleString('es-CO') : 'Sin Fecha';
+      return [
+        b.docName,
+        dateFormatted,
+        b.garments?.length || 0,
+        summaryStr
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
+    });
+
+    // 2. Resumen Consolidado por Categoría y Producto
+    const catMap: Record<string, { categoryName: string; refCode: string; prodName: string; totalGarments: number }> = {};
+
+    histBatches.forEach(b => {
+      (b.garments || []).forEach((g: any) => {
+        const prod = products.find(p => p.id === g.product_id || p.codigo_referencia === g.reference_name);
+        const catObj = categories.find(c => c.id === prod?.category_id);
+        const catName = catObj?.categoria || prod?.categoria || 'Sin Categoría';
+        const refCode = g.reference_name || prod?.codigo_referencia || 'Desconocido';
+        const prodName = prod?.nombre_producto || refCode;
+        const key = `${catName}___${refCode}`;
+
+        if (!catMap[key]) {
+          catMap[key] = {
+            categoryName: catName,
+            refCode,
+            prodName,
+            totalGarments: 0
+          };
+        }
+        catMap[key].totalGarments += 1;
+      });
+    });
+
+    const headersCat = ['Categoría', 'Código Referencia', 'Nombre Producto', 'Total Prendas / Etiquetas'];
+    const rowsCat = Object.values(catMap).map(item => {
+      return [
+        item.categoryName,
+        item.refCode,
+        item.prodName,
+        item.totalGarments
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
+    });
+
+    // 3. Detalle Individual de Etiquetas
+    const headersDetalle = ['ID Prenda', 'Código de Barras', 'Lote / Documento', 'Referencia', 'Nombre Producto', 'Categoría', 'Color', 'Talla', 'Fecha Creación'];
+    const allGarmentRows: string[] = [];
+
+    histBatches.forEach(b => {
+      (b.garments || []).forEach((g: any) => {
+        const prod = products.find(p => p.id === g.product_id || p.codigo_referencia === g.reference_name);
+        const catObj = categories.find(c => c.id === prod?.category_id);
+        const catName = catObj?.categoria || prod?.categoria || 'Sin Categoría';
+        const refCode = g.reference_name || prod?.codigo_referencia || 'Desconocido';
+        const prodName = prod?.nombre_producto || refCode;
+        const dateFormatted = g.created_at ? new Date(g.created_at).toLocaleString('es-CO') : '';
+
+        const row = [
+          g.id || '',
+          g.barcode || '',
+          g.historical_doc || b.docName || 'Inventario Histórico',
+          refCode,
+          prodName,
+          catName,
+          g.color_name || '—',
+          g.size_code || '—',
+          dateFormatted
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
+
+        allGarmentRows.push(row);
+      });
+    });
+
+    const csvContent = BOM +
+      '=== INFORME CONSOLIDADO DE LOTES DE ETIQUETAS ===\n' +
+      headersLotes.join(';') + '\n' +
+      rowsLotes.join('\n') + '\n\n' +
+      '=== CONSOLIDADO POR CATEGORÍA Y PRODUCTO ===\n' +
+      headersCat.join(';') + '\n' +
+      rowsCat.join('\n') + '\n\n' +
+      '=== DETALLE COMPLETO DE ETIQUETAS GENERADAS ===\n' +
+      headersDetalle.join(';') + '\n' +
+      allGarmentRows.join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `informe_lotes_etiquetas_historico_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportKardexToExcel = () => {
+    if (!kardex || kardex.length === 0) {
+      alert('No hay movimientos en el Kardex para exportar.');
+      return;
+    }
+
+    const BOM = '\uFEFF';
+    const headers = [
+      'Fecha / Hora',
+      'Tipo Movimiento',
+      'Documento Origen',
+      'Código Referencia',
+      'Nombre Producto',
+      'Categoría',
+      'Color / Tela',
+      'Talla',
+      'Cantidad',
+      'Saldo Anterior',
+      'Saldo Nuevo',
+      'Bodega',
+      'Usuario',
+      'Observaciones'
+    ];
+
+    const rows = kardex.map(mov => {
+      const dateStr = mov.created_at ? new Date(mov.created_at).toLocaleString('es-CO') : '';
+      const catName = mov.products?.categories?.categoria || mov.products?.categoria || 'Sin Categoría';
+      const colorTela = mov.colors?.nombre_color || mov.fabrics?.nombre_tela || '—';
+      const warehouseName = mov.warehouse_dest?.nombre_bodega || mov.warehouse_orig?.nombre_bodega || '—';
+      const isPositive = mov.tipo_movimiento.toLowerCase().includes('ingreso') || mov.tipo_movimiento.toLowerCase().includes('positivo') || mov.tipo_movimiento.toLowerCase().includes('entrada') || mov.tipo_movimiento.toLowerCase().includes('devolucion');
+      const formattedQty = isPositive ? `+${mov.cantidad}` : `-${mov.cantidad}`;
+
+      return [
+        dateStr,
+        mov.tipo_movimiento || '',
+        mov.documento_origen || '',
+        mov.products?.codigo_referencia || '',
+        mov.products?.nombre_producto || '',
+        catName,
+        colorTela,
+        mov.sizes?.codigo_talla || '',
+        formattedQty,
+        mov.saldo_anterior ?? '',
+        mov.saldo_nuevo ?? '',
+        warehouseName,
+        mov.usuario || '',
+        mov.observaciones || ''
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
+    });
+
+    const csvContent = BOM + [headers.join(';'), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kardex_historial_movimientos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
   const [stickerConfig, setStickerConfig] = useState({
     monochromeMode: false,
@@ -566,27 +770,9 @@ export default function FinishedGoodsInventory() {
     setShowUnitDetailModal(true);
     setLoadingUnits(true);
     try {
-      const refName = item.products?.nombre_producto || item.products?.codigo_referencia || '';
+      const refName = item.products?.nombre_producto || item.products?.name || item.products?.codigo_referencia || '';
       const colorName = item.colors?.nombre_color || '';
       const sizeCode = item.sizes?.codigo_talla || '';
-
-      // 1. Intentar obtener la inspección exacta de calidad desde el último movimiento de ingreso al Kardex
-      let targetInspectionId: string | null = null;
-      const { data: kardexMovs } = await supabase
-        .from('finished_goods_kardex')
-        .select('documento_origen')
-        .eq('product_id', item.product_id)
-        .eq('size_id', item.size_id)
-        .eq('warehouse_dest_id', item.warehouse_id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (kardexMovs && kardexMovs.length > 0 && kardexMovs[0].documento_origen) {
-        const doc = kardexMovs[0].documento_origen;
-        if (doc.startsWith('Inspección #')) {
-          targetInspectionId = doc.replace('Inspección #', '').trim();
-        }
-      }
 
       let query = supabase
         .from('individual_garments')
@@ -598,28 +784,24 @@ export default function FinishedGoodsInventory() {
             orders (id, internal_code, consecutive)
           )
         `)
-        .order('barcode', { ascending: true });
+        .order('created_at', { ascending: false });
 
-      if (targetInspectionId) {
-        query = query.eq('quality_inspection_id', targetInspectionId);
-      } else {
-        if (refName) {
-          query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
-        }
-        if (sizeCode) {
-          query = query.eq('size_code', sizeCode);
-        }
-        if (colorName) {
-          query = query.eq('color_name', colorName);
-        }
+      if (refName) {
+        query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
+      }
+      if (sizeCode) {
+        query = query.eq('size_code', sizeCode);
+      }
+      if (colorName && colorName !== '—') {
+        query = query.eq('color_name', colorName);
       }
 
       const { data, error } = await query;
       if (error) throw error;
       
       let finalGarments = data || [];
-      // Si no se filtró por inspección directa y hay más prendas de las disponibles en el stock, acotar a la cantidad real disponible
-      if (!targetInspectionId && item.cantidad_disponible > 0 && finalGarments.length > item.cantidad_disponible) {
+      // Acotar exactamente a la cantidad real disponible en stock
+      if (item.cantidad_disponible > 0 && finalGarments.length > item.cantidad_disponible) {
         finalGarments = finalGarments.slice(0, item.cantidad_disponible);
       }
 
@@ -631,15 +813,32 @@ export default function FinishedGoodsInventory() {
     }
   };
 
+  const fetchAllPages = async (queryBuilder: any, maxRecords = 50000) => {
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await queryBuilder.range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < pageSize || allData.length >= maxRecords) break;
+      page++;
+    }
+    return allData;
+  };
+
   const fetchMasters = async () => {
     setLoading(true);
     try {
-      const { data: p } = await supabase.from('products').select('*');
-      const { data: c } = await supabase.from('colors').select('*');
-      const { data: s } = await supabase.from('sizes').select('*').order('orden_visual', { ascending: true });
-      const { data: w } = await supabase.from('warehouses').select('*').eq('estado', 'activo');
-      const { data: loc } = await supabase.from('warehouse_locations').select('*');
-      const { data: fab } = await supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true });
+      const [p, c, s, w, loc, fab, cat] = await Promise.all([
+        fetchAllPages(supabase.from('products').select('*').neq('estado', 'inactivo')),
+        fetchAllPages(supabase.from('colors').select('*')),
+        fetchAllPages(supabase.from('sizes').select('*').order('orden_visual', { ascending: true })),
+        fetchAllPages(supabase.from('warehouses').select('*').eq('estado', 'activo')),
+        fetchAllPages(supabase.from('warehouse_locations').select('*')),
+        fetchAllPages(supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true })),
+        fetchAllPages(supabase.from('categories').select('*'))
+      ]);
 
       setProducts(p || []);
       setColors(c || []);
@@ -647,6 +846,7 @@ export default function FinishedGoodsInventory() {
       setWarehouses(w || []);
       setLocations(loc || []);
       setFabrics(fab || []);
+      setCategories(cat || []);
     } catch (err) {
       console.error('Error fetching masters:', err);
     } finally {
@@ -658,19 +858,21 @@ export default function FinishedGoodsInventory() {
 
   const fetchStock = async () => {
     try {
-      const { data, error } = await supabase
-        .from('finished_goods_stock')
-        .select(`
-          *,
-          products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria)),
-          colors (id, nombre_color, hex_color),
-          fabrics:fabric_id (id, nombre_tela, codigo_tela),
-          sizes (id, codigo_talla),
-          warehouses (id, nombre_bodega),
-          warehouse_locations (id, pasillo, estanteria, nivel, posicion)
-        `);
-      if (error) throw error;
-      setStock(data || []);
+      const stockData = await fetchAllPages(
+        supabase
+          .from('finished_goods_stock')
+          .select(`
+            *,
+            products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria)),
+            colors (id, nombre_color, hex_color),
+            fabrics:fabric_id (id, nombre_tela, codigo_tela),
+            sizes (id, codigo_talla),
+            warehouses (id, nombre_bodega),
+            warehouse_locations (id, pasillo, estanteria, nivel, posicion)
+          `)
+      );
+
+      setStock(stockData || []);
 
       // Resolver mapeo de Orden de Ingreso limpia por combinación SKU
       try {
@@ -783,19 +985,20 @@ export default function FinishedGoodsInventory() {
 
   const fetchKardex = async () => {
     try {
-      const { data, error } = await supabase
-        .from('finished_goods_kardex')
-        .select(`
-          *,
-          products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
-          colors (id, nombre_color),
-          fabrics:fabric_id (id, nombre_tela),
-          sizes (id, codigo_talla),
-          warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
-          warehouse_dest:warehouses!finished_goods_kardex_warehouse_dest_id_fkey (nombre_bodega)
-        `)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+      const data = await fetchAllPages(
+        supabase
+          .from('finished_goods_kardex')
+          .select(`
+            *,
+            products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
+            colors (id, nombre_color),
+            fabrics:fabric_id (id, nombre_tela),
+            sizes (id, codigo_talla),
+            warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
+            warehouse_dest:warehouses!finished_goods_kardex_warehouse_dest_id_fkey (nombre_bodega)
+          `)
+          .order('created_at', { ascending: false })
+      );
       setKardex(data || []);
     } catch (err) {
       console.error('Error fetching kardex:', err);
@@ -854,12 +1057,6 @@ export default function FinishedGoodsInventory() {
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';
     
-    if (!showAllMasterProducts) {
-      const nameLower = name.toLowerCase();
-      const refLower = ref.toLowerCase();
-      const isPremium = nameLower.includes('premium') || nameLower.includes('premiun') || refLower.includes('premium') || refLower.includes('premiun');
-      if (!isPremium) return false;
-    }
 
     const matchesSearch = 
       ref.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -869,7 +1066,9 @@ export default function FinishedGoodsInventory() {
       size.toLowerCase().includes(searchQuery.toLowerCase()) ||
       wh.toLowerCase().includes(searchQuery.toLowerCase());
       
-    const matchesWarehouse = filterWarehouse ? item.warehouse_id === filterWarehouse : true;
+    const matchesWarehouse = filterWarehouse 
+      ? isSameWarehouse(item, warehouses.find(w => w.id === filterWarehouse))
+      : true;
     const matchesColor = filterColor ? item.color_id === filterColor : true;
     const matchesSize = filterSize ? item.size_id === filterSize : true;
     
@@ -1687,8 +1886,31 @@ export default function FinishedGoodsInventory() {
       {/* 3. KARDEX */}
       {activeTab === 'kardex' && (
         <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-          <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Movimientos de Producto Terminado</h3>
+          <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Movimientos de Producto Terminado</h3>
+              <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Registro cronológico de ingresos, salidas, ajustes y cargas históricas.</p>
+            </div>
+            <button
+              type="button"
+              onClick={exportKardexToExcel}
+              style={{
+                backgroundColor: '#16a34a',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.5rem 1.1rem',
+                fontSize: '0.78rem',
+                fontWeight: '900',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                boxShadow: '0 2px 4px rgba(22, 163, 74, 0.2)'
+              }}
+            >
+              <FileSpreadsheet size={16} /> Exportar Kardex a Excel (.csv)
+            </button>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
@@ -2040,356 +2262,771 @@ export default function FinishedGoodsInventory() {
       )}
 
       {/* 7. HISTORICAL INVENTORY ASSISTANT */}
-      {activeTab === 'historical_inventory' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* Counted Form Card */}
-          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              📝 Registrar Conteo de Inventario Histórico
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1.5rem' }}>
-              Registra los productos físicos que deseas ingresar al sistema. Cada prenda recibirá un código único correlativo y se registrará como ingreso histórico en la Bodega Principal.
-            </p>
+      {activeTab === 'historical_inventory' && (() => {
+        // Aggregated data calculation for Tablero Inicial
+        const allHistGarments = histBatches.flatMap(b => b.garments || []);
+        const totalHistGarments = allHistGarments.length;
 
-            <form onSubmit={handleAddHistItem} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Nombre de Documento / Lote</label>
-                  <input
-                    type="text"
-                    required
-                    value={histDocName}
-                    onChange={e => setHistDocName(e.target.value)}
-                    placeholder="Ej. Carga Inicial 2026"
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
-                  />
-                </div>
-              </div>
+        const categoryAggMap: Record<string, { categoryName: string; count: number; productsSet: Set<string> }> = {};
+        const productAggMap: Record<string, { refCode: string; prodName: string; categoryName: string; count: number }> = {};
 
-              <div style={{ borderTop: '1px solid #f1f5f9', padding: '1rem 0 0' }} />
+        allHistGarments.forEach((g: any) => {
+          const prod = products.find(p => p.id === g.product_id || p.codigo_referencia === g.reference_name);
+          const catObj = categories.find(c => c.id === prod?.category_id);
+          const catName = catObj?.categoria || prod?.categoria || 'Sin Categoría';
+          const refCode = g.reference_name || prod?.codigo_referencia || 'Desconocido';
+          const prodName = prod?.nombre_producto || refCode;
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', margin: 0 }}>Referencia / Producto</label>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#80082E', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={showAllMasterProducts}
-                        onChange={e => setShowAllMasterProducts(e.target.checked)}
-                        style={{ accentColor: '#80082E', cursor: 'pointer' }}
-                      />
-                      <span>Ver todo el maestro</span>
-                    </label>
-                  </div>
-                  <select
-                    value={histProduct}
-                    onChange={e => setHistProduct(e.target.value)}
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    <option value="">Seleccionar...</option>
-                    {displayProducts.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
-                  </select>
-                </div>
+          if (!categoryAggMap[catName]) {
+            categoryAggMap[catName] = { categoryName: catName, count: 0, productsSet: new Set() };
+          }
+          categoryAggMap[catName].count += 1;
+          categoryAggMap[catName].productsSet.add(refCode);
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Color</label>
-                  <select
-                    value={histColor}
-                    onChange={e => setHistColor(e.target.value)}
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    <option value="">Ninguno / Sin color</option>
-                    {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
-                  </select>
-                </div>
+          if (!productAggMap[refCode]) {
+            productAggMap[refCode] = { refCode, prodName, categoryName: catName, count: 0 };
+          }
+          productAggMap[refCode].count += 1;
+        });
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Talla</label>
-                  <select
-                    value={histSize}
-                    onChange={e => setHistSize(e.target.value)}
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    <option value="">Seleccionar...</option>
-                    {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
-                  </select>
-                </div>
+        const categoryList = Object.values(categoryAggMap).sort((a, b) => b.count - a.count);
+        const productList = Object.values(productAggMap).sort((a, b) => b.count - a.count);
+        const totalDistinctProducts = productList.length;
+        const totalDistinctCategories = categoryList.length;
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Cantidad Física Contada</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={histQty}
-                    onChange={e => setHistQty(Math.max(1, parseInt(e.target.value) || 0))}
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Notas / Observaciones del Conteo</label>
-                <input
-                  type="text"
-                  value={histNotes}
-                  onChange={e => setHistNotes(e.target.value)}
-                  placeholder="Ej. Caja 1 - Saldo del año pasado"
-                  style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
-                  <Plus size={16} /> Agregar al Conteo
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* List of Counted Items */}
-          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div>
-                <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>📋 Referencias Agregadas ({histCountedList.length})</h3>
-                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Lista de productos pendientes por ingresar a base de datos.</p>
-              </div>
-              
-              {histCountedList.length > 0 && (
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
+            {/* BARRA DE NAVEGACIÓN Y EXPORTADOR EXCEL DE INVENTARIO HISTÓRICO */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.6rem 0.8rem', borderRadius: '14px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={handleProcessHistLoad}
-                  disabled={histProcessing}
+                  onClick={() => setHistSubTab('dashboard')}
                   style={{
-                    backgroundColor: '#10b981',
-                    color: 'white',
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '10px',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '0.6rem 1.5rem',
-                    fontSize: '0.8rem',
+                    backgroundColor: histSubTab === 'dashboard' ? '#80082E' : 'transparent',
+                    color: histSubTab === 'dashboard' ? 'white' : '#64748b',
+                    fontSize: '0.82rem',
                     fontWeight: '900',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.5rem',
-                    boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
+                    gap: '0.45rem',
+                    boxShadow: histSubTab === 'dashboard' ? '0 2px 4px rgba(128, 8, 46, 0.2)' : 'none',
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  {histProcessing ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" /> Procesando Carga...
-                    </>
-                  ) : (
-                    <>
-                      ⚡ Guardar y Generar Códigos ({histCountedList.reduce((sum, item) => sum + item.qty, 0)} uds)
-                    </>
-                  )}
+                  <BarChart3 size={16} /> 📊 Tablero e Informe Consolidado
                 </button>
-              )}
-            </div>
 
-            {histCountedList.length === 0 ? (
-              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
-                <Package size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay referencias agregadas al conteo.</p>
-                <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Usa el formulario superior para relacionar los productos físicos que tienes.</p>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencia</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Color</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Talla</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Cantidad</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Observaciones</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {histCountedList.map((item) => (
-                      <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#80082E' }}>{item.productName} ({item.productRef})</td>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#334155' }}>{item.colorName}</td>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: '900' }}>
-                          <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>{item.sizeCode}</span>
-                        </td>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: '850', textAlign: 'center', fontSize: '0.9rem', color: '#0f172a' }}>{item.qty} uds</td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{item.notes || '—'}</td>
-                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveHistItem(item.id)}
-                            style={{
-                              border: 'none',
-                              background: 'transparent',
-                              color: '#ef4444',
-                              fontWeight: '800',
-                              cursor: 'pointer',
-                              fontSize: '0.78rem'
-                            }}
-                          >
-                            Quitar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* 📜 HISTÓRICO DE LOTES Y ETIQUETAS GENERADAS */}
-          <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  📜 Histórico de Lotes de Etiquetas Generadas
-                </h3>
-                <p style={{ fontSize: '0.76rem', color: '#64748b', margin: '0.2rem 0 0' }}>
-                  Consulta los conjuntos de etiquetas creados en cargas históricas y reimprímelos cuando lo necesites.
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ position: 'relative', width: '240px' }}>
-                  <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                  <input
-                    type="text"
-                    value={histSearchTerm}
-                    onChange={e => setHistSearchTerm(e.target.value)}
-                    placeholder="Buscar lote o ref..."
-                    style={{ width: '100%', padding: '0.45rem 0.6rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem', fontWeight: '600' }}
-                  />
-                </div>
                 <button
                   type="button"
-                  onClick={fetchHistoricalBatches}
-                  disabled={loadingHistBatches}
-                  title="Actualizar histórico"
+                  onClick={() => setHistSubTab('counted_form')}
                   style={{
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    backgroundColor: histSubTab === 'counted_form' ? '#80082E' : 'transparent',
+                    color: histSubTab === 'counted_form' ? 'white' : '#64748b',
+                    fontSize: '0.82rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '0.5rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: '#f8fafc',
-                    color: '#475569',
-                    cursor: 'pointer'
+                    gap: '0.45rem',
+                    boxShadow: histSubTab === 'counted_form' ? '0 2px 4px rgba(128, 8, 46, 0.2)' : 'none',
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  <RefreshCw size={16} className={loadingHistBatches ? 'animate-spin' : ''} />
+                  <Plus size={16} /> 📝 Registrar Conteo de Lote
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHistSubTab('batches_list')}
+                  style={{
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    backgroundColor: histSubTab === 'batches_list' ? '#80082E' : 'transparent',
+                    color: histSubTab === 'batches_list' ? 'white' : '#64748b',
+                    fontSize: '0.82rem',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    boxShadow: histSubTab === 'batches_list' ? '0 2px 4px rgba(128, 8, 46, 0.2)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <History size={16} /> 📜 Histórico de Lotes ({histBatches.length})
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={exportHistoricalReportToExcel}
+                style={{
+                  backgroundColor: '#16a34a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '0.55rem 1.15rem',
+                  fontSize: '0.82rem',
+                  fontWeight: '900',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  boxShadow: '0 2px 5px rgba(22, 163, 74, 0.25)'
+                }}
+              >
+                <FileSpreadsheet size={18} /> Exportar Reporte Excel (.csv)
+              </button>
             </div>
 
-            {loadingHistBatches ? (
-              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
-                <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
-                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700' }}>Cargando lotes históricos...</p>
-              </div>
-            ) : histBatches.length === 0 ? (
-              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
-                <History size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay lotes históricos de etiquetas registrados.</p>
-                <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Al guardar inventario histórico se guardarán automáticamente aquí para su reimpresión.</p>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Nombre de Documento / Lote</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Fecha de Registro</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Total Prendas</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencias Incluidas</th>
-                      <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {histBatches
-                      .filter(b => {
-                        if (!histSearchTerm.trim()) return true;
-                        const term = histSearchTerm.toLowerCase();
-                        const matchDoc = b.docName.toLowerCase().includes(term);
-                        const matchGarments = b.garments.some((g: any) =>
-                          (g.reference_name || '').toLowerCase().includes(term) ||
-                          (g.barcode || '').includes(term) ||
-                          (g.color_name || '').toLowerCase().includes(term)
-                        );
-                        return matchDoc || matchGarments;
-                      })
-                      .map((batch, idx) => {
-                        const dateFormatted = new Date(batch.createdAt).toLocaleString('es-CO', {
-                          year: 'numeric', month: '2-digit', day: '2-digit',
-                          hour: '2-digit', minute: '2-digit'
-                        });
+            {/* 📊 TABLERO INICIAL E INFORME CONSOLIDADO */}
+            {histSubTab === 'dashboard' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {/* Header Info */}
+                <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        📊 Tablero General - Histórico de Lotes & Etiquetas Generadas
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                        Monitoreo general de prendas registradas, desglose por categorías y resumen exportable a Excel.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={exportHistoricalReportToExcel}
+                      style={{
+                        backgroundColor: '#ecfdf5',
+                        color: '#16a34a',
+                        border: '1.5px solid #a7f3d0',
+                        borderRadius: '8px',
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.78rem',
+                        fontWeight: '900',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem'
+                      }}
+                    >
+                      <FileSpreadsheet size={15} /> Descargar Informe Completo Excel
+                    </button>
+                  </div>
 
-                        const summaryEntries = Object.entries(batch.summary);
+                  {/* 4 KPIs TARJETAS PRINCIPALES */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem', marginTop: '1.5rem' }}>
+                    <div style={{ padding: '1.25rem', borderRadius: '14px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <FileText size={16} color="#80082E" /> Total Lotes
+                      </div>
+                      <span style={{ fontSize: '1.8rem', fontWeight: '950', color: '#0f172a' }}>{histBatches.length}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600' }}>Lotes registrados</span>
+                    </div>
 
+                    <div style={{ padding: '1.25rem', borderRadius: '14px', backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#065f46', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <Tag size={16} color="#059669" /> Total Etiquetas
+                      </div>
+                      <span style={{ fontSize: '1.8rem', fontWeight: '950', color: '#065f46' }}>{totalHistGarments.toLocaleString()}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#047857', fontWeight: '600' }}>Prendas individuales</span>
+                    </div>
+
+                    <div style={{ padding: '1.25rem', borderRadius: '14px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#1e40af', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <Package size={16} color="#2563eb" /> Productos
+                      </div>
+                      <span style={{ fontSize: '1.8rem', fontWeight: '950', color: '#1e3a8a' }}>{totalDistinctProducts}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#3b82f6', fontWeight: '600' }}>Referencias distintas</span>
+                    </div>
+
+                    <div style={{ padding: '1.25rem', borderRadius: '14px', backgroundColor: '#faf5ff', border: '1px solid #e9d5ff', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6b21a8', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase' }}>
+                        <Layers size={16} color="#9333ea" /> Categorías
+                      </div>
+                      <span style={{ fontSize: '1.8rem', fontWeight: '950', color: '#581c87' }}>{totalDistinctCategories}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#7e22ce', fontWeight: '600' }}>Líneas de producto</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* RESUMEN DE CATEGORÍAS */}
+                <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    🗂️ Distribución por Categorías de Producto
+                  </h3>
+                  {categoryList.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                      No hay prendas históricas para clasificar por categoría.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+                      {categoryList.map((cat, cIdx) => {
+                        const pct = totalHistGarments > 0 ? ((cat.count / totalHistGarments) * 100).toFixed(1) : '0';
                         return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                            <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#0f172a' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <FileText size={15} color="#80082E" />
-                                {batch.docName}
-                              </div>
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
-                              {dateFormatted}
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                              <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
-                                🏷️ {batch.garments.length} etiquetas
+                          <div key={cIdx} style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.88rem', fontWeight: '900', color: '#80082E' }}>{cat.categoryName}</span>
+                              <span style={{ backgroundColor: '#e2e8f0', color: '#334155', fontWeight: '800', padding: '0.15rem 0.5rem', borderRadius: '6px', fontSize: '0.74rem' }}>
+                                {cat.productsSet.size} refs
                               </span>
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem' }}>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                {summaryEntries.map(([refName, count], sIdx) => (
-                                  <span key={sIdx} style={{ backgroundColor: '#f1f5f9', color: '#334155', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                                    {refName} ({count as number})
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setHistSuccessGarments(batch.garments);
-                                  setShowHistLabelsModal(true);
-                                }}
-                                style={{
-                                  backgroundColor: '#80082E',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '8px',
-                                  padding: '0.45rem 0.9rem',
-                                  fontSize: '0.76rem',
-                                  fontWeight: '900',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.4rem',
-                                  boxShadow: '0 2px 4px rgba(128, 8, 46, 0.15)'
-                                }}
-                              >
-                                <Printer size={14} /> Reimprimir Etiquetas
-                              </button>
-                            </td>
-                          </tr>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                              <span style={{ fontSize: '1.4rem', fontWeight: '950', color: '#0f172a' }}>{cat.count.toLocaleString()} <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '600' }}>prendas</span></span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#10b981' }}>{pct}%</span>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div style={{ width: '100%', height: '6px', backgroundColor: '#cbd5e1', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', backgroundColor: '#80082E', borderRadius: '3px' }} />
+                            </div>
+                          </div>
                         );
                       })}
-                  </tbody>
-                </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* TABLA DE PRODUCTOS / REFERENCIAS Y CANTIDADES TOTALES */}
+                <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>
+                        📋 Consolidado por Producto y Referencia ({productList.length})
+                      </h3>
+                      <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                        Resumen detallado de prendas contadas por cada referencia en el histórico.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={exportHistoricalReportToExcel}
+                      style={{
+                        backgroundColor: '#f1f5f9',
+                        color: '#334155',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        padding: '0.4rem 0.8rem',
+                        fontSize: '0.75rem',
+                        fontWeight: '800',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem'
+                      }}
+                    >
+                      <Download size={14} /> Exportar Tabla CSV
+                    </button>
+                  </div>
+
+                  {productList.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
+                      No hay productos registrados en el histórico.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Código Referencia</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Nombre Producto</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Categoría</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Total Prendas</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>% Participación</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productList.map((prod, pIdx) => {
+                            const pct = totalHistGarments > 0 ? ((prod.count / totalHistGarments) * 100).toFixed(1) : '0';
+                            return (
+                              <tr key={pIdx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#80082E' }}>{prod.refCode}</td>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#0f172a' }}>{prod.prodName}</td>
+                                <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                                  <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '0.74rem' }}>
+                                    {prod.categoryName}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', textAlign: 'center', color: '#059669' }}>
+                                  {prod.count.toLocaleString()} uds
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '850', color: '#334155' }}>
+                                  {pct}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
+
+            {/* 📝 FORMULARIO DE REGISTRO DE CONTEO */}
+            {histSubTab === 'counted_form' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    📝 Registrar Conteo de Inventario Histórico
+                  </h3>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1.5rem' }}>
+                    Registra los productos físicos que deseas ingresar al sistema. Cada prenda recibirá un código único correlativo y se registrará como ingreso histórico en la Bodega Principal.
+                  </p>
+
+                  <form onSubmit={handleAddHistItem} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Nombre de Documento / Lote</label>
+                        <input
+                          type="text"
+                          required
+                          value={histDocName}
+                          onChange={e => setHistDocName(e.target.value)}
+                          placeholder="Ej. Carga Inicial 2026"
+                          style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #f1f5f9', padding: '1rem 0 0' }} />
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                      {/* Buscador Ultra Rápido e Intuitivo de Producto (Combobox UX) */}
+                      <div style={{ position: 'relative' }}>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>
+                          🔍 Buscar Referencia / Producto ({displayProducts.length} habilitados)
+                        </label>
+
+                        {histProduct ? (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '0.5rem 0.8rem',
+                            backgroundColor: '#fdf2f4',
+                            border: '1.5px solid #80082E',
+                            borderRadius: '8px',
+                            color: '#80082E',
+                            fontWeight: '800',
+                            fontSize: '0.82rem'
+                          }}>
+                            <span>
+                              📦 {products.find(p => p.id === histProduct)?.nombre_producto} ({products.find(p => p.id === histProduct)?.codigo_referencia})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHistProduct('');
+                                setHistProdSearchQuery('');
+                              }}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#80082E',
+                                fontWeight: '900',
+                                cursor: 'pointer',
+                                fontSize: '0.9rem',
+                                padding: '0 0.2rem'
+                              }}
+                              title="Cambiar producto"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type="text"
+                              value={histProdSearchQuery}
+                              onFocus={() => setShowHistProdDropdown(true)}
+                              onChange={e => {
+                                setHistProdSearchQuery(e.target.value);
+                                setShowHistProdDropdown(true);
+                              }}
+                              placeholder="Escribe nombre o referencia (ej. Top Lili, Body, Polo)..."
+                              style={{
+                                width: '100%',
+                                padding: '0.6rem 0.8rem',
+                                borderRadius: '8px',
+                                border: '1px solid var(--border)',
+                                fontSize: '0.82rem',
+                                fontWeight: '700'
+                              }}
+                            />
+
+                            {showHistProdDropdown && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                backgroundColor: 'white',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '10px',
+                                boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)',
+                                zIndex: 50,
+                                maxHeight: '240px',
+                                overflowY: 'auto',
+                                marginTop: '0.3rem'
+                              }}>
+                                {filteredHistProducts.length === 0 ? (
+                                  <div style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+                                    No se encontraron productos activos con esa búsqueda.
+                                  </div>
+                                ) : (
+                                  filteredHistProducts.map(p => (
+                                    <div
+                                      key={p.id}
+                                      onClick={() => {
+                                        setHistProduct(p.id);
+                                        setShowHistProdDropdown(false);
+                                        setHistProdSearchQuery('');
+                                      }}
+                                      style={{
+                                        padding: '0.6rem 0.9rem',
+                                        fontSize: '0.81rem',
+                                        fontWeight: '700',
+                                        color: '#0f172a',
+                                        borderBottom: '1px solid #f1f5f9',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        transition: 'background 0.15s'
+                                      }}
+                                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fdf2f4'}
+                                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'white'}
+                                    >
+                                      <span>{p.nombre_producto}</span>
+                                      <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', backgroundColor: '#e2e8f0', borderRadius: '4px', color: '#475569' }}>
+                                        {p.codigo_referencia}
+                                      </span>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Color</label>
+                        <select
+                          value={histColor}
+                          onChange={e => setHistColor(e.target.value)}
+                          style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          <option value="">Ninguno / Sin color</option>
+                          {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Talla</label>
+                        <select
+                          value={histSize}
+                          onChange={e => setHistSize(e.target.value)}
+                          style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          <option value="">Seleccionar...</option>
+                          {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Cantidad Física Contada</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={histQty}
+                          onChange={e => setHistQty(Math.max(1, parseInt(e.target.value) || 0))}
+                          style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Notas / Observaciones del Conteo</label>
+                      <input
+                        type="text"
+                        value={histNotes}
+                        onChange={e => setHistNotes(e.target.value)}
+                        placeholder="Ej. Caja 1 - Saldo del año pasado"
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button type="submit" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '900' }}>
+                        <Plus size={16} /> Agregar al Conteo
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* List of Counted Items */}
+                <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>📋 Referencias Agregadas ({histCountedList.length})</h3>
+                      <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Lista de productos pendientes por ingresar a base de datos.</p>
+                    </div>
+                    
+                    {histCountedList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleProcessHistLoad}
+                        disabled={histProcessing}
+                        style={{
+                          backgroundColor: '#10b981',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '0.6rem 1.5rem',
+                          fontSize: '0.8rem',
+                          fontWeight: '900',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
+                        }}
+                      >
+                        {histProcessing ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" /> Procesando Carga...
+                          </>
+                        ) : (
+                          <>
+                            ⚡ Guardar y Generar Códigos ({histCountedList.reduce((sum, item) => sum + item.qty, 0)} uds)
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {histCountedList.length === 0 ? (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
+                      <Package size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                      <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay referencias agregadas al conteo.</p>
+                      <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Usa el formulario superior para relacionar los productos físicos que tienes.</p>
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencia</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Color</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Talla</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Cantidad</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Observaciones</th>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {histCountedList.map((item) => (
+                            <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#80082E' }}>{item.productName} ({item.productRef})</td>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#334155' }}>{item.colorName}</td>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '900' }}>
+                                <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>{item.sizeCode}</span>
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '850', textAlign: 'center', fontSize: '0.9rem', color: '#0f172a' }}>{item.qty} uds</td>
+                              <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{item.notes || '—'}</td>
+                              <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveHistItem(item.id)}
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: '#ef4444',
+                                    fontWeight: '800',
+                                    cursor: 'pointer',
+                                    fontSize: '0.78rem'
+                                  }}
+                                >
+                                  Quitar
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 📜 HISTÓRICO DE LOTES Y ETIQUETAS GENERADAS */}
+            {histSubTab === 'batches_list' && (
+              <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      📜 Histórico de Lotes de Etiquetas Generadas
+                    </h3>
+                    <p style={{ fontSize: '0.76rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                      Consulta los conjuntos de etiquetas creados en cargas históricas y reimprímelos cuando lo necesites.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ position: 'relative', width: '240px' }}>
+                      <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        value={histSearchTerm}
+                        onChange={e => setHistSearchTerm(e.target.value)}
+                        placeholder="Buscar lote o ref..."
+                        style={{ width: '100%', padding: '0.45rem 0.6rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem', fontWeight: '600' }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={fetchHistoricalBatches}
+                      disabled={loadingHistBatches}
+                      title="Actualizar histórico"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: '#f8fafc',
+                        color: '#475569',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <RefreshCw size={16} className={loadingHistBatches ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+                </div>
+
+                {loadingHistBatches ? (
+                  <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
+                    <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
+                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: '700' }}>Cargando lotes históricos...</p>
+                  </div>
+                ) : histBatches.length === 0 ? (
+                  <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b', border: '1.5px dashed #cbd5e1', borderRadius: '12px' }}>
+                    <History size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                    <p style={{ margin: 0, fontWeight: '700', fontSize: '0.85rem' }}>No hay lotes históricos de etiquetas registrados.</p>
+                    <p style={{ fontSize: '0.74rem', color: '#94a3b8', margin: '0.2rem 0 0' }}>Al guardar inventario histórico se guardarán automáticamente aquí para su reimpresión.</p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Nombre de Documento / Lote</th>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Fecha de Registro</th>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Total Prendas</th>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencias Incluidas</th>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'right' }}>Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {histBatches
+                          .filter(b => {
+                            if (!histSearchTerm.trim()) return true;
+                            const term = histSearchTerm.toLowerCase();
+                            const matchDoc = b.docName.toLowerCase().includes(term);
+                            const matchGarments = b.garments.some((g: any) =>
+                              (g.reference_name || '').toLowerCase().includes(term) ||
+                              (g.barcode || '').includes(term) ||
+                              (g.color_name || '').toLowerCase().includes(term)
+                            );
+                            return matchDoc || matchGarments;
+                          })
+                          .map((batch, idx) => {
+                            const dateFormatted = new Date(batch.createdAt).toLocaleString('es-CO', {
+                              year: 'numeric', month: '2-digit', day: '2-digit',
+                              hour: '2-digit', minute: '2-digit'
+                            });
+
+                            const summaryEntries = Object.entries(batch.summary);
+
+                            return (
+                              <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#0f172a' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <FileText size={15} color="#80082E" />
+                                    {batch.docName}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
+                                  {dateFormatted}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                  <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
+                                    🏷️ {batch.garments.length} etiquetas
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem' }}>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                    {summaryEntries.map(([refName, count], sIdx) => (
+                                      <span key={sIdx} style={{ backgroundColor: '#f1f5f9', color: '#334155', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                                        {refName} ({count as number})
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setHistSuccessGarments(batch.garments);
+                                      setShowHistLabelsModal(true);
+                                    }}
+                                    style={{
+                                      backgroundColor: '#80082E',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '8px',
+                                      padding: '0.45rem 0.9rem',
+                                      fontSize: '0.76rem',
+                                      fontWeight: '900',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.4rem',
+                                      boxShadow: '0 2px 4px rgba(128, 8, 46, 0.15)'
+                                    }}
+                                  >
+                                    <Printer size={14} /> Reimprimir Etiquetas
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ADJUSTMENT MODAL */}
       {showAdjustmentModal && (
@@ -2861,10 +3498,18 @@ export default function FinishedGoodsInventory() {
                   </thead>
                   <tbody>
                     {unitGarments.map((g: any) => {
-                      const orderCode = g.quality_inspections?.sewing_orders?.confeccion_code ||
+                      const isHist = g.is_historical;
+                      const qualityCode = g.quality_inspections?.sewing_orders?.confeccion_code ||
                         g.quality_inspections?.orders?.internal_code ||
-                        (g.quality_inspections?.orders?.consecutive ? `OC-${g.quality_inspections.orders.consecutive.toString().padStart(4, '0')}` : null) ||
-                        (g.is_historical ? (g.historical_doc || 'Inventario Histórico') : '—');
+                        (g.quality_inspections?.orders?.consecutive ? `OC-${g.quality_inspections.orders.consecutive.toString().padStart(4, '0')}` : null);
+                      
+                      const docLabel = isHist
+                        ? (g.historical_doc || 'Inventario Histórico')
+                        : (qualityCode || g.notes || 'Carga Inicial');
+
+                      const badgeBg = isHist ? '#eff6ff' : qualityCode ? '#fdf2f4' : '#f8fafc';
+                      const badgeColor = isHist ? '#1e40af' : qualityCode ? '#80082E' : '#475569';
+                      const badgeBorder = isHist ? '#bfdbfe' : qualityCode ? '#fecdd3' : '#cbd5e1';
 
                       return (
                         <tr key={g.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
@@ -2874,8 +3519,8 @@ export default function FinishedGoodsInventory() {
                             </span>
                           </td>
                           <td style={{ padding: '0.65rem 1rem' }}>
-                            <span style={{ fontWeight: 900, color: '#80082E', backgroundColor: '#fdf2f4', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', border: '1px solid #fecdd3' }}>
-                              📦 {orderCode}
+                            <span style={{ fontWeight: 900, color: badgeColor, backgroundColor: badgeBg, padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', border: `1px solid ${badgeBorder}` }}>
+                              📦 {docLabel}
                             </span>
                           </td>
                           <td style={{ padding: '0.65rem 1rem' }}>

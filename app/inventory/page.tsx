@@ -7,7 +7,7 @@ import AccessoriesInventory from '@/components/AccessoriesInventory';
 import { Package, Layers, Tag } from 'lucide-react';
 
 export default function ConsolidatedInventoryPage() {
-  const [activeInventory, setActiveInventory] = useState<'telas' | 'accesorios' | 'terminado'>('telas');
+  const [activeInventory, setActiveInventory] = useState<'terminado' | 'telas' | 'accesorios'>('terminado');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '4rem' }}>
@@ -29,17 +29,18 @@ export default function ConsolidatedInventoryPage() {
             width: '40px', 
             height: '40px', 
             borderRadius: '10px', 
-            backgroundColor: '#fdf2f4', 
-            color: '#80082E', 
+            backgroundColor: '#80082E', 
+            color: 'white', 
             display: 'flex', 
             alignItems: 'center', 
-            justifyContent: 'center' 
+            justifyContent: 'center',
+            boxShadow: '0 4px 10px rgba(128, 8, 46, 0.25)'
           }}>
-            <Package size={20} />
+            <Package size={22} />
           </div>
           <div>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>Inventario Consolidador</h1>
-            <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>Gestión de Materia Prima, Accesorios y Producto Terminado</p>
+            <h1 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>Inventario Operativo General</h1>
+            <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>Gestión de Materia Prima, Accesorios e Insumos y Producto Terminado</p>
           </div>
         </div>
 
@@ -48,8 +49,31 @@ export default function ConsolidatedInventoryPage() {
           backgroundColor: '#f1f5f9', 
           padding: '0.25rem', 
           borderRadius: '12px',
-          gap: '0.25rem'
+          gap: '0.25rem',
+          flexWrap: 'wrap'
         }}>
+          <button
+            onClick={() => setActiveInventory('terminado')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              border: 'none',
+              backgroundColor: activeInventory === 'terminado' ? '#80082E' : 'transparent',
+              color: activeInventory === 'terminado' ? 'white' : '#475569',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              fontWeight: '800',
+              cursor: 'pointer',
+              boxShadow: activeInventory === 'terminado' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s'
+            }}
+          >
+            <Package size={14} />
+            Producto Terminado Operativo
+          </button>
+
           <button
             onClick={() => setActiveInventory('telas')}
             style={{
@@ -71,6 +95,7 @@ export default function ConsolidatedInventoryPage() {
             <Layers size={14} />
             Materia Prima (Telas)
           </button>
+
           <button
             onClick={() => setActiveInventory('accesorios')}
             style={{
@@ -92,38 +117,17 @@ export default function ConsolidatedInventoryPage() {
             <Tag size={14} />
             Accesorios e Insumos
           </button>
-          <button
-            onClick={() => setActiveInventory('terminado')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              border: 'none',
-              backgroundColor: activeInventory === 'terminado' ? 'white' : 'transparent',
-              color: activeInventory === 'terminado' ? '#80082E' : '#475569',
-              padding: '0.5rem 1rem',
-              borderRadius: '8px',
-              fontSize: '0.8rem',
-              fontWeight: '800',
-              cursor: 'pointer',
-              boxShadow: activeInventory === 'terminado' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              transition: 'all 0.15s'
-            }}
-          >
-            <Package size={14} />
-            Producto Terminado
-          </button>
         </div>
       </div>
 
       {/* Render selected sub-inventory */}
       <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1px solid #f1f5f9', padding: '1.5rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        {activeInventory === 'telas' ? (
-          <FabricsInventory />
-        ) : activeInventory === 'accesorios' ? (
-          <AccessoriesInventory />
-        ) : (
+        {activeInventory === 'terminado' ? (
           <FinishedGoodsInventory />
+        ) : activeInventory === 'telas' ? (
+          <FabricsInventory />
+        ) : (
+          <AccessoriesInventory />
         )}
       </div>
     </div>

@@ -230,7 +230,7 @@ export default function QualityPage() {
   });
 
   useEffect(() => {
-    fetchAll(() => supabase.from('products').select('*')).then(setProducts);
+    fetchAll(() => supabase.from('products').select('*').neq('estado', 'inactivo')).then(setProducts);
     supabase.from('sizes').select('*').order('orden_visual', { ascending: true }).then(({ data }) => setSizes(data || []));
     supabase.from('colors').select('*').then(({ data }) => setColors(data || []));
     supabase.from('fabrics').select('*').then(({ data }) => setFabrics(data || []));

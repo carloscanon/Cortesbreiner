@@ -72,12 +72,13 @@ const MASTER_CONFIG: any = {
     title: 'Maestro de Productos',
     table: 'products',
     icon: LayoutGrid,
-    listFields: ['category_id', 'precio', 'precio_con_iva'],
+    listFields: ['category_id', 'precio', 'precio_con_iva', 'estado'],
     fields: [
       { name: 'codigo_referencia', label: 'Referencia (Opcional - Auto)', type: 'text', disabled: false },
       { name: 'nombre_producto', label: 'Nombre Producto', type: 'text', required: true },
       { name: 'category_id', label: 'Categoría', type: 'select', options: [] },
       { name: 'genero', label: 'Género', type: 'select', options: ['M', 'F'] },
+      { name: 'estado', label: 'Estado del Producto', type: 'select', options: ['activo', 'inactivo'] },
       { name: 'iva', label: 'IVA (%)', type: 'number', disabled: true },
       { name: 'precio', label: 'Precio ($)', type: 'number' },
       { name: 'precio_con_iva', label: 'Precio con IVA ($)', type: 'number', disabled: true },
@@ -315,6 +316,8 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
     fetchMasters();
   }, [activeTab]);
 
+  const [productStockMap, setProductStockMap] = useState<Record<string, number>>({});
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -325,10 +328,39 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
           .order('created_at', { ascending: false })
       );
       setData(result || []);
+
+      if (activeTab === 'products') {
+        try {
+          const stockRows = await fetchAll(() => supabase.from('finished_goods_stock').select('product_id, cantidad_disponible'));
+          const map: Record<string, number> = {};
+          (stockRows || []).forEach((row: any) => {
+            const pId = String(row.product_id);
+            map[pId] = (map[pId] || 0) + (row.cantidad_disponible || 0);
+          });
+          setProductStockMap(map);
+        } catch (e) {
+          console.warn('Error computing product stock map:', e);
+        }
+      }
     } catch (err) {
       console.error('Error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleProductStatus = async (item: any) => {
+    const nextStatus = item.estado === 'inactivo' ? 'activo' : 'inactivo';
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ estado: nextStatus })
+        .eq('id', item.id);
+      if (error) throw error;
+      fetchData();
+      fetchAllCounts();
+    } catch (err: any) {
+      alert('Error al actualizar el estado del producto: ' + err.message);
     }
   };
 
@@ -874,6 +906,58 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                               })()}
                             </div>
                           )}
+                          {activeTab === 'products' && (() => {
+                            const availableQty = productStockMap[String(item.id)] || 0;
+                            const isInactive = item.estado === 'inactivo';
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', width: '100%', marginTop: '0.2rem' }}>
+                                {/* Badge de unidades disponibles */}
+                                {availableQty > 0 ? (
+                                  <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
+                                    🟢 En Stock ({availableQty} unidades disponibles)
+                                  </span>
+                                ) : (
+                                  <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1' }}>
+                                    ⚪ Sin Unidades (0 en stock)
+                                  </span>
+                                )}
+
+                                {/* Badge de Estado Activo / Inactivo */}
+                                {isInactive ? (
+                                  <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecdd3' }}>
+                                    🔴 INHABILITADO (Oculto en Módulos)
+                                  </span>
+                                ) : (
+                                  <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
+                                    🟢 ACTIVO
+                                  </span>
+                                )}
+
+                                {/* Botón Rápido Cambiar Estado */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleProductStatus(item);
+                                  }}
+                                  style={{
+                                    border: 'none',
+                                    backgroundColor: isInactive ? '#10b981' : '#ef4444',
+                                    color: 'white',
+                                    borderRadius: '6px',
+                                    padding: '0.15rem 0.55rem',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '800',
+                                    cursor: 'pointer',
+                                    transition: 'opacity 0.2s'
+                                  }}
+                                >
+                                  {isInactive ? '⚡ Habilitar' : '🚫 Inhabilitar'}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
                           {config.listFields.map((fieldKey: string) => {
                             let val = item[fieldKey];
                             
@@ -933,10 +1017,23 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                           borderRadius: '10px', 
                           boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', 
                           zIndex: 10,
-                          minWidth: '140px',
+                          minWidth: '160px',
                           overflow: 'hidden',
                           marginTop: '0.5rem'
                         }}>
+                          {activeTab === 'products' && (
+                            <button 
+                              onClick={() => {
+                                handleToggleProductStatus(item);
+                                setActiveMenu(null);
+                              }}
+                              style={{ width: '100%', padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '0.6rem', borderBottom: '1px solid var(--border)', transition: 'background 0.2s', color: item.estado === 'inactivo' ? '#059669' : '#dc2626', fontWeight: '800' }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                            >
+                              {item.estado === 'inactivo' ? '⚡ Habilitar Producto' : '🚫 Inhabilitar Producto'}
+                            </button>
+                          )}
                           <button 
                             onClick={() => handleEdit(item)}
                             style={{ width: '100%', padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '0.6rem', borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}

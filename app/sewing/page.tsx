@@ -158,7 +158,7 @@ export default function SewingPage() {
         supabase.from('fabrics').select('*'),
         supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
         supabase.from('colors').select('*'),
-        fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').order('nombre_producto')),
+        fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').neq('estado', 'inactivo').order('nombre_producto')),
         fetchAll(() => supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida)')),
         fetchAll(() => supabase.from('sewing_orders')
           .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable)')

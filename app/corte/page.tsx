@@ -88,7 +88,7 @@ export default function CorteDashboard() {
     try {
       const { data: fData } = await supabase.from('fabrics').select('*');
       const { data: nData } = await supabase.from('novelties').select('*');
-      const { data: pData } = await supabase.from('products').select('*');
+      const { data: pData } = await supabase.from('products').select('*').neq('estado', 'inactivo');
       const { data: cData } = await supabase.from('colors').select('*').order('nombre');
       setFabrics(fData || []);
       setNoveltiesMaster(nData || []);
@@ -279,7 +279,7 @@ export default function CorteDashboard() {
       setReconciliationCuts(cutsData || []);
 
       // Fetch products and categories for category breakdown
-      const { data: prodData } = await supabase.from('products').select('*');
+      const { data: prodData } = await supabase.from('products').select('*').neq('estado', 'inactivo');
       const { data: catData } = await supabase.from('categories').select('*');
       setReconciliationProducts(prodData || []);
       setReconciliationCategories(catData || []);
