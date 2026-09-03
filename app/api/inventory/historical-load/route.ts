@@ -39,9 +39,30 @@ export async function POST(req: Request) {
     const { data: colors } = await supabaseAdmin.from('colors').select('id, nombre_color');
     const { data: sizes } = await supabaseAdmin.from('sizes').select('id, codigo_talla');
 
-    const productMap = new Map(products?.map(p => [p.id, p.nombre_producto || p.name || p.codigo_referencia || '']));
-    const colorMap = new Map(colors?.map(c => [c.id, c.nombre_color]));
-    const sizeMap = new Map(sizes?.map(s => [s.id, s.codigo_talla]));
+    const productMap = new Map();
+    products?.forEach(p => {
+      const name = p.nombre_producto || p.name || p.codigo_referencia || '';
+      if (p.id !== undefined && p.id !== null) {
+        productMap.set(p.id, name);
+        productMap.set(String(p.id), name);
+      }
+    });
+
+    const colorMap = new Map();
+    colors?.forEach(c => {
+      if (c.id !== undefined && c.id !== null) {
+        colorMap.set(c.id, c.nombre_color);
+        colorMap.set(String(c.id), c.nombre_color);
+      }
+    });
+
+    const sizeMap = new Map();
+    sizes?.forEach(s => {
+      if (s.id !== undefined && s.id !== null) {
+        sizeMap.set(s.id, s.codigo_talla);
+        sizeMap.set(String(s.id), s.codigo_talla);
+      }
+    });
 
     // 3. Determinar el consecutivo más alto de código de barras
     let { data: maxGarment, error: maxErr } = await supabaseAdmin
@@ -92,9 +113,9 @@ export async function POST(req: Request) {
       }
 
       // Nombre del producto, color y talla
-      const pName = productMap.get(productId) || 'Producto Desconocido';
-      const cName = colorId ? (colorMap.get(colorId) || '—') : '—';
-      const sCode = sizeMap.get(sizeId) || 'ST';
+      const pName = item.productName || item.productRef || productMap.get(productId) || productMap.get(String(productId)) || 'Producto Desconocido';
+      const cName = item.colorName || (colorId ? (colorMap.get(colorId) || colorMap.get(String(colorId)) || '—') : '—');
+      const sCode = item.sizeCode || sizeMap.get(sizeId) || sizeMap.get(String(sizeId)) || 'ST';
 
       // Generar registros individuales
       for (let i = 0; i < parsedQty; i++) {

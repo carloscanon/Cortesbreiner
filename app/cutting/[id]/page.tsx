@@ -164,7 +164,7 @@ export default function CutDetailsPage() {
       const initialInputState: Record<number, { actualLayers: number; actualKilos: number }> = {};
       cutsData?.forEach(cut => {
         initialInputState[cut.id] = {
-          actualLayers: cut.layers_produced > 0 ? cut.layers_produced : (cut.layers || 0),
+          actualLayers: Number(cut.layers_produced) || 0,
           actualKilos: Math.round((cut.kilos || 0) * 100) / 100
         };
       });
@@ -231,7 +231,19 @@ export default function CutDetailsPage() {
 
   const handleFinishCut = async () => {
     if (!orderId) return;
-    if (!confirm('¿Estás seguro de que deseas finalizar y registrar este tendido? Esta acción cambiará el estado de la orden a "Tendido".')) return;
+
+    const zeroLayerCuts = cuts.filter(cut => {
+      const input = actualCutsData[cut.id];
+      const actualLayers = input ? input.actualLayers : (Number(cut.layers_produced) || 0);
+      return actualLayers <= 0;
+    });
+
+    let confirmMsg = '¿Estás seguro de que deseas finalizar y registrar este tendido? Esta acción cambiará el estado de la orden a "Tendido".';
+    if (zeroLayerCuts.length > 0) {
+      confirmMsg = `⚠️ Atención: Hay ${zeroLayerCuts.length} trazo(s)/tela(s) con 0 capas tendidas. Se registrarán 0 prendas producidas para esas telas.\n\n¿Estás seguro de que deseas finalizar y registrar este tendido?`;
+    }
+
+    if (!confirm(confirmMsg)) return;
     setSaving(true);
     try {
       // 1. Update each cut with its actual layers/kilos and update its cut_sizes quantities
@@ -699,7 +711,7 @@ export default function CutDetailsPage() {
                   cuts.forEach((cut: any) => {
                     const key = cut.fabric_id ? `fab_${cut.fabric_id}` : `col_${cut.color_id || 'none'}`;
                     const plannedLayers = Number(cut.layers) || 1;
-                    const capas = cut.layers_produced > 0 ? cut.layers_produced : plannedLayers;
+                    const capas = Number(cut.layers_produced) || 0;
                     const plannedPrendas = cut.cut_sizes?.reduce((sum: number, cs: any) => sum + (Number(cs.quantity) || 0), 0) || 0;
                     const totalPrendas = Math.round((plannedPrendas / plannedLayers) * capas);
                     if (!uniqueFabricMap.has(key)) {
@@ -769,7 +781,7 @@ export default function CutDetailsPage() {
                         </td>
                         <td style={{ padding: '1rem', fontSize: '0.85rem', fontWeight: '800' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' }}>
-                            {isAdmin && isRevertObsEnabled ? (
+                            {isActive || (isAdmin && isRevertObsEnabled) ? (
                               <input 
                                 type="number"
                                 min="0"
@@ -1396,7 +1408,7 @@ export default function CutDetailsPage() {
                       return cut.cut_sizes.filter((cs: any) => Number(cs.quantity) > 0).map((cs: any, i: number) => {
                         const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
                         const plannedLayers = Number(cut.layers) || 1;
-                        const capas = cut.layers_produced > 0 ? cut.layers_produced : plannedLayers;
+                        const capas = order.status === 'Planeada' ? plannedLayers : (Number(cut.layers_produced) || 0);
                         const marcRatio = Number(cs.quantity) / plannedLayers;
                         const marcLabel = marcRatio.toFixed(2);
                         const actualQuantity = Math.round(marcRatio * capas);

@@ -63,6 +63,8 @@ export interface StockItem {
   cantidad_disponible: number;
   cantidad_reservada?: number;
   cantidad_bloqueada?: number;
+  stock_minimo?: number;
+  stock_maximo?: number;
   updated_at?: string;
   products?: {
     id: string;
@@ -70,6 +72,7 @@ export interface StockItem {
     name?: string;
     codigo_referencia?: string;
     precio?: number;
+    precio_costo?: number;
     costo?: number;
     categoria?: string;
     category_id?: string;
@@ -252,10 +255,10 @@ export default function FinishedGoodsWMSControlTower() {
         fetchAllPages(
           supabase.from('finished_goods_stock').select(`
             *,
-            products (id, nombre_producto, codigo_referencia, precio, costo, categoria, category_id, stock_minimo, stock_maximo),
+            products (id, nombre_producto, codigo_referencia, precio, precio_costo, categoria, category_id),
             colors (id, nombre_color, hex_color),
             sizes (id, codigo_talla),
-            warehouses (id, nombre_bodega, ciudad, responsable)
+            warehouses (id, nombre_bodega, responsable)
           `)
         ),
         supabase.from('individual_garments').select('*', { count: 'exact', head: true }),
@@ -317,7 +320,7 @@ export default function FinishedGoodsWMSControlTower() {
       }
       // Filtro Categoría
       if (selectedCategoryFilter !== 'all') {
-        const catName = item.products?.categoria || item.products?.category_id || '';
+        const catName = item.products?.categoria || '';
         if (catName.toLowerCase() !== selectedCategoryFilter.toLowerCase()) return false;
       }
       // Filtro Estado Stock
@@ -349,19 +352,19 @@ export default function FinishedGoodsWMSControlTower() {
   const kpis = useMemo(() => {
     const totalUnits = filteredStock.reduce((acc, item) => acc + (item.cantidad_disponible || 0), 0);
     const totalValue = filteredStock.reduce((acc, item) => {
-      const price = item.products?.precio || item.products?.costo || 45000;
+      const price = item.products?.precio || item.products?.precio_costo || 45000;
       return acc + (item.cantidad_disponible || 0) * price;
     }, 0);
 
     const activeSKUs = new Set(filteredStock.map(i => `${i.product_id}_${i.color_id}_${i.size_id}`)).size;
     
     const criticalProducts = filteredStock.filter(i => {
-      const min = i.products?.stock_minimo || 5;
+      const min = i.stock_minimo || i.products?.stock_minimo || 5;
       return (i.cantidad_disponible || 0) < min;
     }).length;
 
     const overstockProducts = filteredStock.filter(i => {
-      const max = i.products?.stock_maximo || 80;
+      const max = i.stock_maximo || i.products?.stock_maximo || 80;
       return (i.cantidad_disponible || 0) > max;
     }).length;
 
@@ -382,7 +385,7 @@ export default function FinishedGoodsWMSControlTower() {
   // Contenido Específico de una Bodega Seleccionada
   const selectedWarehouseStock = useMemo(() => {
     if (!selectedWarehouseDetail) return [];
-    return stock.filter(item => item.warehouse_id === selectedWarehouseDetail.id && (
+    return stock.filter(item => isSameWarehouse(item, selectedWarehouseDetail) && (
       warehouseSearchQuery.trim() === '' ||
       (item.products?.nombre_producto || '').toLowerCase().includes(warehouseSearchQuery.toLowerCase()) ||
       (item.products?.codigo_referencia || '').toLowerCase().includes(warehouseSearchQuery.toLowerCase()) ||
@@ -475,8 +478,8 @@ export default function FinishedGoodsWMSControlTower() {
     ];
 
     const rows = filteredStock.map(item => {
-      const price = item.products?.precio || item.products?.costo || 45000;
-      const min = item.products?.stock_minimo || 5;
+      const price = item.products?.precio || item.products?.precio_costo || 45000;
+      const min = item.stock_minimo || item.products?.stock_minimo || 5;
       const qty = item.cantidad_disponible || 0;
       const statusStr = qty < min ? 'CRÍTICO (Bajo Mínimo)' : qty > 80 ? 'SOBRESTOCK' : 'NORMAL (Disponible)';
 
@@ -1206,9 +1209,9 @@ export default function FinishedGoodsWMSControlTower() {
               <tbody>
                 {filteredStock.map(item => {
                   const qty = item.cantidad_disponible || 0;
-                  const min = item.products?.stock_minimo || 5;
-                  const max = item.products?.stock_maximo || 80;
-                  const price = item.products?.precio || item.products?.costo || 45000;
+                  const min = item.stock_minimo || item.products?.stock_minimo || 5;
+                  const max = item.stock_maximo || item.products?.stock_maximo || 80;
+                  const price = item.products?.precio || item.products?.precio_costo || 45000;
                   const isCritical = qty < min;
                   const isOver = qty > max;
 

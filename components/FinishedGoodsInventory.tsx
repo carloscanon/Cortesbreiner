@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
+import GeneralInventorySubmodule from '@/components/inventory/GeneralInventorySubmodule';
 
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
 // Renderiza en canvas oculto y exporta como <img> para impresión confiable
@@ -91,7 +92,7 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
   );
 }
 
-type TabType = 'dashboard' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
+type TabType = 'dashboard' | 'general_inventory' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
@@ -1042,10 +1043,18 @@ export default function FinishedGoodsInventory() {
   const todayStart = new Date();
   todayStart.setHours(0,0,0,0);
   const entriesToday = kardex
-    .filter(k => new Date(k.created_at) >= todayStart && k.tipo_movimiento.toLowerCase().includes('ingreso') || k.tipo_movimiento.toLowerCase().includes('positivo'))
+    .filter(k => new Date(k.created_at) >= todayStart && (
+      k.tipo_movimiento.toLowerCase().includes('ingreso') ||
+      k.tipo_movimiento.toLowerCase().includes('positivo')
+    ))
     .reduce((sum, k) => sum + k.cantidad, 0);
   const exitsToday = kardex
-    .filter(k => new Date(k.created_at) >= todayStart && k.tipo_movimiento.toLowerCase().includes('salida') || k.tipo_movimiento.toLowerCase().includes('negativo') || k.tipo_movimiento.toLowerCase().includes('despacho') || k.tipo_movimiento.toLowerCase().includes('baja'))
+    .filter(k => new Date(k.created_at) >= todayStart && (
+      k.tipo_movimiento.toLowerCase().includes('salida') ||
+      k.tipo_movimiento.toLowerCase().includes('negativo') ||
+      k.tipo_movimiento.toLowerCase().includes('despacho') ||
+      k.tipo_movimiento.toLowerCase().includes('baja')
+    ))
     .reduce((sum, k) => sum + k.cantidad, 0);
 
   // Filters stock
@@ -1576,6 +1585,7 @@ export default function FinishedGoodsInventory() {
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '1.5rem', overflowX: 'auto' }}>
         {[
           { id: 'dashboard', label: 'Panel Resumen' },
+          { id: 'general_inventory', label: 'INVENTARIO GENERAL' },
           { id: 'stock', label: 'Existencias por SKU' },
           { id: 'kardex', label: 'Kardex Historial' },
           { id: 'transfers', label: 'Transferencias' },
@@ -1605,6 +1615,26 @@ export default function FinishedGoodsInventory() {
       </div>
 
       {/* TAB CONTENTS */}
+
+      {/* 0. INVENTARIO GENERAL */}
+      {activeTab === 'general_inventory' && (
+        <GeneralInventorySubmodule
+          products={products}
+          stock={stock}
+          kardex={kardex}
+          warehouses={warehouses}
+          colors={colors}
+          sizes={sizes}
+          categories={categories}
+          user={user}
+          profile={profile}
+          isAdmin={isSuperAdmin}
+          onRefreshData={async () => {
+            await fetchStock();
+            await fetchKardex();
+          }}
+        />
+      )}
 
       {/* 1. DASHBOARD */}
       {activeTab === 'dashboard' && (
@@ -1638,7 +1668,7 @@ export default function FinishedGoodsInventory() {
               <h3 style={{ fontSize: '1rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>Distribución Física por Bodega</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {warehouses.map(w => {
-                  const whStock = stock.filter(s => s.warehouse_id === w.id);
+                  const whStock = stock.filter(s => isSameWarehouse(s, w));
                   const qty = whStock.reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0);
                   const value = whStock.reduce((sum, item) => sum + (item.cantidad_disponible * (item.products?.precio || 0)), 0);
                   const percentage = totalGarments > 0 ? (qty / totalGarments) * 100 : 0;
