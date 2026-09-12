@@ -1520,20 +1520,35 @@ export default function FinishedGoodsInventory() {
 
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
+        const insertPayload: any = {
+          transfer_id: newTransfer.id,
+          product_id: item.product_id,
+          color_id: item.color_id || null,
+          size_id: item.size_id,
+          cantidad: Number(item.cantidad)
+        };
+
+        // Option: add barcodes if available
+        if (item.barcodes || item.barcode) {
+          insertPayload.barcodes = item.barcodes || (item.barcode ? [item.barcode] : []);
+        }
+
         const { error: itemErr } = await supabase
           .from('finished_goods_transfer_items')
-          .insert({
-            transfer_id: newTransfer.id,
-            product_id: item.product_id,
-            color_id: item.color_id || null,
-            size_id: item.size_id,
-            cantidad: Number(item.cantidad),
-            barcodes: item.barcodes || (item.barcode ? [item.barcode] : [])
-          });
+          .insert(insertPayload);
 
         if (itemErr) {
           console.error('Error al guardar ítem de transferencia:', itemErr);
-          throw itemErr;
+          // If error is about missing barcodes column, retry without barcodes field
+          if (itemErr.message?.includes('barcodes') || itemErr.details?.includes('barcodes')) {
+            delete insertPayload.barcodes;
+            const { error: retryErr } = await supabase
+              .from('finished_goods_transfer_items')
+              .insert(insertPayload);
+            if (retryErr) throw retryErr;
+          } else {
+            throw itemErr;
+          }
         }
 
         // Deduct from origin
