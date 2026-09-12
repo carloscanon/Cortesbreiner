@@ -1604,26 +1604,26 @@ export default function FinishedGoodsInventory() {
         </div>
       </div>
 
-      {/* High-Visibility Navigation Bar */}
-      <div style={{ display: 'flex', borderBottom: '3px solid #e2e8f0', gap: '0.75rem', overflowX: 'auto', paddingBottom: '0.5rem', backgroundColor: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
+      {/* High-Visibility Navigation Bar (No Scroll, Responsive Wrap) */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', backgroundColor: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '16px', border: '1.5px solid #cbd5e1' }}>
         {[
           { id: 'dashboard', label: 'Panel Resumen', badge: null },
           { id: 'audit_control', label: 'Auditoría y Control', badge: 'En Vivo' },
           { id: 'general_inventory', label: 'Inventario General', badge: null },
-          { id: 'consolidated_stock', label: 'Stock Único', badge: 'Sin Repeticiones' },
+          { id: 'consolidated_stock', label: 'Stock Único', badge: null },
           { id: 'stock', label: 'Existencias por SKU', badge: null },
           { id: 'kardex', label: 'Kardex Historial', badge: null },
-          { id: 'transfers', label: 'Transferencias e En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length} Pendientes` : null },
+          { id: 'transfers', label: 'En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length}` : null },
           { id: 'historical_inventory', label: 'Inventario Histórico', badge: null }
         ].map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id as TabType)}
             style={{
-              padding: '0.65rem 1.15rem',
+              padding: '0.55rem 0.9rem',
               fontWeight: activeTab === t.id ? '950' : '750',
-              fontSize: '0.88rem',
-              borderRadius: '12px',
+              fontSize: '0.82rem',
+              borderRadius: '10px',
               border: activeTab === t.id ? '2px solid #80082E' : '1px solid #cbd5e1',
               color: activeTab === t.id ? 'white' : '#334155',
               backgroundColor: activeTab === t.id ? '#80082E' : 'white',
@@ -1631,18 +1631,18 @@ export default function FinishedGoodsInventory() {
               whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
-              boxShadow: activeTab === t.id ? '0 4px 12px rgba(128, 8, 46, 0.25)' : 'none',
+              gap: '0.4rem',
+              boxShadow: activeTab === t.id ? '0 4px 10px rgba(128, 8, 46, 0.2)' : 'none',
               transition: 'all 0.15s ease-in-out'
             }}
           >
             <span>{t.label}</span>
             {t.badge && (
               <span style={{
-                fontSize: '0.68rem',
+                fontSize: '0.65rem',
                 fontWeight: '900',
-                padding: '0.15rem 0.5rem',
-                borderRadius: '8px',
+                padding: '0.1rem 0.45rem',
+                borderRadius: '6px',
                 backgroundColor: activeTab === t.id ? 'rgba(255,255,255,0.25)' : '#fee2e2',
                 color: activeTab === t.id ? 'white' : '#dc2626'
               }}>
