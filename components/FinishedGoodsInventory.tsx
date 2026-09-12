@@ -1247,7 +1247,8 @@ export default function FinishedGoodsInventory() {
             product_id: item.product_id,
             color_id: item.color_id || null,
             size_id: item.size_id,
-            cantidad: Number(item.cantidad)
+            cantidad: Number(item.cantidad),
+            barcodes: item.barcodes || (item.barcode ? [item.barcode] : [])
           });
 
         // Deduct from origin
@@ -1271,8 +1272,16 @@ export default function FinishedGoodsInventory() {
         if (origStock?.[0]) {
           await supabase
             .from('finished_goods_stock')
-            .update({ cantidad_disponible: currentOrigQty - Number(item.cantidad) })
+            .update({ cantidad_disponible: Math.max(0, currentOrigQty - Number(item.cantidad)) })
             .eq('id', origStock[0].id);
+        }
+
+        // If specific individual barcode stickers were scanned, update their warehouse location
+        if (item.barcodes && item.barcodes.length > 0) {
+          await supabase
+            .from('individual_garments')
+            .update({ warehouse_id: transferForm.warehouse_dest_id })
+            .in('barcode', item.barcodes);
         }
 
         // Kardex Orig (Salida en Tránsito)
@@ -3339,60 +3348,78 @@ export default function FinishedGoodsInventory() {
                         const codeClean = inputVal.toUpperCase();
                         e.currentTarget.value = '';
 
-                        // 1. Look up in individual_garments first (1-to-1 unique barcode sticker)
+                        // 1. Strictly look up 1-to-1 barcode sticker in `individual_garments` database
                         const { data: garment } = await supabase
                           .from('individual_garments')
                           .select('*')
                           .eq('barcode', codeClean)
                           .maybeSingle();
 
-                        let targetProdId = garment?.product_id;
-                        let targetColorId = garment?.color_id;
-                        let targetSizeId = garment?.size_id;
-                        let targetName = garment?.reference_name;
-
-                        // 2. If not found in garments, look up in products master by ref/barcode
-                        if (!targetProdId) {
-                          const { data: prod } = await supabase
-                            .from('products')
-                            .select('*')
-                            .or(`codigo_referencia.ilike.${codeClean},nombre_producto.ilike.%${codeClean}%`)
-                            .limit(1)
-                            .maybeSingle();
-                          
-                          if (prod) {
-                            targetProdId = prod.id;
-                            targetName = prod.nombre_producto;
+                        if (garment) {
+                          // Check if this exact barcode sticker has already been scanned in this transfer
+                          const alreadyScanned = transferForm.items.some(i => i.barcodes && i.barcodes.includes(codeClean));
+                          if (alreadyScanned) {
+                            alert(`ℹ️ La prenda única con ID / Código de Barras ${codeClean} ya fue agregada al traslado.`);
+                            return;
                           }
-                        }
 
-                        if (!targetProdId) {
-                          alert(`⚠️ Producto o Código de Barras no encontrado: ${codeClean}`);
+                          // Group by product, color, size
+                          const existingIdx = transferForm.items.findIndex(i =>
+                            i.product_id === garment.product_id &&
+                            (garment.color_id ? i.color_id === garment.color_id : true) &&
+                            (garment.size_id ? i.size_id === garment.size_id : true)
+                          );
+
+                          if (existingIdx >= 0) {
+                            const items = [...transferForm.items];
+                            items[existingIdx].cantidad += 1;
+                            items[existingIdx].barcodes = [...(items[existingIdx].barcodes || []), codeClean];
+                            setTransferForm({ ...transferForm, items });
+                          } else {
+                            const items = [...transferForm.items, {
+                              product_id: garment.product_id,
+                              color_id: garment.color_id || colors[0]?.id || '',
+                              size_id: garment.size_id || sizes[0]?.id || '',
+                              cantidad: 1,
+                              barcodes: [codeClean],
+                              codeLabel: codeClean,
+                              nameLabel: garment.reference_name || 'Prenda Indiv.'
+                            }];
+                            setTransferForm({ ...transferForm, items });
+                          }
                           return;
                         }
 
-                        // Check existing item in transfer form list
-                        const existingIdx = transferForm.items.findIndex(i =>
-                          i.product_id === targetProdId &&
-                          (targetColorId ? i.color_id === targetColorId : true) &&
-                          (targetSizeId ? i.size_id === targetSizeId : true)
-                        );
-
-                        if (existingIdx >= 0) {
-                          const items = [...transferForm.items];
-                          items[existingIdx].cantidad += 1;
-                          setTransferForm({ ...transferForm, items });
-                        } else {
-                          const items = [...transferForm.items, {
-                            product_id: targetProdId,
-                            color_id: targetColorId || colors[0]?.id || '',
-                            size_id: targetSizeId || sizes[0]?.id || '',
-                            cantidad: 1,
-                            codeLabel: codeClean,
-                            nameLabel: targetName
-                          }];
-                          setTransferForm({ ...transferForm, items });
+                        // 2. If not found in individual_garments, check products catalog by SKU / barcode reference
+                        const { data: prod } = await supabase
+                          .from('products')
+                          .select('*')
+                          .or(`codigo_referencia.ilike.${codeClean},nombre_producto.ilike.%${codeClean}%`)
+                          .limit(1)
+                          .maybeSingle();
+                        
+                        if (prod) {
+                          const existingIdx = transferForm.items.findIndex(i => i.product_id === prod.id);
+                          if (existingIdx >= 0) {
+                            const items = [...transferForm.items];
+                            items[existingIdx].cantidad += 1;
+                            setTransferForm({ ...transferForm, items });
+                          } else {
+                            const items = [...transferForm.items, {
+                              product_id: prod.id,
+                              color_id: colors[0]?.id || '',
+                              size_id: sizes[0]?.id || '',
+                              cantidad: 1,
+                              barcodes: [codeClean],
+                              codeLabel: codeClean,
+                              nameLabel: prod.nombre_producto
+                            }];
+                            setTransferForm({ ...transferForm, items });
+                          }
+                          return;
                         }
+
+                        alert(`⚠️ Código de Barras ID Único no encontrado: ${codeClean}`);
                       }
                     }}
                     style={{
