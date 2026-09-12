@@ -29,12 +29,39 @@ export default function AuditGunScannerView({
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const scanLockRef = useRef(false);
 
-  // Auto-focus barcode input for Gun Scanner / Mobile
-  useEffect(() => {
-    if (inputRef.current) {
+  // Focus keeper function
+  const keepFocus = () => {
+    if (inputRef.current && !unregisteredModalData) {
       inputRef.current.focus();
     }
+  };
+
+  // Permanent Focus strategy for Gun Scanner:
+  // 1. Focus on mount and modal state change
+  // 2. Global window click listener to re-focus when clicking anywhere outside
+  // 3. Heartbeat interval to reclaim focus every 500ms
+  useEffect(() => {
+    keepFocus();
+
+    const handleClick = (e: MouseEvent) => {
+      // Don't reclaim focus if user clicked inside modal or interactive controls
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.card'))) {
+        // If clicking input itself or modal, let normal behavior occur
+        if (target.tagName === 'INPUT' || unregisteredModalData) return;
+      }
+      keepFocus();
+    };
+
+    window.addEventListener('click', handleClick);
+    const intervalId = setInterval(keepFocus, 500);
+
+    return () => {
+      window.removeEventListener('click', handleClick);
+      clearInterval(intervalId);
+    };
   }, [unregisteredModalData]);
 
   // Load session data from DB API
@@ -87,12 +114,13 @@ export default function AuditGunScannerView({
     }
   };
 
-  // High-Speed Scan Handler
+  // High-Speed Scan Handler with Debounce / Lock
   const handleScanSubmit = async (e?: React.FormEvent, overrideCode?: string, mode: 'increment' | 'decrement' | 'set' = 'increment', qty: number = 1) => {
     if (e) e.preventDefault();
     const codeToScan = (overrideCode || scanInput).trim();
-    if (!codeToScan) return;
+    if (!codeToScan || isScanning || scanLockRef.current) return;
 
+    scanLockRef.current = true;
     setIsScanning(true);
     setScanInput('');
 
@@ -123,7 +151,13 @@ export default function AuditGunScannerView({
       } else {
         playAudioFeedback('success');
         setLastScannedItem(data.item);
-        setStatusMessage({ text: `✅ Escaneado: ${data.item.product_name} (${data.item.counted_qty} contados)`, type: 'success' });
+        const countInfo = data.wasAlreadyCounted
+          ? `ℹ️ Prenda (ID ${codeToScan}) ya estaba registrada (1/1)`
+          : `✅ Escaneado: ${data.item.product_name} (${data.item.counted_qty} contados)`;
+        setStatusMessage({
+          text: countInfo,
+          type: data.wasAlreadyCounted ? 'warning' : 'success'
+        });
       }
 
       await fetchSessionDetails();
@@ -133,7 +167,10 @@ export default function AuditGunScannerView({
       setStatusMessage({ text: '❌ Error: ' + err.message, type: 'error' });
     } finally {
       setIsScanning(false);
-      if (inputRef.current) inputRef.current.focus();
+      scanLockRef.current = false;
+      setTimeout(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, 50);
     }
   };
 

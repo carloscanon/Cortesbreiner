@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (garment) {
-        // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico
+        // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico (1-to-1)
         const { data: newItem } = await supabase
           .from('audit_items')
           .insert({
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
             color_name: garment.color_name || '—',
             size_code: garment.size_code || 'ST',
             expected_qty: 0,
-            counted_qty: 1,
+            counted_qty: 1, // Exactly 1 unit for 1-to-1 barcode sticker
             unit_cost: 0,
             unit_price: 0,
             status: 'Sobrante',
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
       await supabase.from('audit_unregistered_items').insert({
         audit_id: auditId,
         scanned_code: cleanCode,
-        quantity: incrementQty,
+        quantity: 1,
         action_taken: 'REGISTRADO_SOBRANTE',
         reported_by: userEmail || 'Pistola Lectora',
         notes: `Código de Barras ID Único ${cleanCode} no registrado en catálogo`
@@ -124,15 +124,24 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5. Update counted_qty and calculate difference (1-to-1 matching)
+    // 5. Update counted_qty and calculate difference (Strict 1-to-1 barcode sticker matching)
     let newCounted = itemToUpdate.counted_qty || 0;
+    let wasAlreadyCounted = false;
 
     if (mode === 'set') {
       newCounted = Number(incrementQty);
     } else if (mode === 'decrement') {
       newCounted = Math.max(0, newCounted - Number(incrementQty));
     } else {
-      newCounted = newCounted + Number(incrementQty);
+      // If expected_qty is 1 (unique garment label sticker), set counted_qty to EXACTLY 1!
+      if (itemToUpdate.expected_qty === 1) {
+        if (newCounted >= 1) {
+          wasAlreadyCounted = true;
+        }
+        newCounted = 1;
+      } else {
+        newCounted = newCounted + Number(incrementQty);
+      }
     }
 
     const expected = itemToUpdate.expected_qty || 0;
@@ -190,15 +199,15 @@ export async function POST(req: Request) {
       allItems.forEach(i => {
         totalExpected += i.expected_qty || 0;
         totalCounted += i.counted_qty || 0;
-        const diff = (i.counted_qty || 0) - (i.expected_qty || 0);
+        const d = (i.counted_qty || 0) - (i.expected_qty || 0);
         const cost = Number(i.unit_cost || i.unit_price || 0);
 
-        if (diff < 0) {
-          totalMissing += Math.abs(diff);
-          financialMissing += Math.abs(diff) * cost;
-        } else if (diff > 0) {
-          totalSurplus += diff;
-          financialSurplus += diff * cost;
+        if (d < 0) {
+          totalMissing += Math.abs(d);
+          financialMissing += Math.abs(d) * cost;
+        } else if (d > 0) {
+          totalSurplus += d;
+          financialSurplus += d * cost;
         }
       });
 
@@ -217,10 +226,15 @@ export async function POST(req: Request) {
       }).eq('id', auditId);
     }
 
+    const message = wasAlreadyCounted
+      ? `ℹ️ Prenda (ID ${cleanCode}) ya estaba registrada (1/1)`
+      : `✅ Prenda registrada (1 unidad): ${updatedItem.product_name} (${cleanCode})`;
+
     return NextResponse.json({
       success: true,
       item: updatedItem,
-      message: `✅ Escaneado ID Único ${cleanCode}: ${updatedItem.product_name} (${updatedItem.color_name} | ${updatedItem.size_code})`
+      wasAlreadyCounted,
+      message
     });
 
   } catch (error: any) {
