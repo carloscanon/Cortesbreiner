@@ -4695,24 +4695,32 @@ export default function FinishedGoodsInventory() {
 
                       let matchedItemId = null;
                       if (garment) {
-                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) =>
-                          (garment.product_id ? ti.product_id === garment.product_id : true) &&
-                          (garment.color_id ? ti.color_id === garment.color_id : true) &&
-                          (garment.size_id ? ti.size_id === garment.size_id : true)
-                        );
+                        const gRef = (garment.reference_name || '').trim().toUpperCase();
+                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) => {
+                          const pRef = (ti.products?.codigo_referencia || '').trim().toUpperCase();
+                          const pName = (ti.products?.nombre_producto || '').trim().toUpperCase();
+                          
+                          const matchesProduct = garment.product_id ? ti.product_id === garment.product_id : false;
+                          const matchesRefName = gRef ? (pRef === gRef || pName === gRef || pRef.includes(gRef) || gRef.includes(pRef)) : false;
+                          const matchesColor = garment.color_id ? ti.color_id === garment.color_id : true;
+                          const matchesSize = garment.size_id ? ti.size_id === garment.size_id : true;
+
+                          return (matchesProduct || matchesRefName) && matchesColor && matchesSize;
+                        });
                         if (matchedItem) matchedItemId = matchedItem.id;
                       }
 
-                      // 3. Fallback check by SKU in items
+                      // 3. Fallback check by reference code or product name in transfer items
                       if (!matchedItemId) {
-                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) =>
-                          ti.products?.codigo_referencia?.toUpperCase() === codeInput ||
-                          ti.barcodes?.includes(codeInput)
-                        );
+                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) => {
+                          const pRef = (ti.products?.codigo_referencia || '').trim().toUpperCase();
+                          const pName = (ti.products?.nombre_producto || '').trim().toUpperCase();
+                          return pRef === codeInput || pName === codeInput || pRef.includes(codeInput) || pName.includes(codeInput) || ti.barcodes?.includes(codeInput);
+                        });
                         if (matchedItem) matchedItemId = matchedItem.id;
                       }
 
-                      // 4. Default to first item if single SKU transfer
+                      // 4. Fallback if single item in transfer
                       if (!matchedItemId && activeReceivingTransfer.finished_goods_transfer_items?.length === 1) {
                         matchedItemId = activeReceivingTransfer.finished_goods_transfer_items[0].id;
                       }
