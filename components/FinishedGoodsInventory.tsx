@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 import GeneralInventorySubmodule from '@/components/inventory/GeneralInventorySubmodule';
+import ConsolidatedStockSubmodule from '@/components/inventory/ConsolidatedStockSubmodule';
 
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
 // Renderiza en canvas oculto y exporta como <img> para impresión confiable
@@ -92,7 +93,7 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
   );
 }
 
-type TabType = 'dashboard' | 'general_inventory' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
+type TabType = 'dashboard' | 'general_inventory' | 'consolidated_stock' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
@@ -1586,6 +1587,7 @@ export default function FinishedGoodsInventory() {
         {[
           { id: 'dashboard', label: 'Panel Resumen' },
           { id: 'general_inventory', label: 'INVENTARIO GENERAL' },
+          { id: 'consolidated_stock', label: 'Stock Consolidado (Sin Repeticiones)' },
           { id: 'stock', label: 'Existencias por SKU' },
           { id: 'kardex', label: 'Kardex Historial' },
           { id: 'transfers', label: 'Transferencias' },
@@ -1632,6 +1634,34 @@ export default function FinishedGoodsInventory() {
           onRefreshData={async () => {
             await fetchStock();
             await fetchKardex();
+          }}
+        />
+      )}
+
+      {/* 0.5. STOCK CONSOLIDADO (SIN REPETICIONES) */}
+      {activeTab === 'consolidated_stock' && (
+        <ConsolidatedStockSubmodule
+          stock={stock}
+          products={products}
+          colors={colors}
+          sizes={sizes}
+          warehouses={warehouses}
+          categories={categories}
+          stockOrderMap={stockOrderMap}
+          onOpenUnitDetails={handleOpenUnitDetails}
+          onOpenAdjustment={(item) => {
+            setAdjustmentForm({
+              stock_id: item.id,
+              product_id: item.product_id,
+              color_id: item.color_id,
+              fabric_id: item.fabric_id || '',
+              size_id: item.size_id,
+              warehouse_id: item.warehouse_id,
+              type: 'Ajuste positivo',
+              cantidad: 1,
+              observaciones: ''
+            });
+            setShowAdjustmentModal(true);
           }}
         />
       )}
