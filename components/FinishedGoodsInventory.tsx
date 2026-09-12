@@ -1520,7 +1520,18 @@ export default function FinishedGoodsInventory() {
 
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
-        const finalProductId = item.product_id || products[0]?.id || '';
+        let finalProductId = item.product_id;
+        if (!finalProductId && item.nameLabel) {
+          const matchByName = products.find(p =>
+            p.nombre_producto?.trim().toUpperCase() === item.nameLabel.trim().toUpperCase() ||
+            p.codigo_referencia?.trim().toUpperCase() === item.nameLabel.trim().toUpperCase()
+          );
+          if (matchByName) finalProductId = matchByName.id;
+        }
+        if (!finalProductId) {
+          finalProductId = products[0]?.id || '';
+        }
+
         const finalColorId = item.color_id || colors[0]?.id || null;
         const finalSizeId = item.size_id || sizes[0]?.id || '';
 
@@ -4769,7 +4780,7 @@ export default function FinishedGoodsInventory() {
                             return (
                               <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: diff < 0 ? '#fef2f2' : 'white' }}>
                                 <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#0f172a' }}>
-                                  {item.products?.nombre_producto || item.products?.codigo_referencia || '—'}
+                                  {item.products?.nombre_producto || item.products?.codigo_referencia || item.nameLabel || item.reference_name || 'Prenda en Traslado'}
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
                                   {item.colors?.nombre_color || '—'} | <span style={{ fontWeight: '900', color: '#0f172a' }}>{item.sizes?.codigo_talla || 'ST'}</span>
