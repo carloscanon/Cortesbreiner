@@ -165,6 +165,14 @@ export default function FinishedGoodsInventory() {
   const [warehouseModalPage, setWarehouseModalPage] = useState<number>(1);
   const [warehouseModalSearch, setWarehouseModalSearch] = useState<string>('');
 
+  // Inter-Warehouse Transfer Reception Scanner Modal
+  const [showReceiveTransferModal, setShowReceiveTransferModal] = useState(false);
+  const [activeReceivingTransfer, setActiveReceivingTransfer] = useState<any>(null);
+  const [scannedReceivingBarcodes, setScannedReceivingBarcodes] = useState<Set<string>>(new Set());
+  const [scannedReceivingItemsMap, setScannedReceivingItemsMap] = useState<Record<string, number>>({});
+  const [receivingNotes, setReceivingNotes] = useState<string>('');
+  const [isProcessingReceipt, setIsProcessingReceipt] = useState<boolean>(false);
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterWarehouse, setFilterWarehouse] = useState('');
@@ -2183,23 +2191,29 @@ export default function FinishedGoodsInventory() {
                       <td style={{ padding: '1rem 1.5rem' }}>
                         {tx.estado === 'Pendiente' ? (
                           <button
-                            onClick={() => handleAcceptTransfer(tx)}
+                            onClick={() => {
+                              setActiveReceivingTransfer(tx);
+                              setScannedReceivingBarcodes(new Set());
+                              setScannedReceivingItemsMap({});
+                              setReceivingNotes('');
+                              setShowReceiveTransferModal(true);
+                            }}
                             style={{
-                              padding: '0.4rem 0.85rem',
+                              padding: '0.45rem 0.9rem',
                               borderRadius: '8px',
                               backgroundColor: '#10b981',
                               color: 'white',
                               border: 'none',
-                              fontWeight: '800',
-                              fontSize: '0.75rem',
+                              fontWeight: '900',
+                              fontSize: '0.78rem',
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '0.25rem',
-                              boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
+                              gap: '0.35rem',
+                              boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.25)'
                             }}
                           >
-                            <CheckCircle2 size={12} /> Recibir / Aceptar
+                            <Barcode size={15} /> 🔍 Escanear y Recibir
                           </button>
                         ) : (
                           <span style={{
@@ -4259,6 +4273,323 @@ export default function FinishedGoodsInventory() {
           </div>
         </div>
       )}
+
+      {/* 📦 MODAL RECEPCIÓN Y CONCILIACIÓN DE TRASLADO CON PISTOLA LECTORA */}
+      {showReceiveTransferModal && activeReceivingTransfer && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '1rem' }}>
+          <div className="card" style={{ width: '95%', maxWidth: '880px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ backgroundColor: '#10b981', padding: '0.5rem', borderRadius: '10px', color: 'white' }}>
+                  <Barcode size={22} />
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    RECEPCIÓN DE TRASLADO EN TRÁNSITO — TR-{activeReceivingTransfer.consecutive || activeReceivingTransfer.id?.slice(0, 6)}
+                  </span>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '950' }}>
+                    De {activeReceivingTransfer.orig?.nombre_bodega} ➔ Hacia {activeReceivingTransfer.dest?.nombre_bodega}
+                  </h3>
+                </div>
+              </div>
+              <button onClick={() => setShowReceiveTransferModal(false)} style={{ border: 'none', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', padding: '0.4rem', borderRadius: '8px', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Scanner Input Area */}
+            <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#1e293b', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Barcode size={22} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#34d399' }} />
+                <input
+                  type="text"
+                  placeholder="🔍 ESCANEAR CÓDIGO DE BARRAS / ID ÚNICO DE PRENDA QUE LLEGA..."
+                  autoFocus
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const codeInput = (e.currentTarget.value || '').trim().toUpperCase();
+                      if (!codeInput) return;
+                      e.currentTarget.value = '';
+
+                      // 1. Check if barcode is already scanned
+                      if (scannedReceivingBarcodes.has(codeInput)) {
+                        alert(`ℹ️ El código ${codeInput} ya fue escaneado en este proceso de recepción.`);
+                        return;
+                      }
+
+                      // 2. Lookup barcode in individual_garments to resolve item
+                      const { data: garment } = await supabase
+                        .from('individual_garments')
+                        .select('*')
+                        .eq('barcode', codeInput)
+                        .maybeSingle();
+
+                      let matchedItemId = null;
+                      if (garment) {
+                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) =>
+                          (garment.product_id ? ti.product_id === garment.product_id : true) &&
+                          (garment.color_id ? ti.color_id === garment.color_id : true) &&
+                          (garment.size_id ? ti.size_id === garment.size_id : true)
+                        );
+                        if (matchedItem) matchedItemId = matchedItem.id;
+                      }
+
+                      // 3. Fallback check by SKU in items
+                      if (!matchedItemId) {
+                        const matchedItem = activeReceivingTransfer.finished_goods_transfer_items?.find((ti: any) =>
+                          ti.products?.codigo_referencia?.toUpperCase() === codeInput ||
+                          ti.barcodes?.includes(codeInput)
+                        );
+                        if (matchedItem) matchedItemId = matchedItem.id;
+                      }
+
+                      // 4. Default to first item if single SKU transfer
+                      if (!matchedItemId && activeReceivingTransfer.finished_goods_transfer_items?.length === 1) {
+                        matchedItemId = activeReceivingTransfer.finished_goods_transfer_items[0].id;
+                      }
+
+                      if (!matchedItemId) {
+                        alert(`⚠️ El código escaneado (${codeInput}) no pertenece a ningún producto registrado en este despacho.`);
+                        return;
+                      }
+
+                      const newBarcodes = new Set(scannedReceivingBarcodes);
+                      newBarcodes.add(codeInput);
+                      setScannedReceivingBarcodes(newBarcodes);
+
+                      const newMap = { ...scannedReceivingItemsMap };
+                      newMap[matchedItemId] = (newMap[matchedItemId] || 0) + 1;
+                      setScannedReceivingItemsMap(newMap);
+                    }
+                  }}
+                  style={{
+                    width: '100%', padding: '0.75rem 1rem 0.75rem 3.2rem', borderRadius: '10px',
+                    border: '2px solid #10b981', backgroundColor: '#0f172a', color: 'white',
+                    fontSize: '0.92rem', fontWeight: '800', letterSpacing: '0.04em'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Reconciliation Comparison Table */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, backgroundColor: '#f8fafc' }}>
+              {(() => {
+                const transferItems = activeReceivingTransfer.finished_goods_transfer_items || [];
+                const totalDespachado = transferItems.reduce((s: number, i: any) => s + Number(i.cantidad || 0), 0);
+                const totalLlegado = scannedReceivingBarcodes.size || Object.values(scannedReceivingItemsMap).reduce((s: number, v: number) => s + v, 0);
+                const faltanteTotal = Math.max(0, totalDespachado - totalLlegado);
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    
+                    {/* Summary Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                      <div style={{ padding: '1rem', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase' }}>DESPACHADO DESDE ORIGEN</span>
+                        <h4 style={{ margin: '0.2rem 0 0 0', fontSize: '1.3rem', fontWeight: '950', color: '#0f172a' }}>{totalDespachado} uds</h4>
+                      </div>
+
+                      <div style={{ padding: '1rem', backgroundColor: '#ecfdf5', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#047857', textTransform: 'uppercase' }}>FÍSICAMENTE ESCANEADO / LLEGADO</span>
+                        <h4 style={{ margin: '0.2rem 0 0 0', fontSize: '1.3rem', fontWeight: '950', color: '#059669' }}>{totalLlegado} uds</h4>
+                      </div>
+
+                      <div style={{ padding: '1rem', backgroundColor: faltanteTotal > 0 ? '#fef2f2' : '#f0f9ff', borderRadius: '12px', border: `1px solid ${faltanteTotal > 0 ? '#fca5a5' : '#bae6fd'}` }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: faltanteTotal > 0 ? '#dc2626' : '#0284c7', textTransform: 'uppercase' }}>
+                          {faltanteTotal > 0 ? '⚠️ FALTANTES EN RECEPCIÓN' : '✅ RECEPCIÓN COMPLETA'}
+                        </span>
+                        <h4 style={{ margin: '0.2rem 0 0 0', fontSize: '1.3rem', fontWeight: '950', color: faltanteTotal > 0 ? '#b91c1c' : '#0369a1' }}>
+                          {faltanteTotal > 0 ? `-${faltanteTotal} uds` : '0 Faltantes'}
+                        </h4>
+                      </div>
+                    </div>
+
+                    {/* Table */}
+                    <div style={{ border: '1px solid #cbd5e1', borderRadius: '14px', overflow: 'hidden', backgroundColor: 'white' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                        <thead style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1', fontWeight: '800', color: '#475569' }}>
+                          <tr>
+                            <th style={{ padding: '0.75rem 1rem' }}>Producto / Referencia</th>
+                            <th style={{ padding: '0.75rem 1rem' }}>Color / Talla</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Despachado</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Recibido (Escaneado)</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Diferencia / Faltante</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {transferItems.map((item: any) => {
+                            const cantidadDespachada = Number(item.cantidad || 0);
+                            const cantidadEscaneada = scannedReceivingItemsMap[item.id] || 0;
+                            const diff = cantidadEscaneada - cantidadDespachada;
+
+                            return (
+                              <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: diff < 0 ? '#fef2f2' : 'white' }}>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#0f172a' }}>
+                                  {item.products?.nombre_producto || item.products?.codigo_referencia || '—'}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                                  {item.colors?.nombre_color || '—'} | <span style={{ fontWeight: '900', color: '#0f172a' }}>{item.sizes?.codigo_talla || 'ST'}</span>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>
+                                  {cantidadDespachada} uds
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '0.95rem', color: '#059669' }}>
+                                  {cantidadEscaneada} uds
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '950', color: diff < 0 ? '#dc2626' : '#059669' }}>
+                                  {diff < 0 ? `-${Math.abs(diff)} Faltantes` : '0 (OK)'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Receipt Observations Input */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.3rem' }}>
+                        Observaciones de Recepción / Novedad de Despacho
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Se recibieron prendas completas según escaneo físico..."
+                        value={receivingNotes}
+                        onChange={e => setReceivingNotes(e.target.value)}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
+                      />
+                    </div>
+
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer Triggers */}
+            <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#f8fafc', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setShowReceiveTransferModal(false)}
+                style={{ padding: '0.7rem 1.5rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={isProcessingReceipt || scannedReceivingBarcodes.size === 0}
+                onClick={async () => {
+                  if (!confirm(`¿Confirmas finalizar la recepción de este traslado?\n\n• Se ingresarán al stock de destino exactamente las prendas escaneadas.\n• Los faltantes quedarán registrados en la novedad del despacho.`)) return;
+
+                  setIsProcessingReceipt(true);
+                  try {
+                    const tx = activeReceivingTransfer;
+
+                    // 1. Update transfer state to Recibida
+                    await supabase
+                      .from('finished_goods_transfers')
+                      .update({
+                        estado: 'Recibida',
+                        observaciones: (tx.observaciones || '') + ` | Recepción: ${receivingNotes || 'Mercancía escaneada y recibida'}`
+                      })
+                      .eq('id', tx.id);
+
+                    // 2. Ingest scanned items to destination stock
+                    for (const item of (tx.finished_goods_transfer_items || [])) {
+                      const qtyReceived = scannedReceivingItemsMap[item.id] || 0;
+                      if (qtyReceived <= 0) continue;
+
+                      let destQuery = supabase
+                        .from('finished_goods_stock')
+                        .select('*')
+                        .eq('warehouse_id', tx.warehouse_dest_id)
+                        .eq('product_id', item.product_id)
+                        .eq('size_id', item.size_id)
+                        .is('location_id', null);
+
+                      if (item.color_id) destQuery = destQuery.eq('color_id', item.color_id);
+                      else destQuery = destQuery.is('color_id', null);
+
+                      const { data: destStock } = await destQuery.limit(1);
+                      const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible) : 0;
+
+                      if (destStock?.[0]) {
+                        await supabase
+                          .from('finished_goods_stock')
+                          .update({ cantidad_disponible: currentDestQty + qtyReceived })
+                          .eq('id', destStock[0].id);
+                      } else {
+                        await supabase
+                          .from('finished_goods_stock')
+                          .insert({
+                            warehouse_id: tx.warehouse_dest_id,
+                            product_id: item.product_id,
+                            color_id: item.color_id || null,
+                            size_id: item.size_id,
+                            cantidad_disponible: qtyReceived
+                          });
+                      }
+
+                      // Kardex entry
+                      await supabase.from('finished_goods_kardex').insert({
+                        product_id: item.product_id,
+                        color_id: item.color_id || null,
+                        size_id: item.size_id,
+                        tipo_movimiento: 'Transferencia (Entrada)',
+                        cantidad: qtyReceived,
+                        saldo_anterior: currentDestQty,
+                        saldo_nuevo: currentDestQty + qtyReceived,
+                        warehouse_orig_id: tx.warehouse_orig_id,
+                        warehouse_dest_id: tx.warehouse_dest_id,
+                        documento_origen: `Transferencia #${tx.consecutive || tx.id?.slice(0, 6)}`,
+                        usuario: user?.email || 'Usuario',
+                        observaciones: `Recepción física escaneada (${qtyReceived} recibidos de ${item.cantidad} despachados)`
+                      });
+                    }
+
+                    // 3. Update individual garments locations for scanned barcodes
+                    if (scannedReceivingBarcodes.size > 0) {
+                      await supabase
+                        .from('individual_garments')
+                        .update({ warehouse_id: tx.warehouse_dest_id })
+                        .in('barcode', Array.from(scannedReceivingBarcodes));
+                    }
+
+                    alert('✅ ¡Recepción completada con éxito! Las prendas escaneadas fueron ingresadas al inventario de la bodega destino.');
+                    setShowReceiveTransferModal(false);
+                    await fetchStock();
+                    await fetchKardex();
+                    await fetchTransfers();
+                  } catch (err: any) {
+                    alert('❌ Error al procesar recepción: ' + err.message);
+                  } finally {
+                    setIsProcessingReceipt(false);
+                  }
+                }}
+                className="btn btn-primary"
+                style={{
+                  padding: '0.75rem 1.75rem',
+                  fontWeight: '950',
+                  fontSize: '0.9rem',
+                  borderRadius: '10px',
+                  backgroundColor: '#10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  opacity: scannedReceivingBarcodes.size === 0 ? 0.5 : 1
+                }}
+              >
+                {isProcessingReceipt ? <Loader2 size={16} className="animate-spin" /> : '✅ Finalizar Recepción e Ingresar a Stock'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
