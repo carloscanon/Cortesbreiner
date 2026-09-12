@@ -147,16 +147,23 @@ export default function AuditGunScannerView({
           code: codeToScan,
           message: data.message
         });
-        setStatusMessage({ text: `⚠️ Producto No Registrado: ${codeToScan}`, type: 'warning' });
+        setStatusMessage({ text: `⚠️ Producto No Registrado en Catálogo: ${codeToScan}`, type: 'warning' });
       } else {
-        playAudioFeedback('success');
+        const isWarehouseMismatch = data.belongsToAuditWarehouse === false;
+        playAudioFeedback(isWarehouseMismatch ? 'warning' : 'success');
         setLastScannedItem(data.item);
-        const countInfo = data.wasAlreadyCounted
+        
+        let countInfo = data.wasAlreadyCounted
           ? `ℹ️ Prenda (ID ${codeToScan}) ya estaba registrada (1/1)`
           : `✅ Escaneado (+1 unidad): ${data.item.product_name} (${data.item.counted_qty} contados)`;
+
+        if (isWarehouseMismatch) {
+          countInfo = `⚠️ ALERTA DE BODEGA: La prenda (ID ${codeToScan}) pertenece a "${data.actualGarmentWarehouseName}", NO a esta bodega ("${data.targetLocationName}"). Se registra como hallazgo/sobrante.`;
+        }
+
         setStatusMessage({
           text: countInfo,
-          type: data.wasAlreadyCounted ? 'warning' : 'success'
+          type: isWarehouseMismatch ? 'warning' : (data.wasAlreadyCounted ? 'warning' : 'success')
         });
       }
 
