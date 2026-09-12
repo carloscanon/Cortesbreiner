@@ -37,6 +37,8 @@ export async function POST(req: Request) {
 
     let itemToUpdate = matchedItems && matchedItems.length > 0 ? matchedItems[0] : null;
 
+    let newlyInserted = false;
+
     // 2. If not found in session snapshot, check `individual_garments` database table
     if (!itemToUpdate) {
       const { data: garment } = await supabase
@@ -59,9 +61,9 @@ export async function POST(req: Request) {
             color_name: garment.color_name || '—',
             size_code: garment.size_code || 'ST',
             expected_qty: 0,
-            counted_qty: 1, // Exactly 1 unit for 1-to-1 barcode sticker
-            unit_cost: 0,
-            unit_price: 0,
+            counted_qty: 1, // Strictly 1 unit initially
+            difference_cost: 0,
+            difference_price: 0,
             status: 'Sobrante',
             item_state: 'Detectada'
           })
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
           .single();
 
         itemToUpdate = newItem;
+        newlyInserted = true;
       }
     }
 
@@ -92,7 +95,7 @@ export async function POST(req: Request) {
             product_name: prod.nombre_producto || prod.codigo_referencia,
             category_name: prod.categoria || 'Sin Categoría',
             expected_qty: 0,
-            counted_qty: incrementQty,
+            counted_qty: 1, // Strictly 1 unit initially
             unit_cost: prod.costo || prod.precio * 0.5 || 0,
             unit_price: prod.precio || 0,
             status: 'Sobrante',
@@ -102,6 +105,7 @@ export async function POST(req: Request) {
           .single();
 
         itemToUpdate = newItem;
+        newlyInserted = true;
       }
     }
 
@@ -125,53 +129,59 @@ export async function POST(req: Request) {
     }
 
     // 5. Update counted_qty and calculate difference (Strict 1-to-1 barcode sticker matching)
-    let newCounted = itemToUpdate.counted_qty || 0;
+    let updatedItem = itemToUpdate;
     let wasAlreadyCounted = false;
 
-    if (mode === 'set') {
-      newCounted = Number(incrementQty);
-    } else if (mode === 'decrement') {
-      newCounted = Math.max(0, newCounted - 1);
-    } else {
-      // If expected_qty is 1 (unique garment label sticker), set counted_qty to EXACTLY 1!
-      if (itemToUpdate.expected_qty === 1) {
-        if (newCounted >= 1) {
-          wasAlreadyCounted = true;
-        }
-        newCounted = 1;
+    if (!newlyInserted) {
+      let newCounted = itemToUpdate.counted_qty || 0;
+
+      if (mode === 'set') {
+        newCounted = Number(incrementQty);
+      } else if (mode === 'decrement') {
+        newCounted = Math.max(0, newCounted - 1);
       } else {
-        // Enforce strictly 1 unit added per scan
-        newCounted = newCounted + 1;
+        // Strict 1-to-1 unique garment barcode sticker check:
+        // If expected_qty is 0 or 1 for individual barcode sticker, cap counted_qty to strictly 1!
+        const isIndividualSticker = itemToUpdate.expected_qty <= 1 || itemToUpdate.barcode === cleanCode;
+        if (isIndividualSticker) {
+          if (newCounted >= 1) {
+            wasAlreadyCounted = true;
+          }
+          newCounted = 1;
+        } else {
+          newCounted = newCounted + 1;
+        }
       }
-    }
 
-    const expected = itemToUpdate.expected_qty || 0;
-    const diff = newCounted - expected;
-    const unitCost = Number(itemToUpdate.unit_cost || 0);
-    const unitPrice = Number(itemToUpdate.unit_price || 0);
-    const diffCost = diff * unitCost;
-    const diffPrice = diff * unitPrice;
+      const expected = itemToUpdate.expected_qty || 0;
+      const diff = newCounted - expected;
+      const unitCost = Number(itemToUpdate.unit_cost || 0);
+      const unitPrice = Number(itemToUpdate.unit_price || 0);
+      const diffCost = diff * unitCost;
+      const diffPrice = diff * unitPrice;
 
-    let newStatus = 'OK';
-    if (diff < 0) newStatus = 'Faltante';
-    if (diff > 0) newStatus = 'Sobrante';
+      let newStatus = 'OK';
+      if (diff < 0) newStatus = 'Faltante';
+      if (diff > 0) newStatus = 'Sobrante';
 
-    const { data: updatedItem, error: updErr } = await supabase
-      .from('audit_items')
-      .update({
-        counted_qty: newCounted,
-        difference_cost: diffCost,
-        difference_price: diffPrice,
-        status: newStatus,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', itemToUpdate.id)
-      .select()
-      .single();
+      const { data: updated, error: updErr } = await supabase
+        .from('audit_items')
+        .update({
+          counted_qty: newCounted,
+          difference_cost: diffCost,
+          difference_price: diffPrice,
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', itemToUpdate.id)
+        .select()
+        .single();
 
-    if (updErr) {
-      console.error('Error updating audit item:', updErr);
-      return NextResponse.json({ error: updErr.message }, { status: 500 });
+      if (updErr) {
+        console.error('Error updating audit item:', updErr);
+        return NextResponse.json({ error: updErr.message }, { status: 500 });
+      }
+      updatedItem = updated;
     }
 
     // 6. Record scan event in audit_scans
