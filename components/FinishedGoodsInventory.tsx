@@ -2540,11 +2540,18 @@ export default function FinishedGoodsInventory() {
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
                       <td style={{ padding: '1rem 1.5rem' }}>{tx.observaciones || '—'}</td>
                       <td style={{ padding: '1rem 1.5rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem' }}>
                           {tx.finished_goods_transfer_items?.map((item: any) => (
-                            <span key={item.id} style={{ fontStyle: 'italic' }}>
-                              - {item.products?.nombre_producto} ({item.sizes?.codigo_talla}): <strong>{item.cantidad} uds</strong>
-                            </span>
+                            <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                              <span style={{ fontWeight: '700', color: '#0f172a' }}>
+                                • {item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong>{item.cantidad} uds</strong>
+                              </span>
+                              {item.barcodes && item.barcodes.length > 0 && (
+                                <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: '#2563eb', fontWeight: '800', paddingLeft: '0.75rem' }}>
+                                  ID Único: {item.barcodes.join(', ')}
+                                </span>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </td>
@@ -5058,16 +5065,38 @@ export default function FinishedGoodsInventory() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '1.5px solid #cbd5e1' }}>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#0f172a' }}>ID Único / Código de Barras</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Producto / Referencia</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Color</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569', textAlign: 'center' }}>Talla</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569', textAlign: 'right' }}>Cantidad</th>
-                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Códigos Únicos / Stickers</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedTransferForDetail.finished_goods_transfer_items?.map((item: any) => (
                         <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            {item.barcodes && item.barcodes.length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxWidth: '280px' }}>
+                                {item.barcodes.map((bc: string) => (
+                                  <span key={bc} style={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.75rem',
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    border: '1.5px solid #93c5fd',
+                                    padding: '0.15rem 0.5rem',
+                                    borderRadius: '6px',
+                                    fontWeight: '900'
+                                  }}>
+                                    🏷️ {bc}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>N/A (Lote Global)</span>
+                            )}
+                          </td>
                           <td style={{ padding: '0.75rem 1rem' }}>
                             <strong style={{ color: '#0f172a', display: 'block' }}>{item.products?.nombre_producto || 'Producto'}</strong>
                             <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Ref: {item.products?.codigo_referencia || 'N/A'}</span>
@@ -5082,28 +5111,6 @@ export default function FinishedGoodsInventory() {
                           </td>
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', fontSize: '0.9rem' }}>
                             {item.cantidad} uds
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            {item.barcodes && item.barcodes.length > 0 ? (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxWidth: '300px' }}>
-                                {item.barcodes.map((bc: string) => (
-                                  <span key={bc} style={{
-                                    fontFamily: 'monospace',
-                                    fontSize: '0.7rem',
-                                    backgroundColor: '#eff6ff',
-                                    color: '#1d4ed8',
-                                    border: '1px solid #bfdbfe',
-                                    padding: '0.1rem 0.4rem',
-                                    borderRadius: '4px',
-                                    fontWeight: '700'
-                                  }}>
-                                    {bc}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>Sin stickers asociados</span>
-                            )}
                           </td>
                         </tr>
                       ))}
