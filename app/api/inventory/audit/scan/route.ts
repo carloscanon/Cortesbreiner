@@ -106,12 +106,12 @@ export async function POST(req: Request) {
         }
       }
 
-      // Check if already in audit_items snapshot for this session
+      // Check if already in audit_items snapshot for this session strictly by ID Único / Barcode
       const { data: matchedItems } = await supabase
         .from('audit_items')
         .select('*')
         .eq('audit_id', auditId)
-        .or(`barcode.eq.${codeClean},sku_code.eq.${codeClean},barcode.eq.${garment.barcode},sku_code.eq.${garment.barcode}`);
+        .or(`barcode.eq.${codeClean},barcode.eq.${garment.barcode},barcode.eq.${padded10},barcode.eq.${padded8},barcode.eq.${unpadded}`);
 
       if (matchedItems && matchedItems.length > 0) {
         itemToUpdate = matchedItems[0];
@@ -143,12 +143,12 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. If not found in individual_garments, check `products` catalog by SKU / Barcode reference
+    // 2. If not found in individual_garments, check `products` catalog strictly by reference barcode
     if (!itemToUpdate) {
       const { data: prodList } = await supabase
         .from('products')
         .select('*')
-        .or(`codigo_referencia.ilike.${codeClean},codigo_referencia.ilike.${unpadded},nombre_producto.ilike.%${codeClean}%`)
+        .or(`codigo_referencia.eq.${codeClean},codigo_referencia.eq.${unpadded},codigo_referencia.eq.${padded10},codigo_referencia.eq.${padded8}`)
         .limit(1);
 
       const prod = prodList && prodList.length > 0 ? prodList[0] : null;
@@ -170,12 +170,12 @@ export async function POST(req: Request) {
           }
         }
 
-        // Check if item is already in audit_items snapshot
+        // Check if item is already in audit_items snapshot strictly by barcode ID Único
         const { data: matchedItems } = await supabase
           .from('audit_items')
           .select('*')
           .eq('audit_id', auditId)
-          .or(`barcode.eq.${codeClean},sku_code.eq.${codeClean},product_id.eq.${prod.id}`);
+          .or(`barcode.eq.${codeClean},barcode.eq.${unpadded},barcode.eq.${padded10},barcode.eq.${padded8}`);
 
         if (matchedItems && matchedItems.length > 0) {
           itemToUpdate = matchedItems[0];
