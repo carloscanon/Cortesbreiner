@@ -1796,6 +1796,112 @@ export default function FinishedGoodsInventory() {
     }
   };
 
+  const handleRevertTransfer = async (tx: any) => {
+    const reason = prompt(`⚠️ REVERSIÓN DE TRASLADO (SOLO SUPERADMIN)\n\n¿Estás seguro de reversar el traslado TR-${tx.consecutive || tx.id?.slice(0, 6)}?\n\n• Se reintegrarán las prendas a la Bodega Origen (${tx.orig?.nombre_bodega || 'Origen'}).\n• Se descontarán de la Bodega Destino (${tx.dest?.nombre_bodega || 'Destino'}).\n• El estado del traslado cambiará a 'Cancelada'.\n\nMotivo de reversión:`, 'Reversión autorizada por SuperAdmin');
+    if (reason === null) return;
+
+    try {
+      // 1. Revert stock changes for each transfer item
+      for (const item of (tx.finished_goods_transfer_items || [])) {
+        const qty = Number(item.cantidad || 0);
+        if (qty <= 0) continue;
+
+        // Re-add stock to origin warehouse
+        let origQuery = supabase
+          .from('finished_goods_stock')
+          .select('*')
+          .eq('warehouse_id', tx.warehouse_orig_id)
+          .eq('product_id', item.product_id)
+          .eq('size_id', item.size_id)
+          .is('location_id', null);
+
+        if (item.color_id) origQuery = origQuery.eq('color_id', item.color_id);
+        else origQuery = origQuery.is('color_id', null);
+
+        const { data: origStock } = await origQuery.limit(1);
+        const currentOrigQty = origStock?.[0] ? Number(origStock[0].cantidad_disponible) : 0;
+
+        if (origStock?.[0]) {
+          await supabase
+            .from('finished_goods_stock')
+            .update({ cantidad_disponible: currentOrigQty + qty })
+            .eq('id', origStock[0].id);
+        } else {
+          await supabase.from('finished_goods_stock').insert({
+            warehouse_id: tx.warehouse_orig_id,
+            product_id: item.product_id,
+            color_id: item.color_id || null,
+            size_id: item.size_id,
+            cantidad_disponible: qty
+          });
+        }
+
+        // Deduct from destination warehouse if transfer was already received
+        if (tx.estado === 'Recibida') {
+          let destQuery = supabase
+            .from('finished_goods_stock')
+            .select('*')
+            .eq('warehouse_id', tx.warehouse_dest_id)
+            .eq('product_id', item.product_id)
+            .eq('size_id', item.size_id)
+            .is('location_id', null);
+
+          if (item.color_id) destQuery = destQuery.eq('color_id', item.color_id);
+          else destQuery = destQuery.is('color_id', null);
+
+          const { data: destStock } = await destQuery.limit(1);
+          if (destStock?.[0]) {
+            const currentDestQty = Number(destStock[0].cantidad_disponible || 0);
+            await supabase
+              .from('finished_goods_stock')
+              .update({ cantidad_disponible: Math.max(0, currentDestQty - qty) })
+              .eq('id', destStock[0].id);
+          }
+        }
+
+        // Return barcode stickers to origin warehouse
+        if (item.barcodes && item.barcodes.length > 0) {
+          await supabase
+            .from('individual_garments')
+            .update({ warehouse_id: tx.warehouse_orig_id })
+            .in('barcode', item.barcodes);
+        }
+
+        // Register Kardex Reversion movement
+        await supabase.from('finished_goods_kardex').insert({
+          product_id: item.product_id,
+          color_id: item.color_id || null,
+          size_id: item.size_id,
+          tipo_movimiento: 'Reversión Traslado',
+          cantidad: qty,
+          saldo_anterior: currentOrigQty,
+          saldo_nuevo: currentOrigQty + qty,
+          warehouse_orig_id: tx.warehouse_dest_id,
+          warehouse_orig_dest: tx.warehouse_orig_id,
+          documento_origen: `Reversión TR-${tx.consecutive || tx.id?.slice(0, 6)}`,
+          usuario: user?.email || 'SuperAdmin',
+          observaciones: `Reversión SuperAdmin: ${reason}`
+        });
+      }
+
+      // 2. Mark transfer status as Cancelada with audit log
+      await supabase
+        .from('finished_goods_transfers')
+        .update({
+          estado: 'Cancelada',
+          observaciones: (tx.observaciones || '') + ` | REVERTIDO por SuperAdmin (${user?.email || 'Admin'}): ${reason}`
+        })
+        .eq('id', tx.id);
+
+      alert(`✅ Traslado TR-${tx.consecutive || tx.id?.slice(0, 6)} reversado exitosamente. Las existencias retornaron a la bodega de origen.`);
+      await fetchStock();
+      await fetchKardex();
+      await fetchTransfers();
+    } catch (err: any) {
+      alert('❌ Error al reversar traslado: ' + err.message);
+    }
+  };
+
   const handleParsePaste = () => {
     try {
       const rows = rawPaste.split('\n').filter(r => r.trim());
@@ -2670,6 +2776,27 @@ export default function FinishedGoodsInventory() {
                           >
                             <Printer size={14} /> PDF
                           </button>
+                          {isSuperAdmin && tx.estado !== 'Cancelada' && (
+                            <button
+                              onClick={() => handleRevertTransfer(tx)}
+                              title="Reversar traslado (SuperAdmin)"
+                              style={{
+                                padding: '0.45rem 0.8rem',
+                                borderRadius: '8px',
+                                backgroundColor: '#fee2e2',
+                                color: '#991b1b',
+                                border: '1px solid #fca5a5',
+                                fontWeight: '800',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem'
+                              }}
+                            >
+                              <RotateCcw size={14} /> Reversar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -5202,25 +5329,52 @@ export default function FinishedGoodsInventory() {
 
             {/* Footer */}
             <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#f8fafc', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => handlePrintTransferPDF(selectedTransferForDetail)}
-                style={{
-                  padding: '0.65rem 1.25rem',
-                  borderRadius: '10px',
-                  backgroundColor: '#0f172a',
-                  color: 'white',
-                  border: 'none',
-                  fontWeight: '800',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem'
-                }}
-              >
-                <Printer size={16} /> Imprimir Comprobante PDF
-              </button>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => handlePrintTransferPDF(selectedTransferForDetail)}
+                  style={{
+                    padding: '0.65rem 1.25rem',
+                    borderRadius: '10px',
+                    backgroundColor: '#0f172a',
+                    color: 'white',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Printer size={16} /> Imprimir Comprobante PDF
+                </button>
+
+                {isSuperAdmin && selectedTransferForDetail.estado !== 'Cancelada' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setShowTransferDetailModal(false);
+                      await handleRevertTransfer(selectedTransferForDetail);
+                    }}
+                    style={{
+                      padding: '0.65rem 1.25rem',
+                      borderRadius: '10px',
+                      backgroundColor: '#fee2e2',
+                      color: '#991b1b',
+                      border: '1.5px solid #fca5a5',
+                      fontWeight: '800',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    <RotateCcw size={16} /> Reversar Traslado (SuperAdmin)
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
