@@ -6,7 +6,7 @@ import {
   Package, Search, Plus, MoveHorizontal, X, Loader2,
   TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle,
   MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode,
-  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3
+  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3, RotateCcw
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
