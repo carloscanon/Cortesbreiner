@@ -2524,7 +2524,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones', 'Detalle Ítems', 'Acciones'].map(h => (
+                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones / Novedades', 'Detalle Ítems', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -2584,7 +2584,33 @@ export default function FinishedGoodsInventory() {
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{tx.usuario}</td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
-                      <td style={{ padding: '1rem 1.5rem' }}>{tx.observaciones || '—'}</td>
+                      <td style={{ padding: '1rem 1.5rem', maxWidth: '240px' }}>
+                        {tx.observaciones ? (
+                          tx.observaciones.includes('Recepción:') ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <span style={{ fontSize: '0.78rem', color: '#334155', fontWeight: '500' }}>
+                                {tx.observaciones.split('| Recepción:')[0]}
+                              </span>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '6px',
+                                backgroundColor: '#fef3c7',
+                                color: '#92400e',
+                                border: '1px solid #fde68a',
+                                fontWeight: '800',
+                                display: 'inline-block'
+                              }}>
+                                📣 Recepción: {tx.observaciones.split('| Recepción:')[1]}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '0.8rem', color: '#475569' }}>{tx.observaciones}</span>
+                          )
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
                       <td style={{ padding: '1rem 1.5rem' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem' }}>
                           {tx.finished_goods_transfer_items?.map((item: any) => (
