@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import {
   PackageCheck, Search, Filter, Download, Layers, Eye, RefreshCw,
-  AlertTriangle, TrendingUp, CheckCircle2, Package, ChevronDown, ChevronUp, Layers3
+  AlertTriangle, TrendingUp, CheckCircle2, Package, ChevronDown, ChevronUp,
+  Layers3, Sliders, CheckSquare, Square, Palette, Ruler, Building2, Tag
 } from 'lucide-react';
 
 interface ConsolidatedStockSubmoduleProps {
@@ -34,7 +35,46 @@ export default function ConsolidatedStockSubmodule({
   const [selectedSize, setSelectedSize] = useState('all');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
-  // Grouping stock by unique SKU: Product + Color + Size + Warehouse
+  // Dynamic Grouping Controls
+  const [groupByColor, setGroupByColor] = useState(true);
+  const [groupBySize, setGroupBySize] = useState(true);
+  const [groupByWarehouse, setGroupByWarehouse] = useState(true);
+  const [groupPreset, setGroupPreset] = useState<'full_sku' | 'product_only' | 'product_color' | 'product_size' | 'warehouse_product' | 'custom'>('full_sku');
+
+  // Handle Preset Change
+  const handleSelectPreset = (preset: 'full_sku' | 'product_only' | 'product_color' | 'product_size' | 'warehouse_product') => {
+    setGroupPreset(preset);
+    switch (preset) {
+      case 'product_only':
+        setGroupByColor(false);
+        setGroupBySize(false);
+        setGroupByWarehouse(false);
+        break;
+      case 'product_color':
+        setGroupByColor(true);
+        setGroupBySize(false);
+        setGroupByWarehouse(false);
+        break;
+      case 'product_size':
+        setGroupByColor(false);
+        setGroupBySize(true);
+        setGroupByWarehouse(false);
+        break;
+      case 'warehouse_product':
+        setGroupByColor(false);
+        setGroupBySize(false);
+        setGroupByWarehouse(true);
+        break;
+      case 'full_sku':
+      default:
+        setGroupByColor(true);
+        setGroupBySize(true);
+        setGroupByWarehouse(true);
+        break;
+    }
+  };
+
+  // Grouping stock dynamically by user preferences
   const consolidatedList = useMemo(() => {
     const map: Record<string, {
       key: string;
@@ -43,21 +83,19 @@ export default function ConsolidatedStockSubmodule({
       productName: string;
       categoryName: string;
       price: number;
-      colorId: string | null;
       colorName: string;
       hexColor: string;
-      sizeId: string | null;
       sizeCode: string;
-      warehouseId: string | null;
       warehouseName: string;
       totalDisponible: number;
       totalReservado: number;
       totalEnTransito: number;
-      stockMinimo: number;
-      stockMaximo: number;
       recordsCount: number;
       items: any[];
       linkedOrders: Set<string>;
+      uniqueColorsSet: Set<string>;
+      uniqueSizesSet: Set<string>;
+      uniqueWarehousesSet: Set<string>;
     }> = {};
 
     (stock || []).forEach(item => {
@@ -91,13 +129,12 @@ export default function ConsolidatedStockSubmodule({
 
       // 4. Resolve Warehouse info
       const warehouseName = (item.warehouses?.nombre_bodega || 'Bodega Principal').trim();
-      const warehouseId = item.warehouse_id || item.warehouses?.id || 'main';
 
-      // Unique Grouping Key: Reference/Name + Color + Size + Warehouse
-      const refNorm = productRef.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const colorNorm = colorName.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const sizeNorm = sizeCode.toUpperCase();
-      const whNorm = warehouseName.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      // Dynamic Grouping Key Parts
+      const refNorm = (productName || productRef).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const colorNorm = groupByColor ? colorName.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : 'ALL_COLORS';
+      const sizeNorm = groupBySize ? sizeCode.toUpperCase() : 'ALL_SIZES';
+      const whNorm = groupByWarehouse ? warehouseName.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : 'ALL_WAREHOUSES';
 
       const groupKey = `${refNorm}___${colorNorm}___${sizeNorm}___${whNorm}`;
 
@@ -109,21 +146,19 @@ export default function ConsolidatedStockSubmodule({
           productName,
           categoryName,
           price,
-          colorId: item.color_id || null,
-          colorName,
-          hexColor: hexColor || '#94a3b8',
-          sizeId: item.size_id || null,
-          sizeCode,
-          warehouseId,
-          warehouseName,
+          colorName: groupByColor ? colorName : 'Todos los Colores',
+          hexColor: groupByColor ? (hexColor || '#94a3b8') : '#6366f1',
+          sizeCode: groupBySize ? sizeCode : 'Todas las Tallas',
+          warehouseName: groupByWarehouse ? warehouseName : 'Todas las Bodegas',
           totalDisponible: 0,
           totalReservado: 0,
           totalEnTransito: 0,
-          stockMinimo: item.stock_minimo || 0,
-          stockMaximo: item.stock_maximo || 0,
           recordsCount: 0,
           items: [],
-          linkedOrders: new Set()
+          linkedOrders: new Set(),
+          uniqueColorsSet: new Set(),
+          uniqueSizesSet: new Set(),
+          uniqueWarehousesSet: new Set()
         };
       }
 
@@ -132,6 +167,10 @@ export default function ConsolidatedStockSubmodule({
       map[groupKey].totalEnTransito += Number(item.cantidad_en_transito || 0);
       map[groupKey].recordsCount += 1;
       map[groupKey].items.push(item);
+
+      map[groupKey].uniqueColorsSet.add(colorName);
+      map[groupKey].uniqueSizesSet.add(sizeCode);
+      map[groupKey].uniqueWarehousesSet.add(warehouseName);
 
       // Check linked order
       const stockKey = `${item.product_id}_${item.color_id || 'null'}_${item.size_id}_${item.warehouse_id}`;
@@ -143,18 +182,16 @@ export default function ConsolidatedStockSubmodule({
     });
 
     return Object.values(map);
-  }, [stock, colors, stockOrderMap]);
+  }, [stock, colors, stockOrderMap, groupByColor, groupBySize, groupByWarehouse]);
 
   // Filtered List
   const filteredList = useMemo(() => {
     return consolidatedList.filter(item => {
       // Warehouse filter
       if (selectedWarehouse !== 'all') {
-        const whName = item.warehouseName.toLowerCase();
         const selWh = selectedWarehouse.toLowerCase();
-        if (!whName.includes(selWh) && item.warehouseId !== selectedWarehouse) {
-          return false;
-        }
+        const matchesAnyWh = Array.from(item.uniqueWarehousesSet).some(w => w.toLowerCase().includes(selWh));
+        if (!matchesAnyWh) return false;
       }
 
       // Category filter
@@ -163,13 +200,17 @@ export default function ConsolidatedStockSubmodule({
       }
 
       // Color filter
-      if (selectedColor !== 'all' && item.colorName.toLowerCase() !== selectedColor.toLowerCase()) {
-        return false;
+      if (selectedColor !== 'all') {
+        const selColor = selectedColor.toLowerCase();
+        const matchesAnyColor = Array.from(item.uniqueColorsSet).some(c => c.toLowerCase() === selColor);
+        if (!matchesAnyColor) return false;
       }
 
       // Size filter
-      if (selectedSize !== 'all' && item.sizeCode.toLowerCase() !== selectedSize.toLowerCase()) {
-        return false;
+      if (selectedSize !== 'all') {
+        const selSize = selectedSize.toLowerCase();
+        const matchesAnySize = Array.from(item.uniqueSizesSet).some(s => s.toLowerCase() === selSize);
+        if (!matchesAnySize) return false;
       }
 
       // Search filter
@@ -177,10 +218,10 @@ export default function ConsolidatedStockSubmodule({
         const term = searchQuery.trim().toLowerCase();
         const matchesRef = item.productRef.toLowerCase().includes(term);
         const matchesName = item.productName.toLowerCase().includes(term);
-        const matchesColor = item.colorName.toLowerCase().includes(term);
-        const matchesSize = item.sizeCode.toLowerCase().includes(term);
+        const matchesColor = Array.from(item.uniqueColorsSet).some(c => c.toLowerCase().includes(term));
+        const matchesSize = Array.from(item.uniqueSizesSet).some(s => s.toLowerCase().includes(term));
         const matchesCat = item.categoryName.toLowerCase().includes(term);
-        const matchesWh = item.warehouseName.toLowerCase().includes(term);
+        const matchesWh = Array.from(item.uniqueWarehousesSet).some(w => w.toLowerCase().includes(term));
 
         if (!matchesRef && !matchesName && !matchesColor && !matchesSize && !matchesCat && !matchesWh) {
           return false;
@@ -192,7 +233,7 @@ export default function ConsolidatedStockSubmodule({
   }, [consolidatedList, selectedWarehouse, selectedCategory, selectedColor, selectedSize, searchQuery]);
 
   // KPIs
-  const totalUniqueSKUs = filteredList.length;
+  const totalUniqueRows = filteredList.length;
   const totalGarmentsSum = filteredList.reduce((sum, item) => sum + item.totalDisponible, 0);
   const totalDuplicateRecordsCount = filteredList.reduce((sum, item) => sum + item.recordsCount, 0);
   const totalValueSum = filteredList.reduce((sum, item) => sum + (item.totalDisponible * item.price), 0);
@@ -203,21 +244,27 @@ export default function ConsolidatedStockSubmodule({
 
     const BOM = '\uFEFF';
     const headers = [
-      'Referencia', 'Nombre Producto', 'Categoría', 'Color', 'Talla',
-      'Bodega', 'Disponible Consolidado', 'Reservado', 'En Tránsito',
+      'Referencia', 'Nombre Producto', 'Categoría',
+      groupByColor ? 'Color' : 'Colores Incluidos',
+      groupBySize ? 'Talla' : 'Tallas Incluidas',
+      groupByWarehouse ? 'Bodega' : 'Bodegas Incluidas',
+      'Disponible Consolidado', 'Reservado', 'En Tránsito',
       'Registros Fusionados', 'Ordenes Vinculadas', 'Valor Estimado'
     ];
 
     const rows = filteredList.map(item => {
+      const colorsStr = Array.from(item.uniqueColorsSet).join(', ');
+      const sizesStr = Array.from(item.uniqueSizesSet).join(', ');
+      const warehousesStr = Array.from(item.uniqueWarehousesSet).join(', ');
       const ordersStr = Array.from(item.linkedOrders).join(', ') || '—';
       const estimatedVal = item.totalDisponible * item.price;
       return [
         item.productRef,
         item.productName,
         item.categoryName,
-        item.colorName,
-        item.sizeCode,
-        item.warehouseName,
+        colorsStr,
+        sizesStr,
+        warehousesStr,
         item.totalDisponible,
         item.totalReservado,
         item.totalEnTransito,
@@ -232,53 +279,140 @@ export default function ConsolidatedStockSubmodule({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `inventario_consolidado_sku_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `inventario_consolidado_dinamico_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      {/* Executive Info Banner */}
+      {/* Dynamic Grouping Mode Toolbar Banner */}
       <div style={{
-        backgroundColor: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '14px',
-        padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap'
+        backgroundColor: '#ffffff', border: '1.5px solid #cbd5e1', borderRadius: '16px',
+        padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.03)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div style={{ padding: '0.65rem', backgroundColor: '#dbeafe', color: '#1e40af', borderRadius: '12px' }}>
-            <Layers3 size={24} />
+        
+        {/* Top Header & Presets */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '0.55rem', backgroundColor: '#eef2ff', color: 'var(--primary)', borderRadius: '12px' }}>
+              <Sliders size={22} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '950', color: '#0f172a' }}>
+                Consolidación Dinámica e Interactiva
+              </h3>
+              <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                Selecciona cómo deseas agrupar tus existencias en tiempo real (Suma total por producto, por color, por talla o SKU).
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '950', color: '#1e3a8a' }}>
-              Inventario Consolidado por SKU (Sin Repeticiones)
-            </h3>
-            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.82rem', color: '#3b82f6' }}>
-              Fusiona automáticamente todas las existencias repetidas que comparten la misma <strong>Referencia + Color + Talla + Bodega</strong>.
-            </p>
+
+          {/* Quick Presets Pills */}
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {[
+              { id: 'product_only', label: '📦 Solo por Producto (Total)', icon: Package },
+              { id: 'product_color', label: '🎨 Producto + Color', icon: Palette },
+              { id: 'product_size', label: '🏷️ Producto + Talla', icon: Ruler },
+              { id: 'warehouse_product', label: '🏬 Bodega + Producto', icon: Building2 },
+              { id: 'full_sku', label: '⚡ SKU Completo (Ref + Color + Talla + Bodega)', icon: Layers3 }
+            ].map(p => (
+              <button
+                key={p.id}
+                onClick={() => handleSelectPreset(p.id as any)}
+                style={{
+                  padding: '0.45rem 0.85rem', fontSize: '0.78rem', fontWeight: '850', borderRadius: '10px',
+                  border: groupPreset === p.id ? '2px solid var(--primary)' : '1px solid #cbd5e1',
+                  backgroundColor: groupPreset === p.id ? '#fdf2f4' : '#f8fafc',
+                  color: groupPreset === p.id ? 'var(--primary)' : '#475569',
+                  cursor: 'pointer', transition: 'all 0.15s ease',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem'
+                }}
+              >
+                <p.icon size={14} /> {p.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          className="btn btn-primary"
-          style={{
-            padding: '0.6rem 1.25rem', fontSize: '0.82rem', fontWeight: '900', borderRadius: '10px',
-            backgroundColor: '#059669', border: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem'
-          }}
-        >
-          <Download size={16} /> Exportar Excel Consolidado
-        </button>
+        {/* Custom Checkbox Dimension Toggles */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
+          backgroundColor: '#f8fafc', padding: '0.75rem 1.25rem', borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#475569', textTransform: 'uppercase' }}>
+            Criterios de Agrupación Activos:
+          </span>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', opacity: 0.7, cursor: 'not-allowed' }}>
+            <input type="checkbox" checked readOnly style={{ accentColor: 'var(--primary)', width: '16px', height: '16px' }} />
+            <span>Referencia / Producto</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={groupByColor}
+              onChange={e => {
+                setGroupByColor(e.target.checked);
+                setGroupPreset('custom');
+              }}
+              style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <span>Discriminar por Color</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={groupBySize}
+              onChange={e => {
+                setGroupBySize(e.target.checked);
+                setGroupPreset('custom');
+              }}
+              style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <span>Discriminar por Talla</span>
+          </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={groupByWarehouse}
+              onChange={e => {
+                setGroupByWarehouse(e.target.checked);
+                setGroupPreset('custom');
+              }}
+              style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <span>Discriminar por Bodega</span>
+          </label>
+
+          <button
+            onClick={handleExportCSV}
+            className="btn btn-primary"
+            style={{
+              marginLeft: 'auto', padding: '0.45rem 1.1rem', fontSize: '0.78rem', fontWeight: '900', borderRadius: '8px',
+              backgroundColor: '#059669', border: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem'
+            }}
+          >
+            <Download size={14} /> Exportar Vista Actual (CSV)
+          </button>
+        </div>
+
       </div>
 
       {/* Executive KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Combinaciones Únicas (SKUs)', value: `${totalUniqueSKUs.toLocaleString()} SKUs`, subText: 'Sin duplicaciones', color: 'var(--primary)', icon: PackageCheck },
-          { label: 'Total Prendas Disponibles', value: `${totalGarmentsSum.toLocaleString()} uds`, subText: 'Suma consolidada total', color: '#10b981', icon: TrendingUp },
-          { label: 'Filas / Registros Fusionados', value: `${totalDuplicateRecordsCount.toLocaleString()} filas`, subText: 'Agrupadas en vista limpia', color: '#6366f1', icon: Layers },
-          { label: 'Valor Total Consolidado', value: `$${totalValueSum.toLocaleString('es-CO')}`, subText: 'A precio de venta', color: '#0284c7', icon: CheckCircle2 }
+          { label: 'Grupos / Filas Consolidadas', value: `${totalUniqueRows.toLocaleString()} grupos`, subText: groupPreset === 'product_only' ? 'Total por Referencia' : 'Según filtro activo', color: 'var(--primary)', icon: PackageCheck },
+          { label: 'Total Prendas Disponibles', value: `${totalGarmentsSum.toLocaleString()} uds`, subText: 'Suma de existencias', color: '#10b981', icon: TrendingUp },
+          { label: 'Filas Originales Agrupadas', value: `${totalDuplicateRecordsCount.toLocaleString()} filas`, subText: 'Sin repeticiones en pantalla', color: '#6366f1', icon: Layers },
+          { label: 'Valor Estimado Vista Actual', value: `$${totalValueSum.toLocaleString('es-CO')}`, subText: 'Calculado a precio venta', color: '#0284c7', icon: CheckCircle2 }
         ].map((k, i) => (
           <div key={i} className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid #e2e8f0', borderRadius: '14px', backgroundColor: 'white' }}>
             <div style={{ padding: '0.65rem', backgroundColor: `${k.color}14`, color: k.color, borderRadius: '10px', flexShrink: 0 }}>
@@ -293,20 +427,20 @@ export default function ConsolidatedStockSubmodule({
         ))}
       </div>
 
-      {/* Filters Bar */}
+      {/* Search & Filter Bar */}
       <div className="card" style={{ padding: '1.25rem', borderRadius: '14px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
           
           {/* Search Box */}
           <div style={{ gridColumn: 'span 2' }}>
             <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-              Buscar Referencia / Producto / Color / Talla
+              Buscar en la Vista Actual
             </label>
             <div style={{ position: 'relative' }}>
               <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input
                 type="text"
-                placeholder="Ej. CAM-001, Noah Premium, Azul, LXL..."
+                placeholder="Buscar por Referencia, Nombre, Color, Talla, Categoría..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 style={{ width: '100%', padding: '0.65rem 0.85rem 0.65rem 2.4rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', fontWeight: '600' }}
@@ -317,7 +451,7 @@ export default function ConsolidatedStockSubmodule({
           {/* Warehouse Filter */}
           <div>
             <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-              Bodega
+              Filtrar Bodega
             </label>
             <select
               value={selectedWarehouse}
@@ -334,7 +468,7 @@ export default function ConsolidatedStockSubmodule({
           {/* Category Filter */}
           <div>
             <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-              Categoría
+              Filtrar Categoría
             </label>
             <select
               value={selectedCategory}
@@ -351,7 +485,7 @@ export default function ConsolidatedStockSubmodule({
           {/* Color Filter */}
           <div>
             <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-              Color
+              Filtrar Color
             </label>
             <select
               value={selectedColor}
@@ -368,7 +502,7 @@ export default function ConsolidatedStockSubmodule({
           {/* Size Filter */}
           <div>
             <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-              Talla
+              Filtrar Talla
             </label>
             <select
               value={selectedSize}
@@ -385,7 +519,7 @@ export default function ConsolidatedStockSubmodule({
         </div>
       </div>
 
-      {/* Consolidated Table */}
+      {/* Dynamic Table */}
       <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', border: '1px solid #e2e8f0', backgroundColor: 'white' }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem', textAlign: 'left' }}>
@@ -393,28 +527,44 @@ export default function ConsolidatedStockSubmodule({
               <tr>
                 <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Referencia</th>
                 <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Producto</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Color</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Talla</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Bodega</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>Disponible</th>
+                
+                {groupByColor ? (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Color</th>
+                ) : (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Colores Incluidos</th>
+                )}
+
+                {groupBySize ? (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Talla</th>
+                ) : (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Tallas Incluidas</th>
+                )}
+
+                {groupByWarehouse ? (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Bodega</th>
+                ) : (
+                  <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase' }}>Bodegas</th>
+                )}
+
+                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>Disponible Consolidado</th>
                 <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>Reservado</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'center' }}>Registros Fusionados</th>
-                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'center' }}>Ordenes Vinculadas</th>
+                <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'center' }}>Filas Fusionadas</th>
                 <th style={{ padding: '0.9rem 1.25rem', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'center' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredList.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.9rem' }}>
-                    No se encontraron combinaciones de prendas con los filtros aplicados.
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.9rem' }}>
+                    No se encontraron grupos con los criterios seleccionados.
                   </td>
                 </tr>
               ) : (
                 filteredList.map((item, idx) => {
                   const isExpanded = expandedKey === item.key;
-                  const isCritical = item.totalDisponible <= item.stockMinimo && item.stockMinimo > 0;
-                  const isOver = item.totalDisponible >= item.stockMaximo && item.stockMaximo > 0;
+                  const colorsCount = item.uniqueColorsSet.size;
+                  const sizesCount = item.uniqueSizesSet.size;
+                  const warehousesCount = item.uniqueWarehousesSet.size;
                   const ordersList = Array.from(item.linkedOrders);
 
                   return (
@@ -429,55 +579,76 @@ export default function ConsolidatedStockSubmodule({
                         </td>
                         <td style={{ padding: '0.9rem 1.25rem', fontWeight: '800', color: '#0f172a' }}>
                           {item.productName}
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>{item.categoryName}</div>
                         </td>
+
+                        {/* Color Column */}
                         <td style={{ padding: '0.9rem 1.25rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '750', color: '#334155' }}>
-                            <span style={{ width: '13px', height: '13px', borderRadius: '50%', backgroundColor: item.hexColor, border: '1px solid #cbd5e1', flexShrink: 0 }} />
-                            {item.colorName}
-                          </span>
+                          {groupByColor ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: '750', color: '#334155' }}>
+                              <span style={{ width: '13px', height: '13px', borderRadius: '50%', backgroundColor: item.hexColor, border: '1px solid #cbd5e1', flexShrink: 0 }} />
+                              {item.colorName}
+                            </span>
+                          ) : (
+                            <span style={{ backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: '800', padding: '0.2rem 0.55rem', borderRadius: '6px', fontSize: '0.75rem', border: '1px solid #c7d2fe' }}>
+                              🎨 {colorsCount} color(es) ({Array.from(item.uniqueColorsSet).slice(0, 3).join(', ')}{colorsCount > 3 ? '...' : ''})
+                            </span>
+                          )}
                         </td>
+
+                        {/* Size Column */}
                         <td style={{ padding: '0.9rem 1.25rem' }}>
-                          <span style={{ backgroundColor: '#0f172a', color: 'white', fontWeight: '900', padding: '0.2rem 0.55rem', borderRadius: '5px', fontSize: '0.78rem' }}>
-                            {item.sizeCode}
-                          </span>
+                          {groupBySize ? (
+                            <span style={{ backgroundColor: '#0f172a', color: 'white', fontWeight: '900', padding: '0.2rem 0.55rem', borderRadius: '5px', fontSize: '0.78rem' }}>
+                              {item.sizeCode}
+                            </span>
+                          ) : (
+                            <span style={{ backgroundColor: '#f1f5f9', color: '#334155', fontWeight: '800', padding: '0.2rem 0.55rem', borderRadius: '6px', fontSize: '0.75rem', border: '1px solid #cbd5e1' }}>
+                              🏷️ {sizesCount} talla(s) ({Array.from(item.uniqueSizesSet).join(', ')})
+                            </span>
+                          )}
                         </td>
+
+                        {/* Warehouse Column */}
                         <td style={{ padding: '0.9rem 1.25rem', fontWeight: '700', color: '#475569' }}>
-                          {item.warehouseName}
+                          {groupByWarehouse ? (
+                            item.warehouseName
+                          ) : (
+                            <span style={{ fontSize: '0.78rem', color: '#475569' }}>
+                              🏬 {Array.from(item.uniqueWarehousesSet).join(', ') || 'Bodega Principal'}
+                            </span>
+                          )}
                         </td>
-                        <td style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontWeight: '950', fontSize: '1.05rem', color: item.totalDisponible > 0 ? '#059669' : '#94a3b8' }}>
+
+                        {/* Quantity */}
+                        <td style={{ padding: '0.9rem 1.25rem', textAlign: 'right', fontWeight: '950', fontSize: '1.1rem', color: item.totalDisponible > 0 ? '#059669' : '#94a3b8' }}>
                           {item.totalDisponible.toLocaleString()} uds
                         </td>
+
                         <td style={{ padding: '0.9rem 1.25rem', textAlign: 'right', color: '#64748b', fontWeight: '700' }}>
                           {item.totalReservado}
                         </td>
+
                         <td style={{ padding: '0.9rem 1.25rem', textAlign: 'center' }}>
                           <span style={{
                             padding: '0.25rem 0.65rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '850',
-                            backgroundColor: item.recordsCount > 1 ? '#eef2ff' : '#f1f5f9',
-                            color: item.recordsCount > 1 ? '#4338ca' : '#64748b',
-                            border: item.recordsCount > 1 ? '1px solid #c7d2fe' : '1px solid #e2e8f0'
+                            backgroundColor: item.recordsCount > 1 ? '#ecfdf5' : '#f1f5f9',
+                            color: item.recordsCount > 1 ? '#047857' : '#64748b',
+                            border: item.recordsCount > 1 ? '1px solid #a7f3d0' : '1px solid #e2e8f0'
                           }}>
-                            {item.recordsCount > 1 ? `⚡ ${item.recordsCount} filas fusionadas` : `1 registro`}
+                            ⚡ {item.recordsCount} {item.recordsCount === 1 ? 'fila' : 'filas fusionadas'}
                           </span>
                         </td>
-                        <td style={{ padding: '0.9rem 1.25rem', textAlign: 'center' }}>
-                          {ordersList.length > 0 ? (
-                            <span style={{ backgroundColor: '#fdf2f4', color: '#80082E', fontWeight: '850', padding: '0.2rem 0.55rem', borderRadius: '6px', fontSize: '0.75rem', border: '1px solid #fecdd3' }}>
-                              📦 {ordersList.join(', ')}
-                            </span>
-                          ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>—</span>
-                          )}
-                        </td>
+
                         <td style={{ padding: '0.9rem 1.25rem', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'center', alignItems: 'center' }}>
                             <button
                               onClick={() => setExpandedKey(isExpanded ? null : item.key)}
                               className="btn btn-secondary"
-                              style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: '800', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                              style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: '800', borderRadius: '8px', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
                             >
                               {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                              {isExpanded ? 'Ocultar' : `Ver Detalle (${item.recordsCount})`}
+                              {isExpanded ? 'Ocultar Sub-registros' : `Ver Sub-registros (${item.recordsCount})`}
                             </button>
 
                             {onOpenUnitDetails && item.items[0] && (
@@ -485,7 +656,7 @@ export default function ConsolidatedStockSubmodule({
                                 onClick={() => onOpenUnitDetails(item.items[0])}
                                 className="btn"
                                 style={{ padding: '0.35rem 0.55rem', fontSize: '0.75rem', border: '1px solid #6366f1', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: '800', borderRadius: '8px' }}
-                                title="Ver códigos individuales"
+                                title="Ver códigos de barra individuales"
                               >
                                 <Eye size={14} />
                               </button>
@@ -497,15 +668,15 @@ export default function ConsolidatedStockSubmodule({
                       {/* Expanded Sub-row: Individual merged database records */}
                       {isExpanded && (
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
-                          <td colSpan={10} style={{ padding: '1rem 1.5rem' }}>
+                          <td colSpan={9} style={{ padding: '1rem 1.5rem' }}>
                             <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #cbd5e1', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                   <Layers size={16} style={{ color: 'var(--primary)' }} />
-                                  Desglose de Registros Originales Fusionados ({item.recordsCount} filas de inventario)
+                                  Detalle Completo de Filas Agrupadas en este Grupo ({item.recordsCount} registros)
                                 </h4>
                                 <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                  Suma Total: <strong>{item.totalDisponible} uds</strong>
+                                  Suma Total de este Grupo: <strong>{item.totalDisponible} uds</strong>
                                 </span>
                               </div>
 
@@ -513,40 +684,50 @@ export default function ConsolidatedStockSubmodule({
                                 <thead style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
                                   <tr>
                                     <th style={{ padding: '0.5rem 0.75rem' }}>ID Stock</th>
-                                    <th style={{ padding: '0.5rem 0.75rem' }}>Bodega de Origen</th>
+                                    <th style={{ padding: '0.5rem 0.75rem' }}>Color</th>
+                                    <th style={{ padding: '0.5rem 0.75rem' }}>Talla</th>
+                                    <th style={{ padding: '0.5rem 0.75rem' }}>Bodega</th>
                                     <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Disponible</th>
-                                    <th style={{ padding: '0.5rem 0.75rem', textAlign: 'right' }}>Reservado</th>
                                     <th style={{ padding: '0.5rem 0.75rem' }}>Acción</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {item.items.map((subItem: any, sIdx: number) => (
-                                    <tr key={subItem.id || sIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                      <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', fontWeight: '700', color: '#4f46e5' }}>
-                                        {subItem.id ? subItem.id.slice(0, 13) + '...' : '—'}
-                                      </td>
-                                      <td style={{ padding: '0.5rem 0.75rem', color: '#334155' }}>
-                                        {subItem.warehouses?.nombre_bodega || item.warehouseName}
-                                      </td>
-                                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#059669' }}>
-                                        {subItem.cantidad_disponible} uds
-                                      </td>
-                                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: '#64748b' }}>
-                                        {subItem.cantidad_reservada || 0}
-                                      </td>
-                                      <td style={{ padding: '0.5rem 0.75rem' }}>
-                                        {onOpenAdjustment && (
-                                          <button
-                                            onClick={() => onOpenAdjustment(subItem)}
-                                            className="btn btn-secondary"
-                                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', fontWeight: '800' }}
-                                          >
-                                            Ajustar Fila
-                                          </button>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ))}
+                                  {item.items.map((subItem: any, sIdx: number) => {
+                                    const subColor = subItem.colors?.nombre_color || subItem.fabrics?.nombre_tela || '—';
+                                    const subSize = subItem.sizes?.codigo_talla || '—';
+                                    const subWh = subItem.warehouses?.nombre_bodega || 'Bodega Principal';
+
+                                    return (
+                                      <tr key={subItem.id || sIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'monospace', fontWeight: '700', color: '#4f46e5' }}>
+                                          {subItem.id ? subItem.id.slice(0, 13) + '...' : '—'}
+                                        </td>
+                                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: '700', color: '#334155' }}>
+                                          {subColor}
+                                        </td>
+                                        <td style={{ padding: '0.5rem 0.75rem', fontWeight: '800' }}>
+                                          {subSize}
+                                        </td>
+                                        <td style={{ padding: '0.5rem 0.75rem', color: '#64748b' }}>
+                                          {subWh}
+                                        </td>
+                                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontWeight: '900', color: '#059669' }}>
+                                          {subItem.cantidad_disponible} uds
+                                        </td>
+                                        <td style={{ padding: '0.5rem 0.75rem' }}>
+                                          {onOpenAdjustment && (
+                                            <button
+                                              onClick={() => onOpenAdjustment(subItem)}
+                                              className="btn btn-secondary"
+                                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', fontWeight: '800' }}
+                                            >
+                                              Ajustar Fila
+                                            </button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>
