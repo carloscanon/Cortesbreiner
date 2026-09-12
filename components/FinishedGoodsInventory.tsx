@@ -173,6 +173,272 @@ export default function FinishedGoodsInventory() {
   const [receivingNotes, setReceivingNotes] = useState<string>('');
   const [isProcessingReceipt, setIsProcessingReceipt] = useState<boolean>(false);
 
+  // Inter-Warehouse Transfer Detail & PDF Modal
+  const [showTransferDetailModal, setShowTransferDetailModal] = useState(false);
+  const [selectedTransferForDetail, setSelectedTransferForDetail] = useState<any>(null);
+
+  const handlePrintTransferPDF = (tx: any) => {
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+      alert('Por favor permita ventanas emergentes (popups) para exportar el comprobante PDF.');
+      return;
+    }
+
+    const items = tx.finished_goods_transfer_items || [];
+    const totalUnits = items.reduce((acc: number, it: any) => acc + (Number(it.cantidad) || 0), 0);
+
+    const itemsHtml = items.map((it: any, index: number) => {
+      const prodName = it.products?.nombre_producto || 'Producto';
+      const refCode = it.products?.codigo_referencia || 'N/A';
+      const colorName = it.colors?.nombre_color || 'N/A';
+      const sizeCode = it.sizes?.codigo_talla || 'N/A';
+      const barcodesList = (it.barcodes || []).join(', ') || 'N/A';
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 10px 12px; text-align: center; font-weight: bold; color: #64748b;">${index + 1}</td>
+          <td style="padding: 10px 12px;">
+            <strong style="color: #0f172a; font-size: 14px;">${prodName}</strong><br/>
+            <span style="font-size: 11px; color: #64748b;">Ref: ${refCode}</span>
+          </td>
+          <td style="padding: 10px 12px; font-weight: 600; color: #334155;">${colorName}</td>
+          <td style="padding: 10px 12px; text-align: center;"><span style="background-color: #f1f5f9; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 12px;">${sizeCode}</span></td>
+          <td style="padding: 10px 12px; text-align: right; font-weight: 900; color: #0f172a; font-size: 14px;">${it.cantidad}</td>
+          <td style="padding: 10px 12px; font-size: 10px; color: #475569; max-width: 200px; word-break: break-all;">${barcodesList}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Comprobante de Traslado TR-${tx.consecutive || tx.id?.slice(0, 6)} - Cortes Breiner</title>
+          <meta charset="utf-8" />
+          <style>
+            @page {
+              size: letter;
+              margin: 15mm;
+            }
+            body {
+              font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              color: #1e293b;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              border-bottom: 3px solid #0f172a;
+              padding-bottom: 15px;
+              margin-bottom: 20px;
+            }
+            .brand-title {
+              font-size: 24px;
+              font-weight: 900;
+              letter-spacing: -0.5px;
+              color: #0f172a;
+              margin: 0;
+            }
+            .brand-subtitle {
+              font-size: 12px;
+              color: #64748b;
+              font-weight: 700;
+              margin-top: 2px;
+            }
+            .tx-badge {
+              text-align: right;
+            }
+            .tx-num {
+              font-size: 22px;
+              font-weight: 900;
+              color: #2563eb;
+              margin: 0;
+            }
+            .tx-date {
+              font-size: 12px;
+              color: #64748b;
+              font-weight: 600;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 25px;
+              background-color: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 10px;
+              padding: 15px;
+            }
+            .info-block label {
+              display: block;
+              font-size: 10px;
+              font-weight: 800;
+              text-transform: uppercase;
+              color: #64748b;
+              letter-spacing: 0.5px;
+              margin-bottom: 3px;
+            }
+            .info-block span {
+              font-size: 14px;
+              font-weight: 800;
+              color: #0f172a;
+            }
+            .table-container {
+              margin-bottom: 30px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th {
+              background-color: #f1f5f9;
+              color: #475569;
+              font-size: 11px;
+              font-weight: 800;
+              text-transform: uppercase;
+              padding: 10px 12px;
+              border-bottom: 2px solid #cbd5e1;
+            }
+            .summary-box {
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 40px;
+            }
+            .summary-card {
+              background: #0f172a;
+              color: white;
+              padding: 12px 25px;
+              border-radius: 8px;
+              display: flex;
+              gap: 20px;
+              align-items: center;
+            }
+            .summary-card label {
+              font-size: 12px;
+              font-weight: 700;
+              text-transform: uppercase;
+            }
+            .summary-card val {
+              font-size: 22px;
+              font-weight: 900;
+              color: #38bdf8;
+            }
+            .signatures {
+              margin-top: 60px;
+              display: flex;
+              justify-content: space-between;
+              gap: 40px;
+            }
+            .signature-box {
+              flex: 1;
+              border-top: 2px dashed #94a3b8;
+              padding-top: 8px;
+              text-align: center;
+            }
+            .signature-box p {
+              margin: 0;
+              font-size: 12px;
+              font-weight: 800;
+              color: #334155;
+            }
+            .signature-box span {
+              font-size: 10px;
+              color: #64748b;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1 class="brand-title">CORTES BREINER</h1>
+              <div class="brand-subtitle">COMPROBANTE OFICIAL DE TRASLADO INTER-BODEGA</div>
+            </div>
+            <div class="tx-badge">
+              <div class="tx-num">TR-${tx.consecutive || tx.id?.slice(0, 6)}</div>
+              <div class="tx-date">Fecha: ${new Date(tx.created_at).toLocaleString('es-CO')}</div>
+            </div>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-block">
+              <label>Bodega Origen (Despacho)</label>
+              <span>${tx.orig?.nombre_bodega || '—'}</span>
+            </div>
+            <div class="info-block">
+              <label>Bodega Destino (Recepción)</label>
+              <span>${tx.dest?.nombre_bodega || '—'}</span>
+            </div>
+            <div class="info-block">
+              <label>Solicitado / Responsable</label>
+              <span>${tx.usuario || 'Sistema'}</span>
+            </div>
+            <div class="info-block">
+              <label>Estado del Traslado</label>
+              <span>${tx.estado}</span>
+            </div>
+            ${tx.observaciones ? `
+              <div class="info-block" style="grid-column: span 2;">
+                <label>Observaciones / Notas</label>
+                <span style="font-size: 12px; font-weight: 500; color: #475569;">${tx.observaciones}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th style="text-align: center;">#</th>
+                  <th style="text-align: left;">Producto / Referencia</th>
+                  <th style="text-align: left;">Color</th>
+                  <th style="text-align: center;">Talla</th>
+                  <th style="text-align: right;">Cantidad</th>
+                  <th style="text-align: left;">Códigos Únicos (Stickers)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="summary-box">
+            <div class="summary-card">
+              <label>Total Prendas Despachadas:</label>
+              <val>${totalUnits} Uds</val>
+            </div>
+          </div>
+
+          <div class="signatures">
+            <div class="signature-box">
+              <p>Despachado por (Firma)</p>
+              <span>Entregado en Bodega Origen</span>
+            </div>
+            <div class="signature-box">
+              <p>Recibido por (Firma)</p>
+              <span>Conforme en Bodega Destino</span>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWin.document.open();
+    printWin.document.write(htmlContent);
+    printWin.document.close();
+  };
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterWarehouse, setFilterWarehouse] = useState('');
@@ -2170,7 +2436,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones', 'Detalle Ítems'].map(h => (
+                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones', 'Detalle Ítems', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -2178,7 +2444,7 @@ export default function FinishedGoodsInventory() {
               <tbody>
                 {transfers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                       No se registran solicitudes de transferencia.
                     </td>
                   </tr>
@@ -2238,6 +2504,51 @@ export default function FinishedGoodsInventory() {
                               - {item.products?.nombre_producto} ({item.sizes?.codigo_talla}): <strong>{item.cantidad} uds</strong>
                             </span>
                           ))}
+                        </div>
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <button
+                            onClick={() => {
+                              setSelectedTransferForDetail(tx);
+                              setShowTransferDetailModal(true);
+                            }}
+                            title="Ver detalle completo de productos"
+                            style={{
+                              padding: '0.45rem 0.8rem',
+                              borderRadius: '8px',
+                              backgroundColor: '#f1f5f9',
+                              color: '#334155',
+                              border: '1.5px solid #cbd5e1',
+                              fontWeight: '800',
+                              fontSize: '0.75rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            <Eye size={14} /> Ver Productos
+                          </button>
+                          <button
+                            onClick={() => handlePrintTransferPDF(tx)}
+                            title="Imprimir / Exportar Comprobante PDF"
+                            style={{
+                              padding: '0.45rem 0.8rem',
+                              borderRadius: '8px',
+                              backgroundColor: '#0f172a',
+                              color: 'white',
+                              border: 'none',
+                              fontWeight: '800',
+                              fontSize: '0.75rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            <Printer size={14} /> PDF
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -4590,6 +4901,213 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
+      {/* 8. TRANSFER DETAIL MODAL */}
+      {showTransferDetailModal && selectedTransferForDetail && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '20px',
+            maxWidth: '900px',
+            width: '100%',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+            border: '1px solid #cbd5e1'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '1.25rem 1.75rem',
+              backgroundColor: '#0f172a',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ padding: '0.6rem', borderRadius: '12px', backgroundColor: 'rgba(255, 255, 255, 0.1)', color: '#38bdf8' }}>
+                  <Package size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '900', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Detalle del Traslado TR-{selectedTransferForDetail.consecutive || selectedTransferForDetail.id?.slice(0, 6)}
+                    <span style={{
+                      fontSize: '0.75rem',
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: '6px',
+                      backgroundColor: selectedTransferForDetail.estado === 'Recibida' ? '#10b981' : '#f59e0b',
+                      color: 'white',
+                      fontWeight: '800'
+                    }}>
+                      {selectedTransferForDetail.estado}
+                    </span>
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
+                    Fecha: {new Date(selectedTransferForDetail.created_at).toLocaleString('es-CO')} | Solicitado por: {selectedTransferForDetail.usuario || 'Sistema'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTransferDetailModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.4rem', borderRadius: '8px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Warehouse info banner */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '1rem',
+                backgroundColor: '#f8fafc',
+                padding: '1.25rem',
+                borderRadius: '14px',
+                border: '1.5px solid #e2e8f0'
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', display: 'block' }}>Bodega Origen</span>
+                  <strong style={{ fontSize: '1.05rem', color: '#0f172a' }}>{selectedTransferForDetail.orig?.nombre_bodega || '—'}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', display: 'block' }}>Bodega Destino</span>
+                  <strong style={{ fontSize: '1.05rem', color: '#2563eb' }}>{selectedTransferForDetail.dest?.nombre_bodega || '—'}</strong>
+                </div>
+                {selectedTransferForDetail.observaciones && (
+                  <div style={{ gridColumn: 'span 2', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', display: 'block' }}>Observaciones</span>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#334155', fontStyle: 'italic' }}>{selectedTransferForDetail.observaciones}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Items List Table */}
+              <div>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Ítems y Productos Incluidos ({selectedTransferForDetail.finished_goods_transfer_items?.length || 0})</span>
+                  <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: '800' }}>
+                    Total: {selectedTransferForDetail.finished_goods_transfer_items?.reduce((a: number, b: any) => a + (Number(b.cantidad) || 0), 0)} Uds
+                  </span>
+                </h4>
+
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '1.5px solid #cbd5e1' }}>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Producto / Referencia</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Color</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569', textAlign: 'center' }}>Talla</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569', textAlign: 'right' }}>Cantidad</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#475569' }}>Códigos Únicos / Stickers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedTransferForDetail.finished_goods_transfer_items?.map((item: any) => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <strong style={{ color: '#0f172a', display: 'block' }}>{item.products?.nombre_producto || 'Producto'}</strong>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Ref: {item.products?.codigo_referencia || 'N/A'}</span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#334155' }}>
+                            {item.colors?.nombre_color || 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.75rem' }}>
+                              {item.sizes?.codigo_talla || 'N/A'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '900', color: '#0f172a', fontSize: '0.9rem' }}>
+                            {item.cantidad} uds
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            {item.barcodes && item.barcodes.length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxWidth: '300px' }}>
+                                {item.barcodes.map((bc: string) => (
+                                  <span key={bc} style={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.7rem',
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    border: '1px solid #bfdbfe',
+                                    padding: '0.1rem 0.4rem',
+                                    borderRadius: '4px',
+                                    fontWeight: '700'
+                                  }}>
+                                    {bc}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>Sin stickers asociados</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#f8fafc', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => handlePrintTransferPDF(selectedTransferForDetail)}
+                style={{
+                  padding: '0.65rem 1.25rem',
+                  borderRadius: '10px',
+                  backgroundColor: '#0f172a',
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: '800',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                <Printer size={16} /> Imprimir Comprobante PDF
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTransferDetailModal(false)}
+                style={{
+                  padding: '0.65rem 1.5rem',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  backgroundColor: 'white',
+                  fontWeight: '800',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
