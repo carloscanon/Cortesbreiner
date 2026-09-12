@@ -357,7 +357,7 @@ export default function AuditGunScannerView({
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
             <thead style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
               <tr>
-                <th style={{ padding: '0.75rem 1rem' }}>SKU / Código</th>
+                <th style={{ padding: '0.75rem 1rem' }}>ID Único (Código de Barras)</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Producto</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Color / Talla</th>
                 <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Esperado</th>
