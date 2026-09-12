@@ -1520,7 +1520,7 @@ export default function FinishedGoodsInventory() {
 
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
-        await supabase
+        const { error: itemErr } = await supabase
           .from('finished_goods_transfer_items')
           .insert({
             transfer_id: newTransfer.id,
@@ -1530,6 +1530,11 @@ export default function FinishedGoodsInventory() {
             cantidad: Number(item.cantidad),
             barcodes: item.barcodes || (item.barcode ? [item.barcode] : [])
           });
+
+        if (itemErr) {
+          console.error('Error al guardar ítem de transferencia:', itemErr);
+          throw itemErr;
+        }
 
         // Deduct from origin
         let origQuery = supabase
