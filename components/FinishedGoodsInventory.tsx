@@ -3260,160 +3260,337 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* TRANSFER MODAL */}
+      {/* TRANSFER MODAL CON PISTOLA LECTORA HIGH-SPEED UX */}
       {showTransferModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-          <div className="card" style={{ width: '90%', maxWidth: '600px', padding: '2rem', backgroundColor: 'white', borderRadius: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-              <h3 style={{ margin: 0, fontWeight: '900' }}>Nueva Transferencia Inter-Bodega</h3>
-              <button onClick={() => setShowTransferModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer' }}><X size={20} /></button>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
+          <div className="card" style={{ width: '95%', maxWidth: '850px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ backgroundColor: '#6366f1', padding: '0.5rem', borderRadius: '10px', color: 'white' }}>
+                  <Barcode size={22} />
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    MODO PISTOLA LECTORA / INTER-BODEGA
+                  </span>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '950' }}>Nueva Transferencia Inter-Bodega</h3>
+                </div>
+              </div>
+              <button onClick={() => setShowTransferModal(false)} style={{ border: 'none', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', padding: '0.4rem', borderRadius: '8px', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
             </div>
             
-            <form onSubmit={handleSaveTransfer} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <form onSubmit={handleSaveTransfer} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              
+              {/* Origin & Destination Warehouse Selectors */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Bodega Origen</label>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.35rem' }}>
+                    📍 Bodega Origen (Despacho)
+                  </label>
                   <select
                     required
                     value={transferForm.warehouse_orig_id}
                     onChange={e => setTransferForm({ ...transferForm, warehouse_orig_id: e.target.value })}
-                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.88rem', fontWeight: '800' }}
                   >
-                    <option value="">Seleccionar...</option>
+                    <option value="">Seleccionar Origen...</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.nombre_bodega}</option>)}
                   </select>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Bodega Destino</label>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.35rem' }}>
+                    🎯 Bodega Destino (Recepción)
+                  </label>
                   <select
                     required
                     value={transferForm.warehouse_dest_id}
                     onChange={e => setTransferForm({ ...transferForm, warehouse_dest_id: e.target.value })}
-                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.88rem', fontWeight: '800' }}
                   >
-                    <option value="">Seleccionar...</option>
+                    <option value="">Seleccionar Destino...</option>
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.nombre_bodega}</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Items manager */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', margin: 0 }}>Prendas a transferir</label>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: '700', color: '#80082E', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={showAllMasterProducts}
-                      onChange={e => setShowAllMasterProducts(e.target.checked)}
-                      style={{ accentColor: '#80082E', cursor: 'pointer' }}
-                    />
-                    <span>Ver todo el maestro</span>
-                  </label>
+              {/* High-Speed Barcode Gun Scanner Input Bar */}
+              <div style={{ backgroundColor: '#1e293b', padding: '1rem', borderRadius: '14px', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Barcode size={22} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#818cf8' }} />
+                  <input
+                    type="text"
+                    placeholder="🔍 ESCANEAR CÓDIGO DE BARRAS / SKU (Pistola Lectora USB/Bluetooth)..."
+                    autoFocus
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const inputVal = (e.currentTarget.value || '').trim();
+                        if (!inputVal) return;
+                        if (!transferForm.warehouse_orig_id) {
+                          alert('Por favor selecciona primero la Bodega Origen.');
+                          return;
+                        }
+
+                        const codeClean = inputVal.toUpperCase();
+                        e.currentTarget.value = '';
+
+                        // 1. Look up in individual_garments first (1-to-1 unique barcode sticker)
+                        const { data: garment } = await supabase
+                          .from('individual_garments')
+                          .select('*')
+                          .eq('barcode', codeClean)
+                          .maybeSingle();
+
+                        let targetProdId = garment?.product_id;
+                        let targetColorId = garment?.color_id;
+                        let targetSizeId = garment?.size_id;
+                        let targetName = garment?.reference_name;
+
+                        // 2. If not found in garments, look up in products master by ref/barcode
+                        if (!targetProdId) {
+                          const { data: prod } = await supabase
+                            .from('products')
+                            .select('*')
+                            .or(`codigo_referencia.ilike.${codeClean},nombre_producto.ilike.%${codeClean}%`)
+                            .limit(1)
+                            .maybeSingle();
+                          
+                          if (prod) {
+                            targetProdId = prod.id;
+                            targetName = prod.nombre_producto;
+                          }
+                        }
+
+                        if (!targetProdId) {
+                          alert(`⚠️ Producto o Código de Barras no encontrado: ${codeClean}`);
+                          return;
+                        }
+
+                        // Check existing item in transfer form list
+                        const existingIdx = transferForm.items.findIndex(i =>
+                          i.product_id === targetProdId &&
+                          (targetColorId ? i.color_id === targetColorId : true) &&
+                          (targetSizeId ? i.size_id === targetSizeId : true)
+                        );
+
+                        if (existingIdx >= 0) {
+                          const items = [...transferForm.items];
+                          items[existingIdx].cantidad += 1;
+                          setTransferForm({ ...transferForm, items });
+                        } else {
+                          const items = [...transferForm.items, {
+                            product_id: targetProdId,
+                            color_id: targetColorId || colors[0]?.id || '',
+                            size_id: targetSizeId || sizes[0]?.id || '',
+                            cantidad: 1,
+                            codeLabel: codeClean,
+                            nameLabel: targetName
+                          }];
+                          setTransferForm({ ...transferForm, items });
+                        }
+                      }
+                    }}
+                    style={{
+                      width: '100%', padding: '0.75rem 1rem 0.75rem 3.2rem', borderRadius: '10px',
+                      border: '2px solid #6366f1', backgroundColor: '#0f172a', color: 'white',
+                      fontSize: '0.92rem', fontWeight: '800', letterSpacing: '0.04em'
+                    }}
+                  />
                 </div>
-                
+
                 <button
                   type="button"
                   onClick={() => {
                     setTransferForm({
                       ...transferForm,
-                      items: [...transferForm.items, { product_id: '', color_id: '', size_id: '', cantidad: 1 }]
+                      items: [...transferForm.items, { product_id: products[0]?.id || '', color_id: colors[0]?.id || '', size_id: sizes[0]?.id || '', cantidad: 1 }]
                     });
                   }}
-                  className="btn"
-                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.5rem', marginBottom: '0.75rem', border: '1px solid var(--border)' }}
+                  style={{ padding: '0.75rem 1.25rem', backgroundColor: '#4338ca', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '900', fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
-                  + Agregar Prenda
+                  + Manual
                 </button>
+              </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
-                  {transferForm.items.map((item, index) => (
-                    <div key={index} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <select
-                        required
-                        value={item.product_id}
-                        onChange={e => {
-                          const items = [...transferForm.items];
-                          items[index].product_id = e.target.value;
-                          setTransferForm({ ...transferForm, items });
-                        }}
-                        style={{ flex: 2, padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
-                      >
-                        <option value="">Producto...</option>
-                        {displayProducts.map(p => <option key={p.id} value={p.id}>{p.nombre_producto}</option>)}
-                      </select>
-
-                      <select
-                        value={item.color_id}
-                        onChange={e => {
-                          const items = [...transferForm.items];
-                          items[index].color_id = e.target.value;
-                          setTransferForm({ ...transferForm, items });
-                        }}
-                        style={{ flex: 1, padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
-                      >
-                        <option value="">Color...</option>
-                        {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
-                      </select>
-
-                      <select
-                        required
-                        value={item.size_id}
-                        onChange={e => {
-                          const items = [...transferForm.items];
-                          items[index].size_id = e.target.value;
-                          setTransferForm({ ...transferForm, items });
-                        }}
-                        style={{ flex: 1, padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
-                      >
-                        <option value="">Talla...</option>
-                        {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
-                      </select>
-
-                      <input
-                        type="number"
-                        min="1"
-                        required
-                        value={item.cantidad}
-                        onChange={e => {
-                          const items = [...transferForm.items];
-                          items[index].cantidad = Number(e.target.value);
-                          setTransferForm({ ...transferForm, items });
-                        }}
-                        style={{ width: '60px', padding: '0.4rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', textAlign: 'center' }}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const items = transferForm.items.filter((_, i) => i !== index);
-                          setTransferForm({ ...transferForm, items });
-                        }}
-                        style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#ef4444' }}
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ))}
+              {/* Items List Table */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1, minHeight: '180px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '900', color: '#0f172a' }}>
+                    PRENDAS PISTOLEADAS / SELECCIONADAS ({transferForm.items.reduce((s, i) => s + (i.cantidad || 0), 0)} UNIDADES)
+                  </span>
                 </div>
+
+                {transferForm.items.length === 0 ? (
+                  <div style={{ border: '2px dashed #cbd5e1', borderRadius: '12px', padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+                    <Barcode size={36} style={{ opacity: 0.3, marginBottom: '0.5rem' }} />
+                    <p style={{ margin: 0, fontWeight: '800', fontSize: '0.9rem', color: '#475569' }}>
+                      Pistolea el código de barras de las prendas o presiona (+ Manual)
+                    </p>
+                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                      Cada escaneo incrementará automáticamente +1 unidad a la lista de despacho.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', overflowY: 'auto', maxHeight: '250px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                      <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
+                        <tr>
+                          <th style={{ padding: '0.6rem 0.85rem' }}>Producto / Referencia</th>
+                          <th style={{ padding: '0.6rem 0.85rem' }}>Color</th>
+                          <th style={{ padding: '0.6rem 0.85rem' }}>Talla</th>
+                          <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Cantidad a Trasladar</th>
+                          <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {transferForm.items.map((item, index) => {
+                          const prodObj = products.find(p => p.id === item.product_id);
+                          return (
+                            <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.5rem 0.85rem' }}>
+                                <select
+                                  required
+                                  value={item.product_id}
+                                  onChange={e => {
+                                    const items = [...transferForm.items];
+                                    items[index].product_id = e.target.value;
+                                    setTransferForm({ ...transferForm, items });
+                                  }}
+                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '800' }}
+                                >
+                                  <option value="">Seleccionar Producto...</option>
+                                  {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto || p.codigo_referencia}</option>)}
+                                </select>
+                              </td>
+
+                              <td style={{ padding: '0.5rem 0.85rem' }}>
+                                <select
+                                  value={item.color_id}
+                                  onChange={e => {
+                                    const items = [...transferForm.items];
+                                    items[index].color_id = e.target.value;
+                                    setTransferForm({ ...transferForm, items });
+                                  }}
+                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                                >
+                                  <option value="">Color...</option>
+                                  {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
+                                </select>
+                              </td>
+
+                              <td style={{ padding: '0.5rem 0.85rem' }}>
+                                <select
+                                  required
+                                  value={item.size_id}
+                                  onChange={e => {
+                                    const items = [...transferForm.items];
+                                    items[index].size_id = e.target.value;
+                                    setTransferForm({ ...transferForm, items });
+                                  }}
+                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                                >
+                                  <option value="">Talla...</option>
+                                  {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
+                                </select>
+                              </td>
+
+                              <td style={{ padding: '0.5rem 0.85rem', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const items = [...transferForm.items];
+                                      items[index].cantidad = Math.max(1, items[index].cantidad - 1);
+                                      setTransferForm({ ...transferForm, items });
+                                    }}
+                                    style={{ padding: '0.2rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontWeight: '900', cursor: 'pointer' }}
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    required
+                                    value={item.cantidad}
+                                    onChange={e => {
+                                      const items = [...transferForm.items];
+                                      items[index].cantidad = Math.max(1, Number(e.target.value));
+                                      setTransferForm({ ...transferForm, items });
+                                    }}
+                                    style={{ width: '50px', padding: '0.35rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '900', textAlign: 'center' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const items = [...transferForm.items];
+                                      items[index].cantidad += 1;
+                                      setTransferForm({ ...transferForm, items });
+                                    }}
+                                    style={{ padding: '0.2rem 0.5rem', backgroundColor: '#e0e7ff', color: '#4338ca', border: 'none', borderRadius: '4px', fontWeight: '900', cursor: 'pointer' }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: '0.5rem 0.85rem', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const items = transferForm.items.filter((_, i) => i !== index);
+                                    setTransferForm({ ...transferForm, items });
+                                  }}
+                                  style={{ border: 'none', backgroundColor: '#fef2f2', color: '#ef4444', padding: '0.3rem 0.5rem', borderRadius: '6px', cursor: 'pointer' }}
+                                >
+                                  <X size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Observaciones / Justificación</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.3rem' }}>
+                  Observaciones / Motivo del Traslado
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Detalle del despacho de traslado"
+                  placeholder="Ej. Reabastecimiento urgente de tienda o despacho entre bodegas..."
                   value={transferForm.observaciones}
                   onChange={e => setTransferForm({ ...transferForm, observaciones: e.target.value })}
-                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
                 />
               </div>
 
-              <button type="submit" disabled={savingTransfer} className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>
-                {savingTransfer ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar y Despachar Traslado'}
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(false)}
+                  style={{ padding: '0.75rem 1.5rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontSize: '0.82rem', fontWeight: '800', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingTransfer || transferForm.items.length === 0}
+                  className="btn btn-primary"
+                  style={{ padding: '0.75rem 1.75rem', fontWeight: '950', fontSize: '0.9rem', borderRadius: '10px', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  {savingTransfer ? <Loader2 size={16} className="animate-spin" /> : '🚀 Confirmar y Despachar Traslado'}
+                </button>
+              </div>
+
             </form>
           </div>
         </div>
