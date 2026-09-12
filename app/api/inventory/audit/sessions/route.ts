@@ -136,11 +136,16 @@ export async function POST(req: Request) {
     let totalExpectedQty = 0;
 
     // 2. Query 1-to-1 individual barcode garments (`individual_garments`)
-    const { data: garments } = await supabase
+    let garmentQuery = supabase
       .from('individual_garments')
       .select('*')
-      .neq('status', 'vendido')
-      .order('created_at', { ascending: false });
+      .neq('status', 'vendido');
+
+    if (locationId !== 'all') {
+      garmentQuery = garmentQuery.eq('warehouse_id', locationId);
+    }
+
+    const { data: garments } = await garmentQuery.order('created_at', { ascending: false });
 
     const registeredBarcodes = new Set<string>();
 
@@ -185,7 +190,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 3. Fallback/Supplement from `finished_goods_stock` for non-barcoded SKU aggregations
+    // 3. Supplement from `finished_goods_stock` for non-barcoded SKU aggregations in the selected warehouse
     let stockQuery = supabase
       .from('finished_goods_stock')
       .select(`
@@ -202,8 +207,12 @@ export async function POST(req: Request) {
 
     const { data: expectedStock } = await stockQuery;
 
-    if (expectedStock && expectedStock.length > 0 && auditItemsToInsert.length === 0) {
+    if (expectedStock && expectedStock.length > 0) {
       expectedStock.forEach(st => {
+        // Skip stock items with 0 available quantity or items already registered individually by barcode
+        const qtyAvailable = Number(st.cantidad_disponible || 0);
+        if (qtyAvailable <= 0) return;
+
         const prod = Array.isArray(st.products) ? st.products[0] : st.products;
         const color = Array.isArray(st.colors) ? st.colors[0] : st.colors;
         const size = Array.isArray(st.sizes) ? st.sizes[0] : st.sizes;
@@ -216,7 +225,11 @@ export async function POST(req: Request) {
         const sizeCode = size?.codigo_talla || 'ST';
 
         const skuCode = `${productRef}_${colorName}_${sizeCode}`.toUpperCase();
-        const expectedQty = Number(st.cantidad_disponible || 0);
+
+        // If individual garments were already loaded for this warehouse, don't duplicate
+        const alreadyLoaded = auditItemsToInsert.some(item => item.sku_code === skuCode || item.barcode === productRef);
+        if (alreadyLoaded) return;
+
         const unitCost = Number(prod?.costo || prod?.precio * 0.5 || 0);
         const unitPrice = Number(prod?.precio || 0);
 
@@ -231,16 +244,16 @@ export async function POST(req: Request) {
           category_name: categoryName,
           color_name: colorName,
           size_code: sizeCode,
-          expected_qty: expectedQty,
+          expected_qty: qtyAvailable,
           counted_qty: 0,
           unit_cost: unitCost,
           unit_price: unitPrice,
-          status: expectedQty > 0 ? 'Faltante' : 'OK',
+          status: 'Faltante',
           item_state: 'Detectada'
         });
 
         totalExpectedItems += 1;
-        totalExpectedQty += expectedQty;
+        totalExpectedQty += qtyAvailable;
       });
     }
 
