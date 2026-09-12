@@ -159,6 +159,12 @@ export default function FinishedGoodsInventory() {
   const [unitGarments, setUnitGarments] = useState<any[]>([]);
   const [loadingUnits, setLoadingUnits] = useState(false);
 
+  // Warehouse items listing modal (20 by 20 pagination)
+  const [showWarehouseItemsModal, setShowWarehouseItemsModal] = useState(false);
+  const [selectedWarehouseForModal, setSelectedWarehouseForModal] = useState<any>(null);
+  const [warehouseModalPage, setWarehouseModalPage] = useState<number>(1);
+  const [warehouseModalSearch, setWarehouseModalSearch] = useState<string>('');
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterWarehouse, setFilterWarehouse] = useState('');
@@ -1598,37 +1604,51 @@ export default function FinishedGoodsInventory() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '1.5rem', overflowX: 'auto' }}>
+      {/* High-Visibility Navigation Bar */}
+      <div style={{ display: 'flex', borderBottom: '3px solid #e2e8f0', gap: '0.75rem', overflowX: 'auto', paddingBottom: '0.5rem', backgroundColor: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
         {[
-          { id: 'dashboard', label: 'Panel Resumen' },
-          { id: 'audit_control', label: '🛡️ AUDITORÍA Y CONTROL' },
-          { id: 'general_inventory', label: 'INVENTARIO GENERAL' },
-          { id: 'consolidated_stock', label: 'Stock Consolidado (Sin Repeticiones)' },
-          { id: 'stock', label: 'Existencias por SKU' },
-          { id: 'kardex', label: 'Kardex Historial' },
-          { id: 'transfers', label: 'Transferencias' },
-          { id: 'locations', label: 'Bodegas y Ubicaciones' },
-          { id: 'initial_load', label: 'Carga Inicial Excel' },
-          { id: 'historical_inventory', label: 'Inventario Histórico' }
+          { id: 'dashboard', label: 'Panel Resumen', badge: null },
+          { id: 'audit_control', label: 'Auditoría y Control', badge: 'En Vivo' },
+          { id: 'general_inventory', label: 'Inventario General', badge: null },
+          { id: 'consolidated_stock', label: 'Stock Único', badge: 'Sin Repeticiones' },
+          { id: 'stock', label: 'Existencias por SKU', badge: null },
+          { id: 'kardex', label: 'Kardex Historial', badge: null },
+          { id: 'transfers', label: 'Transferencias e En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length} Pendientes` : null },
+          { id: 'historical_inventory', label: 'Inventario Histórico', badge: null }
         ].map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id as TabType)}
             style={{
-              padding: '0.75rem 0.25rem',
-              fontWeight: '700',
-              fontSize: '0.875rem',
-              border: 'none',
-              borderBottom: activeTab === t.id ? '3px solid var(--primary)' : '3px solid transparent',
-              color: activeTab === t.id ? 'var(--primary)' : 'var(--text-muted)',
-              backgroundColor: 'transparent',
+              padding: '0.65rem 1.15rem',
+              fontWeight: activeTab === t.id ? '950' : '750',
+              fontSize: '0.88rem',
+              borderRadius: '12px',
+              border: activeTab === t.id ? '2px solid #80082E' : '1px solid #cbd5e1',
+              color: activeTab === t.id ? 'white' : '#334155',
+              backgroundColor: activeTab === t.id ? '#80082E' : 'white',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
-              transition: 'all 0.2s ease'
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              boxShadow: activeTab === t.id ? '0 4px 12px rgba(128, 8, 46, 0.25)' : 'none',
+              transition: 'all 0.15s ease-in-out'
             }}
           >
-            {t.label}
+            <span>{t.label}</span>
+            {t.badge && (
+              <span style={{
+                fontSize: '0.68rem',
+                fontWeight: '900',
+                padding: '0.15rem 0.5rem',
+                borderRadius: '8px',
+                backgroundColor: activeTab === t.id ? 'rgba(255,255,255,0.25)' : '#fee2e2',
+                color: activeTab === t.id ? 'white' : '#dc2626'
+              }}>
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1758,9 +1778,34 @@ export default function FinishedGoodsInventory() {
                   
                   return (
                     <div key={w.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
                         <span style={{ fontWeight: '800', color: '#0f172a' }}>{w.nombre_bodega} ({w.tipo})</span>
-                        <span style={{ fontWeight: '700', color: 'var(--text-muted)' }}>{qty.toLocaleString()} uds / ${value.toLocaleString('es-CO')}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontWeight: '700', color: 'var(--text-muted)' }}>{qty.toLocaleString()} uds / ${value.toLocaleString('es-CO')}</span>
+                          <button
+                            onClick={() => {
+                              setSelectedWarehouseForModal(w);
+                              setWarehouseModalPage(1);
+                              setWarehouseModalSearch('');
+                              setShowWarehouseItemsModal(true);
+                            }}
+                            style={{
+                              padding: '0.25rem 0.65rem',
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              backgroundColor: '#e0e7ff',
+                              color: '#4338ca',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            <Eye size={12} /> Ver Contenido (20 en 20)
+                          </button>
+                        </div>
                       </div>
                       <div style={{ width: '100%', height: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
                         <div style={{ width: `${percentage}%`, height: '100%', backgroundColor: 'var(--primary)', borderRadius: '4px' }} />
@@ -4065,6 +4110,150 @@ export default function FinishedGoodsInventory() {
                   🖨️ Generar PDF e Imprimir
                 </button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 🏬 MODAL LISTADO DE CONTENIDO POR BODEGA (PAGINACIÓN 20 EN 20) */}
+      {showWarehouseItemsModal && selectedWarehouseForModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1150, padding: '1rem' }}>
+          <div className="card" style={{ width: '95%', maxWidth: '850px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  INVENTARIO FÍSICO POR BODEGA
+                </span>
+                <h3 style={{ margin: '0.15rem 0 0 0', fontSize: '1.25rem', fontWeight: '950' }}>
+                  🏬 {selectedWarehouseForModal.nombre_bodega} ({selectedWarehouseForModal.tipo || 'Bodega'})
+                </h3>
+              </div>
+              <button onClick={() => setShowWarehouseItemsModal(false)} style={{ border: 'none', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', padding: '0.4rem', borderRadius: '8px', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Filter Search Bar */}
+            <div style={{ padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar por nombre de producto, referencia, color o talla..."
+                  value={warehouseModalSearch}
+                  onChange={e => {
+                    setWarehouseModalSearch(e.target.value);
+                    setWarehouseModalPage(1);
+                  }}
+                  style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.8rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+
+            {/* Content Table */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
+              {(() => {
+                const whItems = stock.filter(s => isSameWarehouse(s, selectedWarehouseForModal) && (
+                  !warehouseModalSearch.trim() ||
+                  (s.products?.nombre_producto || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
+                  (s.products?.codigo_referencia || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
+                  (s.colors?.nombre_color || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
+                  (s.sizes?.codigo_talla || '').toLowerCase().includes(warehouseModalSearch.toLowerCase())
+                ));
+
+                const pageSize = 20;
+                const totalPages = Math.ceil(whItems.length / pageSize) || 1;
+                const currentPageItems = whItems.slice((warehouseModalPage - 1) * pageSize, warehouseModalPage * pageSize);
+
+                if (whItems.length === 0) {
+                  return (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                      <Package size={40} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                      <p style={{ margin: 0, fontWeight: '800', color: '#475569' }}>No se encontraron prendas físicas en esta bodega.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: '800', color: '#64748b' }}>
+                      <span>Mostrando {currentPageItems.length} de {whItems.length} existencias encontradas</span>
+                      <span>Página {warehouseModalPage} de {totalPages}</span>
+                    </div>
+
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                        <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
+                          <tr>
+                            <th style={{ padding: '0.65rem 1rem' }}>Referencia / SKU</th>
+                            <th style={{ padding: '0.65rem 1rem' }}>Producto</th>
+                            <th style={{ padding: '0.65rem 1rem' }}>Color</th>
+                            <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Talla</th>
+                            <th style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>Cantidad Disponible</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {currentPageItems.map(item => (
+                            <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.65rem 1rem', fontWeight: '800', color: '#4338ca' }}>
+                                {item.products?.codigo_referencia || '—'}
+                              </td>
+                              <td style={{ padding: '0.65rem 1rem', fontWeight: '800', color: '#0f172a' }}>
+                                {item.products?.nombre_producto || '—'}
+                              </td>
+                              <td style={{ padding: '0.65rem 1rem', color: '#475569' }}>
+                                {item.colors?.nombre_color || '—'}
+                              </td>
+                              <td style={{ padding: '0.65rem 1rem', textAlign: 'center', fontWeight: '900' }}>
+                                <span style={{ backgroundColor: '#0f172a', color: 'white', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem' }}>
+                                  {item.sizes?.codigo_talla || 'ST'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '0.95rem', color: '#059669' }}>
+                                {item.cantidad_disponible} uds
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                      <button
+                        disabled={warehouseModalPage <= 1}
+                        onClick={() => setWarehouseModalPage(p => Math.max(1, p - 1))}
+                        style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.78rem', cursor: warehouseModalPage <= 1 ? 'not-allowed' : 'pointer', opacity: warehouseModalPage <= 1 ? 0.5 : 1 }}
+                      >
+                        ← Anterior (20)
+                      </button>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>
+                        Página {warehouseModalPage} de {totalPages}
+                      </span>
+                      <button
+                        disabled={warehouseModalPage >= totalPages}
+                        onClick={() => setWarehouseModalPage(p => Math.min(totalPages, p + 1))}
+                        style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.78rem', cursor: warehouseModalPage >= totalPages ? 'not-allowed' : 'pointer', opacity: warehouseModalPage >= totalPages ? 0.5 : 1 }}
+                      >
+                        Siguiente (20) →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowWarehouseItemsModal(false)}
+                style={{ padding: '0.55rem 1.5rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
             </div>
 
           </div>
