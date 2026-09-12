@@ -188,7 +188,7 @@ export default function FinishedGoodsInventory() {
     const totalUnits = items.reduce((acc: number, it: any) => acc + (Number(it.cantidad) || 0), 0);
 
     const itemsHtml = items.map((it: any, index: number) => {
-      const prodName = it.products?.nombre_producto || 'Producto';
+      const prodName = it.resolved_display_name || it.products?.nombre_producto || 'Prenda';
       const refCode = it.products?.codigo_referencia || 'N/A';
       const colorName = it.colors?.nombre_color || 'N/A';
       const sizeCode = it.sizes?.codigo_talla || 'N/A';
@@ -1311,7 +1311,53 @@ export default function FinishedGoodsInventory() {
         `)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setTransfers(data || []);
+
+      // Extract all barcodes across items to fetch exact reference names from individual_garments
+      const allBarcodes: string[] = [];
+      (data || []).forEach((tx: any) => {
+        (tx.finished_goods_transfer_items || []).forEach((it: any) => {
+          if (it.barcodes && Array.isArray(it.barcodes)) {
+            allBarcodes.push(...it.barcodes);
+          }
+        });
+      });
+
+      let barcodeGarmentMap: Record<string, string> = {};
+      if (allBarcodes.length > 0) {
+        const { data: garments } = await supabase
+          .from('individual_garments')
+          .select('barcode, reference_name')
+          .in('barcode', allBarcodes);
+        
+        (garments || []).forEach((g: any) => {
+          if (g.barcode && g.reference_name) {
+            barcodeGarmentMap[g.barcode.trim().toUpperCase()] = g.reference_name;
+          }
+        });
+      }
+
+      // Attach exact reference_name to transfer items if products.nombre_producto is missing or generic
+      const enrichedTransfers = (data || []).map((tx: any) => ({
+        ...tx,
+        finished_goods_transfer_items: (tx.finished_goods_transfer_items || []).map((it: any) => {
+          let resolvedName = it.products?.nombre_producto;
+          if (it.barcodes && it.barcodes.length > 0) {
+            for (const bc of it.barcodes) {
+              const matchedRef = barcodeGarmentMap[bc.trim().toUpperCase()];
+              if (matchedRef) {
+                resolvedName = matchedRef;
+                break;
+              }
+            }
+          }
+          return {
+            ...it,
+            resolved_display_name: resolvedName || it.products?.nombre_producto || it.products?.codigo_referencia || 'Prenda Única / Lote Histórico'
+          };
+        })
+      }));
+
+      setTransfers(enrichedTransfers);
     } catch (err) {
       console.error('Error fetching transfers:', err);
     }
@@ -2544,7 +2590,7 @@ export default function FinishedGoodsInventory() {
                           {tx.finished_goods_transfer_items?.map((item: any) => (
                             <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                               <span style={{ fontWeight: '700', color: '#0f172a' }}>
-                                • {item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong>{item.cantidad} uds</strong>
+                                • {item.resolved_display_name || item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong>{item.cantidad} uds</strong>
                               </span>
                               {item.barcodes && item.barcodes.length > 0 && (
                                 <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: '#2563eb', fontWeight: '800', paddingLeft: '0.75rem' }}>
@@ -4802,7 +4848,7 @@ export default function FinishedGoodsInventory() {
                             return (
                               <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: diff < 0 ? '#fef2f2' : 'white' }}>
                                 <td style={{ padding: '0.75rem 1rem', fontWeight: '800', color: '#0f172a' }}>
-                                  {item.products?.nombre_producto || item.products?.codigo_referencia || item.nameLabel || item.reference_name || 'Prenda en Traslado'}
+                                  {item.resolved_display_name || item.products?.nombre_producto || item.products?.codigo_referencia || item.nameLabel || item.reference_name || 'Prenda en Traslado'}
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
                                   {item.colors?.nombre_color || '—'} | <span style={{ fontWeight: '900', color: '#0f172a' }}>{item.sizes?.codigo_talla || 'ST'}</span>
@@ -5106,7 +5152,7 @@ export default function FinishedGoodsInventory() {
                             )}
                           </td>
                           <td style={{ padding: '0.75rem 1rem' }}>
-                            <strong style={{ color: '#0f172a', display: 'block' }}>{item.products?.nombre_producto || 'Producto'}</strong>
+                            <strong style={{ color: '#0f172a', display: 'block' }}>{item.resolved_display_name || item.products?.nombre_producto || 'Prenda'}</strong>
                             <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Ref: {item.products?.codigo_referencia || 'N/A'}</span>
                           </td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: '700', color: '#334155' }}>
