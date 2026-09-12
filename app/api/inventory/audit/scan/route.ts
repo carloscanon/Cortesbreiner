@@ -51,11 +51,28 @@ export async function POST(req: Request) {
     const codeClean = cleanCode;
 
     // 1. Search in `individual_garments` database (ID Único / Código de Barras de Prenda)
-    const { data: garmentList } = await supabase
+    let garmentList: any[] | null = null;
+
+    // Direct query by exact or padded/unpadded codes
+    const { data: directGarments } = await supabase
       .from('individual_garments')
       .select('*, warehouses(id, nombre_bodega)')
-      .or(`barcode.eq.${codeClean},barcode.eq.${padded10},barcode.eq.${padded8},barcode.eq.${unpadded},garment_id.eq.${codeClean}`)
+      .or(`barcode.eq.${codeClean},barcode.eq.${padded10},barcode.eq.${padded8},barcode.eq.${unpadded},garment_id.eq.${codeClean},garment_id.eq.${unpadded}`)
       .order('created_at', { ascending: false });
+
+    garmentList = directGarments;
+
+    // Fallback: If not found by exact equal, search by ilike %code%
+    if (!garmentList || garmentList.length === 0) {
+      const { data: ilikeGarments } = await supabase
+        .from('individual_garments')
+        .select('*, warehouses(id, nombre_bodega)')
+        .ilike('barcode', `%${unpadded}%`)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      garmentList = ilikeGarments;
+    }
 
     if (garmentList && garmentList.length > 0) {
       // Prioritize garment in target warehouse if available
