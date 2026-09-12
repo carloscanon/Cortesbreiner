@@ -143,12 +143,12 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. If not found in individual_garments, check `products` catalog strictly by reference barcode
+    // 2. If not found in individual_garments, check `products` catalog by product ID, codigo_referencia, or nombre_producto
     if (!itemToUpdate) {
       const { data: prodList } = await supabase
         .from('products')
         .select('*')
-        .or(`codigo_referencia.eq.${codeClean},codigo_referencia.eq.${unpadded},codigo_referencia.eq.${padded10},codigo_referencia.eq.${padded8}`)
+        .or(`id.eq.${codeClean},codigo_referencia.ilike.${codeClean},codigo_referencia.ilike.${unpadded},nombre_producto.ilike.%${codeClean}%`)
         .limit(1);
 
       const prod = prodList && prodList.length > 0 ? prodList[0] : null;
