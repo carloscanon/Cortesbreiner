@@ -131,7 +131,7 @@ export default function AuditGunScannerView({
         body: JSON.stringify({
           auditId: session.id,
           code: codeToScan,
-          incrementQty: qty,
+          incrementQty: 1, // Strictly 1 unit per scan
           mode: mode,
           userEmail: userEmail || 'Pistola Lectora',
           deviceInfo: 'Pistola Lectora USB/Bluetooth'
@@ -153,7 +153,7 @@ export default function AuditGunScannerView({
         setLastScannedItem(data.item);
         const countInfo = data.wasAlreadyCounted
           ? `ℹ️ Prenda (ID ${codeToScan}) ya estaba registrada (1/1)`
-          : `✅ Escaneado: ${data.item.product_name} (${data.item.counted_qty} contados)`;
+          : `✅ Escaneado (+1 unidad): ${data.item.product_name} (${data.item.counted_qty} contados)`;
         setStatusMessage({
           text: countInfo,
           type: data.wasAlreadyCounted ? 'warning' : 'success'
@@ -167,10 +167,10 @@ export default function AuditGunScannerView({
       setStatusMessage({ text: '❌ Error: ' + err.message, type: 'error' });
     } finally {
       setIsScanning(false);
-      scanLockRef.current = false;
       setTimeout(() => {
+        scanLockRef.current = false;
         if (inputRef.current) inputRef.current.focus();
-      }, 50);
+      }, 300); // 300ms cooldown to swallow hardware scanner double Enter keys
     }
   };
 

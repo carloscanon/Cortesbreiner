@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     if (mode === 'set') {
       newCounted = Number(incrementQty);
     } else if (mode === 'decrement') {
-      newCounted = Math.max(0, newCounted - Number(incrementQty));
+      newCounted = Math.max(0, newCounted - 1);
     } else {
       // If expected_qty is 1 (unique garment label sticker), set counted_qty to EXACTLY 1!
       if (itemToUpdate.expected_qty === 1) {
@@ -140,7 +140,8 @@ export async function POST(req: Request) {
         }
         newCounted = 1;
       } else {
-        newCounted = newCounted + Number(incrementQty);
+        // Enforce strictly 1 unit added per scan
+        newCounted = newCounted + 1;
       }
     }
 
