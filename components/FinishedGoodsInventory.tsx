@@ -12,6 +12,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
 import GeneralInventorySubmodule from '@/components/inventory/GeneralInventorySubmodule';
 import ConsolidatedStockSubmodule from '@/components/inventory/ConsolidatedStockSubmodule';
+import AuditManagerDashboard from '@/components/audit/AuditManagerDashboard';
+import AuditGunScannerView from '@/components/audit/AuditGunScannerView';
+import AuditReconciliationModal from '@/components/audit/AuditReconciliationModal';
 
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
 // Renderiza en canvas oculto y exporta como <img> para impresión confiable
@@ -93,7 +96,7 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
   );
 }
 
-type TabType = 'dashboard' | 'general_inventory' | 'consolidated_stock' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
+type TabType = 'dashboard' | 'general_inventory' | 'audit_control' | 'consolidated_stock' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
@@ -178,6 +181,10 @@ export default function FinishedGoodsInventory() {
   const [rawPaste, setRawPaste] = useState('');
   const [parsedData, setParsedData] = useState<any[]>([]);
   const [importing, setImporting] = useState(false);
+
+  // Breiner Audit States
+  const [activeAuditScannerSession, setActiveAuditScannerSession] = useState<any>(null);
+  const [activeAuditReconciliationSession, setActiveAuditReconciliationSession] = useState<any>(null);
 
   // Loading flags
   const [savingLocation, setSavingLocation] = useState(false);
@@ -1586,6 +1593,7 @@ export default function FinishedGoodsInventory() {
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: '1.5rem', overflowX: 'auto' }}>
         {[
           { id: 'dashboard', label: 'Panel Resumen' },
+          { id: 'audit_control', label: '🛡️ AUDITORÍA Y CONTROL' },
           { id: 'general_inventory', label: 'INVENTARIO GENERAL' },
           { id: 'consolidated_stock', label: 'Stock Consolidado (Sin Repeticiones)' },
           { id: 'stock', label: 'Existencias por SKU' },
@@ -1618,7 +1626,43 @@ export default function FinishedGoodsInventory() {
 
       {/* TAB CONTENTS */}
 
-      {/* 0. INVENTARIO GENERAL */}
+      {/* 0. AUDITORÍA Y CONTROL BREINER */}
+      {activeTab === 'audit_control' && (
+        activeAuditScannerSession ? (
+          <AuditGunScannerView
+            session={activeAuditScannerSession}
+            userEmail={user?.email || 'Sistema'}
+            onBack={() => setActiveAuditScannerSession(null)}
+            onRefreshData={async () => {
+              await fetchStock();
+              await fetchKardex();
+            }}
+          />
+        ) : (
+          <AuditManagerDashboard
+            warehouses={warehouses}
+            user={user}
+            profile={profile}
+            onOpenScanner={(session) => setActiveAuditScannerSession(session)}
+            onOpenReconciliation={(session) => setActiveAuditReconciliationSession(session)}
+          />
+        )
+      )}
+
+      {/* Modal Reconciliación */}
+      {activeAuditReconciliationSession && (
+        <AuditReconciliationModal
+          session={activeAuditReconciliationSession}
+          userEmail={user?.email || 'Sistema'}
+          onClose={() => setActiveAuditReconciliationSession(null)}
+          onRefreshData={async () => {
+            await fetchStock();
+            await fetchKardex();
+          }}
+        />
+      )}
+
+      {/* 0.1 INVENTARIO GENERAL */}
       {activeTab === 'general_inventory' && (
         <GeneralInventorySubmodule
           products={products}
