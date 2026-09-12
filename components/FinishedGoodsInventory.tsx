@@ -1521,15 +1521,22 @@ export default function FinishedGoodsInventory() {
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
         let finalProductId = item.product_id;
+        
         if (!finalProductId && item.nameLabel) {
+          const nameClean = item.nameLabel.trim().toUpperCase();
           const matchByName = products.find(p =>
-            p.nombre_producto?.trim().toUpperCase() === item.nameLabel.trim().toUpperCase() ||
-            p.codigo_referencia?.trim().toUpperCase() === item.nameLabel.trim().toUpperCase()
+            (p.codigo_referencia && p.codigo_referencia.trim().toUpperCase() === nameClean) ||
+            (p.nombre_producto && p.nombre_producto.trim().toUpperCase() === nameClean) ||
+            (p.nombre_producto && nameClean.includes(p.nombre_producto.trim().toUpperCase())) ||
+            (p.codigo_referencia && nameClean.includes(p.codigo_referencia.trim().toUpperCase()))
           );
           if (matchByName) finalProductId = matchByName.id;
         }
+
+        // If still no product_id found in products master, try matching with any product that isn't arbitrary, or keep null/valid
         if (!finalProductId) {
-          finalProductId = products[0]?.id || '';
+          const matchedRef = products.find(p => item.nameLabel && p.nombre_producto && item.nameLabel.toLowerCase().includes(p.nombre_producto.toLowerCase()));
+          if (matchedRef) finalProductId = matchedRef.id;
         }
 
         const finalColorId = item.color_id || colors[0]?.id || null;
@@ -1537,7 +1544,7 @@ export default function FinishedGoodsInventory() {
 
         const insertPayload: any = {
           transfer_id: newTransfer.id,
-          product_id: finalProductId,
+          product_id: finalProductId || products[0]?.id || '',
           color_id: finalColorId,
           size_id: finalSizeId,
           cantidad: Number(item.cantidad)
