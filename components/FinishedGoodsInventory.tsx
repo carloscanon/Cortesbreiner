@@ -3511,19 +3511,32 @@ export default function FinishedGoodsInventory() {
                           return (
                             <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '0.5rem 0.85rem' }}>
-                                <select
-                                  required
-                                  value={item.product_id}
-                                  onChange={e => {
-                                    const items = [...transferForm.items];
-                                    items[index].product_id = e.target.value;
-                                    setTransferForm({ ...transferForm, items });
-                                  }}
-                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '800' }}
-                                >
-                                  <option value="">Seleccionar Producto...</option>
-                                  {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto || p.codigo_referencia}</option>)}
-                                </select>
+                                {item.nameLabel ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                                    <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.85rem' }}>
+                                      {item.nameLabel}
+                                    </span>
+                                    {item.codeLabel && (
+                                      <span style={{ fontSize: '0.68rem', fontFamily: 'monospace', color: '#6366f1', fontWeight: '800' }}>
+                                        ID: {item.codeLabel}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <select
+                                    required
+                                    value={item.product_id}
+                                    onChange={e => {
+                                      const items = [...transferForm.items];
+                                      items[index].product_id = e.target.value;
+                                      setTransferForm({ ...transferForm, items });
+                                    }}
+                                    style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '800' }}
+                                  >
+                                    <option value="">Seleccionar Producto...</option>
+                                    {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto || p.codigo_referencia}</option>)}
+                                  </select>
+                                )}
                               </td>
 
                               <td style={{ padding: '0.5rem 0.85rem' }}>
