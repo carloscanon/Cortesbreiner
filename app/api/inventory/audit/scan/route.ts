@@ -38,35 +38,36 @@ export async function POST(req: Request) {
     const targetLocationId = auditSession?.location_id || 'all';
     const targetLocationName = auditSession?.location_name || 'Ubicación General';
 
-    // 1. Fetch exact matching audit_items record for this session by barcode ID Único or SKU
-    const { data: matchedItems } = await supabase
-      .from('audit_items')
-      .select('*')
-      .eq('audit_id', auditId)
-      .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.ilike.%${cleanCode}%,sku_code.ilike.%${cleanCode}%`);
-
-    let itemToUpdate = matchedItems && matchedItems.length > 0 ? matchedItems[0] : null;
-
+    let itemToUpdate: any = null;
     let newlyInserted = false;
     let belongsToAuditWarehouse = true;
     let actualGarmentWarehouseName: string | null = null;
 
-    // 2. If not found in session snapshot, check `individual_garments` database table
-    if (!itemToUpdate) {
-      const { data: garment } = await supabase
-        .from('individual_garments')
-        .select('*, warehouses(id, nombre_bodega)')
-        .eq('barcode', cleanCode)
-        .maybeSingle();
+    // 1. First, search in `individual_garments` DB table by ID Único (barcode or garment_id)
+    const { data: garment } = await supabase
+      .from('individual_garments')
+      .select('*, warehouses(id, nombre_bodega)')
+      .or(`barcode.eq.${cleanCode},garment_id.eq.${cleanCode}`)
+      .maybeSingle();
 
-      if (garment) {
-        const whObj: any = garment.warehouses;
-        if (targetLocationId !== 'all' && garment.warehouse_id && garment.warehouse_id !== targetLocationId) {
-          belongsToAuditWarehouse = false;
-          actualGarmentWarehouseName = (Array.isArray(whObj) ? whObj[0]?.nombre_bodega : whObj?.nombre_bodega) || 'Otra Bodega';
-        }
+    if (garment) {
+      const whObj: any = garment.warehouses;
+      if (targetLocationId !== 'all' && garment.warehouse_id && garment.warehouse_id !== targetLocationId) {
+        belongsToAuditWarehouse = false;
+        actualGarmentWarehouseName = (Array.isArray(whObj) ? whObj[0]?.nombre_bodega : whObj?.nombre_bodega) || 'Otra Bodega';
+      }
 
-        // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico (1-to-1)
+      // Check if already in audit_items snapshot for this session
+      const { data: matchedItems } = await supabase
+        .from('audit_items')
+        .select('*')
+        .eq('audit_id', auditId)
+        .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode}`);
+
+      if (matchedItems && matchedItems.length > 0) {
+        itemToUpdate = matchedItems[0];
+      } else {
+        // Registered in individual_garments but wasn't in initial expected snapshot (e.g. belongs to another warehouse or wasn't expected)
         const { data: newItem } = await supabase
           .from('audit_items')
           .insert({
@@ -93,7 +94,20 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. If still not found, check `products` master
+    // 2. If not found in individual_garments, check if already in audit_items snapshot (e.g. bulk SKU)
+    if (!itemToUpdate) {
+      const { data: matchedItems } = await supabase
+        .from('audit_items')
+        .select('*')
+        .eq('audit_id', auditId)
+        .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.ilike.%${cleanCode}%,sku_code.ilike.%${cleanCode}%`);
+
+      if (matchedItems && matchedItems.length > 0) {
+        itemToUpdate = matchedItems[0];
+      }
+    }
+
+    // 3. If still not found, check `products` catalog master
     if (!itemToUpdate) {
       const { data: prod } = await supabase
         .from('products')
@@ -127,23 +141,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Check warehouse belonging for itemToUpdate if it was already in snapshot
-    if (itemToUpdate && !newlyInserted && targetLocationId !== 'all') {
-      // Check if garment has a recorded warehouse in individual_garments
-      const { data: gCheck } = await supabase
-        .from('individual_garments')
-        .select('warehouse_id, warehouses(nombre_bodega)')
-        .eq('barcode', cleanCode)
-        .maybeSingle();
-
-      if (gCheck && gCheck.warehouse_id && gCheck.warehouse_id !== targetLocationId) {
-        belongsToAuditWarehouse = false;
-        const gWh: any = gCheck.warehouses;
-        actualGarmentWarehouseName = (Array.isArray(gWh) ? gWh[0]?.nombre_bodega : gWh?.nombre_bodega) || 'Otra Bodega';
-      }
-    }
-
-    // 4. Handle Product Not Registered Scenario ⚠️
+    // 4. Handle Product Not Registered Scenario ⚠️ (Only when neither garment nor product exists in DB)
     if (!itemToUpdate) {
       await supabase.from('audit_unregistered_items').insert({
         audit_id: auditId,
@@ -157,7 +155,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         isUnregistered: true,
-        message: `⚠️ Código de Barras ID Único No Registrado: ${cleanCode}`,
+        message: `⚠️ Código de Barras ID Único No Registrado en Catálogo: ${cleanCode}`,
         code: cleanCode
       });
     }
