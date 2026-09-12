@@ -32,7 +32,7 @@ export async function GET(req: Request) {
         .from('audit_items')
         .select('*')
         .eq('audit_id', sessionId)
-        .order('difference_cost', { ascending: true });
+        .order('created_at', { ascending: true });
 
       const { data: unregistered } = await supabase
         .from('audit_unregistered_items')
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
         sample_percentage: samplePercentage,
         status: 'En Progreso',
         created_by: userEmail || 'Sistema',
-        notes: notes || `Auditoría ${auditType} en ${locationName}`
+        notes: notes || `Auditoría 1-a-1 por Código de Barras en ${locationName}`
       })
       .select()
       .single();
@@ -131,7 +131,61 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Error al crear la sesión de auditoría: ' + sessErr?.message }, { status: 500 });
     }
 
-    // 2. Capture expected inventory snapshot for location
+    const auditItemsToInsert: any[] = [];
+    let totalExpectedItems = 0;
+    let totalExpectedQty = 0;
+
+    // 2. Query 1-to-1 individual barcode garments (`individual_garments`)
+    const { data: garments } = await supabase
+      .from('individual_garments')
+      .select('*')
+      .neq('status', 'vendido')
+      .order('created_at', { ascending: false });
+
+    const registeredBarcodes = new Set<string>();
+
+    if (garments && garments.length > 0) {
+      // Fetch product prices map for unit cost/price resolution
+      const { data: prods } = await supabase.from('products').select('id, codigo_referencia, nombre_producto, precio, costo');
+      const prodMap = new Map<string, any>();
+      prods?.forEach(p => {
+        if (p.id) prodMap.set(p.id, p);
+        if (p.codigo_referencia) prodMap.set(p.codigo_referencia.trim().toUpperCase(), p);
+      });
+
+      garments.forEach(g => {
+        if (!g.barcode) return;
+        const bCode = g.barcode.trim();
+        registeredBarcodes.add(bCode);
+
+        const prod = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toUpperCase());
+        const productName = g.reference_name || prod?.nombre_producto || 'Prenda Indiv.';
+        const unitCost = Number(prod?.costo || prod?.precio * 0.5 || 0);
+        const unitPrice = Number(prod?.precio || 0);
+
+        auditItemsToInsert.push({
+          audit_id: session.id,
+          product_id: g.product_id || prod?.id || null,
+          sku_code: bCode,
+          barcode: bCode,
+          product_name: productName,
+          category_name: prod?.categoria || 'Prendas Individuales',
+          color_name: g.color_name || '—',
+          size_code: g.size_code || 'ST',
+          expected_qty: 1, // 1-to-1 matching per barcode sticker!
+          counted_qty: 0,
+          unit_cost: unitCost,
+          unit_price: unitPrice,
+          status: 'Faltante',
+          item_state: 'Detectada'
+        });
+
+        totalExpectedItems += 1;
+        totalExpectedQty += 1;
+      });
+    }
+
+    // 3. Fallback/Supplement from `finished_goods_stock` for non-barcoded SKU aggregations
     let stockQuery = supabase
       .from('finished_goods_stock')
       .select(`
@@ -148,11 +202,7 @@ export async function POST(req: Request) {
 
     const { data: expectedStock } = await stockQuery;
 
-    const auditItemsToInsert: any[] = [];
-    let totalExpectedItems = 0;
-    let totalExpectedQty = 0;
-
-    if (expectedStock && expectedStock.length > 0) {
+    if (expectedStock && expectedStock.length > 0 && auditItemsToInsert.length === 0) {
       expectedStock.forEach(st => {
         const prod = Array.isArray(st.products) ? st.products[0] : st.products;
         const color = Array.isArray(st.colors) ? st.colors[0] : st.colors;
@@ -194,18 +244,23 @@ export async function POST(req: Request) {
       });
     }
 
+    // Insert batch into audit_items
     if (auditItemsToInsert.length > 0) {
-      await supabase.from('audit_items').insert(auditItemsToInsert);
+      // Chunk insert into batches of 500 for high performance
+      for (let i = 0; i < auditItemsToInsert.length; i += 500) {
+        const chunk = auditItemsToInsert.slice(i, i + 500);
+        await supabase.from('audit_items').insert(chunk);
+      }
     }
 
-    // 3. Update session initial totals
+    // 4. Update session initial totals
     await supabase.from('audit_sessions').update({
       total_expected_items: totalExpectedItems,
       total_expected_qty: totalExpectedQty,
       total_missing_qty: totalExpectedQty
     }).eq('id', session.id);
 
-    // 4. Record audit log
+    // 5. Record audit log
     await supabase.from('audit_logs').insert({
       audit_id: session.id,
       action: 'CREACION',
@@ -213,7 +268,8 @@ export async function POST(req: Request) {
       after_state: {
         consecutive: session.consecutive,
         location: locationName,
-        total_expected: totalExpectedQty
+        total_expected: totalExpectedQty,
+        barcodes_count: registeredBarcodes.size
       }
     });
 

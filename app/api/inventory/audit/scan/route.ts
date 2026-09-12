@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
     const {
       auditId,
-      code, // barcode or SKU
+      code, // barcode ID Único or SKU
       incrementQty = 1,
       mode = 'increment', // 'increment', 'decrement', 'set'
       userEmail,
@@ -23,31 +23,65 @@ export async function POST(req: Request) {
     } = body;
 
     if (!auditId || !code) {
-      return NextResponse.json({ error: 'Se requiere auditId y código de barras/SKU.' }, { status: 400 });
+      return NextResponse.json({ error: 'Se requiere auditId y Código de Barras ID Único.' }, { status: 400 });
     }
 
     const cleanCode = code.trim().toUpperCase();
 
-    // 1. Fetch audit_items record for this session matching barcode or SKU
+    // 1. Fetch exact matching audit_items record for this session by barcode ID Único or SKU
     const { data: matchedItems } = await supabase
       .from('audit_items')
       .select('*')
       .eq('audit_id', auditId)
-      .or(`sku_code.ilike.%${cleanCode}%,barcode.ilike.%${cleanCode}%`);
+      .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.ilike.%${cleanCode}%,sku_code.ilike.%${cleanCode}%`);
 
     let itemToUpdate = matchedItems && matchedItems.length > 0 ? matchedItems[0] : null;
 
-    // If not found in audit_items, try finding product in master `products` or `individual_garments`
+    // 2. If not found in session snapshot, check `individual_garments` database table
+    if (!itemToUpdate) {
+      const { data: garment } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('barcode', cleanCode)
+        .maybeSingle();
+
+      if (garment) {
+        // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico
+        const { data: newItem } = await supabase
+          .from('audit_items')
+          .insert({
+            audit_id: auditId,
+            product_id: garment.product_id || null,
+            sku_code: cleanCode,
+            barcode: cleanCode,
+            product_name: garment.reference_name || 'Prenda Indiv.',
+            category_name: 'Prendas Individuales',
+            color_name: garment.color_name || '—',
+            size_code: garment.size_code || 'ST',
+            expected_qty: 0,
+            counted_qty: 1,
+            unit_cost: 0,
+            unit_price: 0,
+            status: 'Sobrante',
+            item_state: 'Detectada'
+          })
+          .select()
+          .single();
+
+        itemToUpdate = newItem;
+      }
+    }
+
+    // 3. If still not found, check `products` master
     if (!itemToUpdate) {
       const { data: prod } = await supabase
         .from('products')
         .select('*')
         .or(`codigo_referencia.ilike.${cleanCode},nombre_producto.ilike.%${cleanCode}%`)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (prod) {
-        // Create new item in audit_items as unexpected/new physical discovery
         const { data: newItem } = await supabase
           .from('audit_items')
           .insert({
@@ -71,7 +105,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Handle Product Not Registered Scenario ⚠️
+    // 4. Handle Product Not Registered Scenario ⚠️
     if (!itemToUpdate) {
       await supabase.from('audit_unregistered_items').insert({
         audit_id: auditId,
@@ -79,18 +113,18 @@ export async function POST(req: Request) {
         quantity: incrementQty,
         action_taken: 'REGISTRADO_SOBRANTE',
         reported_by: userEmail || 'Pistola Lectora',
-        notes: `Escaneado el ${new Date().toLocaleString('es-CO')} no encontrado en catálogo`
+        notes: `Código de Barras ID Único ${cleanCode} no registrado en catálogo`
       });
 
       return NextResponse.json({
         success: true,
         isUnregistered: true,
-        message: `⚠️ Producto No Registrado: ${cleanCode}`,
+        message: `⚠️ Código de Barras ID Único No Registrado: ${cleanCode}`,
         code: cleanCode
       });
     }
 
-    // 3. Update counted_qty and calculate difference
+    // 5. Update counted_qty and calculate difference (1-to-1 matching)
     let newCounted = itemToUpdate.counted_qty || 0;
 
     if (mode === 'set') {
@@ -130,7 +164,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: updErr.message }, { status: 500 });
     }
 
-    // 4. Record scan event in audit_scans
+    // 6. Record scan event in audit_scans
     await supabase.from('audit_scans').insert({
       audit_id: auditId,
       sku_code: itemToUpdate.sku_code,
@@ -139,7 +173,7 @@ export async function POST(req: Request) {
       device_info: deviceInfo
     });
 
-    // 5. Recalculate Session Metrics & Impact in DB
+    // 7. Recalculate Session Metrics & Impact in DB
     const { data: allItems } = await supabase
       .from('audit_items')
       .select('*')
@@ -186,7 +220,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       item: updatedItem,
-      message: `✅ Escaneado: ${updatedItem.product_name} (${updatedItem.counted_qty} contados)`
+      message: `✅ Escaneado ID Único ${cleanCode}: ${updatedItem.product_name} (${updatedItem.color_name} | ${updatedItem.size_code})`
     });
 
   } catch (error: any) {
