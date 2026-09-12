@@ -3363,11 +3363,42 @@ export default function FinishedGoodsInventory() {
                             return;
                           }
 
+                          // Resolve product_id if null by checking reference_name against products master
+                          let resolvedProductId = garment.product_id;
+                          if (!resolvedProductId && garment.reference_name) {
+                            const refClean = garment.reference_name.trim().toUpperCase();
+                            const matchedProd = products.find(p =>
+                              (p.codigo_referencia && p.codigo_referencia.trim().toUpperCase() === refClean) ||
+                              (p.nombre_producto && p.nombre_producto.trim().toUpperCase() === refClean)
+                            );
+                            if (matchedProd) resolvedProductId = matchedProd.id;
+                          }
+
+                          // If still no resolvedProductId, fallback to first product or create temp placeholder
+                          if (!resolvedProductId) {
+                            resolvedProductId = products[0]?.id || '';
+                          }
+
+                          // Resolve color_id and size_id if missing
+                          let resolvedColorId = garment.color_id;
+                          if (!resolvedColorId && garment.color_name) {
+                            const cObj = colors.find(c => c.nombre_color.trim().toUpperCase() === garment.color_name.trim().toUpperCase());
+                            if (cObj) resolvedColorId = cObj.id;
+                          }
+                          if (!resolvedColorId) resolvedColorId = colors[0]?.id || '';
+
+                          let resolvedSizeId = garment.size_id;
+                          if (!resolvedSizeId && garment.size_code) {
+                            const sObj = sizes.find(s => s.codigo_talla.trim().toUpperCase() === garment.size_code.trim().toUpperCase());
+                            if (sObj) resolvedSizeId = sObj.id;
+                          }
+                          if (!resolvedSizeId) resolvedSizeId = sizes[0]?.id || '';
+
                           // Group by product, color, size
                           const existingIdx = transferForm.items.findIndex(i =>
-                            i.product_id === garment.product_id &&
-                            (garment.color_id ? i.color_id === garment.color_id : true) &&
-                            (garment.size_id ? i.size_id === garment.size_id : true)
+                            i.product_id === resolvedProductId &&
+                            (resolvedColorId ? i.color_id === resolvedColorId : true) &&
+                            (resolvedSizeId ? i.size_id === resolvedSizeId : true)
                           );
 
                           if (existingIdx >= 0) {
@@ -3377,9 +3408,9 @@ export default function FinishedGoodsInventory() {
                             setTransferForm({ ...transferForm, items });
                           } else {
                             const items = [...transferForm.items, {
-                              product_id: garment.product_id,
-                              color_id: garment.color_id || colors[0]?.id || '',
-                              size_id: garment.size_id || sizes[0]?.id || '',
+                              product_id: resolvedProductId,
+                              color_id: resolvedColorId,
+                              size_id: resolvedSizeId,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
