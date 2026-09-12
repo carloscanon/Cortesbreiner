@@ -147,23 +147,16 @@ export default function AuditGunScannerView({
           code: codeToScan,
           message: data.message
         });
-        setStatusMessage({ text: `⚠️ Producto No Registrado en Catálogo: ${codeToScan}`, type: 'warning' });
+        setStatusMessage({ text: `⚠️ Producto No Registrado: ${codeToScan}`, type: 'warning' });
       } else {
-        const isWarehouseMismatch = data.belongsToAuditWarehouse === false;
-        playAudioFeedback(isWarehouseMismatch ? 'warning' : 'success');
+        playAudioFeedback('success');
         setLastScannedItem(data.item);
-        
-        let countInfo = data.wasAlreadyCounted
+        const countInfo = data.wasAlreadyCounted
           ? `ℹ️ Prenda (ID ${codeToScan}) ya estaba registrada (1/1)`
           : `✅ Escaneado (+1 unidad): ${data.item.product_name} (${data.item.counted_qty} contados)`;
-
-        if (isWarehouseMismatch) {
-          countInfo = `⚠️ ALERTA DE BODEGA: La prenda (ID ${codeToScan}) pertenece a "${data.actualGarmentWarehouseName}", NO a esta bodega ("${data.targetLocationName}"). Se registra como hallazgo/sobrante.`;
-        }
-
         setStatusMessage({
           text: countInfo,
-          type: isWarehouseMismatch ? 'warning' : (data.wasAlreadyCounted ? 'warning' : 'success')
+          type: data.wasAlreadyCounted ? 'warning' : 'success'
         });
       }
 
@@ -357,7 +350,7 @@ export default function AuditGunScannerView({
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
             <thead style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
               <tr>
-                <th style={{ padding: '0.75rem 1rem' }}>ID Único (Código de Barras)</th>
+                <th style={{ padding: '0.75rem 1rem' }}>SKU / Código</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Producto</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Color / Talla</th>
                 <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Esperado</th>
