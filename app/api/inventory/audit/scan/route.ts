@@ -43,16 +43,21 @@ export async function POST(req: Request) {
     let belongsToAuditWarehouse = true;
     let actualGarmentWarehouseName: string | null = null;
 
-    // 1. First, search in `individual_garments` DB table by ID Único (barcode, garment_id, or string match)
+    const digitsOnly = cleanCode.replace(/\D/g, '');
+    const padded10 = digitsOnly ? digitsOnly.padStart(10, '0') : cleanCode;
+    const padded8 = digitsOnly ? digitsOnly.padStart(8, '0') : cleanCode;
+    const unpadded = digitsOnly ? digitsOnly.replace(/^0+/, '') : cleanCode;
+
+    // 1. Search in `individual_garments` DB table by ID Único with padded and unpadded barcode variants
     const { data: garmentList } = await supabase
       .from('individual_garments')
       .select('*, warehouses(id, nombre_bodega)')
-      .or(`barcode.eq.${cleanCode},garment_id.eq.${cleanCode},barcode.ilike.%${cleanCode}%`)
-      .limit(1);
+      .or(`barcode.eq.${cleanCode},barcode.eq.${padded10},barcode.eq.${padded8},barcode.eq.${unpadded},garment_id.eq.${cleanCode},barcode.ilike.%${unpadded}%`)
+      .order('created_at', { ascending: false });
 
-    const garment = garmentList && garmentList.length > 0 ? garmentList[0] : null;
-
-    if (garment) {
+    if (garmentList && garmentList.length > 0) {
+      // Prioritize garment in target warehouse if available
+      const garment = garmentList.find((g: any) => targetLocationId === 'all' || g.warehouse_id === targetLocationId) || garmentList[0];
       const whObj: any = garment.warehouses;
       actualGarmentWarehouseName = (Array.isArray(whObj) ? whObj[0]?.nombre_bodega : whObj?.nombre_bodega) || 'Otra Bodega';
 
@@ -65,7 +70,7 @@ export async function POST(req: Request) {
         .from('audit_items')
         .select('*')
         .eq('audit_id', auditId)
-        .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.eq.${garment.barcode}`);
+        .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.eq.${garment.barcode},sku_code.eq.${garment.barcode}`);
 
       if (matchedItems && matchedItems.length > 0) {
         itemToUpdate = matchedItems[0];
@@ -97,7 +102,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. If not found in individual_garments, check `finished_goods_stock` by product reference or SKU
+    // 2. If not found in individual_garments, check `finished_goods_stock` across all warehouses
     if (!itemToUpdate) {
       const { data: stockRecords } = await supabase
         .from('finished_goods_stock')
@@ -112,7 +117,7 @@ export async function POST(req: Request) {
         const matchedStock = stockRecords.find((s: any) => {
           const prod = Array.isArray(s.products) ? s.products[0] : s.products;
           const refCode = (prod?.codigo_referencia || '').trim().toUpperCase();
-          return refCode === cleanCode || cleanCode.includes(refCode) || refCode.includes(cleanCode);
+          return refCode === cleanCode || cleanCode.includes(refCode) || refCode.includes(cleanCode) || unpadded === refCode;
         });
 
         if (matchedStock) {
@@ -162,12 +167,13 @@ export async function POST(req: Request) {
 
     // 3. If not found in session or stock, check `products` catalog master
     if (!itemToUpdate) {
-      const { data: prod } = await supabase
+      const { data: prodList } = await supabase
         .from('products')
         .select('*')
-        .or(`codigo_referencia.ilike.${cleanCode},nombre_producto.ilike.%${cleanCode}%`)
-        .limit(1)
-        .maybeSingle();
+        .or(`codigo_referencia.ilike.${cleanCode},codigo_referencia.ilike.${unpadded},nombre_producto.ilike.%${cleanCode}%`)
+        .limit(1);
+
+      const prod = prodList && prodList.length > 0 ? prodList[0] : null;
 
       if (prod) {
         const { data: newItem } = await supabase
