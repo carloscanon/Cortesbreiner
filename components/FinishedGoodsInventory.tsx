@@ -1520,11 +1520,15 @@ export default function FinishedGoodsInventory() {
 
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
+        const finalProductId = item.product_id || products[0]?.id || '';
+        const finalColorId = item.color_id || colors[0]?.id || null;
+        const finalSizeId = item.size_id || sizes[0]?.id || '';
+
         const insertPayload: any = {
           transfer_id: newTransfer.id,
-          product_id: item.product_id,
-          color_id: item.color_id || null,
-          size_id: item.size_id,
+          product_id: finalProductId,
+          color_id: finalColorId,
+          size_id: finalSizeId,
           cantidad: Number(item.cantidad)
         };
 
@@ -3755,19 +3759,27 @@ export default function FinishedGoodsInventory() {
 
                           // Resolve product_id if null by checking reference_name against products master
                           let resolvedProductId = garment.product_id;
+                          let resolvedProductName = '';
+                          
+                          if (resolvedProductId) {
+                            const pObj = products.find(p => p.id === resolvedProductId);
+                            if (pObj) resolvedProductName = pObj.nombre_producto;
+                          }
+
                           if (!resolvedProductId && garment.reference_name) {
                             const refClean = garment.reference_name.trim().toUpperCase();
                             const matchedProd = products.find(p =>
                               (p.codigo_referencia && p.codigo_referencia.trim().toUpperCase() === refClean) ||
                               (p.nombre_producto && p.nombre_producto.trim().toUpperCase() === refClean)
                             );
-                            if (matchedProd) resolvedProductId = matchedProd.id;
+                            if (matchedProd) {
+                              resolvedProductId = matchedProd.id;
+                              resolvedProductName = matchedProd.nombre_producto;
+                            }
                           }
 
-                          // If still no resolvedProductId, fallback to first product or create temp placeholder
-                          if (!resolvedProductId) {
-                            resolvedProductId = products[0]?.id || '';
-                          }
+                          // Fallback display name if no master product matched
+                          const displayName = resolvedProductName || garment.reference_name || 'Prenda Única / Lote Histórico';
 
                           // Resolve color_id and size_id if missing
                           let resolvedColorId = garment.color_id;
@@ -3775,18 +3787,16 @@ export default function FinishedGoodsInventory() {
                             const cObj = colors.find(c => c.nombre_color.trim().toUpperCase() === garment.color_name.trim().toUpperCase());
                             if (cObj) resolvedColorId = cObj.id;
                           }
-                          if (!resolvedColorId) resolvedColorId = colors[0]?.id || '';
 
                           let resolvedSizeId = garment.size_id;
                           if (!resolvedSizeId && garment.size_code) {
                             const sObj = sizes.find(s => s.codigo_talla.trim().toUpperCase() === garment.size_code.trim().toUpperCase());
                             if (sObj) resolvedSizeId = sObj.id;
                           }
-                          if (!resolvedSizeId) resolvedSizeId = sizes[0]?.id || '';
 
                           // Group by product, color, size
                           const existingIdx = transferForm.items.findIndex(i =>
-                            i.product_id === resolvedProductId &&
+                            (resolvedProductId ? i.product_id === resolvedProductId : (i.nameLabel === displayName)) &&
                             (resolvedColorId ? i.color_id === resolvedColorId : true) &&
                             (resolvedSizeId ? i.size_id === resolvedSizeId : true)
                           );
@@ -3798,13 +3808,13 @@ export default function FinishedGoodsInventory() {
                             setTransferForm({ ...transferForm, items });
                           } else {
                             const items = [...transferForm.items, {
-                              product_id: resolvedProductId,
-                              color_id: resolvedColorId,
-                              size_id: resolvedSizeId,
+                              product_id: resolvedProductId || null,
+                              color_id: resolvedColorId || null,
+                              size_id: resolvedSizeId || null,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              nameLabel: garment.reference_name || 'Prenda Indiv.'
+                              nameLabel: displayName
                             }];
                             setTransferForm({ ...transferForm, items });
                           }
