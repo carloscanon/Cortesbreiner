@@ -32,6 +32,7 @@ export default function ConsolidatedStockSubmodule({
   const [selectedWarehouse, setSelectedWarehouse] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedColor, setSelectedColor] = useState('all');
+  const [selectedSize, setSelectedSize] = useState('all');
   const [currentPage, setCurrentPage] = useState(0);
 
   // Reset page when filters change
