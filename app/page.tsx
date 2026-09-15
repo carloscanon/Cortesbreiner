@@ -3986,12 +3986,10 @@ export default function Dashboard() {
         myWorkshopsIds.includes(String(so.workshop_id).toLowerCase().trim())
       );
 
-      // Agrupar registros explícitos dando máxima prioridad a 'Devuelta por Taller'
+      // Agrupar registros explícitos por parent_order_id + workshop_id dando máxima prioridad a 'Devuelta por Taller'
       const explicitSewingOrdersMap = new Map<string, any>();
       explicitSewingOrdersRaw.forEach(so => {
-        // Usar confeccion_code si está presente o parent_order_id + workshop_id
-        const cleanCode = (so.confeccion_code || '').replace(/^OC-/i, '').trim();
-        const key = cleanCode ? `${so.parent_order_id}_${so.workshop_id}_${cleanCode}` : `${so.parent_order_id}_${so.workshop_id}`;
+        const key = `${so.parent_order_id}_${so.workshop_id}`;
         const existing = explicitSewingOrdersMap.get(key);
         if (!existing) {
           explicitSewingOrdersMap.set(key, so);
