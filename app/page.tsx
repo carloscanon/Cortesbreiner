@@ -3986,16 +3986,12 @@ export default function Dashboard() {
         myWorkshopsIds.includes(String(so.workshop_id).toLowerCase().trim())
       );
 
-      // Si para una misma orden padre (parent_order_id) el taller devolvió la orden ('Devuelta por Taller'),
-      // debemos descartar cualquier otro registro activo previo ('En Confección' / 'Enviado a Taller') para evitar que aparezca duplicada o pendiente.
-      const returnedParentOrderIds = new Set(
-        explicitSewingOrdersRaw.filter(so => so.status === 'Devuelta por Taller').map(so => String(so.parent_order_id))
-      );
-
-      // Deduplicar registros explícitos por parent_order_id y taller dando prioridad absoluta a 'Devuelta por Taller'
+      // Agrupar registros explícitos dando máxima prioridad a 'Devuelta por Taller'
       const explicitSewingOrdersMap = new Map<string, any>();
       explicitSewingOrdersRaw.forEach(so => {
-        const key = `${so.parent_order_id}_${so.workshop_id}`;
+        // Usar confeccion_code si está presente o parent_order_id + workshop_id
+        const cleanCode = (so.confeccion_code || '').replace(/^OC-/i, '').trim();
+        const key = cleanCode ? `${so.parent_order_id}_${so.workshop_id}_${cleanCode}` : `${so.parent_order_id}_${so.workshop_id}`;
         const existing = explicitSewingOrdersMap.get(key);
         if (!existing) {
           explicitSewingOrdersMap.set(key, so);
@@ -4008,6 +4004,19 @@ export default function Dashboard() {
         }
       });
       let explicitSewingOrders = Array.from(explicitSewingOrdersMap.values());
+
+      // Si existe algún registro con estado 'Devuelta por Taller' para un parent_order_id y taller,
+      // eliminar de explicitSewingOrders cualquier otro registro del mismo parent_order_id que no sea 'Devuelta por Taller'
+      const returnedKeys = new Set(
+        explicitSewingOrders.filter(so => so.status === 'Devuelta por Taller').map(so => `${so.parent_order_id}_${so.workshop_id}`)
+      );
+      explicitSewingOrders = explicitSewingOrders.filter(so => {
+        const key = `${so.parent_order_id}_${so.workshop_id}`;
+        if (returnedKeys.has(key) && so.status !== 'Devuelta por Taller') {
+          return false;
+        }
+        return true;
+      });
 
       // 2. Elementos dinámicos / fallback para órdenes asignadas que aún no tengan sub-registro en sewing_orders
       const fallbackItems: any[] = [];
