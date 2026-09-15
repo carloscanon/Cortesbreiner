@@ -2544,12 +2544,13 @@ export default function OrdersPage() {
                                   step="0.01"
                                   min="0.01"
                                   placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : longitud}
-                                  value={fc.longitud_row !== undefined ? fc.longitud_row : ''}
+                                  value={fc.longitud_row !== undefined && fc.longitud_row !== '' ? fc.longitud_row : (fc.layers && Number(fc.layers) > 0 && longitudNum > 0 ? (Number(fc.layers) * longitudNum).toFixed(2) : '')}
                                   onChange={e => {
-                                      updateFabricColor(fc.id, 'longitud_row', e.target.value);
-                                      const rowLngVal = Number(e.target.value);
-                                      const newLayers = rowLngVal && longitudNum > 0 ? Math.round(rowLngVal / longitudNum) : '';
-                                      updateFabricColor(fc.id, 'layers', newLayers);
+                                      const val = e.target.value;
+                                      updateFabricColor(fc.id, 'longitud_row', val);
+                                      const rowLngVal = Number(val);
+                                      const newLayers = rowLngVal && longitudNum > 0 ? Math.round(rowLngVal / longitudNum) : (val === '' && fc.capas_definidas ? fc.capas_definidas : '');
+                                      updateFabricColor(fc.id, 'layers', newLayers ? String(newLayers) : '');
                                   }}
                                   disabled={!fc.metros || Number(fc.metros) <= 0}
                                   style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
@@ -2557,7 +2558,7 @@ export default function OrdersPage() {
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                                 <div style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a', backgroundColor: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1.5px solid #e2e8f0', display: 'inline-block', minWidth: '80px' }}>
-                                  {fc.layers || '---'}
+                                  {fc.layers || fc.capas_definidas || (fc.longitud_row && longitudNum > 0 ? Math.round(Number(fc.longitud_row) / longitudNum) : '---')}
                                 </div>
                               </td>
                               <td style={{ padding: '0.75rem' }}>
