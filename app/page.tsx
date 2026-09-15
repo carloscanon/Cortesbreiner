@@ -467,53 +467,6 @@ export default function Dashboard() {
           setUnreadWorkshopAlerts(unread);
         }
 
-        const fetchAllProducts = async () => {
-          let allProds: any[] = [];
-          let page = 0;
-          const pageSize = 1000;
-          while (true) {
-            const { data, error } = await supabase
-              .from('products')
-              .select('*')
-              .range(page * pageSize, (page + 1) * pageSize - 1);
-            if (error || !data || data.length === 0) break;
-            allProds = allProds.concat(data);
-            if (data.length < pageSize) break;
-            page++;
-          }
-          return allProds;
-        };
-
-        const fetchAllProductAccessories = async () => {
-          let allAccs: any[] = [];
-          let page = 0;
-          const pageSize = 1000;
-          while (true) {
-            const { data, error } = await supabase
-              .from('product_accessories')
-              .select('*, accessories(nombre, unidad_medida), products(nombre_producto)')
-              .range(page * pageSize, (page + 1) * pageSize - 1);
-            if (error || !data || data.length === 0) break;
-            allAccs = allAccs.concat(data);
-            if (data.length < pageSize) break;
-            page++;
-          }
-          return allAccs;
-        };
-
-        const fetchAllGeneric = async (builderFn: () => any) => {
-          let allRecords: any[] = [];
-          let page = 0;
-          const pageSize = 1000;
-          while (true) {
-            const { data, error } = await builderFn().range(page * pageSize, (page + 1) * pageSize - 1);
-            if (error || !data || data.length === 0) break;
-            allRecords = allRecords.concat(data);
-            if (data.length < pageSize) break;
-            page++;
-          }
-          return allRecords;
-        };
         const [
           res1,
           res2,
@@ -531,35 +484,38 @@ export default function Dashboard() {
           fabricsData,
           companyParamsData
         ] = await Promise.all([
-          fetchAllGeneric(() => supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))').order('created_at', { ascending: false })),
+          supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))').order('created_at', { ascending: false }).limit(300),
           supabase.from('workshops').select('*'),
           supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(*))').limit(250).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
           supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
           supabase.from('colors').select('*'),
-          fetchAllProducts(),
-          fetchAllProductAccessories(),
+          supabase.from('products').select('*').order('created_at', { ascending: false }).limit(500),
+          supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida), products(nombre_producto)').limit(500),
           supabase.from('categories').select('*'),
           supabase.from('workshop_rates').select('*'),
-          // novelties preloaded with workshop module filter applied in UI
-          supabase.from('sewing_assignments').select('*'),
+          supabase.from('sewing_assignments').select('*').limit(500),
           supabase.from('workshop_special_costs').select('*'),
-          fetchAllGeneric(() => supabase.from('sewing_orders')
+          supabase.from('sewing_orders')
             .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
-            .order('created_at', { ascending: false })),
+            .order('created_at', { ascending: false })
+            .limit(400),
           supabase.from('fabrics').select('*'),
           supabase.from('company_params').select('*')
         ]);
-        const ordersData = res1;
+        const ordersData = res1.data;
         const workshopsData = res2.data;
         const inspectionsData = res3.data;
         const baseCostsData = res4.data;
         const sData = res5.data;
         const cData = res6.data;
+        const productsList = pData.data;
+        const accessoriesList = paData.data;
         const catsData = res9.data;
         const ratesData = res10.data;
         const sewingAssData = res11.data;
         const specCostsData = res12.data;
+        const sewingOrdersList = sewingOrdersData.data;
         const fabricsDataList = fabricsData.data;
         const companyParamsDataList = companyParamsData.data;
 
@@ -569,12 +525,12 @@ export default function Dashboard() {
         if (baseCostsData) setBaseCosts(baseCostsData);
         if (sData) setSizesList(sData);
         if (cData) setColorsList(cData);
-        if (pData) setProductsList(pData);
-        if (paData) setProductAccessoriesList(paData);
+        if (productsList) setProductsList(productsList);
+        if (accessoriesList) setProductAccessoriesList(accessoriesList);
         if (catsData) setCategories(catsData);
         if (ratesData) setWorkshopRates(ratesData);
         if (sewingAssData) setSewingAssignments(sewingAssData);
-        if (sewingOrdersData) setSewingOrdersList(sewingOrdersData);
+        if (sewingOrdersList) setSewingOrdersList(sewingOrdersList);
         if (specCostsData) setSpecialCosts(specCostsData);
         if (fabricsDataList) setFabricsList(fabricsDataList);
         if (companyParamsDataList) setCompanyParams(companyParamsDataList);
