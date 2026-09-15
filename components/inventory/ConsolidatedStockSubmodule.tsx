@@ -35,10 +35,6 @@ export default function ConsolidatedStockSubmodule({
   const [selectedSize, setSelectedSize] = useState('all');
   const [currentPage, setCurrentPage] = useState(0);
 
-  // Reset page when filters change
-  React.useEffect(() => {
-    setCurrentPage(0);
-  }, [searchQuery, selectedWarehouse, selectedCategory, selectedColor, selectedSize, groupByColor, groupBySize, groupByWarehouse]);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // Dynamic Grouping Controls
@@ -46,6 +42,11 @@ export default function ConsolidatedStockSubmodule({
   const [groupBySize, setGroupBySize] = useState(true);
   const [groupByWarehouse, setGroupByWarehouse] = useState(true);
   const [groupPreset, setGroupPreset] = useState<'full_sku' | 'product_only' | 'product_color' | 'product_size' | 'warehouse_product' | 'custom'>('full_sku');
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, selectedWarehouse, selectedCategory, selectedColor, selectedSize, groupByColor, groupBySize, groupByWarehouse]);
 
   // Handle Preset Change
   const handleSelectPreset = (preset: 'full_sku' | 'product_only' | 'product_color' | 'product_size' | 'warehouse_product') => {
