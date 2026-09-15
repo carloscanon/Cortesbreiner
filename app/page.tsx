@@ -392,7 +392,7 @@ export default function Dashboard() {
   const [sewingFilterStartDate, setSewingFilterStartDate] = useState('');
   const [sewingFilterEndDate, setSewingFilterEndDate] = useState('');
   const [sewingPage, setSewingPage] = useState(0);
-  const SEWING_PAGE_SIZE = 15;
+  const SEWING_PAGE_SIZE = 10;
 
   // Declination States for workshops
   const [showDeclineModal, setShowDeclineModal] = useState(false);

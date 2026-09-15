@@ -40,6 +40,7 @@ export default function OrdersPage() {
   const [saving, setSaving] = useState(false);
   const [filterType, setFilterType] = useState('all'); 
   const [searchQuery, setSearchQuery] = useState('');
+  const [ordersPage, setOrdersPage] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [viewingOrder, setViewingOrder] = useState<any | null>(null);
@@ -1713,7 +1714,7 @@ export default function OrdersPage() {
               {loading ? (
                 <tr><td colSpan={7} style={{ padding: '5rem', textAlign: 'center' }}><Loader2 className="animate-spin" size={48} style={{ color: 'var(--primary)', opacity: 0.5 }} /></td></tr>
               ) : (
-                filteredOrders.map(order => (
+                filteredOrders.slice(ordersPage * 10, (ordersPage + 1) * 10).map(order => (
                   <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover-row">
                     <td style={{ padding: '1rem 1.5rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -1739,23 +1740,19 @@ export default function OrdersPage() {
                         )}
                       </div>
                     </td>
-                    <td style={{ padding: '1rem 1.5rem' }}>
-                      <div style={{ fontWeight: '800', color: '#1e293b', fontSize: '0.85rem' }}>
-                        {order.created_by || 'Sistema'}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.25rem', alignItems: 'center', marginTop: '0.15rem' }}>
-                        <span>🕒</span>
-                        <span>{order.created_at ? new Date(order.created_at).toLocaleDateString('es-ES') : '---'}</span>
-                        <span style={{ color: '#cbd5e1' }}>•</span>
-                        <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{getRelativeTime(order.created_at)}</span>
-                      </div>
+                    <td style={{ padding: '1rem 1.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      {order.created_at ? new Date(order.created_at).toLocaleDateString('es-CO') : '—'}
                     </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
-                      <div style={{ fontWeight: '700' }}>{order.client_name}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{order.brand}</div>
+                      <div style={{ fontWeight: '700', color: 'var(--text)' }}>{order.client_name || '—'}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{order.brand || 'Sin marca'}</div>
                     </td>
-                    <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', backgroundColor: '#f1f5f9', padding: '0.25rem 0.75rem', borderRadius: '6px' }}>{order.capas_proyectadas}</span></td>
-                    <td style={{ padding: '1rem 1.5rem' }}><span style={{ fontWeight: '800', color: '#64748b' }}>{order.total_kilos_proyectados || 0} kg</span></td>
+                    <td style={{ padding: '1rem 1.5rem', fontSize: '0.9rem', fontWeight: '600' }}>
+                      {order.cuts?.reduce((acc: number, c: any) => acc + (c.layers || 0), 0) || 0}
+                    </td>
+                    <td style={{ padding: '1rem 1.5rem', fontSize: '0.9rem', fontWeight: '600' }}>
+                      {order.cuts?.reduce((acc: number, c: any) => acc + (c.kilos || 0), 0).toFixed(1) || 0} kg
+                    </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       {(() => {
                         const isCancelled = order.status === 'Cerrada' && (order.observaciones || '').includes('ORDEN ANULADA POR SUPERADMINISTRADOR');
@@ -1888,6 +1885,32 @@ export default function OrdersPage() {
             </tbody>
           </table>
         </div>
+        {filteredOrders.length > 10 && (
+          <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+              Mostrando {ordersPage * 10 + 1} - {Math.min((ordersPage + 1) * 10, filteredOrders.length)} de {filteredOrders.length} órdenes
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setOrdersPage(p => Math.max(0, p - 1))}
+                disabled={ordersPage === 0}
+                style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: ordersPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: ordersPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+              >
+                Anterior
+              </button>
+              <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                Pág. {ordersPage + 1} de {Math.ceil(filteredOrders.length / 10)}
+              </span>
+              <button
+                onClick={() => setOrdersPage(p => Math.min(Math.ceil(filteredOrders.length / 10) - 1, p + 1))}
+                disabled={(ordersPage + 1) * 10 >= filteredOrders.length}
+                style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (ordersPage + 1) * 10 >= filteredOrders.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (ordersPage + 1) * 10 >= filteredOrders.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MODAL DETALLE (solo lectura) */}

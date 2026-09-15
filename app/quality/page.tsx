@@ -154,6 +154,7 @@ export default function QualityPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('Pendiente');
+  const [qualityPage, setQualityPage] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>(EMPTY_FORM);
@@ -2452,7 +2453,9 @@ export default function QualityPage() {
               <ClipboardList size={40} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
               <p>No hay inspecciones registradas.</p>
             </div>
-          ) : filtered.map((item: any) => {
+          ) : (
+            <>
+              {filtered.slice(qualityPage * 10, (qualityPage + 1) * 10).map((item: any) => {
             const ordCons = item.orders?.consecutive
               ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}`
               : (item.sewing_orders?.parent_order?.consecutive
@@ -2638,6 +2641,34 @@ export default function QualityPage() {
               </div>
             );
           })}
+          {filtered.length > 10 && (
+            <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                Mostrando {qualityPage * 10 + 1} - {Math.min((qualityPage + 1) * 10, filtered.length)} de {filtered.length} inspecciones
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  onClick={() => setQualityPage(p => Math.max(0, p - 1))}
+                  disabled={qualityPage === 0}
+                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: qualityPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: qualityPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                >
+                  Anterior
+                </button>
+                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                  Pág. {qualityPage + 1} de {Math.ceil(filtered.length / 10)}
+                </span>
+                <button
+                  onClick={() => setQualityPage(p => Math.min(Math.ceil(filtered.length / 10) - 1, p + 1))}
+                  disabled={(qualityPage + 1) * 10 >= filtered.length}
+                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (qualityPage + 1) * 10 >= filtered.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (qualityPage + 1) * 10 >= filtered.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
         </div>
       </div>
 

@@ -1739,6 +1739,7 @@ export default function SewingPage() {
 
   // Paginación local para la tabla principal (10 en 10)
   const [currentPage, setCurrentPage] = useState(1);
+  const [cortadasPage, setCortadasPage] = useState(0);
   const itemsPerPage = 10;
 
   // Cortadas son las órdenes de corte que están listas para iniciar confección
@@ -1970,101 +1971,129 @@ export default function SewingPage() {
                 No se encontraron órdenes que coincidan con la búsqueda.
               </div>
             ) : (
-              cortadas.map(order => (
-                <div key={order.id} style={{
-                  padding: '1rem 1.5rem', borderBottom: '1px solid #fef3c7',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  backgroundColor: order.internal_code?.startsWith('CMP-P-') ? '#f0fdf4' : order.internal_code?.startsWith('CMP-S-') ? '#fffbeb' : 'white'
-                }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                       <span style={{ fontWeight: '900', color: '#0f172a' }}>OC-{order.internal_code}</span>
-                      <span style={{ fontSize: '0.65rem', backgroundColor: '#fef3c7', color: '#92400e', padding: '0.15rem 0.4rem', borderRadius: '4px', fontWeight: '700' }}>CORTADO</span>
-                      {order.internal_code?.startsWith('CMP-P-') && (
-                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#15803d', backgroundColor: '#dcfce7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #86efac' }}>
-                          ⭐ Prenda Compuesta · Tela Primaria (Padre)
-                        </span>
-                      )}
-                      {order.internal_code?.startsWith('CMP-S-') && (
-                        <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #fde68a' }}>
-                            🎨 Prenda Compuesta · Tela Secundaria (Hijo)
+              <>
+                {cortadas.slice(cortadasPage * 10, (cortadasPage + 1) * 10).map(order => (
+                  <div key={order.id} style={{
+                    padding: '1rem 1.5rem', borderBottom: '1px solid #fef3c7',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    backgroundColor: order.internal_code?.startsWith('CMP-P-') ? '#f0fdf4' : order.internal_code?.startsWith('CMP-S-') ? '#fffbeb' : 'white'
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
+                         <span style={{ fontWeight: '900', color: '#0f172a' }}>OC-{order.internal_code}</span>
+                        <span style={{ fontSize: '0.65rem', backgroundColor: '#fef3c7', color: '#92400e', padding: '0.15rem 0.4rem', borderRadius: '4px', fontWeight: '700' }}>CORTADO</span>
+                        {order.internal_code?.startsWith('CMP-P-') && (
+                          <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#15803d', backgroundColor: '#dcfce7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #86efac' }}>
+                            ⭐ Prenda Compuesta · Tela Primaria (Padre)
                           </span>
-                          {order.parent_primary_code && (
-                            <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
-                              🔗 Hija de: {order.parent_primary_code}
+                        )}
+                        {order.internal_code?.startsWith('CMP-S-') && (
+                          <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#b45309', backgroundColor: '#fef3c7', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                              🎨 Prenda Compuesta · Tela Secundaria (Hijo)
                             </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
-
-                    {/* Desglose Informativo de Órdenes Hijas que se Arrastran */}
-                    {(() => {
-                      const parentCode = order.internal_code || '';
-                      const isParent = order.is_composite || parentCode.startsWith('CMP-P-') || parentCode.startsWith('CMP-');
-                      if (!isParent && !order.parent_primary_code) return null;
-
-                      const cleanParent = parentCode.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/i, '').trim();
-
-                      // Buscar hijas por parent_primary_code exacto, o por prefijo de código interno o consecutivos vinculados
-                      const childOrders = orders.filter(o => {
-                        if (o.id === order.id) return false;
-                        const childParentCode = (o.parent_primary_code || '').trim();
-                        const childInternalCode = (o.internal_code || '').trim();
-                        
-                        const matchExplicit = childParentCode && (
-                          childParentCode === parentCode ||
-                          childParentCode === `CMP-P-${cleanParent}` ||
-                          childParentCode === `OC-${cleanParent}` ||
-                          childParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent
-                        );
-
-                        const matchPrefix = childInternalCode.startsWith(`CMP-S-${cleanParent}`);
-
-                        return (o.status === 'Cortado' || o.status === 'En Confección') && (matchExplicit || matchPrefix);
-                      });
-
-                      if (childOrders.length === 0) {
-                        if (parentCode.startsWith('CMP-P-')) {
-                          return (
-                            <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.65rem', backgroundColor: '#fef2f2', borderRadius: '8px', border: '1px solid #fecdd3' }}>
-                              <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#991b1b' }}>
-                                ⚠️ Prenda Compuesta Padre: No se encontraron órdenes hijas creadas o en estado Cortado.
+                            {order.parent_primary_code && (
+                              <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                                🔗 Hija de: {order.parent_primary_code}
                               </span>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }
-
-                      return (
-                        <div style={{ marginTop: '0.45rem', padding: '0.5rem 0.75rem', backgroundColor: '#ecfdf5', borderRadius: '10px', border: '1.5px solid #6ee7b7', boxShadow: '0 2px 4px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                          <span style={{ fontSize: '0.72rem', fontWeight: '950', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            🔗 ÓRDENES HIJAS (TELAS COMPLEMENTARIAS) QUE SE ARRASTRAN AUTOMÁTICAMENTE ({childOrders.length}):
-                          </span>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                            {childOrders.map(ch => (
-                              <span key={ch.id} style={{ fontSize: '0.7rem', fontWeight: '850', backgroundColor: '#ffffff', color: '#065f46', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #a7f3d0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                                🎨 OC-{ch.internal_code} — {ch.fabrics?.nombre_tela || 'Tela Secund.'} ({getTotalPrendas(ch)} uds)
-                              </span>
-                            ))}
+                            )}
                           </div>
-                        </div>
-                      );
-                    })()}
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{order.client_name} · {order.fabrics?.nombre_tela} · <strong>{getTotalPrendas(order)} prendas</strong></span>
+
+                      {/* Desglose Informativo de Órdenes Hijas que se Arrastran */}
+                      {(() => {
+                        const parentCode = order.internal_code || '';
+                        const isParent = order.is_composite || parentCode.startsWith('CMP-P-') || parentCode.startsWith('CMP-');
+                        if (!isParent && !order.parent_primary_code) return null;
+
+                        const cleanParent = parentCode.replace(/^(CMP-P-|CMP-S-[^-]+-|CMP-S-|CMP-|OC-)/i, '').trim();
+
+                        // Buscar hijas por parent_primary_code exacto, o por prefijo de código interno o consecutivos vinculados
+                        const childOrders = orders.filter(o => {
+                          if (o.id === order.id) return false;
+                          const childParentCode = (o.parent_primary_code || '').trim();
+                          const childInternalCode = (o.internal_code || '').trim();
+                          
+                          const matchExplicit = childParentCode && (
+                            childParentCode === parentCode ||
+                            childParentCode === `CMP-P-${cleanParent}` ||
+                            childParentCode === `OC-${cleanParent}` ||
+                            childParentCode.replace(/^(CMP-P-|OC-)/i, '') === cleanParent
+                          );
+
+                          const matchPrefix = childInternalCode.startsWith(`CMP-S-${cleanParent}`);
+
+                          return (o.status === 'Cortado' || o.status === 'En Confección') && (matchExplicit || matchPrefix);
+                        });
+
+                        if (childOrders.length === 0) {
+                          if (parentCode.startsWith('CMP-P-')) {
+                            return (
+                              <div style={{ marginTop: '0.4rem', padding: '0.35rem 0.65rem', backgroundColor: '#fef2f2', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                                <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#991b1b' }}>
+                                  ⚠️ Prenda Compuesta Padre: No se encontraron órdenes hijas creadas o en estado Cortado.
+                                </span>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }
+
+                        return (
+                          <div style={{ marginTop: '0.45rem', padding: '0.5rem 0.75rem', backgroundColor: '#ecfdf5', borderRadius: '10px', border: '1.5px solid #6ee7b7', boxShadow: '0 2px 4px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: '950', color: '#047857', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              🔗 ÓRDENES HIJAS (TELAS COMPLEMENTARIAS) QUE SE ARRASTRAN AUTOMÁTICAMENTE ({childOrders.length}):
+                            </span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              {childOrders.map(ch => (
+                                <span key={ch.id} style={{ fontSize: '0.7rem', fontWeight: '850', backgroundColor: '#ffffff', color: '#065f46', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #a7f3d0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                  🎨 OC-{ch.internal_code} — {ch.fabrics?.nombre_tela || 'Tela Secund.'} ({getTotalPrendas(ch)} uds)
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => openWizard(order)}
+                      style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', padding: '0.6rem 1.25rem', fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                      <ArrowRight size={15} />
+                      Iniciar Confección
+                    </button>
                   </div>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => openWizard(order)}
-                    style={{ backgroundColor: '#7c3aed', borderColor: '#7c3aed', padding: '0.6rem 1.25rem', fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                  >
-                    <ArrowRight size={15} />
-                    Iniciar Confección
-                  </button>
-                </div>
-              ))
+                ))}
+                {cortadas.length > 10 && (
+                  <div style={{ padding: '0.75rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fffbeb', borderTop: '1px solid #fef3c7' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: '600' }}>
+                      Mostrando {cortadasPage * 10 + 1} - {Math.min((cortadasPage + 1) * 10, cortadas.length)} de {cortadas.length} órdenes cortadas
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => setCortadasPage(p => Math.max(0, p - 1))}
+                        disabled={cortadasPage === 0}
+                        style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #fcd34d', backgroundColor: cortadasPage === 0 ? '#fef3c7' : 'white', color: '#92400e', cursor: cortadasPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                      >
+                        Anterior
+                      </button>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#92400e', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                        Pág. {cortadasPage + 1} de {Math.ceil(cortadas.length / 10)}
+                      </span>
+                      <button
+                        onClick={() => setCortadasPage(p => Math.min(Math.ceil(cortadas.length / 10) - 1, p + 1))}
+                        disabled={(cortadasPage + 1) * 10 >= cortadas.length}
+                        style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #fcd34d', backgroundColor: (cortadasPage + 1) * 10 >= cortadas.length ? '#fef3c7' : 'white', color: '#92400e', cursor: (cortadasPage + 1) * 10 >= cortadas.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
