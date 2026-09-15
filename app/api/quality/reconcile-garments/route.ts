@@ -45,6 +45,8 @@ export async function POST(req: Request) {
     const updates: any[] = [];
     const deletes: string[] = [];
 
+    const matchedGarmentIds = new Set<string>();
+
     // 2. Reconciliar prendas individuales
     (detailRows || []).forEach((row: any) => {
       const approvedQty = Number(rowApproved?.[row.key]) || 0;
@@ -69,12 +71,16 @@ export async function POST(req: Request) {
         return gClean.includes(rPrefix) || rClean.includes(gPrefix) || (gFirst.length >= 3 && gFirst === rFirst);
       };
 
-      // Filtrar existentes para esta combinación (coincidencia flexible de referencia)
+      // Filtrar existentes no procesadas previamente para esta combinación
       const existing = (garments || []).filter(g =>
+        !matchedGarmentIds.has(g.id) &&
         isRefMatch(g.reference_name || '', row.productName || '') &&
         (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
         (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
       );
+
+      // Registrar los IDs emparejados para no volver a asociarlos a otras filas
+      existing.forEach(g => matchedGarmentIds.add(g.id));
 
       const targets: string[] = [];
       for (let i = 0; i < approvedQty; i++) targets.push('Aprobada');

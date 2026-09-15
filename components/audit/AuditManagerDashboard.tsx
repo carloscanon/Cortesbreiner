@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck, BarChart3, AlertTriangle, CheckCircle2, TrendingUp, TrendingDown,
-  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet
+  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2
 } from 'lucide-react';
 
 interface AuditManagerDashboardProps {
   warehouses: any[];
   user: any;
   profile: any;
+  isAdmin?: boolean;
   onOpenScanner: (session: any) => void;
   onOpenReconciliation: (session: any) => void;
 }
@@ -16,6 +17,7 @@ export default function AuditManagerDashboard({
   warehouses,
   user,
   profile,
+  isAdmin = false,
   onOpenScanner,
   onOpenReconciliation
 }: AuditManagerDashboardProps) {
@@ -23,6 +25,7 @@ export default function AuditManagerDashboard({
   const [loading, setLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Modal Create Audit Session
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -30,6 +33,31 @@ export default function AuditManagerDashboard({
   const [newAuditType, setNewAuditType] = useState('Completo');
   const [newNotes, setNewNotes] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+  // Check if current user is superadmin
+  const isSuperAdminUser = isAdmin || profile?.role === 'super_admin' || profile?.role === 'admin' || user?.email?.includes('admin');
+
+  // Delete Audit Session Handler
+  const handleDeleteSession = async (session: any) => {
+    const confirmMessage = `⚠️ ¿ESTÁS SEGURO DE ELIMINAR LA AUDITORÍA #${session.consecutive} (${session.location_name})?\n\nEsta acción eliminará permanentemente todos los conteos y registros de esta auditoría.`;
+    if (!window.confirm(confirmMessage)) return;
+
+    setDeletingId(session.id);
+    try {
+      const res = await fetch(`/api/inventory/audit/sessions?id=${session.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al eliminar la auditoría.');
+
+      alert(`✅ Sesión de Auditoría #${session.consecutive} eliminada exitosamente.`);
+      await fetchAuditSessions();
+    } catch (err: any) {
+      alert('❌ Error al eliminar: ' + err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // Fetch audit sessions from DB API
   const fetchAuditSessions = async () => {
@@ -300,6 +328,28 @@ export default function AuditManagerDashboard({
                             >
                               ⚙️ Conciliar
                             </button>
+                            {isSuperAdminUser && (
+                              <button
+                                onClick={() => handleDeleteSession(s)}
+                                disabled={deletingId === s.id}
+                                title="Eliminar auditoría (Solo SuperAdministrador)"
+                                style={{
+                                  padding: '0.35rem 0.55rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '850',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#fee2e2',
+                                  color: '#dc2626',
+                                  border: '1px solid #fca5a5',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.2rem'
+                                }}
+                              >
+                                <Trash2 size={14} /> {deletingId === s.id ? '...' : ''}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

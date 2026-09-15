@@ -770,12 +770,28 @@ export default function Dashboard() {
   const handleConfirmReceiptInWorkshop = async (so: any) => {
     if (!confirm(`¿Confirmar que el satélite recibió los cortes/insumos de la orden ${so.confeccion_code} para iniciar la confección?`)) return;
     try {
-      const { error } = await supabase
-        .from('sewing_orders')
-        .update({ status: 'En Confección' })
-        .eq('id', so.id);
+      if (String(so.id).startsWith('fallback-')) {
+        const { error } = await supabase
+          .from('sewing_orders')
+          .upsert({
+            parent_order_id: so.parent_order_id,
+            workshop_id: so.workshop_id,
+            product_id: so.product_id || null,
+            confeccion_code: so.confeccion_code,
+            cantidad_planeada: so.cantidad_planeada || 0,
+            cantidad_confeccionada: 0,
+            status: 'En Confección'
+          }, { onConflict: 'confeccion_code' });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('sewing_orders')
+          .update({ status: 'En Confección' })
+          .eq('id', so.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
+
       alert('✓ Confirmado. La orden ahora está en estado "En Confección".');
       window.location.reload();
     } catch (err: any) {
@@ -794,16 +810,43 @@ export default function Dashboard() {
       
       const fullDeclineNote = `Rechazada por taller. Motivo: ${declineReason}${declineDetails ? ` - Detalle: ${declineDetails}` : ''}`;
 
-      // 1. Actualizar orden en Base de Datos
-      const { error: updateErr } = await supabase
-        .from('sewing_orders')
-        .update({
-          status: 'Devuelta por Taller',
-          workshop_notes: fullDeclineNote
-        })
-        .eq('id', so.id);
+      // 1. Actualizar u ordenar inserción en Base de Datos (sewing_orders)
+      if (String(so.id).startsWith('fallback-')) {
+        const { error: insErr } = await supabase
+          .from('sewing_orders')
+          .upsert({
+            parent_order_id: so.parent_order_id,
+            workshop_id: so.workshop_id,
+            product_id: so.product_id || null,
+            confeccion_code: so.confeccion_code,
+            cantidad_planeada: so.cantidad_planeada || 0,
+            cantidad_confeccionada: 0,
+            status: 'Devuelta por Taller',
+            workshop_notes: fullDeclineNote
+          }, { onConflict: 'confeccion_code' });
+        if (insErr) throw insErr;
+      } else {
+        const { error: updateErr } = await supabase
+          .from('sewing_orders')
+          .update({
+            status: 'Devuelta por Taller',
+            workshop_notes: fullDeclineNote
+          })
+          .eq('id', so.id);
 
-      if (updateErr) throw updateErr;
+        if (updateErr) throw updateErr;
+      }
+
+      // 1.b Asegurar que todas las sub-órdenes de confección para esta orden padre queden marcadas como 'Devuelta por Taller'
+      if (so.parent_order_id) {
+        await supabase
+          .from('sewing_orders')
+          .update({
+            status: 'Devuelta por Taller',
+            workshop_notes: fullDeclineNote
+          })
+          .eq('parent_order_id', so.parent_order_id);
+      }
 
       // 2. Insertar novedad/alerta para la administración
       const { error: noveltyErr } = await supabase
@@ -1949,8 +1992,8 @@ export default function Dashboard() {
 
      // Filtrar órdenes asignadas a cualquiera de los talleres del usuario
     const assignedOrders = orders.filter(o => {
-      // Restringir estrictamente a órdenes que ya estén en taller (en confección o terminadas/enviadas)
-      const isSewingState = o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada';
+      // Restringir a órdenes asignadas a taller (enviado a taller, en confección, devuelta, o terminada/enviada)
+      const isSewingState = o.status === 'En Confección' || o.status === 'Enviado a Taller' || o.status === 'Devuelta por Taller' || o.status === 'Terminada' || o.status === 'Enviada';
       if (!isSewingState) return false;
 
       // 1. Coincidencia directa en cabecera de orden
@@ -1974,7 +2017,7 @@ export default function Dashboard() {
       return false;
     });
 
-    const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección');
+    const pendingOrders = assignedOrders.filter(o => o.status === 'En Confección' || o.status === 'Enviado a Taller');
     const completedOrders = assignedOrders.filter(o => o.status === 'Terminada' || o.status === 'Enviada');
 
     // Inspecciones filtradas según el taller activo seleccionado por el usuario
@@ -3937,88 +3980,124 @@ export default function Dashboard() {
     // Orders tab inside Taller view
     if (currentTab === 'orders') {
       const myWorkshopsIds = finalWorkshopsList.map(w => String(w.id).toLowerCase().trim());
-      let mySewingOrders = sewingOrdersList.filter(so => 
+      
+      // 1. Órdenes explícitas en sewing_orders para los talleres del usuario
+      const explicitSewingOrdersRaw = sewingOrdersList.filter(so => 
         myWorkshopsIds.includes(String(so.workshop_id).toLowerCase().trim())
       );
 
-      if (mySewingOrders.length === 0) {
-        // Fallback dinámico desde assignedOrders agrupando por producto
-        const fallbackItems: any[] = [];
-        assignedOrders.forEach(o => {
-          finalWorkshopsList.forEach(w => {
-            const assignments = getOrderAssignments(o);
-            if (!assignments || !assignments.rowWorkshops) {
-              const prendasWs = getPrendasParaTaller(o, w.id);
-              const planQty = prendasWs.planeadas || 0;
-              const confQty = prendasWs.confeccionadas || 0;
-              if (planQty <= 0 && confQty <= 0) return;
+      // Si para una misma orden padre (parent_order_id) el taller devolvió la orden ('Devuelta por Taller'),
+      // debemos descartar cualquier otro registro activo previo ('En Confección' / 'Enviado a Taller') para evitar que aparezca duplicada o pendiente.
+      const returnedParentOrderIds = new Set(
+        explicitSewingOrdersRaw.filter(so => so.status === 'Devuelta por Taller').map(so => String(so.parent_order_id))
+      );
 
-              const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+      // Deduplicar registros explícitos por parent_order_id y taller dando prioridad absoluta a 'Devuelta por Taller'
+      const explicitSewingOrdersMap = new Map<string, any>();
+      explicitSewingOrdersRaw.forEach(so => {
+        const key = `${so.parent_order_id}_${so.workshop_id}`;
+        const existing = explicitSewingOrdersMap.get(key);
+        if (!existing) {
+          explicitSewingOrdersMap.set(key, so);
+        } else {
+          if (so.status === 'Devuelta por Taller') {
+            explicitSewingOrdersMap.set(key, so);
+          } else if (existing.status !== 'Devuelta por Taller' && new Date(so.created_at || 0) > new Date(existing.created_at || 0)) {
+            explicitSewingOrdersMap.set(key, so);
+          }
+        }
+      });
+      let explicitSewingOrders = Array.from(explicitSewingOrdersMap.values());
 
-              fallbackItems.push({
-                id: `fallback-${o.id}-${w.id}`,
-                parent_order_id: o.id,
-                workshop_id: w.id,
-                product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
-                confeccion_code: getConfeccionCode(o, w.id),
-                status: o.status,
-                cantidad_planeada: planQty,
-                cantidad_confeccionada: confQty,
-                created_at: o.created_at,
-                parent_order: o,
-                products: prodObj,
-                workshops: w
-              });
-              return;
-            }
+      // 2. Elementos dinámicos / fallback para órdenes asignadas que aún no tengan sub-registro en sewing_orders
+      const fallbackItems: any[] = [];
+      assignedOrders.forEach(o => {
+        finalWorkshopsList.forEach(w => {
+          const wIdStr = String(w.id).toLowerCase().trim();
+          
+          // Si ya existe un registro explícito en sewing_orders (o fue devuelto) para esta orden y taller, no generar fallback
+          const hasExplicit = explicitSewingOrdersRaw.some(so => 
+            String(so.parent_order_id) === String(o.id) &&
+            String(so.workshop_id).toLowerCase().trim() === wIdStr
+          );
+          if (hasExplicit) return;
 
-            // Extraer productos únicos asignados a este taller en la orden
-            const prodIdsForWs: string[] = [];
+          const assignments = getOrderAssignments(o);
+          if (!assignments || !assignments.rowWorkshops) {
+            const prendasWs = getPrendasParaTaller(o, w.id);
+            const planQty = prendasWs.planeadas || 0;
+            const confQty = prendasWs.confeccionadas || 0;
+            if (planQty <= 0 && confQty <= 0) return;
+
+            const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+
+            const itemStatus = o.status === 'Devuelta por Taller' ? 'Devuelta por Taller' : 'Enviado a Taller';
+
+            fallbackItems.push({
+              id: `fallback-${o.id}-${w.id}`,
+              parent_order_id: o.id,
+              workshop_id: w.id,
+              product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
+              confeccion_code: getConfeccionCode(o, w.id),
+              status: itemStatus,
+              cantidad_planeada: planQty,
+              cantidad_confeccionada: confQty,
+              created_at: o.created_at,
+              parent_order: o,
+              products: prodObj,
+              workshops: w
+            });
+            return;
+          }
+
+          // Extraer productos únicos asignados a este taller en la orden
+          const prodIdsForWs: string[] = [];
+          (o.cuts || []).forEach((c: any) => {
+            const pId = String(c.product_id);
+            (c.cut_sizes || []).forEach((cs: any) => {
+              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+              const cellKey = `${pId}_${sz}`;
+              const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
+              if (assignedWId === wIdStr && !prodIdsForWs.includes(pId)) {
+                prodIdsForWs.push(pId);
+              }
+            });
+          });
+
+          if (prodIdsForWs.length === 0 && o.workshop_id && String(o.workshop_id).toLowerCase().trim() === wIdStr) {
             (o.cuts || []).forEach((c: any) => {
               const pId = String(c.product_id);
-              (c.cut_sizes || []).forEach((cs: any) => {
-                const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
-                const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
-                const cellKey = `${pId}_${sz}`;
-                const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
-                if (assignedWId === String(w.id).toLowerCase().trim() && !prodIdsForWs.includes(pId)) {
-                  prodIdsForWs.push(pId);
-                }
-              });
+              if (!prodIdsForWs.includes(pId)) prodIdsForWs.push(pId);
             });
+          }
 
-            if (prodIdsForWs.length === 0 && o.workshop_id && String(o.workshop_id).toLowerCase().trim() === String(w.id).toLowerCase().trim()) {
-              (o.cuts || []).forEach((c: any) => {
-                const pId = String(c.product_id);
-                if (!prodIdsForWs.includes(pId)) prodIdsForWs.push(pId);
-              });
-            }
+          prodIdsForWs.forEach(pId => {
+            const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
+            if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
 
-            prodIdsForWs.forEach(pId => {
-              const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
-              if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
+            const prodObj = productsList.find(p => String(p.id) === String(pId));
+            const itemStatus = o.status === 'Devuelta por Taller' ? 'Devuelta por Taller' : 'Enviado a Taller';
 
-              const prodObj = productsList.find(p => String(p.id) === String(pId));
-
-              fallbackItems.push({
-                id: `fallback-${o.id}-${w.id}-${pId}`,
-                parent_order_id: o.id,
-                workshop_id: w.id,
-                product_id: pId,
-                confeccion_code: getConfeccionCode(o, w.id, pId),
-                status: o.status,
-                cantidad_planeada: prendas.planeadas,
-                cantidad_confeccionada: prendas.confeccionadas,
-                created_at: o.created_at,
-                parent_order: o,
-                products: prodObj,
-                workshops: w
-              });
+            fallbackItems.push({
+              id: `fallback-${o.id}-${w.id}-${pId}`,
+              parent_order_id: o.id,
+              workshop_id: w.id,
+              product_id: pId,
+              confeccion_code: getConfeccionCode(o, w.id, pId),
+              status: itemStatus,
+              cantidad_planeada: prendas.planeadas,
+              cantidad_confeccionada: prendas.confeccionadas,
+              created_at: o.created_at,
+              parent_order: o,
+              products: prodObj,
+              workshops: w
             });
           });
         });
-        mySewingOrders = fallbackItems;
-      }
+      });
+
+      let mySewingOrders = [...explicitSewingOrders, ...fallbackItems];
 
       const getSewingOrderRate = (so: any, wsId: string) => {
         // Use the joined `so.products` from the sewing_orders query (already includes category_id)
@@ -4048,7 +4127,10 @@ export default function Dashboard() {
         }
 
         // Status filter
-        if (sewingFilterStatus !== 'all' && so.status !== sewingFilterStatus) {
+        if (sewingFilterStatus === 'all') {
+          // Ocultar devueltas de la lista de trabajo principal
+          if (so.status === 'Devuelta por Taller') return false;
+        } else if (so.status !== sewingFilterStatus) {
           return false;
         }
 
@@ -4090,6 +4172,9 @@ export default function Dashboard() {
       const pagedSewingOrders = filteredSewingOrdersForTab.slice(sewingPage * SEWING_PAGE_SIZE, (sewingPage + 1) * SEWING_PAGE_SIZE);
 
       // Calculate Metrics for the filtered list
+      const pendingReceiptCount = mySewingOrders.filter(so => so.status === 'Enviado a Taller').length;
+      const returnedCount = mySewingOrders.filter(so => so.status === 'Devuelta por Taller').length;
+
       let totalLotes = filteredSewingOrdersForTab.length;
       let totalPlannedUnits = 0;
       let totalCompletedUnits = 0;
@@ -4221,11 +4306,55 @@ export default function Dashboard() {
           </div>
 
           {/* Metric Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+            <div 
+              onClick={() => { setSewingFilterStatus('Enviado a Taller'); setSewingPage(0); }}
+              className="card" 
+              style={{ 
+                padding: '1.25rem', 
+                borderLeft: '4px solid #ea580c', 
+                backgroundColor: pendingReceiptCount > 0 ? '#fff7ed' : 'white',
+                cursor: 'pointer',
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '0.5rem',
+                transition: 'all 0.2s',
+                boxShadow: pendingReceiptCount > 0 ? '0 4px 12px rgba(234, 88, 12, 0.15)' : undefined
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#ea580c', textTransform: 'uppercase' }}>📩 Por Recibir</span>
+                {pendingReceiptCount > 0 && <span style={{ backgroundColor: '#ea580c', color: 'white', fontSize: '0.62rem', fontWeight: '900', padding: '0.15rem 0.5rem', borderRadius: '999px' }}>PENDIENTE</span>}
+              </div>
+              <strong style={{ fontSize: '1.8rem', color: '#9a3412', fontWeight: '950' }}>{pendingReceiptCount}</strong>
+              <span style={{ fontSize: '0.7rem', color: '#c2410c', fontWeight: '700' }}>Órdenes pendientes de aceptación</span>
+            </div>
+
+            <div 
+              onClick={() => { setSewingFilterStatus('Devuelta por Taller'); setSewingPage(0); }}
+              className="card" 
+              style={{ 
+                padding: '1.25rem', 
+                borderLeft: '4px solid #dc2626', 
+                backgroundColor: returnedCount > 0 ? '#fef2f2' : 'white',
+                cursor: 'pointer',
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '0.5rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#dc2626', textTransform: 'uppercase' }}>🛑 Devueltas</span>
+              </div>
+              <strong style={{ fontSize: '1.8rem', color: '#991b1b', fontWeight: '950' }}>{returnedCount}</strong>
+              <span style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: '700' }}>Órdenes rechazadas por taller</span>
+            </div>
+
             <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #80082E', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#64748b', textTransform: 'uppercase' }}>Total de Lotes</span>
               <strong style={{ fontSize: '1.8rem', color: '#0f172a', fontWeight: '950' }}>{totalLotes}</strong>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Lotes registrados en sistema</span>
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Lotes mostrados</span>
             </div>
             
             <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -4244,7 +4373,7 @@ export default function Dashboard() {
                 ${totalEstimatedPayout.toLocaleString('es-CO')}
               </strong>
               <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '600' }}>
-                Acumulado confeccionado: <strong style={{ color: '#059669' }}>${totalEarnedPayout.toLocaleString('es-CO')}</strong>
+                Acumulado: <strong style={{ color: '#059669' }}>${totalEarnedPayout.toLocaleString('es-CO')}</strong>
               </span>
             </div>
           </div>
@@ -4268,11 +4397,11 @@ export default function Dashboard() {
               />
             </div>
 
-            <div style={{ width: '150px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <div style={{ width: '180px', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Filtrar por Estado</label>
               <select
                 value={sewingFilterStatus}
-                onChange={e => setSewingFilterStatus(e.target.value)}
+                onChange={e => { setSewingFilterStatus(e.target.value); setSewingPage(0); }}
                 style={{
                   padding: '0.55rem 0.85rem',
                   borderRadius: '10px',
@@ -4284,11 +4413,12 @@ export default function Dashboard() {
                 }}
               >
                 <option value="all">🌐 Todos los estados</option>
-                <option value="Enviado a Taller">Enviado a Taller</option>
-                <option value="En Confección">En Confección</option>
-                <option value="Enviado a Calidad">Enviado a Calidad</option>
-                <option value="Terminada">Terminada</option>
-                <option value="Enviada">Enviada</option>
+                <option value="Enviado a Taller">📩 Enviado a Taller (Por Recibir)</option>
+                <option value="En Confección">⚡ En Confección</option>
+                <option value="Enviado a Calidad">🟡 Enviado a Calidad</option>
+                <option value="Devuelta por Taller">🛑 Devuelta por Taller (Rechazada)</option>
+                <option value="Terminada">✅ Terminada</option>
+                <option value="Enviada">📦 Enviada</option>
               </select>
             </div>
 
@@ -4406,8 +4536,19 @@ export default function Dashboard() {
                     const estPayout = (plannedQty * finalRate) + (hasEmpaque ? plannedQty * rateEmpaque : 0);
                     const actPayout = ((so.cantidad_confeccionada || 0) * finalRate) + (hasEmpaque ? (so.cantidad_confeccionada || 0) * rateEmpaque : 0);
 
+                    const isPending = so.status === 'Enviado a Taller';
+                    const isReturned = so.status === 'Devuelta por Taller';
+
                     return (
-                      <tr key={so.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' }}>
+                      <tr 
+                        key={so.id} 
+                        style={{ 
+                          borderBottom: '1px solid #f1f5f9', 
+                          verticalAlign: 'middle',
+                          backgroundColor: isPending ? '#fffcf5' : isReturned ? '#fff5f5' : 'white',
+                          borderLeft: isPending ? '4px solid #ea580c' : isReturned ? '4px solid #dc2626' : 'none'
+                        }}
+                      >
                         <td 
                           onClick={() => {
                             const pOrder = so.parent_order || orders.find(o => o.id === so.parent_order_id);
@@ -4424,7 +4565,7 @@ export default function Dashboard() {
                           <span
                             style={{ 
                               fontWeight: '850', 
-                              color: '#80082E', 
+                              color: isPending ? '#ea580c' : isReturned ? '#dc2626' : '#80082E', 
                               textDecoration: 'underline',
                               display: 'inline-block'
                             }}
@@ -4476,24 +4617,29 @@ export default function Dashboard() {
                         </td>
                         <td style={{ padding: '1rem' }}>
                           <span style={{
-                            fontSize: '0.7rem', padding: '0.25rem 0.65rem', borderRadius: '8px', fontWeight: '800',
+                            fontSize: '0.72rem', padding: '0.35rem 0.75rem', borderRadius: '8px', fontWeight: '900',
                             backgroundColor: 
+                              so.status === 'Enviado a Taller' ? '#fff7ed' : 
                               so.status === 'En Confección' ? '#eff6ff' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#fffbeb' :
                               so.status === 'Terminada' || so.status === 'Enviada' ? '#ecfdf5' : 
                               so.status === 'Devuelta por Taller' ? '#fef2f2' : '#f1f5f9',
                             color: 
+                              so.status === 'Enviado a Taller' ? '#ea580c' : 
                               so.status === 'En Confección' ? '#1e4ed8' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '#b45309' :
                               so.status === 'Terminada' || so.status === 'Enviada' ? '#15803d' : 
-                              so.status === 'Devuelta por Taller' ? '#b91c1c' : '#475569',
+                              so.status === 'Devuelta por Taller' ? '#dc2626' : '#475569',
                             border: 
+                              so.status === 'Enviado a Taller' ? '1.5px solid #fdba74' : 
                               so.status === 'En Confección' ? '1px solid #bfdbfe' : 
                               (so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad') ? '1px solid #fef08a' :
                               so.status === 'Terminada' || so.status === 'Enviada' ? '1px solid #bbf7d0' : 
-                              so.status === 'Devuelta por Taller' ? '1px solid #fca5a5' : '1px solid #cbd5e1'
+                              so.status === 'Devuelta por Taller' ? '1.5px solid #fca5a5' : '1px solid #cbd5e1'
                           }}>
-                            {so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad' ? 'VALIDACIÓN CALIDAD' : so.status.toUpperCase()}
+                            {so.status === 'Enviado a Taller' ? '📩 POR RECIBIR' :
+                             so.status === 'Devuelta por Taller' ? '🛑 DEVUELTA POR TALLER' :
+                             so.status === 'Enviado a Calidad' || so.status === 'Validación Calidad' ? 'VALIDACIÓN CALIDAD' : so.status.toUpperCase()}
                           </span>
                         </td>
                         <td style={{ padding: '1rem' }}>
@@ -4603,21 +4749,22 @@ export default function Dashboard() {
                             {so.status === 'Enviado a Taller' && (
                               <>
                                 <button
-                                  onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code })}
+                                  onClick={() => handleConfirmReceiptInWorkshop({ id: so.id, confeccion_code: so.confeccion_code, parent_order_id: so.parent_order_id, workshop_id: so.workshop_id, product_id: so.product_id, cantidad_planeada: plannedQty })}
                                   className="btn"
                                   style={{ 
-                                    backgroundColor: '#3b82f6', 
+                                    backgroundColor: '#16a34a', 
                                     color: 'white', 
                                     border: 'none', 
-                                    padding: '0.45rem 0.85rem', 
+                                    padding: '0.5rem 0.95rem', 
                                     borderRadius: '8px', 
-                                    fontSize: '0.72rem', 
-                                    fontWeight: '800', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: '900', 
                                     cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(22, 163, 74, 0.25)',
                                     transition: 'all 0.2s'
                                   }}
                                 >
-                                  📥 Recibir
+                                  📥 Aceptar
                                 </button>
                                 <button
                                   onClick={() => {
@@ -4628,18 +4775,19 @@ export default function Dashboard() {
                                   }}
                                   className="btn"
                                   style={{ 
-                                    backgroundColor: '#ef4444', 
+                                    backgroundColor: '#dc2626', 
                                     color: 'white', 
                                     border: 'none', 
-                                    padding: '0.45rem 0.85rem', 
+                                    padding: '0.5rem 0.95rem', 
                                     borderRadius: '8px', 
-                                    fontSize: '0.72rem', 
-                                    fontWeight: '800', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: '900', 
                                     cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(220, 38, 38, 0.25)',
                                     transition: 'all 0.2s'
                                   }}
                                 >
-                                  ❌ Devolver
+                                  ❌ Rechazar
                                 </button>
                               </>
                             )}

@@ -28,19 +28,6 @@ export async function POST(req: Request) {
 
     const cleanCode = code.trim().toUpperCase();
 
-    // Fetch audit session location
-    const { data: auditSession } = await supabase
-      .from('audit_sessions')
-      .select('id, location_id, location_name')
-      .eq('id', auditId)
-      .single();
-
-    const targetLocationId = auditSession?.location_id || 'all';
-    const targetLocationName = auditSession?.location_name || 'Ubicación General';
-
-    let belongsToAuditWarehouse = true;
-    let actualGarmentWarehouseName: string | null = null;
-
     // 1. Fetch exact matching audit_items record for this session by barcode ID Único or SKU
     const { data: matchedItems } = await supabase
       .from('audit_items')
@@ -54,20 +41,17 @@ export async function POST(req: Request) {
 
     // 2. If not found in session snapshot, check `individual_garments` database table
     if (!itemToUpdate) {
-      const { data: garment } = await supabase
+      const unpaddedCode = cleanCode.replace(/^0+/, '');
+
+      const { data: garmentsList } = await supabase
         .from('individual_garments')
-        .select('*, warehouses(id, nombre_bodega)')
-        .eq('barcode', cleanCode)
-        .maybeSingle();
+        .select('*')
+        .or(`barcode.eq.${cleanCode},barcode.eq.${unpaddedCode},barcode.ilike.%${cleanCode}%,barcode.ilike.%${unpaddedCode}%`)
+        .limit(1);
+
+      const garment = garmentsList && garmentsList.length > 0 ? garmentsList[0] : null;
 
       if (garment) {
-        const whObj: any = garment.warehouses;
-        actualGarmentWarehouseName = (Array.isArray(whObj) ? whObj[0]?.nombre_bodega : whObj?.nombre_bodega) || 'Otra Bodega';
-
-        if (targetLocationId !== 'all' && garment.warehouse_id && garment.warehouse_id !== targetLocationId) {
-          belongsToAuditWarehouse = false;
-        }
-
         // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico (1-to-1)
         const { data: newItem } = await supabase
           .from('audit_items')
@@ -92,21 +76,6 @@ export async function POST(req: Request) {
 
         itemToUpdate = newItem;
         newlyInserted = true;
-      }
-    }
-
-    // Check warehouse for itemToUpdate if already in snapshot
-    if (itemToUpdate && !newlyInserted && targetLocationId !== 'all') {
-      const { data: gCheck } = await supabase
-        .from('individual_garments')
-        .select('warehouse_id, warehouses(nombre_bodega)')
-        .eq('barcode', cleanCode)
-        .maybeSingle();
-
-      if (gCheck && gCheck.warehouse_id && gCheck.warehouse_id !== targetLocationId) {
-        belongsToAuditWarehouse = false;
-        const gWh: any = gCheck.warehouses;
-        actualGarmentWarehouseName = (Array.isArray(gWh) ? gWh[0]?.nombre_bodega : gWh?.nombre_bodega) || 'Otra Bodega';
       }
     }
 
@@ -272,21 +241,14 @@ export async function POST(req: Request) {
       }).eq('id', auditId);
     }
 
-    let message = wasAlreadyCounted
+    const message = wasAlreadyCounted
       ? `ℹ️ Prenda (ID ${cleanCode}) ya estaba registrada (1/1)`
       : `✅ Prenda registrada (1 unidad): ${updatedItem.product_name} (${cleanCode})`;
-
-    if (!belongsToAuditWarehouse && actualGarmentWarehouseName) {
-      message += ` ⚠️ ATENCIÓN: Esta prenda pertenece a la bodega "${actualGarmentWarehouseName}", no a esta bodega ("${targetLocationName}").`;
-    }
 
     return NextResponse.json({
       success: true,
       item: updatedItem,
       wasAlreadyCounted,
-      belongsToAuditWarehouse,
-      actualGarmentWarehouseName,
-      targetLocationName,
       message
     });
 

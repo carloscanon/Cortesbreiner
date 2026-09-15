@@ -100,6 +100,79 @@ export default function SewingPage() {
   const [reassignNotes, setReassignNotes] = useState('');
   const [savingReassign, setSavingReassign] = useState(false);
 
+  // Workshop Accept/Reject modal states
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectingOrder, setRejectingOrder] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [savingReject, setSavingReject] = useState(false);
+
+  const handleAcceptByWorkshop = async (so: any) => {
+    if (!window.confirm(`¿Aceptar la orden ${so.confeccion_code || 'despachada'} e iniciar la confección en el taller?`)) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('sewing_orders')
+        .update({ status: 'En Confección' })
+        .eq('id', so.id);
+      if (error) throw error;
+
+      if (so.parent_order_id) {
+        await supabase
+          .from('orders')
+          .update({ status: 'En Confección' })
+          .eq('id', so.parent_order_id);
+      }
+
+      alert('✅ Orden aceptada correctamente por el taller. Estado actualizado a "En Confección".');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al aceptar la orden: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectByWorkshop = async () => {
+    if (!rejectingOrder) return;
+    if (!rejectReason.trim()) {
+      alert('Por favor ingresa el motivo del rechazo.');
+      return;
+    }
+
+    setSavingReject(true);
+    try {
+      const rejectNote = `Devuelta por Taller: ${rejectReason.trim()}`;
+      const { error } = await supabase
+        .from('sewing_orders')
+        .update({
+          status: 'Devuelta por Taller',
+          workshop_notes: rejectNote
+        })
+        .eq('id', rejectingOrder.id);
+
+      if (error) throw error;
+
+      if (rejectingOrder.parent_order_id) {
+        const { data: pOrd } = await supabase.from('orders').select('observaciones').eq('id', rejectingOrder.parent_order_id).single();
+        const newObs = (pOrd?.observaciones || '') + `\n\n🛑 [RECHAZADA POR TALLER]: ${rejectReason.trim()} (${new Date().toLocaleString('es-ES')})`;
+        await supabase
+          .from('orders')
+          .update({ status: 'Devuelta por Taller', observaciones: newObs })
+          .eq('id', rejectingOrder.parent_order_id);
+      }
+
+      alert('🛑 Orden rechazada y devuelta a la administración para su reasignación.');
+      setShowRejectModal(false);
+      setRejectingOrder(null);
+      setRejectReason('');
+      fetchData();
+    } catch (err: any) {
+      alert('Error al rechazar la orden: ' + err.message);
+    } finally {
+      setSavingReject(false);
+    }
+  };
+
   // Configuración dinámica de Relación de Despacho
   const [sewingDespatchConfig, setSewingDespatchConfig] = useState<any>({
     companyTitle: 'CORTES BREINER S.A.S.',
@@ -724,7 +797,7 @@ export default function SewingPage() {
             confeccion_code: confCode,
             workshop_id: lot.workshopId,
             product_id: lot.productId,
-            status: 'En Confección',
+            status: 'Enviado a Taller',
             cantidad_planeada: lot.cantidadPlaneada,
             cantidad_confeccionada: 0,
             tarifa_especial: lot.specialRate
@@ -857,7 +930,7 @@ export default function SewingPage() {
                 confeccion_code: cConfCode,
                 workshop_id: cLot.workshopId,
                 product_id: cLot.productId,
-                status: 'En Confección',
+                status: 'Enviado a Taller',
                 cantidad_planeada: cLot.cantidadPlaneada,
                 cantidad_confeccionada: 0,
                 tarifa_especial: cLot.specialRate
@@ -938,7 +1011,7 @@ export default function SewingPage() {
                 workshop_id: compositeWorkshopId,
                 product_id: cut.product_id,
                 cantidad_planeada: cutQty,
-                status: 'En Confección',
+                status: 'Enviado a Taller',
                 notes: `Prenda Compuesta (Pieza/Tela: ${ord.fabrics?.nombre_tela || 'Especial'}). ${compositeWorkshopNotes}`
               }])
               .select()
@@ -2011,13 +2084,13 @@ export default function SewingPage() {
             />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {['all', 'En Confección', 'Terminada', 'Enviada', 'Devuelta por Taller'].map(s => (
+            {['all', 'Enviado a Taller', 'En Confección', 'Terminada', 'Enviada', 'Devuelta por Taller'].map(s => (
               <button key={s} onClick={() => setFilterStatus(s)} className="btn" style={{
                 fontSize: '0.72rem', fontWeight: '700', padding: '0.5rem 0.875rem',
                 backgroundColor: filterStatus === s ? '#7c3aed' : 'white',
                 color: filterStatus === s ? 'white' : 'var(--text)',
                 border: '1px solid var(--border)', borderRadius: '8px'
-              }}>{s === 'all' ? 'Todas' : s === 'Devuelta por Taller' ? '🛑 Devueltas' : s}</button>
+              }}>{s === 'all' ? 'Todas' : s === 'Enviado a Taller' ? '📩 Por Recibir' : s === 'Devuelta por Taller' ? '🛑 Devueltas' : s}</button>
             ))}
           </div>
         </div>
@@ -2037,7 +2110,8 @@ export default function SewingPage() {
               ) : paginatedTableOrders.length === 0 ? (
                 <tr><td colSpan={7} style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.875rem' }}>No hay órdenes en este estado.</td></tr>
                             ) : paginatedTableOrders.map(so => {
-                const statusColor = so.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
+                const statusColor = so.status === 'Enviado a Taller' ? { bg: '#fff7ed', color: '#ea580c' }
+                  : so.status === 'En Confección' ? { bg: '#eff6ff', color: '#2563eb' }
                   : so.status === 'Terminada' ? { bg: '#f0fdf4', color: '#16a34a' }
                   : so.status === 'Devuelta por Taller' ? { bg: '#fee2e2', color: '#b91c1c' }
                   : { bg: '#f5f3ff', color: '#7c3aed' };
@@ -2275,9 +2349,59 @@ export default function SewingPage() {
                           </button>
                         )}
 
-
-
-
+                        {/* 4. Botones Aceptar / Rechazar Confección cuando está 'Enviado a Taller' */}
+                        {so.status === 'Enviado a Taller' && (
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                              onClick={() => handleAcceptByWorkshop(so)}
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                backgroundColor: '#16a34a',
+                                color: 'white',
+                                border: 'none',
+                                fontSize: '0.72rem',
+                                fontWeight: '900',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 4px rgba(22,163,74,0.2)',
+                                transition: 'all 0.2s',
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem'
+                              }}
+                              title="Aceptar orden para iniciar confección"
+                            >
+                              <CheckCircle size={13} /> Aceptar Taller
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectingOrder(so);
+                                setRejectReason('');
+                                setShowRejectModal(true);
+                              }}
+                              style={{
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '8px',
+                                backgroundColor: '#dc2626',
+                                color: 'white',
+                                border: 'none',
+                                fontSize: '0.72rem',
+                                fontWeight: '900',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 4px rgba(220,38,38,0.2)',
+                                transition: 'all 0.2s',
+                                whiteSpace: 'nowrap',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem'
+                              }}
+                              title="Rechazar orden y devolver a administración"
+                            >
+                              <X size={13} /> Rechazar
+                            </button>
+                          </div>
+                        )}
 
                         {so.status === 'Devuelta por Taller' && (
                           <button
@@ -3858,7 +3982,51 @@ export default function SewingPage() {
         </div>
       )}
 
-
+      {/* ── MODAL RECHAZAR ORDEN (DESDE TALLER) ── */}
+      {showRejectModal && rejectingOrder && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(8px)', padding: '1rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '520px', padding: 0, borderRadius: '16px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+            <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#dc2626', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '900', color: 'white' }}>Rechazar Confección de Orden</h3>
+                <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.85)' }}>Orden: {rejectingOrder.confeccion_code || 'Despachada'}</p>
+              </div>
+              <button onClick={() => setShowRejectModal(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
+                  Motivo de Rechazo / Devolución del Taller *
+                </label>
+                <textarea
+                  rows={4}
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  placeholder="Ej: Inconsistencia en insumos, falta de tono de hilo, capacidad saturada..."
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #fca5a5', fontSize: '0.85rem', outline: 'none' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  onClick={() => setShowRejectModal(false)}
+                  className="btn btn-secondary"
+                  style={{ padding: '0.6rem 1.25rem', fontWeight: '800' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleRejectByWorkshop}
+                  disabled={savingReject || !rejectReason.trim()}
+                  className="btn"
+                  style={{ padding: '0.6rem 1.25rem', fontWeight: '900', backgroundColor: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: (savingReject || !rejectReason.trim()) ? 'not-allowed' : 'pointer' }}
+                >
+                  {savingReject ? 'Procesando...' : 'Confirmar Rechazo y Devolver'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{ __html: `
         .print-only {

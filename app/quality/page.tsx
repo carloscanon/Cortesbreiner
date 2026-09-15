@@ -8,7 +8,7 @@ import {
   Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity
 } from 'lucide-react';
 
-const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado'];
+const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado', 'Inhabilitado'];
 const DEFECT_CHECKLIST_OPTIONS = [
   'Costura', 'Medida', 'Mancha', 'Agujero', 'Lavado', 'Bordado', 'Estampado',
   'Accesorios', 'Hilo', 'Tela', 'Corte', 'Cuello', 'Manga', 'Cremallera', 'Botón', 'Otro'
@@ -420,6 +420,31 @@ export default function QualityPage() {
     }
   };
 
+  const handleToggleDisableOrder = async (inspection: any) => {
+    const isCurrentlyDisabled = inspection.status === 'Inhabilitado';
+    const actionText = isCurrentlyDisabled ? 'habilitar nuevamente' : 'inhabilitar';
+    const newStatus = isCurrentlyDisabled ? 'Pendiente' : 'Inhabilitado';
+
+    if (!window.confirm(`¿Está seguro de que desea ${actionText} la orden ${inspection.sewing_orders?.confeccion_code || 'seleccionada'}?`)) return;
+
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('quality_inspections')
+        .update({ status: newStatus })
+        .eq('id', inspection.id);
+
+      if (error) throw error;
+
+      alert(`✓ Orden ${isCurrentlyDisabled ? 'habilitada' : 'inhabilitada'} correctamente.`);
+      fetchInspections();
+    } catch (err: any) {
+      alert('Error al cambiar estado de inhabilitación: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchIndividualGarments = async (id: string, isSewingOrder: boolean = true, detailRowsInput?: any[]) => {
     setLoadingGarments(true);
     const query = supabase.from('individual_garments').select('*');
@@ -433,6 +458,8 @@ export default function QualityPage() {
     if (rows.length > 0) {
       const newApproved: Record<string, number> = {};
       const newRejected: Record<string, number> = {};
+      const matchedGarmentIds = new Set<string>();
+
       rows.forEach((row: any) => {
         if (garments.length > 0) {
           const isRefMatch = (garmentRef: string, rowProdName: string) => {
@@ -448,10 +475,14 @@ export default function QualityPage() {
           };
 
           const matchingGarments = garments.filter(g =>
+            !matchedGarmentIds.has(g.id) &&
             isRefMatch(g.reference_name || '', row.productName || '') &&
             (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
             (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
           );
+
+          matchingGarments.forEach(g => matchedGarmentIds.add(g.id));
+
           newApproved[row.key] = matchingGarments.filter(g => g.status === 'Aprobada').length;
           newRejected[row.key] = matchingGarments.filter(g => g.status !== 'Aprobada').length;
         } else {
@@ -894,7 +925,9 @@ export default function QualityPage() {
       cosVal = finalRejected;
     }
 
-    const totalInspected = Number(form.items_inspected) || totalRecFromRows || (finalApproved + finalRejected);
+    const calculatedSum = finalApproved + finalRejected;
+    const rawInspectedInput = Number(form.items_inspected) || 0;
+    const totalInspected = Math.max(rawInspectedInput, totalRecFromRows, calculatedSum);
     
     // Sincronizar todas las variables del formulario antes de construir el payload final
     form.items_approved = finalApproved.toString();
@@ -906,7 +939,6 @@ export default function QualityPage() {
     form.incompleto = incVal.toString();
 
     if (finalRejected > totalInspected) { setSaving(false); return alert(`❌ Rechazadas (${finalRejected}) no puede superar el total inspeccionadas (${totalInspected}).`); }
-    if (finalApproved + finalRejected > totalInspected) { setSaving(false); return alert(`❌ Aprobadas + rechazadas supera total inspeccionado.`); }
 
     const valPrenda = Number(form.valor_prenda) || 3500;
     const workshopObj = selectedSewingOrder?.workshops || selectedOrder?.workshops || orderDetail?.workshops || orderDetail?.parent_order?.workshops;
@@ -1291,12 +1323,15 @@ export default function QualityPage() {
     
     let matchStatus = true;
     if (filterStatus === 'Pendientes de Pago') {
-      matchStatus = i.pago_status === 'Pendiente de aprobación financiera';
+      matchStatus = i.pago_status === 'Pendiente de aprobación financiera' && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Pendiente') {
       const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' || i.sewing_orders?.status === 'Validación Calidad';
-      matchStatus = i.status === 'Pendiente' || isPendienteRecibo;
+      matchStatus = (i.status === 'Pendiente' || isPendienteRecibo) && i.status !== 'Inhabilitado';
     } else if (filterStatus) {
       matchStatus = i.status === filterStatus;
+    } else {
+      // Por defecto ("Todos"), excluir inhabilitadas
+      matchStatus = i.status !== 'Inhabilitado';
     }
     return matchSearch && matchStatus;
   });
@@ -2583,6 +2618,22 @@ export default function QualityPage() {
                         onClick={() => openReview(item)}>Revisar</button>
                     </>
                   )}
+                  <button className="btn"
+                    style={{ 
+                      padding: '0.4rem 0.75rem', 
+                      fontSize: '0.72rem', 
+                      fontWeight: '800', 
+                      backgroundColor: item.status === 'Inhabilitado' ? '#0284c7' : '#64748b', 
+                      color: 'white', 
+                      border: 'none', 
+                      borderRadius: '8px', 
+                      cursor: 'pointer' 
+                    }}
+                    onClick={() => handleToggleDisableOrder(item)}
+                    title={item.status === 'Inhabilitado' ? "Habilitar esta orden" : "Inhabilitar esta orden de confección del listado general"}
+                  >
+                    {item.status === 'Inhabilitado' ? '🔓 Habilitar' : '🚫 Inhabilitar'}
+                  </button>
                 </div>
               </div>
             );
@@ -3102,7 +3153,48 @@ export default function QualityPage() {
                                   id: editingId 
                                 })}
                                 style={{ padding: '0.65rem 1.75rem', fontSize: '0.82rem', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800' }}>
-                                🖨️ Abrir Panel de Impresión
+                                🖨️ Abrir Panel de Impresión ({individualGarments.length} Etiquetas)
+                              </button>
+                              <button type="button"
+                                onClick={async () => {
+                                  if (!orderDetail) return;
+                                  if (!confirm(`⚠️ ¿Deseas regenerar y limpiar las etiquetas para dejarlas en exactamente ${rowTotalApproved} unidades aprobadas?`)) return;
+                                  setLoadingGarments(true);
+                                  try {
+                                    const isSewingOrder = !!orderDetail.sewing_order_sizes;
+                                    // 1. Limpiar etiquetas anteriores de esta orden
+                                    if (isSewingOrder) {
+                                      await supabase.from('individual_garments').delete().eq('sewing_order_id', orderDetail.id);
+                                    } else {
+                                      await supabase.from('individual_garments').delete().eq('order_id', orderDetail.id);
+                                    }
+                                    // 2. Reconciliar e insertar de cero exactamente las aprobadas
+                                    const detailRows = getDetailRows(orderDetail);
+                                    const res = await fetch('/api/quality/reconcile-garments', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        orderDetailId: orderDetail.id,
+                                        isSewingOrder,
+                                        parentOrderId: orderDetail.parent_order_id || null,
+                                        savedInspectionId: editingId || null,
+                                        rowApproved,
+                                        rowRejected,
+                                        detailRows
+                                      })
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok || data.error) throw new Error(data.error || 'Error al regenerar etiquetas.');
+                                    alert(`✅ Etiquetas regeneradas correctamente: ${rowTotalApproved} etiquetas.`);
+                                    await fetchIndividualGarments(orderDetail.id, isSewingOrder, detailRows);
+                                  } catch (err: any) {
+                                    alert('❌ Error al regenerar: ' + err.message);
+                                  } finally {
+                                    setLoadingGarments(false);
+                                  }
+                                }}
+                                style={{ padding: '0.65rem 1.25rem', fontSize: '0.82rem', backgroundColor: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800' }}>
+                                🔄 Regenerar y Limpiar a {rowTotalApproved} Etiquetas
                               </button>
                             </div>
                           </div>

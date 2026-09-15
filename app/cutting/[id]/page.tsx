@@ -22,11 +22,13 @@ import {
   Trash2,
   Bell,
   ChevronRight,
-  Package
+  Package,
+  Download
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { downloadCuttingOrderPDF } from '@/lib/cutting-order-pdf';
 
 export default function CutDetailsPage() {
   const router = useRouter();
@@ -639,9 +641,74 @@ export default function CutDetailsPage() {
                   <h3 style={{ fontSize: '1.125rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Especificación del Trazo y Mesa</h3>
                   <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Planificación asignada al cortador.</p>
                 </div>
-                <button onClick={() => setShowOrderDetailsModal(true)} className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: '900', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#3b82f6', border: 'none', color: 'white', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.5)' }}>
+                <button onClick={() => setShowOrderDetailsModal(true)} className="btn btn-primary" style={{ padding: '0.75rem 1.25rem', fontSize: '0.9rem', fontWeight: '900', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#3b82f6', border: 'none', color: 'white', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.5)' }}>
                   <FileText size={20} />
-                  Ver Detalle Original de Orden
+                  Ver Detalle Original
+                </button>
+                <button 
+                  onClick={() => {
+                    const uniqueFabricColorKeys = Array.from(new Set(
+                      cuts.filter((c: any) => c.fabric_id).map((c: any) => `${c.fabric_id}___${c.color_id || 'none'}`)
+                    ));
+                    const fabricRows = uniqueFabricColorKeys.map((key: string) => {
+                      const [fid, colorKey] = key.split('___');
+                      const colorId = colorKey === 'none' ? null : colorKey;
+                      const fc = cuts.filter((c: any) => String(c.fabric_id) === fid && String(c.color_id || 'none') === (colorId || 'none'));
+                      const fabricObj = fabrics.find((f: any) => String(f.id) === fid);
+                      const colorObj = getColorData(fc[0]?.color_id, fc[0]);
+                      return {
+                        nombre_tela: fabricObj ? fabricObj.nombre_tela : 'Tela Base',
+                        nombre_color: colorObj ? colorObj.nombre_color : '',
+                        layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)),
+                        kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0)
+                      };
+                    });
+
+                    const itemsList = cuts.flatMap((cut) => {
+                      const fabricObj = fabrics.find(f => String(f.id) === String(cut.fabric_id));
+                      const colorObj = getColorData(cut.color_id, cut);
+                      const telaName = fabricObj ? fabricObj.nombre_tela : (colorObj ? colorObj.nombre_color : '---');
+                      const prodObj = products.find(p => String(p.id) === String(cut.product_id));
+                      
+                      return cut.cut_sizes.filter((cs: any) => Number(cs.quantity) > 0).map((cs: any) => {
+                        const sizeObj = sizes.find(s => String(s.id) === String(cs.size_id));
+                        const plannedLayers = Number(cut.layers) || 1;
+                        const capas = order.status === 'Planeada' ? plannedLayers : (Number(cut.layers_produced) || 0);
+                        const marcRatio = Number(cs.quantity) / plannedLayers;
+                        const actualQuantity = Math.round(marcRatio * capas);
+                        return {
+                          referencia: prodObj ? (prodObj.codigo_referencia || prodObj.nombre_producto) : '---',
+                          tela: telaName,
+                          talla: sizeObj ? sizeObj.codigo_talla : '---',
+                          capas: capas,
+                          marcacion: marcRatio.toFixed(2),
+                          total: actualQuantity
+                        };
+                      });
+                    });
+
+                    downloadCuttingOrderPDF({
+                      internal_code: order.internal_code,
+                      client_name: order.client_name,
+                      brand: order.brand,
+                      scheduled_date: order.scheduled_date,
+                      cortador_name: order.cortador_name,
+                      status: order.status,
+                      largo_trazo: order.largo_trazo || cuts[0]?.stroke_length,
+                      capas_proyectadas: order.capas_proyectadas,
+                      total_kilos_proyectados: order.total_kilos_proyectados,
+                      observaciones: order.observaciones,
+                      created_at: order.created_at,
+                      created_by: order.created_by,
+                      fabrics: fabricRows,
+                      items: itemsList
+                    });
+                  }}
+                  className="btn" 
+                  style={{ padding: '0.75rem 1.25rem', fontSize: '0.9rem', fontWeight: '900', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#80082E', border: 'none', color: 'white', cursor: 'pointer', boxShadow: '0 4px 10px rgba(128, 8, 46, 0.3)' }}
+                >
+                  <Download size={20} />
+                  Descargar PDF
                 </button>
               </div>
               <span style={{ 

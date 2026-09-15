@@ -5,12 +5,13 @@ import { supabase } from '@/lib/supabase';
 import { syncOrderMovements } from '@/lib/inventory-sync';
 import { 
   Plus, Search, Trash2, X, Loader2, AlertTriangle, 
-  Scissors, Layers, Info, ArrowRight, Factory, Droplets, Printer,
+  Scissors, Layers, Info, ArrowRight, Factory, Droplets, Printer, Download,
   ChevronRight, Package, Palette, Activity, CheckCircle, Code, RefreshCw,
   RotateCcw
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { downloadCuttingOrderPDF } from '@/lib/cutting-order-pdf';
 
 function getRelativeTime(dateString: string) {
   if (!dateString) return '---';
@@ -2193,8 +2194,48 @@ export default function OrdersPage() {
               </div>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button onClick={() => { setViewingOrder(null); setViewCuts([]); }} className="btn btn-secondary" style={{ padding: '0.6rem 1.5rem', fontWeight: '700' }}>Cerrar</button>
-                <button onClick={() => window.print()} className="btn" style={{ padding: '0.6rem 1.5rem', fontWeight: '700', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => window.print()} className="btn" style={{ padding: '0.6rem 1.25rem', fontWeight: '700', backgroundColor: '#475569', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Printer size={16} /> Imprimir
+                </button>
+                <button 
+                  onClick={() => {
+                    const uniqueFabricColorKeys = Array.from(new Set(
+                      viewCuts.filter((c: any) => c.fabric_id).map((c: any) => `${c.fabric_id}___${c.color_id || 'none'}`)
+                    ));
+                    const fabricRows = uniqueFabricColorKeys.map((key: string) => {
+                      const [fid, colorKey] = key.split('___');
+                      const colorId = colorKey === 'none' ? null : colorKey;
+                      const fc = viewCuts.filter((c: any) => String(c.fabric_id) === fid && String(c.color_id || 'none') === (colorId || 'none'));
+                      const fabricObj = fabrics.find((f: any) => String(f.id) === fid);
+                      const colorObj = colors.find((c: any) => String(c.id) === String(fc[0]?.color_id));
+                      return {
+                        nombre_tela: fabricObj ? fabricObj.nombre_tela : 'Tela Base',
+                        nombre_color: colorObj ? colorObj.nombre_color : '',
+                        layers: Math.max(...fc.map((c: any) => Number(c.layers) || 0)),
+                        kilos: fc.reduce((s: number, c: any) => s + (Number(c.kilos) || 0), 0)
+                      };
+                    });
+
+                    downloadCuttingOrderPDF({
+                      internal_code: viewingOrder.internal_code,
+                      client_name: viewingOrder.client_name,
+                      brand: viewingOrder.brand,
+                      scheduled_date: viewingOrder.scheduled_date,
+                      cortador_name: viewingOrder.cortador_name,
+                      status: viewingOrder.status,
+                      largo_trazo: viewingOrder.largo_trazo,
+                      capas_proyectadas: viewingOrder.capas_proyectadas,
+                      total_kilos_proyectados: viewingOrder.total_kilos_proyectados,
+                      observaciones: viewingOrder.observaciones,
+                      created_at: viewingOrder.created_at,
+                      created_by: viewingOrder.created_by,
+                      fabrics: fabricRows
+                    });
+                  }}
+                  className="btn" 
+                  style={{ padding: '0.6rem 1.25rem', fontWeight: '800', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 10px rgba(128, 8, 46, 0.3)' }}
+                >
+                  <Download size={16} /> Descargar PDF
                 </button>
               </div>
             </div>
@@ -3276,14 +3317,53 @@ export default function OrdersPage() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '1.5rem' }} className="no-print">
+                  <div style={{ display: 'flex', gap: '1rem' }} className="no-print">
                     <button className="btn btn-secondary" style={{ flex: 1, padding: '1rem' }} onClick={() => setStep(2)}>Atrás</button>
                     <button 
                       className="btn" 
-                      style={{ flex: 1.5, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', backgroundColor: '#3b82f6', color: 'white', border: '1px solid #3b82f6', fontWeight: '800', borderRadius: '10px' }} 
+                      style={{ flex: 1, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', backgroundColor: '#475569', color: 'white', border: 'none', fontWeight: '800', borderRadius: '10px' }} 
                       onClick={() => window.print()}
                     >
-                      <Printer size={18} /> Imprimir / PDF
+                      <Printer size={18} /> Imprimir
+                    </button>
+                    <button 
+                      className="btn" 
+                      style={{ flex: 1.2, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', backgroundColor: '#80082E', color: 'white', border: 'none', fontWeight: '800', borderRadius: '10px', boxShadow: '0 4px 12px rgba(128,8,46,0.3)' }} 
+                      onClick={() => {
+                        const itemsList = orderItems.map(item => {
+                          const prodObj = products.find(p => String(p.id) === String(item.product_id));
+                          const sizeObj = sizes.find(s => String(s.id) === String(item.size_id));
+                          return {
+                            referencia: prodObj ? (prodObj.codigo_referencia || prodObj.nombre_producto) : '---',
+                            tela: item.nombre_tela || '---',
+                            talla: sizeObj ? sizeObj.codigo_talla : '---',
+                            capas: Number(item.layers) || 0,
+                            marcacion: item.marker || 0,
+                            total: item.total || 0
+                          };
+                        });
+                        downloadCuttingOrderPDF({
+                          internal_code: formData.internal_code,
+                          client_name: formData.factura_relacionada || formData.internal_code,
+                          brand: formData.factura_relacionada || formData.internal_code,
+                          scheduled_date: formData.scheduled_date,
+                          cortador_name: formData.cortador_name,
+                          status: formData.status,
+                          largo_trazo: longitudNum,
+                          capas_proyectadas: totalLayersSummary,
+                          total_kilos_proyectados: totalKilos,
+                          observaciones: formData.observaciones,
+                          fabrics: fabricColors.map(fc => ({
+                            nombre_tela: fc.nombre_tela || 'Tela Base',
+                            layers: Number(fc.layers) || 0,
+                            metros: fc.longitud_row ? Number(fc.longitud_row) : 0,
+                            kilos: Number(fc.kilos) || 0
+                          })),
+                          items: itemsList
+                        });
+                      }}
+                    >
+                      <Download size={18} /> Descargar PDF
                     </button>
                     <button className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontSize: '1.125rem', fontWeight: '900', backgroundColor: '#10b981', borderColor: '#10b981' }} onClick={handleFinishAndSend} disabled={saving || !formData.cortador_name}>
                       {saving ? <Loader2 className="animate-spin" /> : 'Confirmar y Enviar a Planta'}

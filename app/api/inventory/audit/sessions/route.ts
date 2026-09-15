@@ -298,3 +298,46 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message || 'Error al iniciar sesión de auditoría.' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      return NextResponse.json({ error: 'Supabase credentials missing.' }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Se requiere id de la auditoría a eliminar.' }, { status: 400 });
+    }
+
+    // Delete related audit items, unregistered items, and logs first
+    await supabase.from('audit_items').delete().eq('audit_id', id);
+    await supabase.from('audit_unregistered_items').delete().eq('audit_id', id);
+    await supabase.from('audit_scans').delete().eq('audit_id', id);
+    await supabase.from('audit_logs').delete().eq('audit_id', id);
+    await supabase.from('audit_adjustment_requests').delete().eq('audit_id', id);
+
+    // Delete audit session entry
+    const { error: delErr } = await supabase
+      .from('audit_sessions')
+      .delete()
+      .eq('id', id);
+
+    if (delErr) {
+      return NextResponse.json({ error: delErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Sesión de auditoría eliminada exitosamente.'
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Error al eliminar la auditoría.' }, { status: 500 });
+  }
+}
