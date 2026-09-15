@@ -621,9 +621,22 @@ export default function OrdersPage() {
 
 
 
-  const step2TotalLayers = fabricColors.reduce((acc, fc) => acc + (Number(fc.layers) || 0), 0);
+  const getFcLayers = (fc: any) => {
+    if (fc.layers !== undefined && fc.layers !== '' && !isNaN(Number(fc.layers))) {
+      return Number(fc.layers);
+    }
+    if (fc.capas_definidas !== undefined && fc.capas_definidas !== '' && !isNaN(Number(fc.capas_definidas))) {
+      return Number(fc.capas_definidas);
+    }
+    if (fc.longitud_row && Number(fc.longitud_row) > 0 && longitudNum > 0) {
+      return Math.round(Number(fc.longitud_row) / longitudNum);
+    }
+    return 0;
+  };
 
-  const totalCapasEstimadas = fabricColors.reduce((acc, fc) => acc + (Number(fc.capas_definidas) || 0), 0);
+  const step2TotalLayers = fabricColors.reduce((acc, fc) => acc + getFcLayers(fc), 0);
+
+  const totalCapasEstimadas = fabricColors.reduce((acc, fc) => acc + (Number(fc.capas_definidas) || getFcLayers(fc)), 0);
 
   const totalUnits = (() => {
     let sum = 0;
