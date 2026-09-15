@@ -39,11 +39,13 @@ export default function GeneralInventorySubmodule({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
 
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [warehouseFilter, setWarehouseFilter] = useState('');
+
   // Reset page when search or filters change
   useEffect(() => {
     setCurrentPage(0);
   }, [searchQuery, categoryFilter, warehouseFilter]);
-  const [warehouseFilter, setWarehouseFilter] = useState('');
 
   // Homologations state
   const [homologations, setHomologations] = useState<any[]>([]);
