@@ -2499,11 +2499,11 @@ export default function OrdersPage() {
                     </div>
 
                     {isOverLimit && (
-                      <div style={{ backgroundColor: '#fef2f2', border: '1px solid #ef4444', padding: '1rem', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '1rem', color: '#b91c1c', marginBottom: '1.5rem' }}>
-                        <AlertTriangle size={24} />
+                      <div style={{ backgroundColor: '#fffbeb', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '1rem', color: '#92400e', marginBottom: '1.5rem' }}>
+                        <AlertTriangle size={24} color="#d97706" />
                         <div>
-                          <p style={{ fontWeight: '900' }}>¡Límite de Capas Excedido!</p>
-                          <p style={{ fontSize: '0.875rem' }}>El maestro define un total estimado de {totalCapasEstimadas} capas. Has programado {step2TotalLayers} capas, lo cual excede el límite permitido.</p>
+                          <p style={{ fontWeight: '900' }}>⚠️ Advertencia: Capas Estimadas Superadas</p>
+                          <p style={{ fontSize: '0.875rem' }}>El maestro define {totalCapasEstimadas} capas estimadas y has programado {step2TotalLayers} capas. Puedes continuar sin inconvenientes.</p>
                         </div>
                       </div>
                     )}
