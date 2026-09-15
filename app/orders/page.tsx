@@ -509,7 +509,7 @@ export default function OrdersPage() {
     try {
       let query = supabase
         .from('orders')
-        .select(`*, workshops (nombre_taller)`)
+        .select(`*, workshops (nombre_taller), cuts (*, cut_sizes(*))`)
         .order('created_at', { ascending: false });
 
       if (filterType !== 'all') query = query.eq('status', filterType);
@@ -1761,10 +1761,17 @@ export default function OrdersPage() {
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{order.brand || 'Sin marca'}</div>
                     </td>
                     <td style={{ padding: '1rem 1.5rem', fontSize: '0.9rem', fontWeight: '600' }}>
-                      {order.cuts?.reduce((acc: number, c: any) => acc + (c.layers || 0), 0) || 0}
+                      {(() => {
+                        const cutsLayers = order.cuts?.reduce((acc: number, c: any) => acc + (c.layers || 0), 0) || 0;
+                        return cutsLayers > 0 ? cutsLayers : (order.capas_proyectadas || 0);
+                      })()}
                     </td>
                     <td style={{ padding: '1rem 1.5rem', fontSize: '0.9rem', fontWeight: '600' }}>
-                      {order.cuts?.reduce((acc: number, c: any) => acc + (c.kilos || 0), 0).toFixed(1) || 0} kg
+                      {(() => {
+                        const cutsKilos = order.cuts?.reduce((acc: number, c: any) => acc + (c.kilos || 0), 0) || 0;
+                        const finalKilos = cutsKilos > 0 ? cutsKilos : (Number(order.total_kilos_proyectados) || 0);
+                        return `${finalKilos.toFixed(1)} kg`;
+                      })()}
                     </td>
                     <td style={{ padding: '1rem 1.5rem' }}>
                       {(() => {
