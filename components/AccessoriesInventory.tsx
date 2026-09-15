@@ -47,6 +47,13 @@ export default function AccessoriesInventory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [activeSubTab, setActiveSubTab] = useState<'balance' | 'consumption'>('balance');
+  const [accPage, setAccPage] = useState(0);
+  const [productAccPage, setProductAccPage] = useState(0);
+
+  useEffect(() => {
+    setAccPage(0);
+    setProductAccPage(0);
+  }, [searchQuery, typeFilter, activeSubTab]);
 
   useEffect(() => {
     fetchData();
@@ -271,65 +278,93 @@ export default function AccessoriesInventory() {
               <p style={{ fontWeight: '700' }}>No se encontraron accesorios en el catálogo.</p>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Código</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Nombre / Accesorio</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Tipo</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Unidad</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Fichas Técnica</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Despachado / Gastado</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Stock Disponible</th>
-                    <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'center' }}>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAccessories.map((acc, idx) => (
-                    <tr key={acc.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
-                      <td style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#80082E', fontFamily: 'monospace' }}>
-                        {acc.codigo || '—'}
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem' }}>
-                        <div style={{ fontWeight: '800', color: '#0f172a' }}>{acc.nombre}</div>
-                        {acc.productosNombres.length > 0 && (
-                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
-                            Usado en: {acc.productosNombres.slice(0, 2).join(', ')}{acc.productosNombres.length > 2 ? ` (+${acc.productosNombres.length - 2} más)` : ''}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem' }}>
-                        <span style={{ padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#475569' }}>
-                          {acc.tipo || 'General'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem', color: '#64748b', fontWeight: '700' }}>
-                        {acc.unidad_medida || 'Unidad'}
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>
-                        {acc.productosCount} prod.
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '950', color: '#2563eb', fontSize: '0.9rem' }}>
-                        {acc.totalDespachadoOGastado.toLocaleString('es-CO')}
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '950', color: acc.stockActual > 0 ? '#16a34a' : '#94a3b8', fontSize: '0.9rem' }}>
-                        {acc.stockActual.toLocaleString('es-CO')}
-                      </td>
-                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '0.25rem 0.65rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: '900',
-                          backgroundColor: acc.isOut ? '#fee2e2' : acc.isLowStock ? '#fef3c7' : '#dcfce7',
-                          color: acc.isOut ? '#991b1b' : acc.isLowStock ? '#92400e' : '#166534'
-                        }}>
-                          {acc.isOut ? 'Agotado' : acc.isLowStock ? 'Bajo Stock' : 'Disponible'}
-                        </span>
-                      </td>
+            <>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Código</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Nombre / Accesorio</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Tipo</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b' }}>Unidad</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Fichas Técnica</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Despachado / Gastado</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'right' }}>Stock Disponible</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', fontSize: '0.68rem', textTransform: 'uppercase', color: '#64748b', textAlign: 'center' }}>Estado</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredAccessories.slice(accPage * 10, (accPage + 1) * 10).map((acc, idx) => (
+                      <tr key={acc.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                        <td style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#80082E', fontFamily: 'monospace' }}>
+                          {acc.codigo || '—'}
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem' }}>
+                          <div style={{ fontWeight: '800', color: '#0f172a' }}>{acc.nombre}</div>
+                          {acc.productosNombres.length > 0 && (
+                            <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                              Usado en: {acc.productosNombres.slice(0, 2).join(', ')}{acc.productosNombres.length > 2 ? ` (+${acc.productosNombres.length - 2} más)` : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem' }}>
+                          <span style={{ padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#475569' }}>
+                            {acc.tipo || 'General'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', color: '#64748b', fontWeight: '700' }}>
+                          {acc.unidad_medida || 'Unidad'}
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>
+                          {acc.productosCount} prod.
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '950', color: '#2563eb', fontSize: '0.9rem' }}>
+                          {acc.totalDespachadoOGastado.toLocaleString('es-CO')}
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '950', color: acc.stockActual > 0 ? '#16a34a' : '#94a3b8', fontSize: '0.9rem' }}>
+                          {acc.stockActual.toLocaleString('es-CO')}
+                        </td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '0.25rem 0.65rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: '900',
+                            backgroundColor: acc.isOut ? '#fee2e2' : acc.isLowStock ? '#fef3c7' : '#dcfce7',
+                            color: acc.isOut ? '#991b1b' : acc.isLowStock ? '#92400e' : '#166534'
+                          }}>
+                            {acc.isOut ? 'Agotado' : acc.isLowStock ? 'Bajo Stock' : 'Disponible'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {filteredAccessories.length > 10 && (
+                <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                    Mostrando {accPage * 10 + 1} - {Math.min((accPage + 1) * 10, filteredAccessories.length)} de {filteredAccessories.length} accesorios
+                  </span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      onClick={() => setAccPage(p => Math.max(0, p - 1))}
+                      disabled={accPage === 0}
+                      style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: accPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: accPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                    >
+                      Anterior
+                    </button>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                      Pág. {accPage + 1} de {Math.ceil(filteredAccessories.length / 10)}
+                    </span>
+                    <button
+                      onClick={() => setAccPage(p => Math.min(Math.ceil(filteredAccessories.length / 10) - 1, p + 1))}
+                      disabled={(accPage + 1) * 10 >= filteredAccessories.length}
+                      style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (accPage + 1) * 10 >= filteredAccessories.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (accPage + 1) * 10 >= filteredAccessories.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -362,7 +397,7 @@ export default function AccessoriesInventory() {
                     </td>
                   </tr>
                 ) : (
-                  productAccs.map((pa, idx) => {
+                  productAccs.slice(productAccPage * 10, (productAccPage + 1) * 10).map((pa, idx) => {
                     const cantPorPrenda = Number(pa.cantidad) || 0;
                     const matchingOrders = sewingOrders.filter(so => String(so.product_id) === String(pa.product_id));
                     const totalConfeccionado = matchingOrders.reduce((sum, so) => {
@@ -392,6 +427,32 @@ export default function AccessoriesInventory() {
                 )}
               </tbody>
             </table>
+            {productAccs.length > 10 && (
+              <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                  Mostrando {productAccPage * 10 + 1} - {Math.min((productAccPage + 1) * 10, productAccs.length)} de {productAccs.length} relaciones
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setProductAccPage(p => Math.max(0, p - 1))}
+                    disabled={productAccPage === 0}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: productAccPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: productAccPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Anterior
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                    Pág. {productAccPage + 1} de {Math.ceil(productAccs.length / 10)}
+                  </span>
+                  <button
+                    onClick={() => setProductAccPage(p => Math.min(Math.ceil(productAccs.length / 10) - 1, p + 1))}
+                    disabled={(productAccPage + 1) * 10 >= productAccs.length}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (productAccPage + 1) * 10 >= productAccs.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (productAccPage + 1) * 10 >= productAccs.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

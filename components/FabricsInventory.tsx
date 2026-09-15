@@ -40,6 +40,12 @@ export default function FabricsInventory() {
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<any>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [rollosPage, setRollosPage] = useState(0);
+
+  // Reset rollosPage when search changes
+  useEffect(() => {
+    setRollosPage(0);
+  }, [searchQuery]);
 
   // Edit rollo modal
   const [showEditRolloModal, setShowEditRolloModal] = useState(false);
@@ -51,6 +57,12 @@ export default function FabricsInventory() {
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [movSearch, setMovSearch] = useState('');
   const [movEstado, setMovEstado] = useState<string>('all');
+  const [movPage, setMovPage] = useState(0);
+
+  // Reset movPage on search/filter changes
+  useEffect(() => {
+    setMovPage(0);
+  }, [movSearch, movEstado]);
   const [movementsTableMissing, setMovementsTableMissing] = useState(false);
   const [loadingBackfill, setLoadingBackfill] = useState(false);
   const [clearingMovements, setClearingMovements] = useState(false);
@@ -571,7 +583,7 @@ export default function FabricsInventory() {
                   ) : data.length === 0 ? (
                     <tr><td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>No hay rollos en inventario.</td></tr>
                   ) : (
-                    filteredData.map((item) => (
+                    filteredData.slice(rollosPage * 10, (rollosPage + 1) * 10).map((item) => (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '1rem 1.5rem', fontSize: '0.875rem', fontWeight: '700' }}>{item.roll_number}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
@@ -605,6 +617,32 @@ export default function FabricsInventory() {
                 </tbody>
               </table>
             </div>
+            {filteredData.length > 10 && (
+              <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                  Mostrando {rollosPage * 10 + 1} - {Math.min((rollosPage + 1) * 10, filteredData.length)} de {filteredData.length} rollos
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setRollosPage(p => Math.max(0, p - 1))}
+                    disabled={rollosPage === 0}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: rollosPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: rollosPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Anterior
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                    Pág. {rollosPage + 1} de {Math.ceil(filteredData.length / 10)}
+                  </span>
+                  <button
+                    onClick={() => setRollosPage(p => Math.min(Math.ceil(filteredData.length / 10) - 1, p + 1))}
+                    disabled={(rollosPage + 1) * 10 >= filteredData.length}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (rollosPage + 1) * 10 >= filteredData.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (rollosPage + 1) * 10 >= filteredData.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -755,7 +793,8 @@ CREATE POLICY "Allow all for authenticated" ON inventory_movements
                       <p>No hay movimientos de inventario registrados aún.</p>
                       <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Se generan automáticamente al crear o editar una Orden de Corte.</p>
                     </td></tr>
-                  ) : filteredMovements.map(m => {
+                  ) : (
+                    filteredMovements.slice(movPage * 10, (movPage + 1) * 10).map(m => {
                     const isEditing = editingMovId === m.id;
                     const cfg = ESTADO_CONFIG[isEditing ? editMovData.estado : m.estado] || ESTADO_CONFIG['planeacion'];
                     const MetrosPlaneados = isEditing ? (Number(editMovData.metros_planeados) || 0) : (Number(m.metros_planeados) || 0);
@@ -955,10 +994,36 @@ CREATE POLICY "Allow all for authenticated" ON inventory_movements
                         </td>
                       </tr>
                     );
-                  })}
+                  }))}
                 </tbody>
               </table>
             </div>
+            {filteredMovements.length > 10 && (
+              <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                  Mostrando {movPage * 10 + 1} - {Math.min((movPage + 1) * 10, filteredMovements.length)} de {filteredMovements.length} movimientos
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setMovPage(p => Math.max(0, p - 1))}
+                    disabled={movPage === 0}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: movPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: movPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Anterior
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                    Pág. {movPage + 1} de {Math.ceil(filteredMovements.length / 10)}
+                  </span>
+                  <button
+                    onClick={() => setMovPage(p => Math.min(Math.ceil(filteredMovements.length / 10) - 1, p + 1))}
+                    disabled={(movPage + 1) * 10 >= filteredMovements.length}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (movPage + 1) * 10 >= filteredMovements.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (movPage + 1) * 10 >= filteredMovements.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           </>
           )}

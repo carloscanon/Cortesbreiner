@@ -32,7 +32,12 @@ export default function ConsolidatedStockSubmodule({
   const [selectedWarehouse, setSelectedWarehouse] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedColor, setSelectedColor] = useState('all');
-  const [selectedSize, setSelectedSize] = useState('all');
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, selectedWarehouse, selectedCategory, selectedColor, selectedSize, groupByColor, groupBySize, groupByWarehouse]);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // Dynamic Grouping Controls
@@ -560,7 +565,7 @@ export default function ConsolidatedStockSubmodule({
                   </td>
                 </tr>
               ) : (
-                filteredList.map((item, idx) => {
+                filteredList.slice(currentPage * 10, (currentPage + 1) * 10).map((item, idx) => {
                   const isExpanded = expandedKey === item.key;
                   const colorsCount = item.uniqueColorsSet.size;
                   const sizesCount = item.uniqueSizesSet.size;
@@ -741,6 +746,32 @@ export default function ConsolidatedStockSubmodule({
             </tbody>
           </table>
         </div>
+        {filteredList.length > 10 && (
+          <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+              Mostrando {currentPage * 10 + 1} - {Math.min((currentPage + 1) * 10, filteredList.length)} de {filteredList.length} grupos
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                disabled={currentPage === 0}
+                style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: currentPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: currentPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+              >
+                Anterior
+              </button>
+              <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                Pág. {currentPage + 1} de {Math.ceil(filteredList.length / 10)}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredList.length / 10) - 1, p + 1))}
+                disabled={(currentPage + 1) * 10 >= filteredList.length}
+                style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (currentPage + 1) * 10 >= filteredList.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (currentPage + 1) * 10 >= filteredList.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

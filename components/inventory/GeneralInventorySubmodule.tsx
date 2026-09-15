@@ -37,7 +37,12 @@ export default function GeneralInventorySubmodule({
 }: GeneralInventorySubmoduleProps) {
   const [subTab, setSubTab] = useState<'consolidated' | 'wizard' | 'homologation_engine' | 'history'>('consolidated');
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchQuery, categoryFilter, warehouseFilter]);
   const [warehouseFilter, setWarehouseFilter] = useState('');
 
   // Homologations state
@@ -425,7 +430,7 @@ export default function GeneralInventorySubmodule({
                     </td>
                   </tr>
                 ) : (
-                  filteredConsolidatedList.map((item, idx) => {
+                  filteredConsolidatedList.slice(currentPage * 10, (currentPage + 1) * 10).map((item, idx) => {
                     const linkedCount = item.linkedCodesSet.size;
                     return (
                       <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }}>
@@ -473,6 +478,32 @@ export default function GeneralInventorySubmodule({
                 )}
               </tbody>
             </table>
+            {filteredConsolidatedList.length > 10 && (
+              <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                  Mostrando {currentPage * 10 + 1} - {Math.min((currentPage + 1) * 10, filteredConsolidatedList.length)} de {filteredConsolidatedList.length} productos
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                    disabled={currentPage === 0}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: currentPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: currentPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Anterior
+                  </button>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
+                    Pág. {currentPage + 1} de {Math.ceil(filteredConsolidatedList.length / 10)}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredConsolidatedList.length / 10) - 1, p + 1))}
+                    disabled={(currentPage + 1) * 10 >= filteredConsolidatedList.length}
+                    style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (currentPage + 1) * 10 >= filteredConsolidatedList.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (currentPage + 1) * 10 >= filteredConsolidatedList.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
