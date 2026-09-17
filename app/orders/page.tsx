@@ -655,7 +655,7 @@ export default function OrdersPage() {
   
   const totalKilos = fabricColors.reduce((sum, fc) => sum + (fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : (Number(fc.metros) || 0)), 0);
   
-  const isOverLimit = totalCapasEstimadas > 0 && step2TotalLayers > totalCapasEstimadas;
+  const isOverLimit = step2TotalLayers > 200;
 
   const orderItems: any[] = [];
   fabricColors.forEach(fc => {
@@ -2523,8 +2523,8 @@ export default function OrdersPage() {
                       <div style={{ backgroundColor: '#fffbeb', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '1rem', color: '#92400e', marginBottom: '1.5rem' }}>
                         <AlertTriangle size={24} color="#d97706" />
                         <div>
-                          <p style={{ fontWeight: '900' }}>⚠️ Advertencia: Capas Estimadas Superadas</p>
-                          <p style={{ fontSize: '0.875rem' }}>El maestro define {totalCapasEstimadas} capas estimadas y has programado {step2TotalLayers} capas. Puedes continuar sin inconvenientes.</p>
+                          <p style={{ fontWeight: '900' }}>⚠️ Advertencia: Límite de 200 Capas Superado</p>
+                          <p style={{ fontSize: '0.875rem' }}>Has programado {step2TotalLayers} capas, lo cual excede el límite recomendado de 200 capas.</p>
                         </div>
                       </div>
                     )}
