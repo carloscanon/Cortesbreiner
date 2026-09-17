@@ -73,9 +73,11 @@ export default function OrdersPage() {
   const [longitud, setLongitud] = useState<string>('1');
 
   const handleLongitudChange = (valStr: string) => {
-    if (valStr === '' || /^\d*\.?\d*$/.test(valStr)) {
-      setLongitud(valStr);
-      const valNum = parseFloat(valStr) || 0;
+    // Normalizar coma por punto para teclados numéricos en español/latinoamérica
+    const normalized = valStr.replace(',', '.');
+    if (normalized === '' || /^\d*\.?\d*$/.test(normalized)) {
+      setLongitud(normalized);
+      const valNum = parseFloat(normalized) || 0;
       setFabricColors(prev => prev.map(fc => {
         const rowLng = fc.longitud_row && Number(fc.longitud_row) > 0 ? Number(fc.longitud_row) : 0;
         const layers = rowLng > 0 && valNum > 0 ? Math.round(rowLng / valNum) : '';
@@ -2502,9 +2504,8 @@ export default function OrdersPage() {
                     <div className="input-group">
                       <label style={{ fontWeight: '800', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Factor Longitud (Divisor)</label>
                       <input 
-                        type="number" 
-                        step="0.01" 
-                        min="0.01" 
+                        type="text"
+                        inputMode="decimal"
                         value={longitud} 
                         onChange={e => handleLongitudChange(e.target.value)} 
                         style={{ padding: '0.875rem', borderRadius: '10px', border: '2.5px solid #e2e8f0', fontWeight: '900', color: 'var(--primary)', fontSize: '1.125rem', backgroundColor: 'white', width: '100%' }} 
@@ -2560,17 +2561,18 @@ export default function OrdersPage() {
                               </td>
                               <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                                 <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0.01"
+                                  type="text"
+                                  inputMode="decimal"
                                   placeholder={!fc.metros || Number(fc.metros) <= 0 ? "Sin Tela" : longitud}
                                   value={fc.longitud_row !== undefined && fc.longitud_row !== '' ? fc.longitud_row : (fc.layers && Number(fc.layers) > 0 && longitudNum > 0 ? (Number(fc.layers) * longitudNum).toFixed(2) : '')}
                                   onChange={e => {
-                                      const val = e.target.value;
-                                      updateFabricColor(fc.id, 'longitud_row', val);
-                                      const rowLngVal = Number(val);
-                                      const newLayers = rowLngVal && longitudNum > 0 ? Math.round(rowLngVal / longitudNum) : (val === '' && fc.capas_definidas ? fc.capas_definidas : '');
-                                      updateFabricColor(fc.id, 'layers', newLayers ? String(newLayers) : '');
+                                      const val = e.target.value.replace(',', '.');
+                                      if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                        updateFabricColor(fc.id, 'longitud_row', val);
+                                        const rowLngVal = Number(val);
+                                        const newLayers = rowLngVal && longitudNum > 0 ? Math.round(rowLngVal / longitudNum) : (val === '' && fc.capas_definidas ? fc.capas_definidas : '');
+                                        updateFabricColor(fc.id, 'layers', newLayers ? String(newLayers) : '');
+                                      }
                                   }}
                                   disabled={!fc.metros || Number(fc.metros) <= 0}
                                   style={{ width: '75px', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #fcd34d', textAlign: 'center', fontWeight: '800', color: (!fc.metros || Number(fc.metros) <= 0) ? '#94a3b8' : '#92400e', backgroundColor: (!fc.metros || Number(fc.metros) <= 0) ? '#e2e8f0' : '#fffbeb', cursor: (!fc.metros || Number(fc.metros) <= 0) ? 'not-allowed' : 'text' }}
@@ -2830,9 +2832,8 @@ export default function OrdersPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', backgroundColor: 'white', padding: '0.5rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1' }}>
                         <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', whiteSpace: 'nowrap' }}>FACTOR LONGITUD (DIVISOR):</label>
                         <input 
-                          type="number" 
-                          step="0.01" 
-                          min="0.01" 
+                          type="text" 
+                          inputMode="decimal"
                           value={longitud} 
                           onChange={e => handleLongitudChange(e.target.value)} 
                           style={{ width: '80px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontWeight: '900', textAlign: 'center', fontSize: '0.9rem', color: 'var(--primary)' }} 
