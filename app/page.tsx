@@ -4688,7 +4688,7 @@ export default function Dashboard() {
                             </button>
 
                             {/* 3. Botón Enviar a Calidad */}
-                            {so.status === 'En Confección' && (
+                            {(so.status === 'En Confección' || so.status === 'Enviado a Taller' || so.status === 'Pendiente') && (
                               <button
                                 className="btn"
                                 style={{ 
