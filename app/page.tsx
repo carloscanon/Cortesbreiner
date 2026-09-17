@@ -4111,10 +4111,7 @@ export default function Dashboard() {
         }
 
         // Status filter
-        if (sewingFilterStatus === 'all') {
-          // Ocultar devueltas de la lista de trabajo principal
-          if (so.status === 'Devuelta por Taller') return false;
-        } else if (so.status !== sewingFilterStatus) {
+        if (sewingFilterStatus !== 'all' && so.status !== sewingFilterStatus) {
           return false;
         }
 
