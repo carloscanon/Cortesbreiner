@@ -908,30 +908,40 @@ export default function Dashboard() {
           if (safeCode) {
             const { data: checkCode } = await supabase
               .from('sewing_orders')
-              .select('id')
+              .select('id, parent_order_id, workshop_id')
               .eq('confeccion_code', safeCode)
               .maybeSingle();
             if (checkCode) {
-              safeCode = `${safeCode}-${Math.floor(100 + Math.random() * 900)}`;
+              if (String(checkCode.parent_order_id) === String(so.parent_order_id) && String(checkCode.workshop_id) === String(so.workshop_id)) {
+                targetSewingOrderId = checkCode.id;
+                await supabase
+                  .from('sewing_orders')
+                  .update({ status: 'Enviado a Calidad' })
+                  .eq('id', targetSewingOrderId);
+              } else {
+                safeCode = `${safeCode}-${Math.floor(100 + Math.random() * 900)}`;
+              }
             }
           }
 
-          const { data: newSo, error: insertSoErr } = await supabase
-            .from('sewing_orders')
-            .insert([{
-              parent_order_id: so.parent_order_id,
-              workshop_id: so.workshop_id,
-              product_id: so.product_id || null,
-              confeccion_code: safeCode,
-              cantidad_planeada: so.cantidad_planeada || 0,
-              cantidad_confeccionada: so.cantidad_confeccionada || 0,
-              status: 'Enviado a Calidad'
-            }])
-            .select('id')
-            .single();
+          if (!targetSewingOrderId) {
+            const { data: newSo, error: insertSoErr } = await supabase
+              .from('sewing_orders')
+              .insert([{
+                parent_order_id: so.parent_order_id,
+                workshop_id: so.workshop_id,
+                product_id: so.product_id || null,
+                confeccion_code: safeCode,
+                cantidad_planeada: so.cantidad_planeada || 0,
+                cantidad_confeccionada: so.cantidad_confeccionada || 0,
+                status: 'Enviado a Calidad'
+              }])
+              .select('id')
+              .single();
 
-          if (insertSoErr) throw insertSoErr;
-          targetSewingOrderId = newSo.id;
+            if (insertSoErr) throw insertSoErr;
+            targetSewingOrderId = newSo.id;
+          }
         }
       } else {
         // 1. Update sewing order status to 'Enviado a Calidad'
