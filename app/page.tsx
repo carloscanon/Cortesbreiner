@@ -750,6 +750,13 @@ export default function Dashboard() {
 
 
 
+      if (so.parent_order_id) {
+        await supabase
+          .from('orders')
+          .update({ status: 'En Confección' })
+          .eq('id', so.parent_order_id);
+      }
+
       alert('✓ Confirmado. La orden ahora está en estado "En Confección".');
       window.location.reload();
     } catch (err: any) {
@@ -797,6 +804,11 @@ export default function Dashboard() {
 
       // 1.b Asegurar que todas las sub-órdenes de confección para esta orden padre queden marcadas como 'Devuelta por Taller'
       if (so.parent_order_id) {
+        await supabase
+          .from('orders')
+          .update({ status: 'Devuelta por Taller' })
+          .eq('id', so.parent_order_id);
+
         await supabase
           .from('sewing_orders')
           .update({
@@ -930,7 +942,12 @@ export default function Dashboard() {
         if (statusErr) throw statusErr;
       }
 
-
+      if (so.parent_order_id) {
+        await supabase
+          .from('orders')
+          .update({ status: 'Enviado a Calidad' })
+          .eq('id', so.parent_order_id);
+      }
 
       // 2. Create or update quality inspection
       const { data: existingInspections } = await supabase
