@@ -361,6 +361,32 @@ export default function QualityPage() {
         };
       });
 
+      // Virtual fallback inspections for any dispatched sewing orders or parent orders that don't have a record in quality_inspections yet
+      const existingInspectionSoIds = new Set(insData.map((i: any) => String(i.sewing_order_id)).filter(Boolean));
+      if (pendingDispatches && pendingDispatches.length > 0) {
+        pendingDispatches.forEach((pd: any) => {
+          if (!existingInspectionSoIds.has(String(pd.id))) {
+            const parentOrd = pd.parent_order_id ? ordData.find((o: any) => String(o.id) === String(pd.parent_order_id)) : null;
+            const plannedQty = pd.sewing_order_sizes?.reduce((sum: number, item: any) => sum + (Number(item.cantidad_planeada) || 0), 0) || 0;
+
+            enriched.push({
+              id: `virtual-${pd.id}`,
+              order_id: pd.parent_order_id,
+              sewing_order_id: pd.id,
+              workshop_name: pd.workshops?.nombre_taller || 'Taller Satélite',
+              items_inspected: plannedQty,
+              items_approved: 0,
+              items_rejected: 0,
+              status: 'Pendiente',
+              notes: 'Enviado desde el portal taller a calidad.',
+              created_at: pd.created_at || new Date().toISOString(),
+              sewing_orders: { ...pd, parent_order: parentOrd },
+              orders: parentOrd
+            });
+          }
+        });
+      }
+
       setInspections(enriched);
     } catch (err: any) {
       console.error('Exception fetching inspections:', err);
