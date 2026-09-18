@@ -743,7 +743,8 @@ export default function Dashboard() {
         const { error } = await supabase
           .from('sewing_orders')
           .update({ status: 'En Confección' })
-          .eq('id', so.id);
+          .eq('parent_order_id', so.parent_order_id)
+          .eq('workshop_id', so.workshop_id);
 
         if (error) throw error;
       }
@@ -815,7 +816,8 @@ export default function Dashboard() {
             status: 'Devuelta por Taller',
             workshop_notes: fullDeclineNote
           })
-          .eq('parent_order_id', so.parent_order_id);
+          .eq('parent_order_id', so.parent_order_id)
+          .eq('workshop_id', so.workshop_id);
       }
 
       // 2. Insertar novedad/alerta para la administración
@@ -922,11 +924,12 @@ export default function Dashboard() {
           targetSewingOrderId = newSo.id;
         }
       } else {
-        // 1. Update sewing order status to 'Enviado a Calidad'
+        // 1. Update sewing order status to 'Enviado a Calidad' for all products
         const { error: statusErr } = await supabase
           .from('sewing_orders')
           .update({ status: 'Enviado a Calidad' })
-          .eq('id', targetSewingOrderId);
+          .eq('parent_order_id', so.parent_order_id)
+          .eq('workshop_id', so.workshop_id);
         if (statusErr) throw statusErr;
       }
 
@@ -944,12 +947,13 @@ export default function Dashboard() {
         .eq('sewing_order_id', targetSewingOrderId);
 
       const workshopName = workshops.find(w => String(w.id) === String(so.workshop_id))?.nombre_taller || 'Taller Satélite';
+      const totalUnits = typeof getSewingOrderTotalUnits === 'function' ? getSewingOrderTotalUnits(so) : (so.cantidad_planeada || 0);
       if (!existingInspections || existingInspections.length === 0) {
         await supabase.from('quality_inspections').insert([{
           order_id: so.parent_order_id,
           sewing_order_id: targetSewingOrderId,
           workshop_name: workshopName,
-          items_inspected: so.cantidad_planeada || 0,
+          items_inspected: totalUnits,
           items_approved: 0,
           items_rejected: 0,
           status: 'Pendiente',
