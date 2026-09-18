@@ -487,7 +487,7 @@ export default function Dashboard() {
         };
 
         const sewingOrdersList = await fetchAll(() => supabase.from('sewing_orders')
-          .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
+          .select('*, products(*), sewing_order_sizes(*, sizes(*))')
           .order('created_at', { ascending: false }));
 
         const [
@@ -536,6 +536,15 @@ export default function Dashboard() {
         const fabricsDataList = fabricsData.data;
         const companyParamsDataList = companyParamsData.data;
 
+        // Manual join of parent_order to avoid query timeout
+        sewingOrdersList.forEach(so => {
+          if (!so.parent_order) {
+            so.parent_order = ordersData?.find((o: any) => String(o.id) === String(so.parent_order_id));
+          }
+        });
+
+        // 2) Deduplicar explícitos
+        const explicitSewingOrdersRaw = sewingOrdersList || [];
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
         if (inspectionsData) setInspections(inspectionsData);
