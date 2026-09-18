@@ -467,6 +467,29 @@ export default function Dashboard() {
           setUnreadWorkshopAlerts(unread);
         }
 
+        const fetchAll = async (queryFn: any) => {
+          let allData: any[] = [];
+          let from = 0;
+          const step = 999;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await queryFn().range(from, from + step);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allData = [...allData, ...data];
+              from += step + 1;
+              if (data.length <= step) hasMore = false;
+            } else {
+              hasMore = false;
+            }
+          }
+          return allData;
+        };
+
+        const sewingOrdersList = await fetchAll(() => supabase.from('sewing_orders')
+          .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
+          .order('created_at', { ascending: false }));
+
         const [
           res1,
           res2,
@@ -480,7 +503,6 @@ export default function Dashboard() {
           res10,
           res11,
           res12,
-          sewingOrdersData,
           fabricsData,
           companyParamsData
         ] = await Promise.all([
@@ -496,10 +518,6 @@ export default function Dashboard() {
           supabase.from('workshop_rates').select('*'),
           supabase.from('sewing_assignments').select('*').limit(500),
           supabase.from('workshop_special_costs').select('*'),
-          supabase.from('sewing_orders')
-            .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
-            .order('created_at', { ascending: false })
-            .limit(2000),
           supabase.from('fabrics').select('*'),
           supabase.from('company_params').select('*')
         ]);
@@ -515,7 +533,6 @@ export default function Dashboard() {
         const ratesData = res10.data;
         const sewingAssData = res11.data;
         const specCostsData = res12.data;
-        const sewingOrdersList = sewingOrdersData.data;
         const fabricsDataList = fabricsData.data;
         const companyParamsDataList = companyParamsData.data;
 
