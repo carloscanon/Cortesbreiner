@@ -1014,7 +1014,6 @@ export default function Dashboard() {
     let total = 0;
 
     (so.parent_order.cuts || []).forEach((cut: any) => {
-      if (String(cut.product_id) !== String(so.product_id)) return;
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
 
@@ -1031,8 +1030,12 @@ export default function Dashboard() {
           realQty = Number(cs.quantity_produced);
         } else {
           const proyecQty = Number(cs.quantity) || 0;
-          const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
-          realQty = Math.round(ppc * layersProduced);
+          if (layersProduced > 0) {
+            const ppc = layersProyec > 0 ? proyecQty / layersProyec : 0;
+            realQty = Math.round(ppc * layersProduced);
+          } else {
+            realQty = proyecQty;
+          }
         }
         if (realQty > 0) total += realQty;
       });
