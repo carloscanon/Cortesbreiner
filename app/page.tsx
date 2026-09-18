@@ -484,7 +484,7 @@ export default function Dashboard() {
           fabricsData,
           companyParamsData
         ] = await Promise.all([
-          supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))').order('created_at', { ascending: false }).limit(300),
+          supabase.from('orders').select('*, fabrics(nombre_tela), workshops(nombre_taller, responsable), cuts(*, cut_sizes(*))').order('created_at', { ascending: false }).limit(1000),
           supabase.from('workshops').select('*'),
           supabase.from('quality_inspections').select('*, sewing_orders(*, workshops(*))').limit(250).order('created_at', { ascending: false }),
           supabase.from('base_costs').select('*'),
@@ -499,7 +499,7 @@ export default function Dashboard() {
           supabase.from('sewing_orders')
             .select('*, parent_order:orders(*, fabrics(*), cuts(*, cut_sizes(*))), products(*), sewing_order_sizes(*, sizes(*))')
             .order('created_at', { ascending: false })
-            .limit(400),
+            .limit(2000),
           supabase.from('fabrics').select('*'),
           supabase.from('company_params').select('*')
         ]);
