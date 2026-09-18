@@ -904,44 +904,22 @@ export default function Dashboard() {
             .update({ status: 'Enviado a Calidad', workshop_id: so.workshop_id || undefined })
             .eq('id', targetSewingOrderId);
         } else {
-          let safeCode = so.confeccion_code || 'ORDEN';
-          if (safeCode) {
-            const { data: checkCode } = await supabase
-              .from('sewing_orders')
-              .select('id, parent_order_id, workshop_id')
-              .eq('confeccion_code', safeCode)
-              .maybeSingle();
-            if (checkCode) {
-              if (String(checkCode.parent_order_id) === String(so.parent_order_id) && String(checkCode.workshop_id) === String(so.workshop_id)) {
-                targetSewingOrderId = checkCode.id;
-                await supabase
-                  .from('sewing_orders')
-                  .update({ status: 'Enviado a Calidad' })
-                  .eq('id', targetSewingOrderId);
-              } else {
-                safeCode = `${safeCode}-${Math.floor(100 + Math.random() * 900)}`;
-              }
-            }
-          }
+          const { data: newSo, error: insertSoErr } = await supabase
+            .from('sewing_orders')
+            .upsert({
+              parent_order_id: so.parent_order_id,
+              workshop_id: so.workshop_id,
+              product_id: so.product_id || null,
+              confeccion_code: so.confeccion_code || 'ORDEN-1',
+              cantidad_planeada: so.cantidad_planeada || 0,
+              cantidad_confeccionada: so.cantidad_confeccionada || 0,
+              status: 'Enviado a Calidad'
+            }, { onConflict: 'confeccion_code' })
+            .select('id')
+            .single();
 
-          if (!targetSewingOrderId) {
-            const { data: newSo, error: insertSoErr } = await supabase
-              .from('sewing_orders')
-              .insert([{
-                parent_order_id: so.parent_order_id,
-                workshop_id: so.workshop_id,
-                product_id: so.product_id || null,
-                confeccion_code: safeCode,
-                cantidad_planeada: so.cantidad_planeada || 0,
-                cantidad_confeccionada: so.cantidad_confeccionada || 0,
-                status: 'Enviado a Calidad'
-              }])
-              .select('id')
-              .single();
-
-            if (insertSoErr) throw insertSoErr;
-            targetSewingOrderId = newSo.id;
-          }
+          if (insertSoErr) throw insertSoErr;
+          targetSewingOrderId = newSo.id;
         }
       } else {
         // 1. Update sewing order status to 'Enviado a Calidad'
@@ -1089,6 +1067,85 @@ export default function Dashboard() {
     const userWorkshop = activeWorkshopId === 'all'
       ? (finalWorkshopsList.length > 0 ? finalWorkshopsList[0] : null)
       : (finalWorkshopsList.find(w => String(w.id) === String(activeWorkshopId)) || null);
+
+    const renderWorkshopTopTabs = (activeTab: 'dashboard' | 'orders' | 'payments', textMutedColor = '#64748b', cardBgColor = 'white', borderColor = '#e2e8f0') => (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '1rem',
+        backgroundColor: cardBgColor,
+        padding: '0.65rem 1.25rem',
+        borderRadius: '16px',
+        border: `1.5px solid ${borderColor}`,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Link href="/" style={{ textDecoration: 'none' }}>
+            <button style={{
+              padding: '0.55rem 1.2rem',
+              borderRadius: '10px',
+              border: activeTab === 'dashboard' ? '1.5px solid #80082E' : '1px solid transparent',
+              backgroundColor: activeTab === 'dashboard' ? '#80082E' : 'transparent',
+              color: activeTab === 'dashboard' ? 'white' : textMutedColor,
+              fontWeight: '850',
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              transition: 'all 0.18s ease'
+            }}>
+              <TrendingUp size={15} /> 📊 Dashboard
+            </button>
+          </Link>
+          <Link href="/?tab=orders" style={{ textDecoration: 'none' }}>
+            <button style={{
+              padding: '0.55rem 1.2rem',
+              borderRadius: '10px',
+              border: activeTab === 'orders' ? '1.5px solid #80082E' : '1px solid transparent',
+              backgroundColor: activeTab === 'orders' ? '#80082E' : 'transparent',
+              color: activeTab === 'orders' ? 'white' : textMutedColor,
+              fontWeight: '850',
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              transition: 'all 0.18s ease'
+            }}>
+              <Scissors size={15} /> 📋 Gestión de Órdenes
+            </button>
+          </Link>
+          <Link href="/?tab=payments" style={{ textDecoration: 'none' }}>
+            <button style={{
+              padding: '0.55rem 1.2rem',
+              borderRadius: '10px',
+              border: activeTab === 'payments' ? '1.5px solid #80082E' : '1px solid transparent',
+              backgroundColor: activeTab === 'payments' ? '#80082E' : 'transparent',
+              color: activeTab === 'payments' ? 'white' : textMutedColor,
+              fontWeight: '850',
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              transition: 'all 0.18s ease'
+            }}>
+              <DollarSign size={15} /> 💰 Entregas & Pagos
+            </button>
+          </Link>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: textMutedColor }}>Taller Conectado:</span>
+          <span style={{ fontSize: '0.82rem', fontWeight: '900', color: '#80082E', backgroundColor: '#fdf2f4', padding: '0.3rem 0.75rem', borderRadius: '8px', border: '1px solid #fbcfe8' }}>
+            {userWorkshop?.nombre_taller || 'Taller Satélite'}
+          </span>
+        </div>
+      </div>
+    );
 
   const renderWorkshopModals = () => {
     return (
@@ -2450,6 +2507,9 @@ export default function Dashboard() {
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem', backgroundColor: theme.bg, color: theme.text, transition: 'all 0.3s ease' }}>
           
+          {/* 0. Barra de Navegación de Pestañas del Portal Taller */}
+          {renderWorkshopTopTabs('dashboard', theme.textMuted, theme.cardBg, theme.border)}
+
           {/* 1. Encabezado Ejecutivo Consolidado SAP/Dynamics Style */}
           <div style={{ 
             display: 'flex', 
@@ -3973,51 +4033,40 @@ export default function Dashboard() {
         myWorkshopsIds.includes(String(so.workshop_id).toLowerCase().trim())
       );
 
-      // Agrupar registros explícitos por parent_order_id + workshop_id dando máxima prioridad a 'Devuelta por Taller'
+      // Agrupar registros explícitos por parent_order_id + workshop_id + (product_id o confeccion_code)
       const explicitSewingOrdersMap = new Map<string, any>();
       explicitSewingOrdersRaw.forEach(so => {
-        const key = `${so.parent_order_id}_${so.workshop_id}`;
+        const pId = so.product_id ? String(so.product_id).toLowerCase().trim() : '';
+        const codeKey = so.confeccion_code ? String(so.confeccion_code).toLowerCase().trim() : '';
+        const key = `${so.parent_order_id}_${so.workshop_id}_${pId || codeKey}`;
+
         const existing = explicitSewingOrdersMap.get(key);
         if (!existing) {
           explicitSewingOrdersMap.set(key, so);
         } else {
-          if (so.status === 'Devuelta por Taller') {
-            explicitSewingOrdersMap.set(key, so);
-          } else if (existing.status !== 'Devuelta por Taller' && new Date(so.created_at || 0) > new Date(existing.created_at || 0)) {
+          // Si hay duplicados idénticos en base de datos, preferir el registro más reciente
+          if (new Date(so.created_at || 0) > new Date(existing.created_at || 0)) {
             explicitSewingOrdersMap.set(key, so);
           }
         }
       });
       let explicitSewingOrders = Array.from(explicitSewingOrdersMap.values());
 
-      // Si existe algún registro con estado 'Devuelta por Taller' para un parent_order_id y taller,
-      // eliminar de explicitSewingOrders cualquier otro registro del mismo parent_order_id que no sea 'Devuelta por Taller'
-      const returnedKeys = new Set(
-        explicitSewingOrders.filter(so => so.status === 'Devuelta por Taller').map(so => `${so.parent_order_id}_${so.workshop_id}`)
-      );
-      explicitSewingOrders = explicitSewingOrders.filter(so => {
-        const key = `${so.parent_order_id}_${so.workshop_id}`;
-        if (returnedKeys.has(key) && so.status !== 'Devuelta por Taller') {
-          return false;
-        }
-        return true;
-      });
-
       // 2. Elementos dinámicos / fallback para órdenes asignadas que aún no tengan sub-registro en sewing_orders
       const fallbackItems: any[] = [];
       assignedOrders.forEach(o => {
         finalWorkshopsList.forEach(w => {
           const wIdStr = String(w.id).toLowerCase().trim();
-          
-          // Si ya existe un registro explícito en sewing_orders (o fue devuelto) para esta orden y taller, no generar fallback
-          const hasExplicit = explicitSewingOrdersRaw.some(so => 
-            String(so.parent_order_id) === String(o.id) &&
-            String(so.workshop_id).toLowerCase().trim() === wIdStr
-          );
-          if (hasExplicit) return;
 
           const assignments = getOrderAssignments(o);
           if (!assignments || !assignments.rowWorkshops) {
+            // Si ya existe un registro explícito en sewing_orders para esta orden y taller, no generar fallback
+            const hasExplicit = explicitSewingOrdersRaw.some(so => 
+              String(so.parent_order_id) === String(o.id) &&
+              String(so.workshop_id).toLowerCase().trim() === wIdStr
+            );
+            if (hasExplicit) return;
+
             const prendasWs = getPrendasParaTaller(o, w.id);
             const planQty = prendasWs.planeadas || 0;
             const confQty = prendasWs.confeccionadas || 0;
@@ -4067,6 +4116,14 @@ export default function Dashboard() {
           }
 
           prodIdsForWs.forEach(pId => {
+            // Verificar si ya existe un registro explícito en sewing_orders para este producto
+            const hasExplicitForProduct = explicitSewingOrdersRaw.some(so => 
+              String(so.parent_order_id) === String(o.id) &&
+              String(so.workshop_id).toLowerCase().trim() === wIdStr &&
+              String(so.product_id || '').toLowerCase().trim() === String(pId).toLowerCase().trim()
+            );
+            if (hasExplicitForProduct) return;
+
             const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
             if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
 
@@ -4190,6 +4247,9 @@ export default function Dashboard() {
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
           
+          {/* 0. Barra de Navegación de Pestañas del Portal Taller */}
+          {renderWorkshopTopTabs('orders')}
+
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
@@ -5020,6 +5080,10 @@ export default function Dashboard() {
       return (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+          
+          {/* 0. Barra de Navegación de Pestañas del Portal Taller */}
+          {renderWorkshopTopTabs('payments')}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#80082E', textTransform: 'uppercase' }}>Portal de Taller</span>
