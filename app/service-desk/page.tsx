@@ -40,10 +40,10 @@ export default function ServiceDeskPage() {
   const fetchTickets = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('service_desk_tickets')
-        .select(`*, reporter:reporter_id(nombre, role), assignee:assignee_id(nombre, role)`)
-        .order('created_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('service_desk_tickets')
+          .select(`*, reporter:reporter_id(full_name, role_id), assignee:assignee_id(full_name, role_id)`)
+          .order('created_at', { ascending: false });
       if (!error && data) setTickets(data);
     } catch (err) { console.error(err); } 
     finally { setLoading(false); }
@@ -52,7 +52,7 @@ export default function ServiceDeskPage() {
   const fetchTicketDetails = async (ticketId: string) => {
     const { data } = await supabase
       .from('service_desk_comments')
-      .select('*, author:author_id(nombre)')
+      .select('*, author:author_id(full_name)')
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: true });
     setComments(data || []);
@@ -236,9 +236,9 @@ export default function ServiceDeskPage() {
                           {ticket.assignee && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', paddingTop: '0.4rem', borderTop: '1px solid #f1f5f9' }}>
                               <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', fontWeight: '800', fontSize: '0.6rem' }}>
-                                {ticket.assignee.nombre?.charAt(0) || 'U'}
+                                {ticket.assignee.full_name?.charAt(0) || 'U'}
                               </div>
-                              <span style={{ fontWeight: '600', color: '#334155' }}>{ticket.assignee.nombre}</span>
+                              <span style={{ fontWeight: '600', color: '#334155' }}>{ticket.assignee.full_name}</span>
                             </div>
                           )}
                         </div>
@@ -386,12 +386,12 @@ export default function ServiceDeskPage() {
                 ) : (
                   comments.map(c => (
                     <div key={c.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: c.is_system_note ? '#f1f5f9' : '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: c.is_system_note ? '#64748b' : '#4f46e5', fontWeight: '800', fontSize: '0.75rem', flexShrink: 0 }}>
-                        {c.is_system_note ? <Activity size={14} /> : (c.author?.nombre?.charAt(0) || 'U')}
+                      <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: c.is_system_note ? '#f1f5f9' : '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: c.is_system_note ? '#64748b' : '#4f46e5', fontWeight: '800', fontSize: '0.7rem' }}>
+                        {c.is_system_note ? <Activity size={14} /> : (c.author?.full_name?.charAt(0) || 'U')}
                       </div>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.2rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155' }}>{c.is_system_note ? 'Sistema' : c.author?.nombre}</span>
+                          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155' }}>{c.is_system_note ? 'Sistema' : c.author?.full_name}</span>
                           <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(c.created_at).toLocaleString()}</span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: c.is_system_note ? '#64748b' : '#0f172a', fontStyle: c.is_system_note ? 'italic' : 'normal', backgroundColor: c.is_system_note ? 'transparent' : '#f8fafc', padding: c.is_system_note ? 0 : '0.75rem', borderRadius: '0 8px 8px 8px', border: c.is_system_note ? 'none' : '1px solid #e2e8f0' }}>
