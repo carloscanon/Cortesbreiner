@@ -1442,13 +1442,13 @@ export default function POSPage() {
             total: cartItem.precio * cartItem.cantidad
           });
 
-          const { data: localStock } = await supabase
-            .from('store_inventory')
-            .select('*')
+          let stockQuery = supabase.from('store_inventory').select('*')
             .eq('store_id', item.sale.store_id)
             .eq('product_id', cartItem.product_id)
-            .eq('size_id', cartItem.size_id)
-            .is('color_id', cartItem.color_id ? cartItem.color_id : null);
+            .eq('size_id', cartItem.size_id);
+          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
+          else stockQuery = stockQuery.is('color_id', null);
+          const { data: localStock } = await stockQuery;
 
           const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
           if (localStock?.[0]) {
@@ -1654,13 +1654,13 @@ export default function POSPage() {
           total: cartItem.precio * cartItem.cantidad
         });
 
-        const { data: localStock } = await supabase
-          .from('store_inventory')
-          .select('*')
+        let stockQuery = supabase.from('store_inventory').select('*')
           .eq('store_id', selectedStore.id)
           .eq('product_id', cartItem.product_id)
-          .eq('size_id', cartItem.size_id)
-          .is('color_id', cartItem.color_id ? cartItem.color_id : null);
+          .eq('size_id', cartItem.size_id);
+        if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
+        else stockQuery = stockQuery.is('color_id', null);
+        const { data: localStock } = await stockQuery;
 
         const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
         if (localStock?.[0]) {
