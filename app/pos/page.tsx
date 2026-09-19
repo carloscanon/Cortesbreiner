@@ -356,7 +356,7 @@ export default function POSPage() {
       // 2. Insert items into store_inventory (naive merge, in real scenario handle upsert)
       const ops = (selectedTransfer.items || []).map(async (item: any) => {
          const { data: existing } = await supabase.from('store_inventory')
-           .select('id, cantidad')
+           .select('id, cantidad_disponible')
            .eq('store_id', selectedStore.id)
            .eq('product_id', item.product_id)
            .eq('size_id', item.size_id)
@@ -364,14 +364,14 @@ export default function POSPage() {
            .limit(1);
            
          if (existing && existing.length > 0) {
-           await supabase.from('store_inventory').update({ cantidad: existing[0].cantidad + item.cantidad }).eq('id', existing[0].id);
+           await supabase.from('store_inventory').update({ cantidad_disponible: Number(existing[0].cantidad_disponible || 0) + Number(item.cantidad || 0) }).eq('id', existing[0].id);
          } else {
            await supabase.from('store_inventory').insert([{
              store_id: selectedStore.id,
              product_id: item.product_id,
              size_id: item.size_id,
              color_id: item.color_id,
-             cantidad: item.cantidad
+             cantidad_disponible: item.cantidad
            }]);
          }
       });
