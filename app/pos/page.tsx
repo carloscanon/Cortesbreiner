@@ -410,7 +410,12 @@ export default function POSPage() {
   // Load inline Sales Logs
   const fetchInlineSales = async () => {
     try {
-      const { data } = await supabase.from('pos_sales').select('*').order('created_at', { ascending: false });
+      if (!selectedStore) return;
+      const { data } = await supabase
+        .from('pos_sales')
+        .select('*, pos_payments(*), items:pos_sale_items(*)')
+        .eq('store_id', selectedStore.id)
+        .order('created_at', { ascending: false });
       setSalesLogs(data || []);
     } catch (e) {
       console.error(e);
@@ -2882,16 +2887,30 @@ export default function POSPage() {
                   const totalTx = salesLogs.length;
                   const avgTicket = totalTx > 0 ? Math.round(totalSales / totalTx) : 0;
                   const totalDiff = managerShifts.reduce((s, sh) => s + (Number(sh.diferencia) || 0), 0);
+                  const totalItemsSold = salesLogs.reduce((s, v) => {
+                    return s + (v.items?.reduce((is: number, i: any) => is + Number(i.cantidad || 0), 0) || 0);
+                  }, 0);
 
-                  const payEfectivo = salesLogs.reduce((s, v) => s + (v.metodo_pago === 'Efectivo' ? (Number(v.total) || 0) : 0), 0);
-                  const payTarjeta = salesLogs.reduce((s, v) => s + (v.metodo_pago === 'Tarjeta' ? (Number(v.total) || 0) : 0), 0);
-                  const payTransferencia = salesLogs.reduce((s, v) => s + (v.metodo_pago === 'Transferencia' ? (Number(v.total) || 0) : 0), 0);
-                  const payMixto = salesLogs.reduce((s, v) => s + (v.metodo_pago === 'Mixto' ? (Number(v.total) || 0) : 0), 0);
+                  const payEfectivo = salesLogs.reduce((s, v) => {
+                    const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Efectivo') || [];
+                    return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
+                  }, 0);
+                  const payTarjeta = salesLogs.reduce((s, v) => {
+                    const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Tarjeta' || p.metodo_pago === 'Datafono') || [];
+                    return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
+                  }, 0);
+                  const payTransferencia = salesLogs.reduce((s, v) => {
+                    const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Transferencia') || [];
+                    return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
+                  }, 0);
+                  const payMixto = salesLogs.reduce((s, v) => {
+                    return s + (v.pos_payments?.length > 1 ? Number(v.total) : 0);
+                  }, 0);
 
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       {/* Top KPI Cards Row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
                         
                         {/* Ventas Totales */}
                         <div className="kpi-card" style={{
@@ -2975,6 +2994,30 @@ export default function POSPage() {
                           {/* Sparkline chart SVG */}
                           <svg width="60" height="30" style={{ overflow: 'visible', opacity: 0.85 }}>
                             <path d="M0,15 C15,0 15,30 30,15 C45,0 45,30 60,15" fill="none" stroke="#6d28d9" strokeWidth="2.5" strokeLinecap="round" />
+                          </svg>
+                        </div>
+
+                        {/* Unidades Vendidas */}
+                        <div className="kpi-card" style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
+                          padding: '1.25rem', borderRadius: '16px', border: '1px solid #fef3c7',
+                          background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)', 
+                          boxShadow: '0 4px 12px rgba(217,119,6,0.06)',
+                          transition: 'all 0.25s ease', cursor: 'default'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <div style={{
+                              width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'white',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              boxShadow: '0 2px 6px rgba(217,119,6,0.1)', color: '#d97706', fontWeight: '900', fontSize: '1.15rem'
+                            }}>👕</div>
+                            <div>
+                              <span style={{ fontSize: '0.625rem', fontWeight: '900', color: '#d97706', letterSpacing: '0.05em' }}>UNIDADES VENDIDAS</span>
+                              <h3 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#78350f', margin: '0.15rem 0 0 0' }}>{totalItemsSold}</h3>
+                            </div>
+                          </div>
+                          <svg width="60" height="30" style={{ overflow: 'visible', opacity: 0.85 }}>
+                            <path d="M0,25 Q15,5 30,15 T60,10" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" />
                           </svg>
                         </div>
 
