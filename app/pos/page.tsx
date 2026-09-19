@@ -303,10 +303,16 @@ export default function POSPage() {
   const fetchPendingTransfers = async () => {
     try {
       if (!selectedStore) return;
+      
+      let filter = `warehouse_dest_id.eq.${selectedStore.id}`;
+      if (selectedStore.bodega_asociada_id) {
+        filter += `,warehouse_dest_id.eq.${selectedStore.bodega_asociada_id}`;
+      }
+      
       const { data } = await supabase
         .from('finished_goods_transfers')
         .select('*, items:finished_goods_transfer_items(*, product:products(nombre_producto, ref_producto))')
-        .eq('warehouse_dest_id', selectedStore.id)
+        .or(filter)
         .eq('estado', 'Pendiente')
         .order('created_at', { ascending: false });
       setPendingTransfers(data || []);
