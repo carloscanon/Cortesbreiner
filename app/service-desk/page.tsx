@@ -216,6 +216,11 @@ export default function ServiceDeskPage() {
                     else if (ticket.category === 'Calidad') postItBg = 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)'; // Yellow
                     else if (ticket.category === 'Confección') postItBg = 'linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%)'; // Blue
 
+                    let moduleName = 'Mesa de Ayuda (Manual)';
+                    if (ticket.source_module === 'quality_inspections') moduleName = 'Módulo de Calidad';
+                    if (ticket.source_module === 'individual_garments') moduleName = 'Auditoría de Prendas';
+                    if (ticket.source_module === 'finished_goods_transfers') moduleName = 'Traslados WMS';
+
                     return (
                       <div 
                         key={ticket.id} 
@@ -223,7 +228,7 @@ export default function ServiceDeskPage() {
                         style={{ 
                           background: postItBg,
                           borderRadius: '2px 12px 12px 12px',
-                          padding: '1rem', 
+                          padding: '0.8rem', 
                           border: '1px solid rgba(0,0,0,0.05)', 
                           boxShadow: '2px 4px 6px rgba(0,0,0,0.1), inset 0 0 20px rgba(0,0,0,0.03)', 
                           cursor: 'pointer', 
@@ -235,7 +240,7 @@ export default function ServiceDeskPage() {
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: '900', color: 'rgba(0,0,0,0.6)' }}>{ticket.ticket_number}</span>
+                          <span style={{ fontSize: '0.7rem', fontWeight: '900', color: 'rgba(0,0,0,0.5)' }}>{ticket.ticket_number}</span>
                           <span style={{ 
                             fontSize: '0.6rem', fontWeight: '800', padding: '0.2rem 0.5rem', borderRadius: '4px', 
                             backgroundColor: pColors.bg, color: pColors.text, border: `1px solid ${pColors.border}`
@@ -244,23 +249,32 @@ export default function ServiceDeskPage() {
                           </span>
                         </div>
                         
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '800', color: '#1e293b', lineHeight: 1.2 }}>
-                          {ticket.title}
-                        </h4>
-
-                        <p style={{ 
-                          margin: 0, fontSize: '0.75rem', color: '#334155', 
-                          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', whiteSpace: 'pre-wrap' 
-                        }}>
-                          {ticket.description}
-                        </p>
-
-                        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)' }}>
-                            <strong>Reporta:</strong> {ticket.reporter?.full_name || 'Sistema / Módulo'}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flex: 1 }}>
+                          <span style={{ fontSize: '0.6rem', fontWeight: '800', color: '#475569', backgroundColor: 'rgba(255,255,255,0.4)', padding: '0.15rem 0.4rem', borderRadius: '4px', width: 'fit-content' }}>
+                            📦 {moduleName}
                           </span>
-                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)' }}>
-                            <strong>Generado:</strong> {new Date(ticket.created_at).toLocaleString('es-CO', {day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit'})}
+                          
+                          <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '800', color: '#1e293b', lineHeight: 1.2 }}>
+                            {ticket.title}
+                          </h4>
+
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.4)', padding: '0.4rem', borderRadius: '6px', borderLeft: '3px solid rgba(0,0,0,0.1)', marginTop: '0.2rem' }}>
+                            <span style={{ fontSize: '0.55rem', fontWeight: '800', textTransform: 'uppercase', color: 'rgba(0,0,0,0.5)', display: 'block', marginBottom: '0.1rem' }}>Detalle de Novedad:</span>
+                            <p style={{ 
+                              margin: 0, fontSize: '0.75rem', color: '#334155', 
+                              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', whiteSpace: 'pre-wrap', fontStyle: 'italic'
+                            }}>
+                              "{ticket.description}"
+                            </p>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: '0.4rem', paddingTop: '0.4rem', borderTop: '1px dashed rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'space-between' }}>
+                            <strong>👤 Reporta:</strong> <span style={{fontWeight: 600, color: '#0f172a'}}>{ticket.reporter?.full_name || 'Sistema / Módulo'}</span>
+                          </span>
+                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'space-between' }}>
+                            <strong>🕒 Generado:</strong> <span>{new Date(ticket.created_at).toLocaleString('es-CO', {day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit'})}</span>
                           </span>
                         </div>
 
