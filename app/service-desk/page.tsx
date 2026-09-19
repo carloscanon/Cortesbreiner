@@ -92,6 +92,25 @@ export default function ServiceDeskPage() {
     }
   };
 
+  const handleUpdateAssignee = async (ticketId: string, assigneeId: string) => {
+    const targetId = assigneeId === "" ? null : assigneeId;
+    await supabase.from('service_desk_tickets').update({ assignee_id: targetId }).eq('id', ticketId);
+    
+    const assignedUser = users.find(u => u.id === targetId);
+    const assignText = assignedUser ? `Ticket asignado a: ${assignedUser.nombre}` : 'Ticket desasignado';
+    
+    await supabase.from('service_desk_comments').insert([{
+      ticket_id: ticketId, author_id: user?.id, content: assignText, is_system_note: true
+    }]);
+
+    fetchTickets();
+    if (selectedTicket?.id === ticketId) {
+      const newAssignee = assignedUser ? { full_name: assignedUser.nombre, role_id: assignedUser.role } : null;
+      setSelectedTicket({ ...selectedTicket, assignee_id: targetId, assignee: newAssignee });
+      fetchTicketDetails(ticketId);
+    }
+  };
+
   const handleAddComment = async () => {
     if (!newComment.trim() || !selectedTicket) return;
     await supabase.from('service_desk_comments').insert([{
@@ -273,6 +292,13 @@ export default function ServiceDeskPage() {
                           <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'space-between' }}>
                             <strong>👤 Reporta:</strong> <span style={{fontWeight: 600, color: '#0f172a'}}>{ticket.reporter?.full_name || 'Sistema / Módulo'}</span>
                           </span>
+                          
+                          {ticket.assignee && (
+                            <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'space-between' }}>
+                              <strong>🛠️ Asignado a:</strong> <span style={{fontWeight: 600, color: '#2563eb'}}>{ticket.assignee.full_name}</span>
+                            </span>
+                          )}
+
                           <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'space-between' }}>
                             <strong>🕒 Generado:</strong> <span>{new Date(ticket.created_at).toLocaleString('es-CO', {day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit'})}</span>
                           </span>
@@ -331,11 +357,22 @@ export default function ServiceDeskPage() {
             {/* Asignación y Cambio de Estado */}
             <div style={{ display: 'flex', gap: '1rem' }}>
               <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#475569', marginBottom: '0.4rem' }}>Asignar a</label>
+                <select 
+                  value={selectedTicket.assignee_id || ""} 
+                  onChange={(e) => handleUpdateAssignee(selectedTicket.id, e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', backgroundColor: '#f8fafc' }}
+                >
+                  <option value="">-- Sin asignar --</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#475569', marginBottom: '0.4rem' }}>Estado</label>
                 <select 
                   value={selectedTicket.status} 
                   onChange={(e) => handleUpdateStatus(selectedTicket.id, e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', backgroundColor: '#f8fafc' }}
                 >
                   {columns.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -396,22 +433,6 @@ export default function ServiceDeskPage() {
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-
-            <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0' }} />
-
-            {/* Asignación y Cambio de Estado */}
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#475569', marginBottom: '0.4rem' }}>Estado</label>
-                <select 
-                  value={selectedTicket.status} 
-                  onChange={(e) => handleUpdateStatus(selectedTicket.id, e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                >
-                  {columns.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
               </div>
             </div>
 
