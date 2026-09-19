@@ -1724,6 +1724,11 @@ export default function POSPage() {
   const ivaAmount = Math.round(totalCartPrice - (totalCartPrice / 1.19));
 
   const filteredProducts = products.filter(p => {
+    // Check if the product has > 0 inventory in the current store
+    const hasInventory = inventoryList.some(inv => inv.product_id === p.id && Number(inv.cantidad_disponible) > 0);
+    
+    if (!hasInventory) return false;
+
     return p.nombre_producto?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase());
   });
