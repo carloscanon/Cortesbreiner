@@ -210,44 +210,70 @@ export default function ServiceDeskPage() {
                 ) : (
                   colTickets.map(ticket => {
                     const pColors = getPriorityColor(ticket.priority);
+                    
+                    let postItBg = 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)'; // Yellow by default
+                    if (ticket.category === 'Inventario') postItBg = 'linear-gradient(135deg, #bbf7d0 0%, #86efac 100%)'; // Green
+                    else if (ticket.category === 'Calidad') postItBg = 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)'; // Yellow
+                    else if (ticket.category === 'Confección') postItBg = 'linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%)'; // Blue
+
                     return (
                       <div 
                         key={ticket.id} 
                         onClick={() => handleOpenTicket(ticket)}
-                        style={{ backgroundColor: 'white', borderRadius: '10px', padding: '1rem', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}
+                        style={{ 
+                          background: postItBg,
+                          borderRadius: '2px 12px 12px 12px',
+                          padding: '1rem', 
+                          border: '1px solid rgba(0,0,0,0.05)', 
+                          boxShadow: '2px 4px 6px rgba(0,0,0,0.1), inset 0 0 20px rgba(0,0,0,0.03)', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s ease', 
+                          position: 'relative',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.5rem'
+                        }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#2563eb' }}>{ticket.ticket_number}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: '900', color: 'rgba(0,0,0,0.6)' }}>{ticket.ticket_number}</span>
                           <span style={{ 
-                            fontSize: '0.65rem', fontWeight: '800', padding: '0.2rem 0.5rem', borderRadius: '6px', 
+                            fontSize: '0.6rem', fontWeight: '800', padding: '0.2rem 0.5rem', borderRadius: '4px', 
                             backgroundColor: pColors.bg, color: pColors.text, border: `1px solid ${pColors.border}`
                           }}>
                             {ticket.priority}
                           </span>
                         </div>
-                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', fontWeight: '700', color: '#0f172a', lineHeight: '1.3' }}>
+                        
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '800', color: '#1e293b', lineHeight: 1.2 }}>
                           {ticket.title}
                         </h4>
-                        
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.75rem', color: '#64748b' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Tag size={14} /> {ticket.category}
-                          </div>
-                          {ticket.assignee && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', paddingTop: '0.4rem', borderTop: '1px solid #f1f5f9' }}>
-                              <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', fontWeight: '800', fontSize: '0.6rem' }}>
-                                {ticket.assignee.full_name?.charAt(0) || 'U'}
-                              </div>
-                              <span style={{ fontWeight: '600', color: '#334155' }}>{ticket.assignee.full_name}</span>
-                            </div>
-                          )}
+
+                        <p style={{ 
+                          margin: 0, fontSize: '0.75rem', color: '#334155', 
+                          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', whiteSpace: 'pre-wrap' 
+                        }}>
+                          {ticket.description}
+                        </p>
+
+                        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)' }}>
+                            <strong>Reporta:</strong> {ticket.reporter?.full_name || 'Sistema / Módulo'}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', color: 'rgba(0,0,0,0.7)' }}>
+                            <strong>Generado:</strong> {new Date(ticket.created_at).toLocaleString('es-CO', {day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit'})}
+                          </span>
                         </div>
 
                         {nextCol && (
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleUpdateStatus(ticket.id, nextCol); }}
-                            style={{ position: 'absolute', bottom: '1rem', right: '1rem', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '0.25rem', cursor: 'pointer', color: '#475569' }}
                             title={`Mover a ${nextCol}`}
+                            style={{ 
+                              position: 'absolute', bottom: '0.5rem', right: '0.5rem', 
+                              backgroundColor: 'rgba(255,255,255,0.5)', border: 'none', borderRadius: '50%', 
+                              width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                              cursor: 'pointer', color: '#475569', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}
                           >
                             <ArrowRight size={14} />
                           </button>
