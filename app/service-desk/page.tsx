@@ -122,16 +122,16 @@ export default function ServiceDeskPage() {
   );
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1600px', margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ padding: '1.5rem', height: '100vh', display: 'flex', flexDirection: 'column', maxWidth: '1600px', margin: '0 auto', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
       {/* HEADER */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontSize: '1.8rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Activity size={28} color="#2563eb" />
+          <h1 style={{ fontSize: '1.6rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Activity size={26} color="#2563eb" />
             Mesa de Servicio (ITIL)
           </h1>
-          <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>
-            Gestión centralizada de incidencias, calidad e inventario con control de Acuerdos de Nivel de Servicio (ANS).
+          <p style={{ color: '#64748b', margin: 0, fontSize: '0.9rem' }}>
+            Gestión centralizada de incidencias, calidad e inventario con control de ANS.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
@@ -142,12 +142,12 @@ export default function ServiceDeskPage() {
               placeholder="Buscar incidencia (INC-)..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ padding: '0.6rem 1rem 0.6rem 2.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', width: '280px' }}
+              style={{ padding: '0.5rem 1rem 0.5rem 2.4rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', width: '250px' }}
             />
           </div>
           <button 
             onClick={() => setIsCreateModalOpen(true)}
-            style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', padding: '0.6rem 1.2rem', fontWeight: '700', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)' }}
+            style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', padding: '0.5rem 1rem', fontWeight: '700', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)' }}
           >
             <Plus size={18} /> Nueva Incidencia
           </button>
@@ -155,7 +155,7 @@ export default function ServiceDeskPage() {
       </div>
 
       {/* KANBAN BOARD */}
-      <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '1rem', minHeight: '65vh' }}>
+      <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', flex: 1, minHeight: 0 }}>
         {columns.map((col, idx) => {
           const colTickets = filteredTickets.filter(t => t.status === col);
           const nextCol = columns[idx + 1];
