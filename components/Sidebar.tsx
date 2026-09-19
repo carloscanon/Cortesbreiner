@@ -19,7 +19,8 @@ import {
   Calculator,
   DollarSign,
   CreditCard,
-  Building2
+  Building2,
+  Activity
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -39,6 +40,7 @@ const allMenuItems = [
 ];
 
 const allBottomItems = [
+  { icon: Activity, label: 'Mesa de Servicio', href: '/service-desk', module: 'quality' },
   { icon: Settings, label: 'Ajustes', href: '/settings', module: 'settings' },
   { icon: ShieldCheck, label: 'Super Admin', href: '/super-admin', module: 'super_admin' },
   { icon: HelpCircle, label: 'Ayuda', href: '/help', module: 'help' },
