@@ -543,8 +543,6 @@ export default function Dashboard() {
           }
         });
 
-        // 2) Deduplicar explícitos
-        const explicitSewingOrdersRaw = sewingOrdersList || [];
         if (ordersData) setOrders(ordersData);
         if (workshopsData) setWorkshops(workshopsData);
         if (inspectionsData) setInspections(inspectionsData);
