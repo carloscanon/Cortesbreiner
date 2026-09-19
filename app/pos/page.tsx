@@ -311,7 +311,7 @@ export default function POSPage() {
       
       const { data } = await supabase
         .from('finished_goods_transfers')
-        .select('*, items:finished_goods_transfer_items(*, product:products(nombre_producto, ref_producto))')
+        .select('*, items:finished_goods_transfer_items(*, product:products(nombre_producto, codigo_referencia))')
         .or(filter)
         .eq('estado', 'Pendiente')
         .order('created_at', { ascending: false });
@@ -2566,7 +2566,7 @@ export default function POSPage() {
                                 <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isComplete ? '#f0fdf4' : 'transparent' }}>
                                   <td style={{ padding: '0.75rem', fontWeight: '700', color: '#0f172a' }}>
                                     {it.product?.nombre_producto || 'Desconocido'}
-                                    <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Ref: {it.product?.ref_producto}</span>
+                                    <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Ref: {it.product?.codigo_referencia}</span>
                                   </td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800' }}>{expected}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: isComplete ? '#10b981' : '#3b82f6' }}>{scanned}</td>
