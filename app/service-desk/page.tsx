@@ -33,7 +33,7 @@ export default function ServiceDeskPage() {
   }, []);
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from('users').select('id, nombre, role');
+    const { data } = await supabase.from('profiles').select('id, nombre, role');
     if (data) setUsers(data);
   };
 
