@@ -33,8 +33,8 @@ export default function ServiceDeskPage() {
   }, []);
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from('profiles').select('id, nombre, role');
-    if (data) setUsers(data);
+    const { data } = await supabase.from('profiles').select('id, full_name, role_id');
+    if (data) setUsers(data.map((u: any) => ({ id: u.id, nombre: u.full_name, role: u.role_id })));
   };
 
   const fetchTickets = async () => {
