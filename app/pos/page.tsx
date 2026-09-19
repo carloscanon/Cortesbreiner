@@ -279,7 +279,16 @@ export default function POSPage() {
     }
   };
 
-  // Load inline Inventory
+  // Load inline Inventory  // Inline inventory & reconciliation states
+  const [activeProdTab, setActiveProdTab] = useState<'inventario' | 'recepcion'>('inventario');
+  const [inventoryList, setInventoryList] = useState<any[]>([]);
+  const [invSearch, setInvSearch] = useState('');
+  
+  const [pendingTransfers, setPendingTransfers] = useState<any[]>([]);
+  const [selectedTransfer, setSelectedTransfer] = useState<any>(null);
+  const [scannedReconBarcodes, setScannedReconBarcodes] = useState<string[]>([]);
+  const [reconBarcodeInput, setReconBarcodeInput] = useState('');
+
   const fetchInlineInventory = async () => {
     try {
       if (!selectedStore) return;
@@ -288,6 +297,104 @@ export default function POSPage() {
         .select('*, products(*), sizes(*)')
         .eq('store_id', selectedStore.id);
       setInventoryList(inv || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchPendingTransfers = async () => {
+    try {
+      if (!selectedStore) return;
+      const { data } = await supabase
+        .from('finished_goods_transfers')
+        .select('*, items:finished_goods_transfer_items(*, product:products(nombre_producto, ref_producto))')
+        .eq('warehouse_dest_id', selectedStore.id)
+        .eq('estado', 'Pendiente')
+        .order('created_at', { ascending: false });
+      setPendingTransfers(data || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleScanReconciliation = (e: React.FormEvent) => {
+    e.preventDefault();
+    const bc = reconBarcodeInput.trim();
+    if (!bc) return;
+    
+    // Check if barcode exists in selected transfer
+    let found = false;
+    for (const item of selectedTransfer?.items || []) {
+      if (item.barcodes && item.barcodes.includes(bc)) {
+        found = true;
+        break;
+      }
+    }
+    
+    if (found) {
+      if (!scannedReconBarcodes.includes(bc)) {
+        setScannedReconBarcodes([...scannedReconBarcodes, bc]);
+      }
+    } else {
+      alert(`El código ${bc} no pertenece a este traslado.`);
+    }
+    setReconBarcodeInput('');
+  };
+
+  const handleAcceptTransfer = async () => {
+    if (!selectedTransfer || !selectedStore) return;
+    try {
+      // 1. Update transfer status
+      await supabase.from('finished_goods_transfers')
+        .update({ estado: 'Recibido', observaciones: `Recibido por POS. Conciliadas ${scannedReconBarcodes.length} prendas.` })
+        .eq('id', selectedTransfer.id);
+        
+      // 2. Insert items into store_inventory (naive merge, in real scenario handle upsert)
+      const ops = (selectedTransfer.items || []).map(async (item: any) => {
+         const { data: existing } = await supabase.from('store_inventory')
+           .select('id, cantidad')
+           .eq('store_id', selectedStore.id)
+           .eq('product_id', item.product_id)
+           .eq('size_id', item.size_id)
+           .eq('color_id', item.color_id || '00000000-0000-0000-0000-000000000000') // handle nulls if needed
+           .limit(1);
+           
+         if (existing && existing.length > 0) {
+           await supabase.from('store_inventory').update({ cantidad: existing[0].cantidad + item.cantidad }).eq('id', existing[0].id);
+         } else {
+           await supabase.from('store_inventory').insert([{
+             store_id: selectedStore.id,
+             product_id: item.product_id,
+             size_id: item.size_id,
+             color_id: item.color_id,
+             cantidad: item.cantidad
+           }]);
+         }
+      });
+      await Promise.all(ops);
+      
+      alert('Traslado recibido y conciliado exitosamente.');
+      setSelectedTransfer(null);
+      setScannedReconBarcodes([]);
+      fetchPendingTransfers();
+      fetchInlineInventory(); // refresh inventory
+    } catch (e) {
+      console.error(e);
+      alert('Error recibiendo traslado.');
+    }
+  };
+
+  const handleRejectTransfer = async () => {
+    if (!selectedTransfer) return;
+    const reason = prompt("Razón de rechazo:");
+    if (reason === null) return;
+    try {
+      await supabase.from('finished_goods_transfers')
+        .update({ estado: 'Rechazado', observaciones: reason })
+        .eq('id', selectedTransfer.id);
+      alert('Traslado rechazado.');
+      setSelectedTransfer(null);
+      fetchPendingTransfers();
     } catch (e) {
       console.error(e);
     }
@@ -797,6 +904,7 @@ export default function POSPage() {
   useEffect(() => {
     if (selectedStore) {
       fetchInlineInventory();
+      fetchPendingTransfers();
       fetchCrmCustomers();
     }
   }, [selectedStore]);
@@ -1726,7 +1834,7 @@ export default function POSPage() {
                   } else {
                     setActiveMenuId(item.id);
                     if (item.id === 'clientes') fetchCrmCustomers();
-                    if (item.id === 'productos') fetchInlineInventory();
+                    if (item.id === 'productos') { fetchInlineInventory(); fetchPendingTransfers(); }
                     if (item.id === 'ventas') { fetchInlineSales(); fetchManagerShifts(); }
                   }
                 }}
@@ -2287,52 +2395,199 @@ export default function POSPage() {
             {activeMenuId === 'productos' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Inventario de la Tienda</h2>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Inventario y Recepción</h2>
                   <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{selectedStore?.nombre || 'Sucursal'}</span>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Buscar producto..."
-                  value={invSearch}
-                  onChange={e => setInvSearch(e.target.value)}
-                  style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
-                />
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Producto</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Referencia</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Disponible</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Reservado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventoryList
-                      .filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()))
-                      .map((inv, idx) => (
-                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              {inv.products?.imagen_url && (
-                                <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
-                              )}
-                              {inv.products?.nombre_producto || 'Sin nombre'}
-                            </div>
-                          </td>
-                          <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '—'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '—'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
-                            {inv.cantidad_disponible}
-                          </td>
-                          <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
-                        </tr>
-                      ))}
-                    {inventoryList.length === 0 && (
-                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
+                
+                {/* Tabs */}
+                <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #cbd5e1' }}>
+                  <button 
+                    onClick={() => setActiveProdTab('inventario')}
+                    style={{ padding: '0.5rem 1rem', background: 'none', border: 'none', borderBottom: activeProdTab === 'inventario' ? '3px solid #80082E' : '3px solid transparent', color: activeProdTab === 'inventario' ? '#80082E' : '#64748b', fontWeight: activeProdTab === 'inventario' ? '900' : '600', cursor: 'pointer', fontSize: '0.85rem' }}
+                  >
+                    Inventario Actual
+                  </button>
+                  <button 
+                    onClick={() => setActiveProdTab('recepcion')}
+                    style={{ padding: '0.5rem 1rem', background: 'none', border: 'none', borderBottom: activeProdTab === 'recepcion' ? '3px solid #80082E' : '3px solid transparent', color: activeProdTab === 'recepcion' ? '#80082E' : '#64748b', fontWeight: activeProdTab === 'recepcion' ? '900' : '600', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+                  >
+                    Recepción / Conciliación
+                    {pendingTransfers.length > 0 && (
+                      <span style={{ backgroundColor: '#ef4444', color: 'white', borderRadius: '50%', padding: '0.1rem 0.4rem', fontSize: '0.6rem' }}>{pendingTransfers.length}</span>
                     )}
-                  </tbody>
-                </table>
+                  </button>
+                </div>
+
+                {activeProdTab === 'inventario' ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Buscar producto..."
+                      value={invSearch}
+                      onChange={e => setInvSearch(e.target.value)}
+                      style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                    />
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Producto</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Referencia</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Disponible</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Reservado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inventoryList
+                          .filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()))
+                          .map((inv, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  {inv.products?.imagen_url && (
+                                    <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
+                                  )}
+                                  {inv.products?.nombre_producto || 'Sin nombre'}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '—'}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '—'}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
+                                {inv.cantidad_disponible}
+                              </td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
+                            </tr>
+                          ))}
+                        {inventoryList.length === 0 && (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </>
+                ) : (
+                  <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+                    {/* Lista de traslados */}
+                    <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <h3 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#475569', margin: 0, textTransform: 'uppercase' }}>Traslados Pendientes</h3>
+                      {pendingTransfers.length === 0 ? (
+                        <div style={{ padding: '1rem', backgroundColor: 'white', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                          No hay mercancía en tránsito hacia esta tienda.
+                        </div>
+                      ) : (
+                        pendingTransfers.map(tr => (
+                          <div 
+                            key={tr.id}
+                            onClick={() => { setSelectedTransfer(tr); setScannedReconBarcodes([]); setReconBarcodeInput(''); }}
+                            style={{ padding: '1rem', backgroundColor: selectedTransfer?.id === tr.id ? '#fef2f2' : 'white', border: selectedTransfer?.id === tr.id ? '2px solid #80082E' : '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#0f172a' }}>TR-{String(tr.consecutive).padStart(4, '0')}</span>
+                              <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', backgroundColor: '#fef08a', color: '#854d0e', borderRadius: '4px', fontWeight: '800' }}>{tr.estado}</span>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'block' }}>Enviado por: {tr.usuario}</span>
+                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block', marginTop: '0.4rem' }}>{new Date(tr.created_at).toLocaleString('es-CO')}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    
+                    {/* Área de Conciliación */}
+                    {selectedTransfer ? (
+                      <div style={{ flex: 1, backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '1.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                          <div>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.2rem' }}>Conciliar TR-{String(selectedTransfer.consecutive).padStart(4, '0')}</h3>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{selectedTransfer.observaciones || 'Sin observaciones'}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={handleRejectTransfer} style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid #ef4444', backgroundColor: 'white', color: '#ef4444', fontWeight: '700', fontSize: '0.75rem', cursor: 'pointer' }}>Reportar Novedad</button>
+                            <button onClick={handleAcceptTransfer} style={{ padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer' }}>Aceptar Traslado</button>
+                          </div>
+                        </div>
+
+                        {/* Scanner */}
+                        <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '1.5rem' }}>
+                          <form onSubmit={handleScanReconciliation} style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', marginBottom: '0.4rem', textTransform: 'uppercase' }}>Escanear Prenda (Pistola)</label>
+                              <input 
+                                type="text"
+                                autoFocus
+                                value={reconBarcodeInput}
+                                onChange={(e) => setReconBarcodeInput(e.target.value)}
+                                placeholder="Haz clic aquí y dispara la lectora..."
+                                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '2px solid #80082E', fontSize: '1rem', outline: 'none' }}
+                              />
+                            </div>
+                            <button type="submit" disabled={!reconBarcodeInput.trim()} style={{ marginTop: '1.5rem', padding: '0.75rem 1.5rem', borderRadius: '8px', border: 'none', backgroundColor: '#80082E', color: 'white', fontWeight: '800', cursor: 'pointer' }}>Validar</button>
+                          </form>
+                        </div>
+                        
+                        {/* Status Bar */}
+                        {(() => {
+                          const totalExpected = selectedTransfer.items?.reduce((sum: number, it: any) => sum + (it.cantidad || 0), 0) || 0;
+                          const totalScanned = scannedReconBarcodes.length;
+                          const progress = totalExpected > 0 ? (totalScanned / totalExpected) * 100 : 0;
+                          
+                          return (
+                            <div style={{ marginBottom: '1.5rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#334155' }}>Progreso de Conciliación</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: progress === 100 ? '#10b981' : '#3b82f6' }}>{totalScanned} de {totalExpected} prendas ({Math.round(progress)}%)</span>
+                              </div>
+                              <div style={{ width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', backgroundColor: progress === 100 ? '#10b981' : '#3b82f6', width: `${progress}%`, transition: 'width 0.3s' }} />
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid #e2e8f0', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Ítem / Producto</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'center' }}>Esperado</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'center' }}>Escaneados</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'center' }}>Estado</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedTransfer.items?.map((it: any, idx: number) => {
+                              const expected = it.cantidad || 0;
+                              const barcodes = it.barcodes || [];
+                              const scanned = scannedReconBarcodes.filter(b => barcodes.includes(b)).length;
+                              const isComplete = scanned >= expected;
+                              
+                              return (
+                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isComplete ? '#f0fdf4' : 'transparent' }}>
+                                  <td style={{ padding: '0.75rem', fontWeight: '700', color: '#0f172a' }}>
+                                    {it.product?.nombre_producto || 'Desconocido'}
+                                    <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Ref: {it.product?.ref_producto}</span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800' }}>{expected}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: isComplete ? '#10b981' : '#3b82f6' }}>{scanned}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                    {isComplete ? (
+                                      <span style={{ padding: '0.2rem 0.5rem', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '4px', fontSize: '0.65rem', fontWeight: '800' }}>COMPLETO</span>
+                                    ) : (
+                                      <span style={{ padding: '0.2rem 0.5rem', backgroundColor: '#f1f5f9', color: '#64748b', borderRadius: '4px', fontSize: '0.65rem', fontWeight: '800' }}>FALTAN {expected - scanned}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', borderRadius: '12px', border: '1px dashed #cbd5e1', padding: '3rem', color: '#64748b' }}>
+                        <span style={{ fontSize: '2rem', marginBottom: '1rem' }}>📦</span>
+                        <h3 style={{ margin: 0, fontWeight: '800', color: '#334155' }}>Selecciona un traslado</h3>
+                        <p style={{ fontSize: '0.85rem' }}>Haz clic en un traslado pendiente a la izquierda para empezar a conciliar la mercancía.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : activeMenuId === 'clientes' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
