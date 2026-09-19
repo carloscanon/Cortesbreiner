@@ -2567,6 +2567,23 @@ export default function POSPage() {
                                   <td style={{ padding: '0.75rem', fontWeight: '700', color: '#0f172a' }}>
                                     {it.product?.nombre_producto || 'Desconocido'}
                                     <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 'normal' }}>Ref: {it.product?.codigo_referencia}</span>
+                                    {barcodes && barcodes.length > 0 && (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.4rem' }}>
+                                        {barcodes.map((bc: string) => {
+                                          const isScanned = scannedReconBarcodes.includes(bc);
+                                          return (
+                                            <span key={bc} style={{ 
+                                              fontSize: '0.6rem', padding: '0.15rem 0.35rem', borderRadius: '4px', fontFamily: 'monospace',
+                                              backgroundColor: isScanned ? '#dcfce7' : '#f1f5f9', 
+                                              color: isScanned ? '#166534' : '#64748b',
+                                              border: isScanned ? '1px solid #bbf7d0' : '1px dashed #cbd5e1'
+                                            }}>
+                                              {bc}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800' }}>{expected}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '800', color: isComplete ? '#10b981' : '#3b82f6' }}>{scanned}</td>
