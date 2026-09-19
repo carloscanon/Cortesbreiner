@@ -563,6 +563,8 @@ export default function FinishedGoodsInventory() {
 
   const [histSubTab, setHistSubTab] = useState<'dashboard' | 'counted_form' | 'batches_list'>('dashboard');
   const [transfersPage, setTransfersPage] = useState(1);
+  const [transfersSearchQuery, setTransfersSearchQuery] = useState('');
+
 
   const exportHistoricalReportToExcel = () => {
     if (!histBatches || histBatches.length === 0) {
@@ -2624,30 +2626,56 @@ export default function FinishedGoodsInventory() {
       {/* 4. TRANSFERS */}
       {activeTab === 'transfers' && (
         <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-          <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Transferencias Inter-Bodega</h3>
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text"
+                placeholder="Buscar traslado..."
+                value={transfersSearchQuery}
+                onChange={e => { setTransfersSearchQuery(e.target.value); setTransfersPage(1); }}
+                style={{
+                  padding: '0.5rem 1rem 0.5rem 2.2rem',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.8rem',
+                  width: '280px'
+                }}
+              />
+            </div>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones / Novedades', 'Detalle Ítems', 'Acciones'].map(h => (
+                  {['Consecutivo', 'Bodega Origen', 'Bodega Destino', 'Estado', 'Solicitado por', 'Fecha', 'Observaciones / Novedades', 'Resumen', 'Acciones'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {(() => {
+                  const query = transfersSearchQuery.toLowerCase();
+                  const filteredTransfers = transfers.filter(tx => 
+                    tx.consecutive?.toString().includes(query) ||
+                    tx.orig?.nombre_bodega?.toLowerCase().includes(query) ||
+                    tx.dest?.nombre_bodega?.toLowerCase().includes(query) ||
+                    tx.estado?.toLowerCase().includes(query) ||
+                    tx.usuario?.toLowerCase().includes(query) ||
+                    tx.observaciones?.toLowerCase().includes(query)
+                  );
+
                   const pageSize = 10;
                   const startIndex = (transfersPage - 1) * pageSize;
-                  const paginatedTransfers = transfers.slice(startIndex, startIndex + pageSize);
-                  const totalPages = Math.ceil(transfers.length / pageSize);
+                  const paginatedTransfers = filteredTransfers.slice(startIndex, startIndex + pageSize);
+                  const totalPages = Math.ceil(filteredTransfers.length / pageSize);
 
-                  if (transfers.length === 0) {
+                  if (filteredTransfers.length === 0) {
                     return (
                       <tr>
                         <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                          No se registran solicitudes de transferencia.
+                          No se encontraron solicitudes de transferencia con esos términos.
                         </td>
                       </tr>
                     );
@@ -2729,21 +2757,14 @@ export default function FinishedGoodsInventory() {
                               <span style={{ color: '#94a3b8' }}>—</span>
                             )}
                           </td>
-                          <td style={{ padding: '1rem 1.5rem', maxWidth: '450px' }}>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', fontSize: '0.75rem' }}>
-                              {tx.finished_goods_transfer_items?.map((item: any) => (
-                                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', backgroundColor: '#f1f5f9', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', flex: '1 1 auto', minWidth: '140px' }}>
-                                  <span style={{ fontWeight: '700', color: '#0f172a' }}>
-                                    • {item.resolved_display_name || item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong style={{ color: '#ea580c' }}>{item.cantidad} uds</strong>
-                                  </span>
-                                  {item.barcodes && item.barcodes.length > 0 && (
-                                    <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: '#2563eb', fontWeight: '800' }}>
-                                      ID: {item.barcodes.join(', ')}
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
+                          <td style={{ padding: '1rem 1.5rem', minWidth: '130px' }}>
+                            <span style={{ fontWeight: '800', color: '#0f172a' }}>
+                              {tx.finished_goods_transfer_items?.length || 0} Ítems/Lotes
+                            </span>
+                            <br />
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
+                              ({tx.finished_goods_transfer_items?.reduce((acc: number, item: any) => acc + (item.cantidad || 0), 0) || 0} prendas en total)
+                            </span>
                           </td>
                           <td style={{ padding: '1rem 1.5rem' }}>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2752,7 +2773,7 @@ export default function FinishedGoodsInventory() {
                                   setSelectedTransferForDetail(tx);
                                   setShowTransferDetailModal(true);
                                 }}
-                                title="Ver detalle completo de productos"
+                                title="Ver detalle completo de productos en Modal"
                                 style={{
                                   padding: '0.45rem 0.8rem',
                                   borderRadius: '8px',
@@ -2767,7 +2788,7 @@ export default function FinishedGoodsInventory() {
                                   gap: '0.3rem'
                                 }}
                               >
-                                <Eye size={14} /> Ver
+                                <Eye size={14} /> Detalle
                               </button>
                               <button
                                 onClick={() => handlePrintTransferPDF(tx)}
