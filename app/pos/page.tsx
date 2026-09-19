@@ -1486,6 +1486,11 @@ export default function POSPage() {
 
     setSyncQueue(remainingQueue);
     localStorage.setItem('pos_sync_queue', JSON.stringify(remainingQueue));
+    if (queue.length > remainingQueue.length) {
+      fetchInlineInventory();
+      fetchInlineSales();
+      if (currentSession) fetchSessionSalesTotal(currentSession.id);
+    }
   };
 
   const getProductPrice = (product: any, priceListId: string, customItems: any[]) => {
@@ -1685,14 +1690,13 @@ export default function POSPage() {
         monto: total
       });
 
-      alert(`✓ Transacción #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')} registrada exitosamente.`);
+      alert(`✅ Transacción #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')} registrada exitosamente.`);
       setCart([]);
       if (currentSession) {
         fetchSessionSalesTotal(currentSession.id);
       }
-      if (currentSession) {
-        fetchSessionSalesTotal(currentSession.id);
-      }
+      fetchInlineInventory();
+      fetchInlineSales();
     } catch (err: any) {
       alert('Error guardando venta: ' + err.message);
     }
