@@ -177,10 +177,12 @@ export default function ServiceDeskPage() {
       {/* HEADER */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Activity size={26} color="#2563eb" />
-            Mesa de Servicio (ITIL)
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
+            <Activity size={28} color="#2563eb" />
+            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>
+              Central de Atención y Casos
+            </h1>
+          </div>
           <p style={{ color: '#64748b', margin: 0, fontSize: '0.9rem' }}>
             Gestión centralizada de incidencias, calidad e inventario con control de ANS.
           </p>

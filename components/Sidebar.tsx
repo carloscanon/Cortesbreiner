@@ -40,7 +40,7 @@ const allMenuItems = [
 ];
 
 const allBottomItems = [
-  { icon: Activity, label: 'Mesa de Servicio', href: '/service-desk', module: 'quality' },
+  { icon: Activity, label: 'Central de Atención y Casos', href: '/service-desk', module: 'quality' },
   { icon: Settings, label: 'Ajustes', href: '/settings', module: 'settings' },
   { icon: ShieldCheck, label: 'Super Admin', href: '/super-admin', module: 'super_admin' },
   { icon: HelpCircle, label: 'Ayuda', href: '/help', module: 'help' },
