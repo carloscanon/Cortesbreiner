@@ -562,6 +562,7 @@ export default function FinishedGoodsInventory() {
   };
 
   const [histSubTab, setHistSubTab] = useState<'dashboard' | 'counted_form' | 'batches_list'>('dashboard');
+  const [transfersPage, setTransfersPage] = useState(1);
 
   const exportHistoricalReportToExcel = () => {
     if (!histBatches || histBatches.length === 0) {
@@ -2636,172 +2637,230 @@ export default function FinishedGoodsInventory() {
                 </tr>
               </thead>
               <tbody>
-                {transfers.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                      No se registran solicitudes de transferencia.
-                    </td>
-                  </tr>
-                ) : (
-                  transfers.map(tx => (
-                    <tr key={tx.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>TR-{tx.consecutive}</td>
-                      <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{tx.orig?.nombre_bodega}</td>
-                      <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{tx.dest?.nombre_bodega}</td>
-                      <td style={{ padding: '1rem 1.5rem' }}>
-                        {tx.estado === 'Pendiente' ? (
-                          <button
-                            onClick={() => {
-                              setActiveReceivingTransfer(tx);
-                              setScannedReceivingBarcodes(new Set());
-                              setScannedReceivingItemsMap({});
-                              setReceivingNotes('');
-                              setShowReceiveTransferModal(true);
-                            }}
-                            style={{
-                              padding: '0.45rem 0.9rem',
-                              borderRadius: '8px',
-                              backgroundColor: '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              fontWeight: '900',
-                              fontSize: '0.78rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.35rem',
-                              boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.25)'
-                            }}
-                          >
-                            <Barcode size={15} /> 🔍 Escanear y Recibir
-                          </button>
-                        ) : (
-                          <span style={{
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '6px',
-                            fontSize: '0.7rem',
-                            fontWeight: '800',
-                            backgroundColor: tx.estado === 'Recibida' ? '#d1fae5' : '#fee2e2',
-                            color: tx.estado === 'Recibida' ? '#065f46' : '#991b1b'
-                          }}>
-                            {tx.estado}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{tx.usuario}</td>
-                      <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
-                      <td style={{ padding: '1rem 1.5rem', maxWidth: '240px' }}>
-                        {tx.observaciones ? (
-                          tx.observaciones.includes('Recepción:') ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              <span style={{ fontSize: '0.78rem', color: '#334155', fontWeight: '500' }}>
-                                {tx.observaciones.split('| Recepción:')[0]}
-                              </span>
+                {(() => {
+                  const pageSize = 10;
+                  const startIndex = (transfersPage - 1) * pageSize;
+                  const paginatedTransfers = transfers.slice(startIndex, startIndex + pageSize);
+                  const totalPages = Math.ceil(transfers.length / pageSize);
+
+                  if (transfers.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                          No se registran solicitudes de transferencia.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {paginatedTransfers.map(tx => (
+                        <tr key={tx.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>TR-{tx.consecutive}</td>
+                          <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{tx.orig?.nombre_bodega}</td>
+                          <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{tx.dest?.nombre_bodega}</td>
+                          <td style={{ padding: '1rem 1.5rem' }}>
+                            {tx.estado === 'Pendiente' ? (
+                              <button
+                                onClick={() => {
+                                  setActiveReceivingTransfer(tx);
+                                  setScannedReceivingBarcodes(new Set());
+                                  setScannedReceivingItemsMap({});
+                                  setReceivingNotes('');
+                                  setShowReceiveTransferModal(true);
+                                }}
+                                style={{
+                                  padding: '0.45rem 0.9rem',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#10b981',
+                                  color: 'white',
+                                  border: 'none',
+                                  fontWeight: '900',
+                                  fontSize: '0.78rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.25)'
+                                }}
+                              >
+                                <Barcode size={15} /> 🔍 Escanear y Recibir
+                              </button>
+                            ) : (
                               <span style={{
-                                fontSize: '0.7rem',
-                                padding: '0.2rem 0.5rem',
+                                padding: '0.25rem 0.5rem',
                                 borderRadius: '6px',
-                                backgroundColor: '#fef3c7',
-                                color: '#92400e',
-                                border: '1px solid #fde68a',
+                                fontSize: '0.7rem',
                                 fontWeight: '800',
-                                display: 'inline-block'
+                                backgroundColor: tx.estado === 'Recibida' ? '#d1fae5' : '#fee2e2',
+                                color: tx.estado === 'Recibida' ? '#065f46' : '#991b1b'
                               }}>
-                                📣 Recepción: {tx.observaciones.split('| Recepción:')[1]}
+                                {tx.estado}
                               </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{tx.usuario}</td>
+                          <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
+                          <td style={{ padding: '1rem 1.5rem', maxWidth: '240px' }}>
+                            {tx.observaciones ? (
+                              tx.observaciones.includes('Recepción:') ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                  <span style={{ fontSize: '0.78rem', color: '#334155', fontWeight: '500' }}>
+                                    {tx.observaciones.split('| Recepción:')[0]}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.7rem',
+                                    padding: '0.2rem 0.5rem',
+                                    borderRadius: '6px',
+                                    backgroundColor: '#fef3c7',
+                                    color: '#92400e',
+                                    border: '1px solid #fde68a',
+                                    fontWeight: '800',
+                                    display: 'inline-block'
+                                  }}>
+                                    📣 Recepción: {tx.observaciones.split('| Recepción:')[1]}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '0.8rem', color: '#475569' }}>{tx.observaciones}</span>
+                              )
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '1rem 1.5rem', maxWidth: '450px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', fontSize: '0.75rem' }}>
+                              {tx.finished_goods_transfer_items?.map((item: any) => (
+                                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', backgroundColor: '#f1f5f9', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #e2e8f0', flex: '1 1 auto', minWidth: '140px' }}>
+                                  <span style={{ fontWeight: '700', color: '#0f172a' }}>
+                                    • {item.resolved_display_name || item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong style={{ color: '#ea580c' }}>{item.cantidad} uds</strong>
+                                  </span>
+                                  {item.barcodes && item.barcodes.length > 0 && (
+                                    <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: '#2563eb', fontWeight: '800' }}>
+                                      ID: {item.barcodes.join(', ')}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          ) : (
-                            <span style={{ fontSize: '0.8rem', color: '#475569' }}>{tx.observaciones}</span>
-                          )
-                        ) : (
-                          <span style={{ color: '#94a3b8' }}>—</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '1rem 1.5rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem' }}>
-                          {tx.finished_goods_transfer_items?.map((item: any) => (
-                            <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                              <span style={{ fontWeight: '700', color: '#0f172a' }}>
-                                • {item.resolved_display_name || item.products?.nombre_producto || 'Prenda'} ({item.sizes?.codigo_talla || 'ST'}): <strong>{item.cantidad} uds</strong>
-                              </span>
-                              {item.barcodes && item.barcodes.length > 0 && (
-                                <span style={{ fontFamily: 'monospace', fontSize: '0.68rem', color: '#2563eb', fontWeight: '800', paddingLeft: '0.75rem' }}>
-                                  ID Único: {item.barcodes.join(', ')}
-                                </span>
+                          </td>
+                          <td style={{ padding: '1rem 1.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <button
+                                onClick={() => {
+                                  setSelectedTransferForDetail(tx);
+                                  setShowTransferDetailModal(true);
+                                }}
+                                title="Ver detalle completo de productos"
+                                style={{
+                                  padding: '0.45rem 0.8rem',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#334155',
+                                  border: '1.5px solid #cbd5e1',
+                                  fontWeight: '800',
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem'
+                                }}
+                              >
+                                <Eye size={14} /> Ver
+                              </button>
+                              <button
+                                onClick={() => handlePrintTransferPDF(tx)}
+                                title="Imprimir / Exportar Comprobante PDF"
+                                style={{
+                                  padding: '0.45rem 0.8rem',
+                                  borderRadius: '8px',
+                                  backgroundColor: '#0f172a',
+                                  color: 'white',
+                                  border: 'none',
+                                  fontWeight: '800',
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem'
+                                }}
+                              >
+                                <Printer size={14} /> PDF
+                              </button>
+                              {isSuperAdmin && tx.estado !== 'Cancelada' && (
+                                <button
+                                  onClick={() => handleRevertTransfer(tx)}
+                                  title="Reversar traslado (SuperAdmin)"
+                                  style={{
+                                    padding: '0.45rem 0.8rem',
+                                    borderRadius: '8px',
+                                    backgroundColor: '#fee2e2',
+                                    color: '#991b1b',
+                                    border: '1px solid #fca5a5',
+                                    fontWeight: '800',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem'
+                                  }}
+                                >
+                                  <RotateCcw size={14} /> Reversar
+                                </button>
                               )}
                             </div>
-                          ))}
-                        </div>
-                      </td>
-                      <td style={{ padding: '1rem 1.5rem' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                          <button
-                            onClick={() => {
-                              setSelectedTransferForDetail(tx);
-                              setShowTransferDetailModal(true);
-                            }}
-                            title="Ver detalle completo de productos"
-                            style={{
-                              padding: '0.45rem 0.8rem',
-                              borderRadius: '8px',
-                              backgroundColor: '#f1f5f9',
-                              color: '#334155',
-                              border: '1.5px solid #cbd5e1',
-                              fontWeight: '800',
-                              fontSize: '0.75rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.3rem'
-                            }}
-                          >
-                            <Eye size={14} /> Ver Productos
-                          </button>
-                          <button
-                            onClick={() => handlePrintTransferPDF(tx)}
-                            title="Imprimir / Exportar Comprobante PDF"
-                            style={{
-                              padding: '0.45rem 0.8rem',
-                              borderRadius: '8px',
-                              backgroundColor: '#0f172a',
-                              color: 'white',
-                              border: 'none',
-                              fontWeight: '800',
-                              fontSize: '0.75rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.3rem'
-                            }}
-                          >
-                            <Printer size={14} /> PDF
-                          </button>
-                          {isSuperAdmin && tx.estado !== 'Cancelada' && (
-                            <button
-                              onClick={() => handleRevertTransfer(tx)}
-                              title="Reversar traslado (SuperAdmin)"
-                              style={{
-                                padding: '0.45rem 0.8rem',
-                                borderRadius: '8px',
-                                backgroundColor: '#fee2e2',
-                                color: '#991b1b',
-                                border: '1px solid #fca5a5',
-                                fontWeight: '800',
-                                fontSize: '0.75rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.3rem'
-                              }}
-                            >
-                              <RotateCcw size={14} /> Reversar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                          </td>
+                        </tr>
+                      ))}
+                      
+                      {/* Controles de paginación */}
+                      {totalPages > 1 && (
+                        <tr>
+                          <td colSpan={9} style={{ padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderTop: '2px solid var(--border)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#64748b' }}>
+                                Página {transfersPage} de {totalPages} ({transfers.length} totales)
+                              </span>
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <button
+                                  onClick={() => setTransfersPage(p => Math.max(1, p - 1))}
+                                  disabled={transfersPage === 1}
+                                  style={{
+                                    padding: '0.4rem 0.9rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    backgroundColor: transfersPage === 1 ? '#f1f5f9' : 'white',
+                                    cursor: transfersPage === 1 ? 'not-allowed' : 'pointer',
+                                    fontWeight: '700',
+                                    color: transfersPage === 1 ? '#94a3b8' : '#334155'
+                                  }}
+                                >
+                                  Anterior
+                                </button>
+                                <button
+                                  onClick={() => setTransfersPage(p => Math.min(totalPages, p + 1))}
+                                  disabled={transfersPage === totalPages}
+                                  style={{
+                                    padding: '0.4rem 0.9rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    backgroundColor: transfersPage === totalPages ? '#f1f5f9' : 'white',
+                                    cursor: transfersPage === totalPages ? 'not-allowed' : 'pointer',
+                                    fontWeight: '700',
+                                    color: transfersPage === totalPages ? '#94a3b8' : '#334155'
+                                  }}
+                                >
+                                  Siguiente
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
