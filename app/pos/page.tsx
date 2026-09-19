@@ -207,6 +207,9 @@ export default function POSPage() {
   const [newUserAvatarName, setNewUserAvatarName] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
   const [selectedShiftDate, setSelectedShiftDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedShiftEndDate, setSelectedShiftEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isWeeklyShift, setIsWeeklyShift] = useState(false);
+  const [selectedDays, setSelectedDays] = useState<number[]>([1,2,3,4,5,6]); // Lun a Sab
   const [selectedShiftUser, setSelectedShiftUser] = useState('');
   const [selectedShiftIn, setSelectedShiftIn] = useState('08:00');
   const [selectedShiftOut, setSelectedShiftOut] = useState('17:00');
@@ -1168,26 +1171,67 @@ export default function POSPage() {
 
   const handleSaveStaffShift = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShiftUser || !selectedShiftDate || !selectedStore) {
+    if (!selectedShiftUser || !selectedShiftDate || !selectedStore || (isWeeklyShift && !selectedShiftEndDate)) {
       alert('Por favor complete todos los datos.');
       return;
     }
+    
     try {
-      const { error } = await supabase
-        .from('store_staff_shifts')
-        .insert([{
+      const inserts = [];
+      if (!isWeeklyShift) {
+        inserts.push({
           store_id: selectedStore.id,
           user_id: selectedShiftUser,
           fecha: selectedShiftDate,
           hora_entrada: selectedShiftIn,
           hora_salida: selectedShiftOut,
           estado: 'programado'
-        }]);
+        });
+      } else {
+        const start = new Date(selectedShiftDate + 'T00:00:00');
+        const end = new Date(selectedShiftEndDate + 'T00:00:00');
+        if (end < start) {
+          alert('La fecha final debe ser mayor o igual a la inicial'); return;
+        }
+        
+        let curr = new Date(start);
+        while (curr <= end) {
+          if (selectedDays.includes(curr.getDay())) {
+            inserts.push({
+              store_id: selectedStore.id,
+              user_id: selectedShiftUser,
+              fecha: curr.toISOString().split('T')[0],
+              hora_entrada: selectedShiftIn,
+              hora_salida: selectedShiftOut,
+              estado: 'programado'
+            });
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+        
+        if (inserts.length === 0) {
+          alert('No hay fechas coincidentes con los días seleccionados en ese rango.');
+          return;
+        }
+      }
+
+      const { error } = await supabase.from('store_staff_shifts').insert(inserts);
 
       if (error) throw error;
-      alert('Turno programado exitosamente.');
+      alert(`Turno${inserts.length > 1 ? 's' : ''} programado${inserts.length > 1 ? 's' : ''} exitosamente.`);
       setSelectedShiftUser('');
       await fetchStaffData();
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleStartShift = async (shiftId: string) => {
+    try {
+      const { error } = await supabase.from('store_staff_shifts').update({ estado: 'en curso' }).eq('id', shiftId);
+      if (error) throw error;
+      alert('El turno ha sido marcado como "en curso" (abierto).');
+      fetchStaffData();
     } catch (err: any) {
       alert('Error: ' + err.message);
     }
@@ -3342,16 +3386,72 @@ export default function POSPage() {
                           </select>
                         </div>
 
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Fecha de Turno</label>
-                          <input
-                            type="date"
-                            value={selectedShiftDate}
-                            onChange={e => setSelectedShiftDate(e.target.value)}
-                            required
-                            style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                          <input 
+                            type="checkbox" 
+                            id="isWeekly" 
+                            checked={isWeeklyShift} 
+                            onChange={e => setIsWeeklyShift(e.target.checked)} 
                           />
+                          <label htmlFor="isWeekly" style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0f172a' }}>Programar Múltiples Días (Semanal)</label>
                         </div>
+
+                        {isWeeklyShift ? (
+                          <>
+                            <div style={{ display: 'flex', gap: '0.75rem' }}>
+                              <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Fecha Inicio</label>
+                                <input
+                                  type="date"
+                                  value={selectedShiftDate}
+                                  onChange={e => setSelectedShiftDate(e.target.value)}
+                                  required
+                                  style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                                />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Fecha Fin</label>
+                                <input
+                                  type="date"
+                                  value={selectedShiftEndDate}
+                                  onChange={e => setSelectedShiftEndDate(e.target.value)}
+                                  required
+                                  style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Días de la semana</label>
+                              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                {[{d: 1, l: 'L'}, {d: 2, l: 'M'}, {d: 3, l: 'X'}, {d: 4, l: 'J'}, {d: 5, l: 'V'}, {d: 6, l: 'S'}, {d: 0, l: 'D'}].map(day => (
+                                  <button
+                                    type="button"
+                                    key={day.d}
+                                    onClick={() => setSelectedDays(prev => prev.includes(day.d) ? prev.filter(x => x !== day.d) : [...prev, day.d])}
+                                    style={{
+                                      width: '32px', height: '32px', borderRadius: '50%',
+                                      border: selectedDays.includes(day.d) ? 'none' : '1px solid #cbd5e1',
+                                      backgroundColor: selectedDays.includes(day.d) ? '#80082E' : 'white',
+                                      color: selectedDays.includes(day.d) ? 'white' : '#64748b',
+                                      fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer'
+                                    }}
+                                  >{day.l}</button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Fecha de Turno</label>
+                            <input
+                              type="date"
+                              value={selectedShiftDate}
+                              onChange={e => setSelectedShiftDate(e.target.value)}
+                              required
+                              style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                        )}
 
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
                           <div style={{ flex: 1 }}>
@@ -3398,13 +3498,18 @@ export default function POSPage() {
                               <span style={{ fontSize: '0.62rem', fontWeight: '800', padding: '0.15rem 0.45rem', borderRadius: '20px', backgroundColor: '#eef2ff', color: '#80082E' }}>
                                 {sh.estado}
                               </span>
+                              {sh.estado === 'programado' && (
+                                <button onClick={() => handleStartShift(sh.id)} style={{ border: 'none', padding: '0.2rem 0.5rem', borderRadius: '4px', background: '#10b981', color: 'white', cursor: 'pointer', fontSize: '0.7rem', fontWeight: '800' }} title="Abrir Turno">
+                                  Activar
+                                </button>
+                              )}
                               <button onClick={async () => {
                                 if (confirm('¿Desea cancelar este turno?')) {
                                   await supabase.from('store_staff_shifts').delete().eq('id', sh.id);
                                   await fetchStaffData();
                                 }
-                              }} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '800' }}>
-                                ✕
+                              }} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '800' }} title="Cancelar Turno">
+                                ❌
                               </button>
                             </div>
                           </div>
