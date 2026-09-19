@@ -58,11 +58,6 @@ export default function ServiceDeskPage() {
     setComments(data || []);
   };
 
-  const handleOpenTicket = (ticket: any) => {
-    setSelectedTicket(ticket);
-    setIsDrawerOpen(true);
-    fetchTicketDetails(ticket.id);
-  };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,6 +98,43 @@ export default function ServiceDeskPage() {
       ticket_id: selectedTicket.id, author_id: user?.id, content: newComment, is_system_note: false
     }]);
     setNewComment('');
+    fetchTicketDetails(selectedTicket.id);
+  };
+
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [ticketItems, setTicketItems] = useState<any[]>([]);
+
+  const fetchTicketItems = async (ticketId: string) => {
+    const { data } = await supabase.from('service_desk_ticket_items').select('*').eq('ticket_id', ticketId);
+    setTicketItems(data || []);
+  };
+
+  // Reemplazar la funcion handleOpenTicket para que traiga los items
+  const handleOpenTicket = (ticket: any) => {
+    setSelectedTicket(ticket);
+    setIsDrawerOpen(true);
+    fetchTicketDetails(ticket.id);
+    fetchTicketItems(ticket.id);
+  };
+
+  const handleScanBarcode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcodeInput.trim() || !selectedTicket) return;
+    
+    // Aquí idealmente se buscaría el ID del producto, color y talla según el barcode en tus tablas,
+    // pero por ahora lo registramos como una vinculación directa.
+    await supabase.from('service_desk_ticket_items').insert([{
+      ticket_id: selectedTicket.id,
+      barcode: barcodeInput.trim()
+    }]);
+    
+    setBarcodeInput('');
+    fetchTicketItems(selectedTicket.id);
+    
+    // Nota de sistema automática
+    await supabase.from('service_desk_comments').insert([{
+      ticket_id: selectedTicket.id, author_id: user?.id, content: `Prenda vinculada: ${barcodeInput.trim()}`, is_system_note: true
+    }]);
     fetchTicketDetails(selectedTicket.id);
   };
 
@@ -255,6 +287,79 @@ export default function ServiceDeskPage() {
                 {selectedTicket.description || 'Sin descripción detallada.'}
               </p>
             </div>
+
+            {/* Asignación y Cambio de Estado */}
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#475569', marginBottom: '0.4rem' }}>Estado</label>
+                <select 
+                  value={selectedTicket.status} 
+                  onChange={(e) => handleUpdateStatus(selectedTicket.id, e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                >
+                  {columns.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0' }} />
+
+            {/* Prendas Vinculadas */}
+            <div>
+              <h4 style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '1rem' }}>Prendas Vinculadas (Items)</h4>
+              <form onSubmit={handleScanBarcode} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                <input 
+                  type="text"
+                  placeholder="Escanear código de barras..."
+                  value={barcodeInput}
+                  onChange={e => setBarcodeInput(e.target.value)}
+                  style={{ flex: 1, padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                />
+                <button 
+                  type="submit"
+                  disabled={!barcodeInput.trim()}
+                  style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', padding: '0 1rem', cursor: 'pointer' }}
+                >
+                  Añadir
+                </button>
+              </form>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {ticketItems.length === 0 ? (
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No hay prendas vinculadas a esta incidencia.</span>
+                ) : (
+                  ticketItems.map(item => (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', display: 'block' }}>{item.barcode}</span>
+                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Cant: {item.cantidad || 1}</span>
+                      </div>
+                      <select 
+                        defaultValue={item.action_taken || ""}
+                        onChange={async (e) => {
+                          const action = e.target.value;
+                          await supabase.from('service_desk_ticket_items').update({ action_taken: action }).eq('id', item.id);
+                          await supabase.from('service_desk_comments').insert([{
+                            ticket_id: selectedTicket.id, author_id: user?.id, content: `Acción sobre prenda ${item.barcode}: ${action}`, is_system_note: true
+                          }]);
+                          fetchTicketItems(selectedTicket.id);
+                          fetchTicketDetails(selectedTicket.id);
+                        }}
+                        style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white' }}
+                      >
+                        <option value="">-- Acción --</option>
+                        <option value="Devuelto a Taller">Devuelto a Taller</option>
+                        <option value="Transferido a Segunda">A Segunda Calidad</option>
+                        <option value="Descuento Aplicado">Descuento Aplicado</option>
+                        <option value="Desecho">Desecho / Baja</option>
+                      </select>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0' }} />
 
             {/* Asignación y Cambio de Estado */}
             <div style={{ display: 'flex', gap: '1rem' }}>
