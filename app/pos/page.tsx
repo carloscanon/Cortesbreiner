@@ -281,8 +281,6 @@ export default function POSPage() {
 
   // Load inline Inventory  // Inline inventory & reconciliation states
   const [activeProdTab, setActiveProdTab] = useState<'inventario' | 'recepcion'>('inventario');
-  const [inventoryList, setInventoryList] = useState<any[]>([]);
-  const [invSearch, setInvSearch] = useState('');
   
   const [pendingTransfers, setPendingTransfers] = useState<any[]>([]);
   const [selectedTransfer, setSelectedTransfer] = useState<any>(null);
