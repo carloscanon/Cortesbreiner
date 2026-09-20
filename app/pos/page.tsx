@@ -107,6 +107,9 @@ export default function POSPage() {
     }
   };
   const [activeMenuId, setActiveMenuId] = useState('pos');
+  const [salesPage, setSalesPage] = useState(0);
+  const [inventoryPage, setInventoryPage] = useState(0);
+  const [reportDateRange, setReportDateRange] = useState('today');
   
   // Inline CRM states
   const [crmCustomers, setCrmCustomers] = useState<any[]>([]);
@@ -2506,31 +2509,54 @@ export default function POSPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {inventoryList
-                          .filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()))
-                          .map((inv, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  {inv.products?.imagen_url && (
-                                    <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
-                                  )}
-                                  {inv.products?.nombre_producto || 'Sin nombre'}
-                                </div>
-                              </td>
-                              <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '—'}</td>
-                              <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '—'}</td>
-                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
-                                {inv.cantidad_disponible}
-                              </td>
-                              <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
-                            </tr>
-                          ))}
-                        {inventoryList.length === 0 && (
-                          <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
-                        )}
+                        {(() => {
+                          const filteredInv = inventoryList.filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()));
+                          return (
+                            <>
+                              {filteredInv.slice(inventoryPage * 10, (inventoryPage + 1) * 10).map((inv, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      {inv.products?.imagen_url && (
+                                        <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
+                                      )}
+                                      {inv.products?.nombre_producto || 'Sin nombre'}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '-'}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '-'}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
+                                    {inv.cantidad_disponible}
+                                  </td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
+                                </tr>
+                              ))}
+                              {filteredInv.length === 0 && (
+                                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
+                              )}
+                            </>
+                          );
+                        })()}
                       </tbody>
                     </table>
+
+                    {(() => {
+                      const filteredInv = inventoryList.filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()));
+                      if (filteredInv.length > 10) {
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                              Mostrando {inventoryPage * 10 + 1} a {Math.min((inventoryPage + 1) * 10, filteredInv.length)} de {filteredInv.length} productos
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <button onClick={() => setInventoryPage(p => Math.max(0, p - 1))} disabled={inventoryPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: inventoryPage === 0 ? '#f1f5f9' : 'white', cursor: inventoryPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
+                              <button onClick={() => setInventoryPage(p => p + 1)} disabled={(inventoryPage + 1) * 10 >= filteredInv.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (inventoryPage + 1) * 10 >= filteredInv.length ? '#f1f5f9' : 'white', cursor: (inventoryPage + 1) * 10 >= filteredInv.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </>
                 ) : (
                   <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
@@ -2855,65 +2881,122 @@ export default function POSPage() {
               </div>
             ) : activeMenuId === 'ventas' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
-                <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Ventas POS</h2>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>#</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Fecha</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'left' }}>Cajero</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'center' }}>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {salesLogs.map((s, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.75rem', fontWeight: '800', color: '#80082E' }}>
-                          {(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(s.consecutive || 0).padStart(4, '0')}
-                        </td>
-                        <td style={{ padding: '0.75rem', color: '#64748b' }}>{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : '—'}</td>
-                        <td style={{ padding: '0.75rem' }}>{s.vendedor || s.usuario_apertura || '—'}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>${Number(s.total).toLocaleString('es-CO')}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                          <span style={{ backgroundColor: '#dcfce7', color: '#15803d', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '900', fontSize: '0.625rem', textTransform: 'uppercase' }}>
-                            {s.estado || 'Completada'}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Ventas POS</h2>
+                  <select
+                    value={reportDateRange}
+                    onChange={(e) => { setReportDateRange(e.target.value); setSalesPage(0); }}
+                    style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white', color: '#334155', fontWeight: '700' }}
+                  >
+                    <option value="today">Ventas del Día</option>
+                    <option value="all">Histórico Completo</option>
+                  </select>
+                </div>
+                {(() => {
+                  const filteredSales = salesLogs.filter((s: any) => {
+                    if (reportDateRange === 'today') {
+                      const d = new Date();
+                      // Format to local date YYYY-MM-DD
+                      const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                      return s.created_at && s.created_at.includes(localStr);
+                    }
+                    return true;
+                  });
+
+                  return (
+                    <>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                            <th style={{ padding: '0.75rem', textAlign: 'left' }}>#</th>
+                            <th style={{ padding: '0.75rem', textAlign: 'left' }}>Fecha</th>
+                            <th style={{ padding: '0.75rem', textAlign: 'left' }}>Cajero</th>
+                            <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total</th>
+                            <th style={{ padding: '0.75rem', textAlign: 'center' }}>Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredSales.slice(salesPage * 10, (salesPage + 1) * 10).map((s, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '0.75rem', fontWeight: '800', color: '#80082E' }}>
+                                {(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(s.consecutive || 0).padStart(4, '0')}
+                              </td>
+                              <td style={{ padding: '0.75rem', color: '#64748b' }}>{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : '-'}</td>
+                              <td style={{ padding: '0.75rem' }}>{s.vendedor || s.usuario_apertura || '-'}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>${Number(s.total).toLocaleString('es-CO')}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                <span style={{ backgroundColor: '#dcfce7', color: '#15803d', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '900', fontSize: '0.625rem', textTransform: 'uppercase' }}>
+                                  {s.estado || 'Completada'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {filteredSales.length === 0 && (
+                            <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay ventas registradas.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+
+                      {filteredSales.length > 10 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                            Mostrando {salesPage * 10 + 1} a {Math.min((salesPage + 1) * 10, filteredSales.length)} de {filteredSales.length} ventas
                           </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {salesLogs.length === 0 && (
-                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay ventas registradas.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={() => setSalesPage(p => Math.max(0, p - 1))} disabled={salesPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: salesPage === 0 ? '#f1f5f9' : 'white', cursor: salesPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
+                            <button onClick={() => setSalesPage(p => p + 1)} disabled={(salesPage + 1) * 10 >= filteredSales.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (salesPage + 1) * 10 >= filteredSales.length ? '#f1f5f9' : 'white', cursor: (salesPage + 1) * 10 >= filteredSales.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : activeMenuId === 'reportes' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.5rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
-                <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Resumen Gerencial de Gestión</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Resumen Gerencial de Gestión</h2>
+                  <select
+                    value={reportDateRange}
+                    onChange={(e) => { setReportDateRange(e.target.value); }}
+                    style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white', color: '#334155', fontWeight: '700' }}
+                  >
+                    <option value="today">Ventas del Día</option>
+                    <option value="all">Histórico Completo</option>
+                  </select>
+                </div>
                 {/* Dashboard KPI cards styled as requested */}
                 {(() => {
-                  const totalSales = salesLogs.reduce((s, v) => s + (Number(v.total) || 0), 0);
-                  const totalTx = salesLogs.length;
+                  const filteredSales = salesLogs.filter((s: any) => {
+                    if (reportDateRange === 'today') {
+                      const d = new Date();
+                      const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                      return s.created_at && s.created_at.includes(localStr);
+                    }
+                    return true;
+                  });
+
+                  const totalSales = filteredSales.reduce((s, v) => s + (Number(v.total) || 0), 0);
+                  const totalTx = filteredSales.length;
                   const avgTicket = totalTx > 0 ? Math.round(totalSales / totalTx) : 0;
                   const totalDiff = managerShifts.reduce((s, sh) => s + (Number(sh.diferencia) || 0), 0);
-                  const totalItemsSold = salesLogs.reduce((s, v) => {
+                  const totalItemsSold = filteredSales.reduce((s, v) => {
                     return s + (v.items?.reduce((is: number, i: any) => is + Number(i.cantidad || 0), 0) || 0);
                   }, 0);
 
-                  const payEfectivo = salesLogs.reduce((s, v) => {
+                  const payEfectivo = filteredSales.reduce((s, v) => {
                     const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Efectivo') || [];
                     return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
                   }, 0);
-                  const payTarjeta = salesLogs.reduce((s, v) => {
+                  const payTarjeta = filteredSales.reduce((s, v) => {
                     const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Tarjeta' || p.metodo_pago === 'Datafono') || [];
                     return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
                   }, 0);
-                  const payTransferencia = salesLogs.reduce((s, v) => {
+                  const payTransferencia = filteredSales.reduce((s, v) => {
                     const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Transferencia') || [];
                     return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
                   }, 0);
-                  const payMixto = salesLogs.reduce((s, v) => {
+                  const payMixto = filteredSales.reduce((s, v) => {
                     return s + (v.pos_payments?.length > 1 ? Number(v.total) : 0);
                   }, 0);
 
