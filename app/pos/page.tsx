@@ -109,6 +109,7 @@ export default function POSPage() {
   const [activeMenuId, setActiveMenuId] = useState('pos');
   const [salesPage, setSalesPage] = useState(0);
   const [inventoryPage, setInventoryPage] = useState(0);
+  const [shiftsPage, setShiftsPage] = useState(0);
   const [reportDateRange, setReportDateRange] = useState('today');
   
   // Inline CRM states
@@ -3234,14 +3235,14 @@ export default function POSPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {managerShifts.map((sh, idx) => (
+                    {managerShifts.slice(shiftsPage * 10, (shiftsPage + 1) * 10).map((sh, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '0.75rem', fontWeight: '800' }}>{sh.usuario_apertura}</td>
                         <td style={{ padding: '0.75rem', color: '#64748b' }}>{new Date(sh.fecha_apertura).toLocaleString('es-CO')}</td>
                         <td style={{ padding: '0.75rem', textAlign: 'right' }}>${Number(sh.monto_apertura).toLocaleString('es-CO')}</td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right' }}>{sh.monto_cierre_real != null ? `$${Number(sh.monto_cierre_real).toLocaleString('es-CO')}` : '—'}</td>
+                        <td style={{ padding: '0.75rem', textAlign: 'right' }}>{sh.monto_cierre_real != null ? `$${Number(sh.monto_cierre_real).toLocaleString('es-CO')}` : '-'}</td>
                         <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '800', color: Number(sh.diferencia) >= 0 ? '#10b981' : '#ef4444' }}>
-                          {sh.diferencia != null ? `$${Number(sh.diferencia).toLocaleString('es-CO')}` : '—'}
+                          {sh.diferencia != null ? `$${Number(sh.diferencia).toLocaleString('es-CO')}` : '-'}
                         </td>
                         <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                           <span style={{ backgroundColor: sh.estado === 'abierta' ? '#dcfce7' : '#f1f5f9', color: sh.estado === 'abierta' ? '#15803d' : '#475569', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '900', textTransform: 'uppercase', fontSize: '0.625rem' }}>
@@ -3255,6 +3256,17 @@ export default function POSPage() {
                     )}
                   </tbody>
                 </table>
+                {managerShifts.length > 10 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                      Mostrando {shiftsPage * 10 + 1} a {Math.min((shiftsPage + 1) * 10, managerShifts.length)} de {managerShifts.length} turnos
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => setShiftsPage(p => Math.max(0, p - 1))} disabled={shiftsPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: shiftsPage === 0 ? '#f1f5f9' : 'white', cursor: shiftsPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
+                      <button onClick={() => setShiftsPage(p => p + 1)} disabled={(shiftsPage + 1) * 10 >= managerShifts.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (shiftsPage + 1) * 10 >= managerShifts.length ? '#f1f5f9' : 'white', cursor: (shiftsPage + 1) * 10 >= managerShifts.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : activeMenuId === 'promociones' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.5rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
