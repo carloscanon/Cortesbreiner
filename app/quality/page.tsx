@@ -2458,9 +2458,9 @@ export default function QualityPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <div>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  ↻ Control de Devoluciones al Taller
+                  ↻ Gestión Integral de Rechazos
                 </h3>
-                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Gestión de lotes rechazados y devueltos a reproceso externo.</p>
+                <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Historial y gestión de todos los lotes que tienen o tuvieron rechazos y devoluciones.</p>
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -2469,48 +2469,106 @@ export default function QualityPage() {
                   <tr style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontWeight: '800', textAlign: 'left', borderBottom: '2px solid #cbd5e1' }}>
                     <th style={{ padding: '0.85rem' }}>Lote / Orden</th>
                     <th style={{ padding: '0.85rem' }}>Taller Asignado</th>
-                    <th style={{ padding: '0.85rem' }}>Fecha de Envío</th>
-                    <th style={{ padding: '0.85rem' }}>Observaciones de Rechazo</th>
-                    <th style={{ padding: '0.85rem', textAlign: 'center' }}>Acciones</th>
+                    <th style={{ padding: '0.85rem' }}>Defectos Reportados</th>
+                    <th style={{ padding: '0.85rem' }}>Estado Actual</th>
+                    <th style={{ padding: '0.85rem', textAlign: 'center' }}>Acciones de Gestión</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {inspections.filter((i: any) => i.status === 'En Taller').length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.85rem' }}>No hay lotes en taller actualmente.</td></tr>
-                  ) : inspections.filter((i: any) => i.status === 'En Taller').map((i: any) => {
-                    const orderRef = i.orders?.order_number || i.sewing_orders?.order_number || 'N/A';
-                    const workshop = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
-                    const sendDate = i.updated_at || i.created_at;
-                    return (
-                      <tr key={i.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
-                        <td style={{ padding: '1rem 0.85rem', fontWeight: '900', color: '#b91c1c' }}>{orderRef}</td>
-                        <td style={{ padding: '1rem 0.85rem', color: '#475569', fontWeight: '700' }}>{workshop}</td>
-                        <td style={{ padding: '1rem 0.85rem', color: '#64748b' }}>{new Date(sendDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td style={{ padding: '1rem 0.85rem', color: '#475569', fontSize: '0.72rem', maxWidth: '300px' }}>
-                          {i.notes ? (i.notes.length > 80 ? i.notes.substring(0, 80) + '...' : i.notes) : 'Sin observaciones específicas.'}
-                        </td>
-                        <td style={{ padding: '1rem 0.85rem', textAlign: 'center' }}>
-                          <button
-                            onClick={async () => {
-                              if (window.confirm(`¿Confirmas que el taller devolvió el lote ${orderRef} con los arreglos, y está listo para reiniciar inspección?`)) {
-                                try {
-                                  await supabase.from('quality_inspections').update({ status: 'En Proceso', current_stage: 1 }).eq('id', i.id);
-                                  if (i.sewing_order_id) {
-                                    await supabase.from('sewing_orders').update({ status: 'En Calidad' }).eq('id', i.sewing_order_id);
-                                  }
-                                  alert(`✅ El lote ${orderRef} ha sido recibido y retornado a la Etapa 1 de Calidad.`);
-                                  fetchInspections();
-                                } catch (err: any) { alert('Error: ' + err.message); }
-                              }
-                            }}
-                            style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.72rem', fontWeight: '850', cursor: 'pointer', boxShadow: '0 2px 4px rgba(16,185,129,0.2)' }}
-                          >
-                            Recibir de Taller
-                          </button>
-                        </td>
-                      </tr>
+                  {(() => {
+                    const rejectionsList = inspections.filter((i: any) => 
+                      i.status === 'En Taller' || 
+                      i.status === 'Reproceso' || 
+                      i.items_rejected > 0 || 
+                      (Number(i.costuras) || 0) > 0 || 
+                      (Number(i.saldos) || 0) > 0 || 
+                      (Number(i.lavanderia) || 0) > 0 || 
+                      (Number(i.incompleto) || 0) > 0 || 
+                      (Number(i.danadas_facturar) || 0) > 0 ||
+                      (i.notes && i.notes.toLowerCase().includes('rechaz'))
                     );
-                  })}
+
+                    if (rejectionsList.length === 0) {
+                      return <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.85rem' }}>No hay lotes con historial de rechazos.</td></tr>;
+                    }
+
+                    return rejectionsList.map((i: any) => {
+                      const orderRef = i.orders?.order_number || i.sewing_orders?.order_number || 'N/A';
+                      const workshop = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
+                      
+                      const defects = [];
+                      if (Number(i.costuras) > 0) defects.push(`${i.costuras} Costuras`);
+                      if (Number(i.lavanderia) > 0) defects.push(`${i.lavanderia} Lavandería`);
+                      if (Number(i.saldos) > 0) defects.push(`${i.saldos} Saldos`);
+                      if (Number(i.incompleto) > 0) defects.push(`${i.incompleto} Incompletos`);
+                      if (Number(i.danadas_facturar) > 0) defects.push(`${i.danadas_facturar} Dañadas (Facturar)`);
+                      const defectStr = defects.length > 0 ? defects.join(' | ') : 'Rechazo general o en notas';
+
+                      return (
+                        <tr key={i.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                          <td style={{ padding: '1rem 0.85rem', fontWeight: '900', color: '#1e293b' }}>{orderRef}</td>
+                          <td style={{ padding: '1rem 0.85rem', color: '#475569', fontWeight: '700' }}>{workshop}</td>
+                          <td style={{ padding: '1rem 0.85rem', color: '#b91c1c', fontSize: '0.72rem', fontWeight: '800' }}>{defectStr}</td>
+                          <td style={{ padding: '1rem 0.85rem' }}>
+                            <span style={{ 
+                              backgroundColor: i.status === 'En Taller' ? '#fee2e2' : i.status === 'Reproceso' ? '#fef3c7' : '#f1f5f9',
+                              color: i.status === 'En Taller' ? '#991b1b' : i.status === 'Reproceso' ? '#92400e' : '#475569',
+                              padding: '0.3rem 0.6rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.65rem', textTransform: 'uppercase'
+                            }}>
+                              {i.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem 0.85rem', textAlign: 'center', display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            
+                            <button
+                              onClick={() => { setActiveDashboardTab(null); openReview(i); }}
+                              style={{ backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                            >
+                              Ver Lote
+                            </button>
+
+                            {i.status === 'En Taller' && (
+                              <button
+                                onClick={async () => {
+                                  if (window.confirm(`¿Confirmas que el taller devolvió el lote ${orderRef} con los arreglos?`)) {
+                                    try {
+                                      await supabase.from('quality_inspections').update({ status: 'En Proceso', current_stage: 1 }).eq('id', i.id);
+                                      if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'En Calidad' }).eq('id', i.sewing_order_id);
+                                      alert(`✅ Lote ${orderRef} recibido y retornado a Etapa 1.`);
+                                      fetchInspections();
+                                    } catch (err: any) { alert('Error: ' + err.message); }
+                                  }
+                                }}
+                                style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                              >
+                                Recibir
+                              </button>
+                            )}
+
+                            {i.status !== 'En Taller' && i.status !== 'Aprobado' && i.status !== 'Empacado' && (
+                              <button
+                                onClick={async () => {
+                                  if (window.confirm(`¿Enviar el lote ${orderRef} devuelta al Taller de Confección?`)) {
+                                    try {
+                                      await revertQualityApprovalFromInventory(i.id);
+                                      await supabase.from('quality_inspections').update({ status: 'En Taller', current_stage: 2 }).eq('id', i.id);
+                                      if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'Reproceso Taller' }).eq('id', i.sewing_order_id);
+                                      alert(`✅ Lote ${orderRef} enviado a Taller.`);
+                                      fetchInspections();
+                                    } catch (err: any) { alert('Error: ' + err.message); }
+                                  }
+                                }}
+                                style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                              >
+                                Enviar a Taller
+                              </button>
+                            )}
+
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
