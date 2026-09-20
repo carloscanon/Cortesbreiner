@@ -1517,11 +1517,17 @@ export default function POSPage() {
   }, [selectedPriceListId, products, priceListItems]);
 
   const handleAddToCart = (product: any) => {
-    const defaultColor = colors?.[0];
-    const defaultSize = sizes?.[0];
+    // 1. Find variants of this product that actually have stock in the current store
+    const inStockItems = inventoryList.filter(inv => inv.product_id === product.id && Number(inv.cantidad_disponible) > 0);
+    // 2. Default to the first in-stock variant, otherwise fallback to generic first color/size
+    const defaultInv = inStockItems.length > 0 ? inStockItems[0] : null;
+
+    const defaultColorId = defaultInv ? defaultInv.color_id : (colors?.[0]?.id || null);
+    const defaultSizeId = defaultInv ? defaultInv.size_id : (sizes?.[0]?.id || null);
+
     const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems);
 
-    const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === defaultSize?.id && !item.is_return);
+    const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === defaultSizeId && item.color_id === defaultColorId && !item.is_return);
 
     if (existingIndex > -1) {
       const newCart = [...cart];
@@ -1534,8 +1540,8 @@ export default function POSPage() {
         nombre: product.nombre_producto,
         codigo_referencia: product.codigo_referencia,
         precio: resolvedPrice,
-        color_id: defaultColor?.id || null,
-        size_id: defaultSize?.id || null,
+        color_id: defaultColorId,
+        size_id: defaultSizeId,
         cantidad: 1,
         is_return: false,
         imagen_url: product.imagen_url
