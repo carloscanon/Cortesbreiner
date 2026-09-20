@@ -2534,7 +2534,16 @@ export default function QualityPage() {
                         {filteredRejections.length === 0 ? (
                           <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.85rem' }}>No se encontraron lotes con rechazos.</td></tr>
                         ) : filteredRejections.slice(rejectionsPage * 10, (rejectionsPage + 1) * 10).map((i: any) => {
-                          const orderRef = i.orders?.order_number || i.sewing_orders?.order_number || 'N/A';
+                          const ordCons = i.orders?.consecutive
+                            ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}`
+                            : (i.sewing_orders?.parent_order?.consecutive
+                              ? `OC-${i.sewing_orders.parent_order.consecutive.toString().padStart(4, '0')}`
+                              : (i.orders?.internal_code || i.sewing_orders?.parent_order?.internal_code || ''));
+                          const confCode = i.sewing_orders?.confeccion_code || '';
+                          const orderRef = ordCons && confCode
+                            ? `${ordCons} — ${confCode}`
+                            : (ordCons || confCode || 'N/A');
+                            
                           const workshop = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
                           
                           const defects = [];
@@ -2586,7 +2595,7 @@ export default function QualityPage() {
                                   </button>
                                 )}
 
-                                {i.status !== 'En Taller' && i.status !== 'Aprobado' && i.status !== 'Empacado' && (
+                                {i.status !== 'En Taller' && (
                                   <button
                                     onClick={async () => {
                                       if (window.confirm(`¿Enviar el lote ${orderRef} devuelta al Taller de Confección?`)) {
