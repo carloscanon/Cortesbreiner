@@ -210,8 +210,8 @@ export default function POSPage() {
   const [newUserAvatarBase64, setNewUserAvatarBase64] = useState('');
   const [newUserAvatarName, setNewUserAvatarName] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
-  const [selectedShiftDate, setSelectedShiftDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedShiftEndDate, setSelectedShiftEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedShiftDate, setSelectedShiftDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }));
+  const [selectedShiftEndDate, setSelectedShiftEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }));
   const [isWeeklyShift, setIsWeeklyShift] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([1,2,3,4,5,6]); // Lun a Sab
   const [selectedShiftUser, setSelectedShiftUser] = useState('');
@@ -1019,7 +1019,7 @@ export default function POSPage() {
     if (!storeId || !userId) return;
     setCheckingShift(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
       const { data, error } = await supabase
         .from('store_staff_shifts')
         .select('*')
@@ -1209,7 +1209,7 @@ export default function POSPage() {
             inserts.push({
               store_id: selectedStore.id,
               user_id: selectedShiftUser,
-              fecha: curr.toISOString().split('T')[0],
+              fecha: curr.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }),
               hora_entrada: selectedShiftIn,
               hora_salida: selectedShiftOut,
               estado: 'programado'
@@ -1272,12 +1272,14 @@ export default function POSPage() {
       const { data: reg } = await supabase.from('pos_registers').select('*').eq('store_id', storeId);
       setRegisters(reg || []);
       
-      if (preselectRegisterId && reg) {
-        const foundReg = reg.find(r => r.id === preselectRegisterId);
-        if (foundReg) {
-          setSelectedRegister(foundReg);
-          await checkActiveSession(foundReg.id);
+      if (reg && reg.length > 0) {
+        let foundReg = preselectRegisterId ? reg.find(r => r.id === preselectRegisterId) : null;
+        if (!foundReg) {
+          foundReg = reg[0];
+          localStorage.setItem('pos_selected_register_id', foundReg.id);
         }
+        setSelectedRegister(foundReg);
+        await checkActiveSession(foundReg.id);
       }
     } catch (err) {
       console.error(err);
@@ -1587,8 +1589,7 @@ export default function POSPage() {
     if (!currentSession && isOnline) return alert('Debes abrir caja antes de registrar ventas.');
     if (cart.length === 0) return alert('El carrito está vacío.');
 
-    const d = new Date();
-    const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
     
     const activePromo = promotions.find(p => {
       if (!p.activo) return false;
@@ -1714,8 +1715,7 @@ export default function POSPage() {
 
   const getAppliedPromotion = () => {
     if (promotions.length === 0) return null;
-    const d = new Date();
-    const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
     
     return promotions.find(p => {
       if (!p.activo) return false;
@@ -2896,9 +2896,7 @@ export default function POSPage() {
                 {(() => {
                   const filteredSales = salesLogs.filter((s: any) => {
                     if (reportDateRange === 'today') {
-                      const d = new Date();
-                      // Format to local date YYYY-MM-DD
-                      const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                      const localStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
                       return s.created_at && s.created_at.includes(localStr);
                     }
                     return true;
@@ -2970,8 +2968,7 @@ export default function POSPage() {
                 {(() => {
                   const filteredSales = salesLogs.filter((s: any) => {
                     if (reportDateRange === 'today') {
-                      const d = new Date();
-                      const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                      const localStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
                       return s.created_at && s.created_at.includes(localStr);
                     }
                     return true;
