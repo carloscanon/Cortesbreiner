@@ -155,6 +155,8 @@ export default function QualityPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('Pendiente');
   const [qualityPage, setQualityPage] = useState(0);
+  const [rejectionsPage, setRejectionsPage] = useState(0);
+  const [rejectionsSearch, setRejectionsSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>(EMPTY_FORM);
@@ -2455,123 +2457,188 @@ export default function QualityPage() {
 
         {activeDashboardTab === 'rejections' && (
           <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   ↻ Gestión Integral de Rechazos
                 </h3>
                 <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Historial y gestión de todos los lotes que tienen o tuvieron rechazos y devoluciones.</p>
               </div>
+              
+              <div style={{ position: 'relative', width: '300px' }}>
+                <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  placeholder="Buscar lote o taller..."
+                  value={rejectionsSearch}
+                  onChange={(e) => { setRejectionsSearch(e.target.value); setRejectionsPage(0); }}
+                  style={{ width: '100%', padding: '0.5rem 1rem 0.5rem 2.2rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
+                />
+              </div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontWeight: '800', textAlign: 'left', borderBottom: '2px solid #cbd5e1' }}>
-                    <th style={{ padding: '0.85rem' }}>Lote / Orden</th>
-                    <th style={{ padding: '0.85rem' }}>Taller Asignado</th>
-                    <th style={{ padding: '0.85rem' }}>Defectos Reportados</th>
-                    <th style={{ padding: '0.85rem' }}>Estado Actual</th>
-                    <th style={{ padding: '0.85rem', textAlign: 'center' }}>Acciones de Gestión</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const rejectionsList = inspections.filter((i: any) => 
-                      i.status === 'En Taller' || 
-                      i.status === 'Reproceso' || 
-                      i.items_rejected > 0 || 
-                      (Number(i.costuras) || 0) > 0 || 
-                      (Number(i.saldos) || 0) > 0 || 
-                      (Number(i.lavanderia) || 0) > 0 || 
-                      (Number(i.incompleto) || 0) > 0 || 
-                      (Number(i.danadas_facturar) || 0) > 0 ||
-                      (i.notes && i.notes.toLowerCase().includes('rechaz'))
-                    );
 
-                    if (rejectionsList.length === 0) {
-                      return <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.85rem' }}>No hay lotes con historial de rechazos.</td></tr>;
-                    }
+            {(() => {
+              const rejectionsList = inspections.filter((i: any) => 
+                i.status === 'En Taller' || 
+                i.status === 'Reproceso' || 
+                i.items_rejected > 0 || 
+                (Number(i.costuras) || 0) > 0 || 
+                (Number(i.saldos) || 0) > 0 || 
+                (Number(i.lavanderia) || 0) > 0 || 
+                (Number(i.incompleto) || 0) > 0 || 
+                (Number(i.danadas_facturar) || 0) > 0 ||
+                (i.notes && i.notes.toLowerCase().includes('rechaz'))
+              );
 
-                    return rejectionsList.map((i: any) => {
-                      const orderRef = i.orders?.order_number || i.sewing_orders?.order_number || 'N/A';
-                      const workshop = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
-                      
-                      const defects = [];
-                      if (Number(i.costuras) > 0) defects.push(`${i.costuras} Costuras`);
-                      if (Number(i.lavanderia) > 0) defects.push(`${i.lavanderia} Lavandería`);
-                      if (Number(i.saldos) > 0) defects.push(`${i.saldos} Saldos`);
-                      if (Number(i.incompleto) > 0) defects.push(`${i.incompleto} Incompletos`);
-                      if (Number(i.danadas_facturar) > 0) defects.push(`${i.danadas_facturar} Dañadas (Facturar)`);
-                      const defectStr = defects.length > 0 ? defects.join(' | ') : 'Rechazo general o en notas';
+              const totalLotes = rejectionsList.length;
+              const enTaller = rejectionsList.filter(i => i.status === 'En Taller').length;
+              const solucionados = rejectionsList.filter(i => i.status === 'Aprobado' || i.status === 'Empacado').length;
+              const solucionPct = totalLotes > 0 ? Math.round((solucionados / totalLotes) * 100) : 0;
 
-                      return (
-                        <tr key={i.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
-                          <td style={{ padding: '1rem 0.85rem', fontWeight: '900', color: '#1e293b' }}>{orderRef}</td>
-                          <td style={{ padding: '1rem 0.85rem', color: '#475569', fontWeight: '700' }}>{workshop}</td>
-                          <td style={{ padding: '1rem 0.85rem', color: '#b91c1c', fontSize: '0.72rem', fontWeight: '800' }}>{defectStr}</td>
-                          <td style={{ padding: '1rem 0.85rem' }}>
-                            <span style={{ 
-                              backgroundColor: i.status === 'En Taller' ? '#fee2e2' : i.status === 'Reproceso' ? '#fef3c7' : '#f1f5f9',
-                              color: i.status === 'En Taller' ? '#991b1b' : i.status === 'Reproceso' ? '#92400e' : '#475569',
-                              padding: '0.3rem 0.6rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.65rem', textTransform: 'uppercase'
-                            }}>
-                              {i.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '1rem 0.85rem', textAlign: 'center', display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                            
-                            <button
-                              onClick={() => { setActiveDashboardTab(null); openReview(i); }}
-                              style={{ backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
-                            >
-                              Ver Lote
-                            </button>
+              const filteredRejections = rejectionsList.filter(i => {
+                if (!rejectionsSearch) return true;
+                const ref = (i.orders?.order_number || i.sewing_orders?.order_number || '').toLowerCase();
+                const ws = (i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || '').toLowerCase();
+                return ref.includes(rejectionsSearch.toLowerCase()) || ws.includes(rejectionsSearch.toLowerCase());
+              });
 
-                            {i.status === 'En Taller' && (
-                              <button
-                                onClick={async () => {
-                                  if (window.confirm(`¿Confirmas que el taller devolvió el lote ${orderRef} con los arreglos?`)) {
-                                    try {
-                                      await supabase.from('quality_inspections').update({ status: 'En Proceso', current_stage: 1 }).eq('id', i.id);
-                                      if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'En Calidad' }).eq('id', i.sewing_order_id);
-                                      alert(`✅ Lote ${orderRef} recibido y retornado a Etapa 1.`);
-                                      fetchInspections();
-                                    } catch (err: any) { alert('Error: ' + err.message); }
-                                  }
-                                }}
-                                style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
-                              >
-                                Recibir
-                              </button>
-                            )}
+              return (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ padding: '1rem', backgroundColor: '#fef2f2', borderRadius: '12px', border: '1px solid #fecaca' }}>
+                      <p style={{ margin: 0, fontSize: '0.7rem', color: '#991b1b', fontWeight: '800' }}>TOTAL LOTES RECHAZADOS</p>
+                      <h4 style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', color: '#7f1d1d', fontWeight: '900' }}>{totalLotes}</h4>
+                    </div>
+                    <div style={{ padding: '1rem', backgroundColor: '#fffbeb', borderRadius: '12px', border: '1px solid #fde68a' }}>
+                      <p style={{ margin: 0, fontSize: '0.7rem', color: '#92400e', fontWeight: '800' }}>DEVUELTOS (EN TALLER)</p>
+                      <h4 style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', color: '#78350f', fontWeight: '900' }}>{enTaller}</h4>
+                    </div>
+                    <div style={{ padding: '1rem', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                      <p style={{ margin: 0, fontSize: '0.7rem', color: '#166534', fontWeight: '800' }}>SOLUCIONADOS</p>
+                      <h4 style={{ margin: '0.25rem 0 0', fontSize: '1.5rem', color: '#14532d', fontWeight: '900' }}>{solucionPct}%</h4>
+                    </div>
+                  </div>
 
-                            {i.status !== 'En Taller' && i.status !== 'Aprobado' && i.status !== 'Empacado' && (
-                              <button
-                                onClick={async () => {
-                                  if (window.confirm(`¿Enviar el lote ${orderRef} devuelta al Taller de Confección?`)) {
-                                    try {
-                                      await revertQualityApprovalFromInventory(i.id);
-                                      await supabase.from('quality_inspections').update({ status: 'En Taller', current_stage: 2 }).eq('id', i.id);
-                                      if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'Reproceso Taller' }).eq('id', i.sewing_order_id);
-                                      alert(`✅ Lote ${orderRef} enviado a Taller.`);
-                                      fetchInspections();
-                                    } catch (err: any) { alert('Error: ' + err.message); }
-                                  }
-                                }}
-                                style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
-                              >
-                                Enviar a Taller
-                              </button>
-                            )}
-
-                          </td>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f1f5f9', color: '#64748b', fontWeight: '800', textAlign: 'left', borderBottom: '2px solid #cbd5e1' }}>
+                          <th style={{ padding: '0.85rem' }}>Lote / Orden</th>
+                          <th style={{ padding: '0.85rem' }}>Taller Asignado</th>
+                          <th style={{ padding: '0.85rem' }}>Defectos Reportados</th>
+                          <th style={{ padding: '0.85rem' }}>Estado Actual</th>
+                          <th style={{ padding: '0.85rem', textAlign: 'center' }}>Acciones de Gestión</th>
                         </tr>
-                      );
-                    });
-                  })()}
-                </tbody>
-              </table>
-            </div>
+                      </thead>
+                      <tbody>
+                        {filteredRejections.length === 0 ? (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontSize: '0.85rem' }}>No se encontraron lotes con rechazos.</td></tr>
+                        ) : filteredRejections.slice(rejectionsPage * 10, (rejectionsPage + 1) * 10).map((i: any) => {
+                          const orderRef = i.orders?.order_number || i.sewing_orders?.order_number || 'N/A';
+                          const workshop = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
+                          
+                          const defects = [];
+                          if (Number(i.costuras) > 0) defects.push(`${i.costuras} Costuras`);
+                          if (Number(i.lavanderia) > 0) defects.push(`${i.lavanderia} Lavandería`);
+                          if (Number(i.saldos) > 0) defects.push(`${i.saldos} Saldos`);
+                          if (Number(i.incompleto) > 0) defects.push(`${i.incompleto} Incompletos`);
+                          if (Number(i.danadas_facturar) > 0) defects.push(`${i.danadas_facturar} Dañadas (Facturar)`);
+                          const defectStr = defects.length > 0 ? defects.join(' | ') : 'Rechazo general o en notas';
+
+                          return (
+                            <tr key={i.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                              <td style={{ padding: '1rem 0.85rem', fontWeight: '900', color: '#1e293b' }}>{orderRef}</td>
+                              <td style={{ padding: '1rem 0.85rem', color: '#475569', fontWeight: '700' }}>{workshop}</td>
+                              <td style={{ padding: '1rem 0.85rem', color: '#b91c1c', fontSize: '0.72rem', fontWeight: '800' }}>{defectStr}</td>
+                              <td style={{ padding: '1rem 0.85rem' }}>
+                                <span style={{ 
+                                  backgroundColor: i.status === 'En Taller' ? '#fee2e2' : i.status === 'Reproceso' ? '#fef3c7' : '#f1f5f9',
+                                  color: i.status === 'En Taller' ? '#991b1b' : i.status === 'Reproceso' ? '#92400e' : '#475569',
+                                  padding: '0.3rem 0.6rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.65rem', textTransform: 'uppercase'
+                                }}>
+                                  {i.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '1rem 0.85rem', textAlign: 'center', display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                
+                                <button
+                                  onClick={() => { setActiveDashboardTab(null); openReview(i); }}
+                                  style={{ backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                                >
+                                  Ver Lote
+                                </button>
+
+                                {i.status === 'En Taller' && (
+                                  <button
+                                    onClick={async () => {
+                                      if (window.confirm(`¿Confirmas que el taller devolvió el lote ${orderRef} con los arreglos?`)) {
+                                        try {
+                                          await supabase.from('quality_inspections').update({ status: 'En Proceso', current_stage: 1 }).eq('id', i.id);
+                                          if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'En Calidad' }).eq('id', i.sewing_order_id);
+                                          alert(`✅ Lote ${orderRef} recibido y retornado a Etapa 1.`);
+                                          fetchInspections();
+                                        } catch (err: any) { alert('Error: ' + err.message); }
+                                      }
+                                    }}
+                                    style={{ backgroundColor: '#10b981', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    Recibir
+                                  </button>
+                                )}
+
+                                {i.status !== 'En Taller' && i.status !== 'Aprobado' && i.status !== 'Empacado' && (
+                                  <button
+                                    onClick={async () => {
+                                      if (window.confirm(`¿Enviar el lote ${orderRef} devuelta al Taller de Confección?`)) {
+                                        try {
+                                          await revertQualityApprovalFromInventory(i.id);
+                                          await supabase.from('quality_inspections').update({ status: 'En Taller', current_stage: 2 }).eq('id', i.id);
+                                          if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'Reproceso Taller' }).eq('id', i.sewing_order_id);
+                                          alert(`✅ Lote ${orderRef} enviado a Taller.`);
+                                          fetchInspections();
+                                        } catch (err: any) { alert('Error: ' + err.message); }
+                                      }
+                                    }}
+                                    style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    Enviar a Taller
+                                  </button>
+                                )}
+
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {filteredRejections.length > 10 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', padding: '0.5rem 0' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                        Mostrando {rejectionsPage * 10 + 1} a {Math.min((rejectionsPage + 1) * 10, filteredRejections.length)} de {filteredRejections.length} lotes
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setRejectionsPage(p => Math.max(0, p - 1))}
+                          disabled={rejectionsPage === 0}
+                          style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: rejectionsPage === 0 ? '#f1f5f9' : 'white', cursor: rejectionsPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                        >
+                          Anterior
+                        </button>
+                        <button
+                          onClick={() => setRejectionsPage(p => p + 1)}
+                          disabled={(rejectionsPage + 1) * 10 >= filteredRejections.length}
+                          style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (rejectionsPage + 1) * 10 >= filteredRejections.length ? '#f1f5f9' : 'white', cursor: (rejectionsPage + 1) * 10 >= filteredRejections.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                        >
+                          Siguiente
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
