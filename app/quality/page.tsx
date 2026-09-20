@@ -157,6 +157,8 @@ export default function QualityPage() {
   const [qualityPage, setQualityPage] = useState(0);
   const [rejectionsPage, setRejectionsPage] = useState(0);
   const [rejectionsSearch, setRejectionsSearch] = useState('');
+  const [rejectionsWorkshop, setRejectionsWorkshop] = useState('all');
+  const [rejectionsStatus, setRejectionsStatus] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>(EMPTY_FORM);
@@ -2465,15 +2467,42 @@ export default function QualityPage() {
                 <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Historial y gestión de todos los lotes que tienen o tuvieron rechazos y devoluciones.</p>
               </div>
               
-              <div style={{ position: 'relative', width: '300px' }}>
-                <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  type="text"
-                  placeholder="Buscar lote o taller..."
-                  value={rejectionsSearch}
-                  onChange={(e) => { setRejectionsSearch(e.target.value); setRejectionsPage(0); }}
-                  style={{ width: '100%', padding: '0.5rem 1rem 0.5rem 2.2rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
-                />
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <select
+                  value={rejectionsWorkshop}
+                  onChange={(e) => { setRejectionsWorkshop(e.target.value); setRejectionsPage(0); }}
+                  style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: '#f8fafc', color: '#334155', fontWeight: '700' }}
+                >
+                  <option value="all">Todos los Talleres</option>
+                  {(() => {
+                    const wsList = Array.from(new Set(inspections.map((i: any) => i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno'))).sort();
+                    return wsList.map((ws: any) => <option key={ws} value={ws}>{ws}</option>);
+                  })()}
+                </select>
+
+                <select
+                  value={rejectionsStatus}
+                  onChange={(e) => { setRejectionsStatus(e.target.value); setRejectionsPage(0); }}
+                  style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: '#f8fafc', color: '#334155', fontWeight: '700' }}
+                >
+                  <option value="all">Todos los Estados</option>
+                  <option value="En Taller">En Taller</option>
+                  <option value="Reproceso">Reproceso (Interno)</option>
+                  <option value="En Proceso">En Proceso</option>
+                  <option value="Empacado">Empacado</option>
+                  <option value="Aprobado">Aprobado / Solucionado</option>
+                </select>
+
+                <div style={{ position: 'relative', width: '220px' }}>
+                  <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    placeholder="Buscar lote..."
+                    value={rejectionsSearch}
+                    onChange={(e) => { setRejectionsSearch(e.target.value); setRejectionsPage(0); }}
+                    style={{ width: '100%', padding: '0.5rem 1rem 0.5rem 2.2rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
+                  />
+                </div>
               </div>
             </div>
 
@@ -2490,17 +2519,27 @@ export default function QualityPage() {
                 (i.notes && i.notes.toLowerCase().includes('rechaz'))
               );
 
-              const totalLotes = rejectionsList.length;
-              const enTaller = rejectionsList.filter(i => i.status === 'En Taller').length;
-              const solucionados = rejectionsList.filter(i => i.status === 'Aprobado' || i.status === 'Empacado').length;
-              const solucionPct = totalLotes > 0 ? Math.round((solucionados / totalLotes) * 100) : 0;
-
               const filteredRejections = rejectionsList.filter(i => {
-                if (!rejectionsSearch) return true;
-                const ref = (i.orders?.order_number || i.sewing_orders?.order_number || '').toLowerCase();
-                const ws = (i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || '').toLowerCase();
-                return ref.includes(rejectionsSearch.toLowerCase()) || ws.includes(rejectionsSearch.toLowerCase());
+                const ws = i.sewing_orders?.workshops?.nombre_taller || i.orders?.workshops?.nombre_taller || 'Taller Interno';
+                if (rejectionsWorkshop !== 'all' && ws !== rejectionsWorkshop) return false;
+                if (rejectionsStatus !== 'all' && i.status !== rejectionsStatus) return false;
+                
+                if (rejectionsSearch) {
+                  const ordCons = i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : (i.sewing_orders?.parent_order?.consecutive ? `OC-${i.sewing_orders.parent_order.consecutive.toString().padStart(4, '0')}` : (i.orders?.internal_code || i.sewing_orders?.parent_order?.internal_code || ''));
+                  const confCode = i.sewing_orders?.confeccion_code || '';
+                  const orderRef = ordCons && confCode ? `${ordCons} — ${confCode}` : (ordCons || confCode || 'N/A');
+                  
+                  if (!orderRef.toLowerCase().includes(rejectionsSearch.toLowerCase()) && !ws.toLowerCase().includes(rejectionsSearch.toLowerCase())) {
+                    return false;
+                  }
+                }
+                return true;
               });
+
+              const totalLotes = filteredRejections.length;
+              const enTaller = filteredRejections.filter(i => i.status === 'En Taller').length;
+              const solucionados = filteredRejections.filter(i => i.status === 'Aprobado' || i.status === 'Empacado').length;
+              const solucionPct = totalLotes > 0 ? Math.round((solucionados / totalLotes) * 100) : 0;
 
               return (
                 <>
