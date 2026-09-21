@@ -15,24 +15,29 @@ export async function POST(req: Request) {
     });
 
     const body = await req.json();
-    const { items, docName, userEmail } = body;
+    const { items, docName, warehouseId, userEmail } = body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'La lista de items está vacía o es inválida.' }, { status: 400 });
     }
 
-    // 1. Obtener bodega principal activa
-    const { data: warehouses, error: whErr } = await supabaseAdmin
-      .from('warehouses')
-      .select('id, nombre_bodega')
-      .eq('estado', 'activo');
+    // 1. Determinar bodega destino
+    let targetWarehouseId = warehouseId;
+    if (!targetWarehouseId) {
+      const { data: warehouses, error: whErr } = await supabaseAdmin
+        .from('warehouses')
+        .select('id, nombre_bodega')
+        .eq('estado', 'activo');
 
-    if (whErr || !warehouses || warehouses.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron bodegas activas en el sistema.' }, { status: 500 });
+      if (whErr || !warehouses || warehouses.length === 0) {
+        return NextResponse.json({ error: 'No se encontraron bodegas activas en el sistema.' }, { status: 500 });
+      }
+
+      const defaultWarehouse = warehouses.find(w => w.nombre_bodega.toLowerCase().includes('principal')) || warehouses[0];
+      targetWarehouseId = defaultWarehouse.id;
     }
 
-    const defaultWarehouse = warehouses.find(w => w.nombre_bodega.toLowerCase().includes('principal')) || warehouses[0];
-    const defaultWarehouseId = defaultWarehouse.id;
+    const defaultWarehouseId = targetWarehouseId;
 
     // 2. Cargar maestros para mapear IDs a Nombres
     const { data: products } = await supabaseAdmin.from('products').select('id, nombre_producto, codigo_referencia, name');

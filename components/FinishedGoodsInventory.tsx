@@ -472,6 +472,7 @@ export default function FinishedGoodsInventory() {
   const [savingTransfer, setSavingTransfer] = useState(false);
 
   // Historical Inventory States
+  const [histWarehouseId, setHistWarehouseId] = useState('');
   const [histDocName, setHistDocName] = useState('Inventario Histórico ' + new Date().toLocaleDateString('es-CO'));
   const [histProduct, setHistProduct] = useState('');
   const [histColor, setHistColor] = useState('');
@@ -752,6 +753,7 @@ export default function FinishedGoodsInventory() {
     if (!histProduct) return alert('Selecciona un producto.');
     if (!histSize) return alert('Selecciona una talla.');
     if (histQty <= 0) return alert('La cantidad debe ser mayor a 0.');
+    if (!histWarehouseId) return alert('Selecciona una bodega de destino.');
 
     const selectedProd = products.find(p => p.id === histProduct);
     const selectedColor = colors.find(c => c.id === histColor);
@@ -763,16 +765,17 @@ export default function FinishedGoodsInventory() {
       productRef: selectedProd?.codigo_referencia || '',
       productName: selectedProd?.nombre_producto || selectedProd?.name || 'Desconocido',
       colorId: histColor || null,
-      colorName: selectedColor?.nombre_color || '—',
+      colorName: selectedColor?.nombre_color || '-',
       sizeId: histSize,
       sizeCode: selectedSize?.codigo_talla || 'ST',
       qty: histQty,
       notes: histNotes
     };
 
-    setHistCountedList([...histCountedList, newItem]);
+    setHistCountedList([newItem, ...histCountedList]);
     setHistQty(1);
     setHistNotes('');
+    setProductSearch('');
   };
 
   const handleRemoveHistItem = (id: string) => {
@@ -784,10 +787,15 @@ export default function FinishedGoodsInventory() {
       alert('Debes agregar al menos una referencia al conteo.');
       return;
     }
+    if (!histWarehouseId) {
+      alert('Debes seleccionar la bodega destino antes de procesar el inventario.');
+      return;
+    }
 
     const totalQty = histCountedList.reduce((sum, item) => sum + item.qty, 0);
+    const selectedWhName = warehouses.find(w => w.id === histWarehouseId)?.nombre_bodega || 'la bodega seleccionada';
 
-    if (!confirm(`¿Confirmas la carga de este inventario histórico?\n\n• Se generarán ${totalQty} códigos individuales.\n• Se alimentará la Bodega Principal.\n• Se registrarán los ingresos correspondientes en el Kardex.`)) {
+    if (!confirm(`¿Confirmas la carga de este inventario histórico?\n\n  Se generarán ${totalQty} códigos individuales.\n  Se alimentará ${selectedWhName}.\n  Se registrarán los ingresos correspondientes en el Kardex.`)) {
       return;
     }
 
@@ -799,6 +807,7 @@ export default function FinishedGoodsInventory() {
         body: JSON.stringify({
           items: histCountedList,
           docName: histDocName,
+          warehouseId: histWarehouseId,
           userEmail: user?.email || 'Sistema'
         })
       });
@@ -806,7 +815,7 @@ export default function FinishedGoodsInventory() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al procesar inventario histórico.');
 
-      alert(`✅ CARGA EXITOSA:\n\n• Se crearon ${data.createdCount} prendas individuales con códigos de barras.\n• El stock consolidado fue actualizado en Bodega Principal.`);
+      alert(`✅ CARGA EXITOSA:\n\n• Se crearon ${data.createdCount} prendas individuales con códigos de barras.\n• El stock consolidado fue actualizado en ${selectedWhName}.`);
       setHistSuccessGarments(data.garments || []);
       setHistCountedList([]);
       setShowHistLabelsModal(true);
@@ -3399,6 +3408,20 @@ export default function FinishedGoodsInventory() {
 
                   <form onSubmit={handleAddHistItem} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Bodega Destino</label>
+                        <select
+                          required
+                          value={histWarehouseId}
+                          onChange={e => setHistWarehouseId(e.target.value)}
+                          style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem', fontWeight: '700', backgroundColor: 'white' }}
+                        >
+                          <option value="">Selecciona la bodega...</option>
+                          {warehouses.map(w => (
+                            <option key={w.id} value={w.id}>{w.nombre_bodega}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Nombre de Documento / Lote</label>
                         <input
