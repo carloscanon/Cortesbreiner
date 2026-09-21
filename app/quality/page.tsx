@@ -184,7 +184,7 @@ export default function QualityPage() {
   const [receivingCheckId, setReceivingCheckId] = useState<string | null>(null);
   const [sewingOrdersInWorkshopsCount, setSewingOrdersInWorkshopsCount] = useState(0);
   const [sewingOrdersInWorkshopsQty, setSewingOrdersInWorkshopsQty] = useState(0);
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'daily_user' | 'tracking' | 'ranking' | 'alerts' | null>(null);
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'daily_user' | 'tracking' | 'ranking' | 'alerts' | 'rejections' | null>(null);
   
   // Dashboard diario por usuario state
   const [dailyUserDateFilter, setDailyUserDateFilter] = useState<string>(() => new Date().toISOString().split('T')[0]);
