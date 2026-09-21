@@ -775,7 +775,6 @@ export default function FinishedGoodsInventory() {
     setHistCountedList([newItem, ...histCountedList]);
     setHistQty(1);
     setHistNotes('');
-    setProductSearch('');
   };
 
   const handleRemoveHistItem = (id: string) => {
