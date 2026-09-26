@@ -300,14 +300,14 @@ export default function POSPage() {
       if (selectedStore.bodega_asociada_id) {
         const { data: inv } = await supabase
           .from('finished_goods_stock')
-          .select('*, products(*), sizes(*)')
+          .select('*, products(*), sizes(*), colors(*)')
           .eq('warehouse_id', selectedStore.bodega_asociada_id)
           .is('location_id', null);
         setInventoryList(inv || []);
       } else {
         const { data: inv } = await supabase
           .from('store_inventory')
-          .select('*, products(*), sizes(*)')
+          .select('*, products(*), sizes(*), colors(*)')
           .eq('store_id', selectedStore.id);
         setInventoryList(inv || []);
       }
@@ -992,7 +992,7 @@ export default function POSPage() {
     setLoading(true);
     try {
       const { data: st } = await supabase.from('stores').select('*').eq('estado', 'activo');
-      const { data: prod } = await supabase.from('products').select('*').eq('estado', 'activo');
+      const { data: prod } = await supabase.from('products').select('*, categories(*)').eq('estado', 'activo');
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: promo } = await supabase.from('pos_promotions').select('*').eq('activo', true);
@@ -1734,6 +1734,53 @@ export default function POSPage() {
             usuario: user?.email || 'Vendedor'
           });
         }
+
+        // FIFO discount of individual_garments (Unique barcodes)
+        if (cartItem.cantidad > 0) {
+          try {
+            const productObj = products.find(p => p.id === cartItem.product_id);
+            const colorObj = colors.find(c => c.id === cartItem.color_id);
+            const sizeObj = sizes.find(s => s.id === cartItem.size_id);
+            
+            if (productObj && sizeObj) {
+              const refName = productObj.nombre_producto || productObj.codigo_referencia;
+              let garmentQuery = supabase.from('individual_garments')
+                .select('id')
+                .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
+                .eq('size_code', sizeObj.codigo_talla)
+                .limit(cartItem.cantidad);
+                
+              if (colorObj?.nombre_color) {
+                garmentQuery = garmentQuery.eq('color_name', colorObj.nombre_color);
+              }
+                
+              const { data: maybeMatchName } = await garmentQuery.eq('reference_name', refName);
+              let matchedGarments = maybeMatchName || [];
+
+              if (matchedGarments.length === 0 && productObj.codigo_referencia) {
+                 const { data: matchRef } = await supabase.from('individual_garments')
+                  .select('id')
+                  .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
+                  .eq('size_code', sizeObj.codigo_talla)
+                  .eq('reference_name', productObj.codigo_referencia)
+                  .limit(cartItem.cantidad);
+                 matchedGarments = matchRef || [];
+              }
+
+              if (matchedGarments.length > 0) {
+                const ids = matchedGarments.map(g => g.id);
+                await supabase.from('individual_garments')
+                  .update({ 
+                    status: 'Vendido', 
+                    notes: `Vendido en POS - Transacción #${newSale.consecutive}` 
+                  })
+                  .in('id', ids);
+              }
+            }
+          } catch(e) {
+            console.error('Error descontando individual_garments:', e);
+          }
+        }
       }
 
       await supabase.from('pos_payments').insert({
@@ -1790,7 +1837,8 @@ export default function POSPage() {
     if (!hasInventory) return false;
 
     return p.nombre_producto?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase());
+      p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.categories?.categoria?.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   return (
@@ -2545,6 +2593,7 @@ export default function POSPage() {
                         <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
                           <th style={{ padding: '0.75rem', textAlign: 'left' }}>Producto</th>
                           <th style={{ padding: '0.75rem', textAlign: 'left' }}>Referencia</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Color</th>
                           <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
                           <th style={{ padding: '0.75rem', textAlign: 'center' }}>Disponible</th>
                           <th style={{ padding: '0.75rem', textAlign: 'center' }}>Reservado</th>
@@ -2566,6 +2615,7 @@ export default function POSPage() {
                                     </div>
                                   </td>
                                   <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '-'}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.colors?.nombre_color || '-'}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '-'}</td>
                                   <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
                                     {inv.cantidad_disponible}
@@ -2574,7 +2624,7 @@ export default function POSPage() {
                                 </tr>
                               ))}
                               {filteredInv.length === 0 && (
-                                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
                               )}
                             </>
                           );
@@ -4929,7 +4979,9 @@ export default function POSPage() {
                       {/* Product descriptive tags and title */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minHeight: '3.6rem', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                          <span style={{ fontSize: '0.55rem', fontWeight: '800', color: '#64748b' }}>REF: {p.codigo_referencia || '0132'}</span>
+                          <span style={{ fontSize: '0.55rem', fontWeight: '800', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            REF: {p.codigo_referencia || '-'} {p.categories?.categoria ? `| ${p.categories.categoria}` : ''}
+                          </span>
                           <h4 style={{
                             fontSize: catalogColumns >= 7 ? '0.72rem' : '0.825rem',
                             fontWeight: '850',
