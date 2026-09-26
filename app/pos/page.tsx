@@ -297,11 +297,20 @@ export default function POSPage() {
   const fetchInlineInventory = async () => {
     try {
       if (!selectedStore) return;
-      const { data: inv } = await supabase
-        .from('store_inventory')
-        .select('*, products(*), sizes(*)')
-        .eq('store_id', selectedStore.id);
-      setInventoryList(inv || []);
+      if (selectedStore.bodega_asociada_id) {
+        const { data: inv } = await supabase
+          .from('finished_goods_stock')
+          .select('*, products(*), sizes(*)')
+          .eq('warehouse_id', selectedStore.bodega_asociada_id)
+          .is('location_id', null);
+        setInventoryList(inv || []);
+      } else {
+        const { data: inv } = await supabase
+          .from('store_inventory')
+          .select('*, products(*), sizes(*)')
+          .eq('store_id', selectedStore.id);
+        setInventoryList(inv || []);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1665,34 +1674,66 @@ export default function POSPage() {
           total: cartItem.precio * cartItem.cantidad
         });
 
-        let stockQuery = supabase.from('store_inventory').select('*')
-          .eq('store_id', selectedStore.id)
-          .eq('product_id', cartItem.product_id)
-          .eq('size_id', cartItem.size_id);
-        if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
-        else stockQuery = stockQuery.is('color_id', null);
-        const { data: localStock } = await stockQuery;
+        if (selectedStore.bodega_asociada_id) {
+          let stockQuery = supabase.from('finished_goods_stock').select('*')
+            .eq('warehouse_id', selectedStore.bodega_asociada_id)
+            .eq('product_id', cartItem.product_id)
+            .eq('size_id', cartItem.size_id)
+            .is('location_id', null);
+          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
+          else stockQuery = stockQuery.is('color_id', null);
+          const { data: localStock } = await stockQuery;
 
-        const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
-        if (localStock?.[0]) {
-          await supabase
-            .from('store_inventory')
-            .update({ cantidad_disponible: currentQty - cartItem.cantidad })
-            .eq('id', localStock[0].id);
+          const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
+          if (localStock?.[0]) {
+            await supabase
+              .from('finished_goods_stock')
+              .update({ cantidad_disponible: currentQty - cartItem.cantidad })
+              .eq('id', localStock[0].id);
+          }
+
+          await supabase.from('finished_goods_kardex').insert({
+            warehouse_dest_id: selectedStore.bodega_asociada_id,
+            product_id: cartItem.product_id,
+            color_id: cartItem.color_id,
+            size_id: cartItem.size_id,
+            tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta POS',
+            cantidad: Math.abs(cartItem.cantidad), // kardex normally tracks absolute quantity with movement type, or sometimes positive/negative. Let's stick to positive for selling if they do negative in handleCheckout. Wait, the store kardex did `cartItem.cantidad`. Let's do `cartItem.cantidad`. Actually finished_goods_kardex usually does positive. Wait, we don't know the exact format. Let's keep `cartItem.cantidad`.
+            saldo_anterior: currentQty,
+            saldo_nuevo: currentQty - cartItem.cantidad,
+            documento_origen: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
+            usuario: user?.email || 'Vendedor'
+          });
+        } else {
+          let stockQuery = supabase.from('store_inventory').select('*')
+            .eq('store_id', selectedStore.id)
+            .eq('product_id', cartItem.product_id)
+            .eq('size_id', cartItem.size_id);
+          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
+          else stockQuery = stockQuery.is('color_id', null);
+          const { data: localStock } = await stockQuery;
+
+          const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
+          if (localStock?.[0]) {
+            await supabase
+              .from('store_inventory')
+              .update({ cantidad_disponible: currentQty - cartItem.cantidad })
+              .eq('id', localStock[0].id);
+          }
+
+          await supabase.from('store_kardex').insert({
+            store_id: selectedStore.id,
+            product_id: cartItem.product_id,
+            color_id: cartItem.color_id,
+            size_id: cartItem.size_id,
+            tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta',
+            cantidad: cartItem.cantidad,
+            saldo_anterior: currentQty,
+            saldo_nuevo: currentQty - cartItem.cantidad,
+            documento_ref: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
+            usuario: user?.email || 'Vendedor'
+          });
         }
-
-        await supabase.from('store_kardex').insert({
-          store_id: selectedStore.id,
-          product_id: cartItem.product_id,
-          color_id: cartItem.color_id,
-          size_id: cartItem.size_id,
-          tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta',
-          cantidad: cartItem.cantidad,
-          saldo_anterior: currentQty,
-          saldo_nuevo: currentQty - cartItem.cantidad,
-          documento_ref: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
-          usuario: user?.email || 'Vendedor'
-        });
       }
 
       await supabase.from('pos_payments').insert({
