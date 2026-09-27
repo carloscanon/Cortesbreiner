@@ -89,7 +89,12 @@ export default function POSPage() {
 
   // Cart & Sales Flow
   const [cart, setCart] = useState<any[]>([]);
+  const [showVariantModal, setShowVariantModal] = useState(false);
+  const [selectedProductForVariants, setSelectedProductForVariants] = useState<any>(null);
+  const [productVariants, setProductVariants] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [resolvedBarcodeRef, setResolvedBarcodeRef] = useState<string | null>(null);
+  const [scannedGarment, setScannedGarment] = useState<any>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>({ name: 'Cliente General', document: '2222222222' });
   const [currentSessionSalesTotal, setCurrentSessionSalesTotal] = useState(0);
 
@@ -649,6 +654,7 @@ export default function POSPage() {
   };
 
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Mixto'>('Efectivo');
+  const [cartNotes, setCartNotes] = useState('');
   const [observaciones, setObservaciones] = useState('');
 
   // Return / Exchange flow state
@@ -1531,18 +1537,9 @@ export default function POSPage() {
     setCart(updatedCart);
   }, [selectedPriceListId, products, priceListItems]);
 
-  const handleAddToCart = (product: any) => {
-    // 1. Find variants of this product that actually have stock in the current store
-    const inStockItems = inventoryList.filter(inv => inv.product_id === product.id && Number(inv.cantidad_disponible) > 0);
-    // 2. Default to the first in-stock variant, otherwise fallback to generic first color/size
-    const defaultInv = inStockItems.length > 0 ? inStockItems[0] : null;
-
-    const defaultColorId = defaultInv ? defaultInv.color_id : (colors?.[0]?.id || null);
-    const defaultSizeId = defaultInv ? defaultInv.size_id : (sizes?.[0]?.id || null);
-
+  const doAddToCart = (product: any, colorId: string | null, sizeId: string | null) => {
     const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems);
-
-    const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === defaultSizeId && item.color_id === defaultColorId && !item.is_return);
+    const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === sizeId && item.color_id === colorId && !item.is_return);
 
     if (existingIndex > -1) {
       const newCart = [...cart];
@@ -1555,12 +1552,47 @@ export default function POSPage() {
         nombre: product.nombre_producto,
         codigo_referencia: product.codigo_referencia,
         precio: resolvedPrice,
-        color_id: defaultColorId,
-        size_id: defaultSizeId,
+        color_id: colorId,
+        size_id: sizeId,
         cantidad: 1,
         is_return: false,
         imagen_url: product.imagen_url
       }]);
+    }
+  };
+
+  const handleAddToCart = (product: any) => {
+    const inStockItems = inventoryList.filter(inv => inv.product_id === product.id && Number(inv.cantidad_disponible) > 0);
+    
+    // 1. If scanned barcode, try to match EXACT variant
+    if (scannedGarment && (product.codigo_referencia === scannedGarment.reference_name || product.nombre_producto === scannedGarment.reference_name)) {
+      const matchedColor = colors.find(c => c.nombre_color?.toLowerCase() === scannedGarment.color_name?.toLowerCase());
+      const matchedSize = sizes.find(s => s.codigo_talla?.toLowerCase() === scannedGarment.size_code?.toLowerCase());
+      
+      const invMatch = inStockItems.find(inv => 
+         inv.color_id === (matchedColor?.id || null) && 
+         inv.size_id === (matchedSize?.id || null)
+      );
+      
+      if (invMatch) {
+         doAddToCart(product, invMatch.color_id, invMatch.size_id);
+         setSearchQuery(''); // Limpiar busqueda
+         return;
+      }
+    }
+
+    // 2. Otherwise, variant selection
+    if (inStockItems.length === 1) {
+       doAddToCart(product, inStockItems[0].color_id, inStockItems[0].size_id);
+       return;
+    }
+
+    if (inStockItems.length > 1) {
+      setSelectedProductForVariants(product);
+      setProductVariants(inStockItems);
+      setShowVariantModal(true);
+    } else {
+      alert('Este producto no tiene inventario disponible en ninguna talla/color.');
     }
   };
 
@@ -1629,7 +1661,8 @@ export default function POSPage() {
       subtotal,
       descuento: discountAmount,
       impuestos: 0,
-      total
+      total,
+      observaciones: cartNotes
     };
 
     const paymentPayload = {
@@ -1650,6 +1683,7 @@ export default function POSPage() {
       localStorage.setItem('pos_sync_queue', JSON.stringify(updatedQueue));
       alert('⚠️ Sin conexión. Venta guardada en la cola de sincronía del terminal.');
       setCart([]);
+      setCartNotes('');
       return;
     }
 
@@ -1791,6 +1825,7 @@ export default function POSPage() {
 
       alert(`✅ Transacción #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')} registrada exitosamente.`);
       setCart([]);
+      setCartNotes('');
       if (currentSession) {
         fetchSessionSalesTotal(currentSession.id);
       }
@@ -1830,6 +1865,30 @@ export default function POSPage() {
   const totalCartPrice = Math.max(0, subtotalCart - discountAmount);
   const ivaAmount = Math.round(totalCartPrice - (totalCartPrice / 1.19));
 
+  useEffect(() => {
+    if (searchQuery.trim().length >= 8 && /^\d+$/.test(searchQuery.trim())) {
+      const lookupBarcode = async () => {
+        const { data } = await supabase
+          .from('individual_garments')
+          .select('reference_name, color_name, size_code')
+          .eq('barcode', searchQuery.trim())
+          .limit(1)
+          .single();
+        if (data?.reference_name) {
+          setResolvedBarcodeRef(data.reference_name);
+          setScannedGarment(data);
+        } else {
+          setResolvedBarcodeRef(null);
+          setScannedGarment(null);
+        }
+      };
+      lookupBarcode();
+    } else {
+      setResolvedBarcodeRef(null);
+      setScannedGarment(null);
+    }
+  }, [searchQuery]);
+
   const filteredProducts = products.filter(p => {
     // Check if the product has > 0 inventory in the current store
     const hasInventory = inventoryList.some(inv => inv.product_id === p.id && Number(inv.cantidad_disponible) > 0);
@@ -1838,7 +1897,11 @@ export default function POSPage() {
 
     return p.nombre_producto?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.categories?.categoria?.toLowerCase().includes(searchQuery.toLowerCase());
+      p.categories?.categoria?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (resolvedBarcodeRef && (
+        p.codigo_referencia?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) || 
+        p.nombre_producto?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase())
+      ));
   });
 
   return (
@@ -2581,13 +2644,29 @@ export default function POSPage() {
 
                 {activeProdTab === 'inventario' ? (
                   <>
-                    <input
-                      type="text"
-                      placeholder="Buscar producto..."
-                      value={invSearch}
-                      onChange={e => setInvSearch(e.target.value)}
-                      style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
-                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <input
+                        type="text"
+                        placeholder="Buscar producto..."
+                        value={invSearch}
+                        onChange={e => setInvSearch(e.target.value)}
+                        style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none', width: '300px' }}
+                      />
+                      <div style={{ display: 'flex', gap: '1rem' }}>
+                        <div style={{ background: '#f8fafc', padding: '0.5rem 1.5rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Disponible</span>
+                          <span style={{ fontSize: '1.25rem', color: '#10b981', fontWeight: '900' }}>
+                            {inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_disponible) || 0), 0)}
+                          </span>
+                        </div>
+                        <div style={{ background: '#fff7ed', padding: '0.5rem 1.5rem', borderRadius: '10px', border: '1px solid #ffedd5', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <span style={{ fontSize: '0.65rem', color: '#ea580c', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reservado</span>
+                          <span style={{ fontSize: '1.25rem', color: '#ea580c', fontWeight: '900' }}>
+                            {inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_reservada) || 0), 0)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                       <thead>
                         <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
@@ -5051,7 +5130,7 @@ export default function POSPage() {
                 </h3>
 
                 <button
-                  onClick={() => setCart([])}
+                  onClick={() => { setCart([]); setCartNotes(''); }}
                   style={{
                     backgroundColor: '#fee2e2',
                     color: '#dc2626',
@@ -5222,6 +5301,17 @@ export default function POSPage() {
                   </div>
                 </div>
 
+                {/* Observaciones a la venta */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Observaciones / Notas</label>
+                  <textarea
+                    value={cartNotes}
+                    onChange={(e) => setCartNotes(e.target.value)}
+                    placeholder="Ej. Entregado sin bolsa, regalo, etc..."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', outline: 'none', resize: 'none', minHeight: '50px', fontFamily: 'inherit' }}
+                  />
+                </div>
+
                 {/* Subtotals & Taxes breakdown details */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.78rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.65rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -5338,6 +5428,67 @@ export default function POSPage() {
         </div>
       </div>
 
+      {/* SELECTOR DE VARIANTES MODAL */}
+      {showVariantModal && selectedProductForVariants && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+          <div className="pos-modal" style={{
+            width: '90%',
+            maxWidth: '500px',
+            padding: '2.5rem',
+            background: 'var(--surface, #ffffff)',
+            border: '1px solid var(--border, #cbd5e1)',
+            borderRadius: '20px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: customPrimary }}><Shirt size={22} /> Escoger Variante</h3>
+              <button onClick={() => setShowVariantModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                El producto <strong>{selectedProductForVariants.nombre_producto}</strong> tiene varias combinaciones de talla y color en esta tienda. Selecciona la que deseas vender:
+              </p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
+                {productVariants.map((inv, idx) => {
+                  const cName = inv.colors?.nombre_color || '(Sin color)';
+                  const sCode = inv.sizes?.codigo_talla || '(Sin talla)';
+                  return (
+                    <button 
+                      key={idx}
+                      onClick={() => {
+                        doAddToCart(selectedProductForVariants, inv.color_id, inv.size_id);
+                        setShowVariantModal(false);
+                      }}
+                      style={{
+                        padding: '1rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0',
+                        backgroundColor: '#f8fafc',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div>
+                        <span style={{ display: 'block', fontWeight: '800', color: '#0f172a', fontSize: '0.9rem' }}>Color: {cName}</span>
+                        <span style={{ display: 'block', color: '#64748b', fontSize: '0.8rem', marginTop: '0.2rem' }}>Talla: {sCode}</span>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ display: 'block', fontWeight: '900', color: '#10b981', fontSize: '0.95rem' }}>Stock: {inv.cantidad_disponible}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* DEVULUCIÓN / CAMBIO DE MERCANCÍA MODAL */}
       {showReturnModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
@@ -5373,7 +5524,7 @@ export default function POSPage() {
                   style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border, #cbd5e1)', fontSize: '0.85rem', outline: 'none' }}
                 >
                   <option value="">Seleccionar...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
+                  {products.filter(p => p.estado === 'activo' || !p.estado).map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
                 </select>
               </div>
 

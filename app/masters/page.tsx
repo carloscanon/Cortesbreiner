@@ -28,13 +28,13 @@ const MASTER_CONFIG: any = {
     icon: Droplets,
     listFields: ['factura_relacionada', 'tipo_tela', 'composicion', 'kilos', 'metros', 'capas', 'costo_con_iva'],
     fields: [
-      { name: 'factura_relacionada', label: 'N° Factura Relacionada', type: 'text' },
+      { name: 'factura_relacionada', label: 'NÂ° Factura Relacionada', type: 'text' },
       { name: 'codigo_tela', label: 'Código Tela', type: 'text' },
       { name: 'nombre_tela', label: 'Nombre Tela', type: 'text', required: true },
       { name: 'tipo_tela', label: 'Tipo de Tela', type: 'text' },
       { name: 'composicion', label: 'Composición', type: 'text' },
       { name: 'ancho', label: 'Ancho (m)', type: 'number' },
-      { name: 'gramaje', label: 'Gramaje (g/m²)', type: 'number' },
+      { name: 'gramaje', label: 'Gramaje (g/mÂ²)', type: 'number' },
       { name: 'rendimiento_estimado', label: 'Rendimiento Estimado', type: 'number' },
       { name: 'kilos', label: 'Kilos (Facturados)', type: 'number' },
       { name: 'metros', label: 'Metros (Calculados)', type: 'number' },
@@ -253,6 +253,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
   const [search, setSearch] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [productFilter, setProductFilter] = useState<'todos' | 'habilitados' | 'inhabilitados'>('todos');
   const [masterCounts, setMasterCounts] = useState<Record<string, number>>({});
  
   useEffect(() => {
@@ -554,7 +555,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este registro?')) return;
+    if (!confirm('Â¿Estás seguro de eliminar este registro?')) return;
     try {
       const { error } = await supabase.from(config.table).delete().eq('id', id);
       if (error) throw error;
@@ -760,7 +761,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
         </div>
 
         <div className="card" style={{ padding: '0' }}>
-          <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
              <div style={{ position: 'relative', width: '300px' }}>
                 <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
@@ -771,16 +772,48 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                     setSearch(e.target.value);
                     setCurrentPage(1);
                   }}
-                  style={{ padding: '0.75rem 1rem 0.75rem 2.5rem', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '0.9rem', width: '250px', outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
+                  style={{ padding: '0.75rem 1rem 0.75rem 2.5rem', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '0.9rem', width: '100%', outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
                   onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'; }}
                   onBlur={(e) => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)'; }}
                 />
              </div>
+
+             {activeTab === 'products' && (
+               <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#f1f5f9', padding: '0.25rem', borderRadius: '10px' }}>
+                 {(['todos', 'habilitados', 'inhabilitados'] as const).map(f => (
+                   <button
+                     key={f}
+                     onClick={() => { setProductFilter(f); setCurrentPage(1); }}
+                     style={{
+                       padding: '0.5rem 1rem',
+                       borderRadius: '8px',
+                         border: 'none',
+                         fontSize: '0.8rem',
+                         fontWeight: productFilter === f ? '800' : '600',
+                         backgroundColor: productFilter === f ? 'white' : 'transparent',
+                         color: productFilter === f ? '#0f172a' : '#64748b',
+                         boxShadow: productFilter === f ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                         cursor: 'pointer',
+                         textTransform: 'capitalize',
+                         transition: 'all 0.2s ease'
+                     }}
+                   >
+                     {f}
+                   </button>
+                 ))}
+               </div>
+             )}
           </div>
 
           <div style={{ minHeight: '400px' }}>
             {(() => {
               const filteredData = data.filter(item => {
+                if (activeTab === 'products') {
+                  const status = item.estado || 'activo';
+                  if (productFilter === 'habilitados' && status === 'inactivo') return false;
+                  if (productFilter === 'inhabilitados' && status !== 'inactivo') return false;
+                }
+                
                 if (!search) return true;
                 const s = search.toLowerCase();
                 const fieldsToSearch = [
@@ -914,22 +947,22 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                                 {/* Badge de unidades disponibles */}
                                 {availableQty > 0 ? (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
-                                    🟢 En Stock ({availableQty} unidades disponibles)
+                                    ðŸŸ¢ En Stock ({availableQty} unidades disponibles)
                                   </span>
                                 ) : (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1' }}>
-                                    ⚪ Sin Unidades (0 en stock)
+                                    âšª Sin Unidades (0 en stock)
                                   </span>
                                 )}
 
                                 {/* Badge de Estado Activo / Inactivo */}
                                 {isInactive ? (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecdd3' }}>
-                                    🔴 INHABILITADO (Oculto en Módulos)
+                                    ðŸ”´ INHABILITADO (Oculto en Módulos)
                                   </span>
                                 ) : (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
-                                    🟢 ACTIVO
+                                    ðŸŸ¢ ACTIVO
                                   </span>
                                 )}
 
@@ -952,7 +985,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                                     transition: 'opacity 0.2s'
                                   }}
                                 >
-                                  {isInactive ? '⚡ Habilitar' : '🚫 Inhabilitar'}
+                                  {isInactive ? 'âš¡ Habilitar' : 'ðŸš« Inhabilitar'}
                                 </button>
                               </div>
                             );
@@ -979,7 +1012,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                               displayVal = `$${Number(val).toLocaleString()}`;
                             }
                             if (fieldKey === 'ancho') displayVal = `${val}m`;
-                            if (fieldKey === 'gramaje') displayVal = `${val}g/m²`;
+                            if (fieldKey === 'gramaje') displayVal = `${val}g/mÂ²`;
                             
                             return (
                               <div key={fieldKey} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1031,7 +1064,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
                               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                             >
-                              {item.estado === 'inactivo' ? '⚡ Habilitar Producto' : '🚫 Inhabilitar Producto'}
+                              {item.estado === 'inactivo' ? 'âš¡ Habilitar Producto' : 'ðŸš« Inhabilitar Producto'}
                             </button>
                           )}
                           <button 
@@ -1369,7 +1402,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                       Catálogo General de Productos
                     </h2>
                     <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0' }}>
-                      Cortesbreiner Producción — Reporte Técnico
+                      Cortesbreiner Producción â€” Reporte Técnico
                     </p>
                   </div>
                   <div style={{ textAlign: 'right', fontSize: '0.7rem', color: '#475569' }}>
@@ -1399,9 +1432,9 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
 
                       return (
                         <tr key={item.id || idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                          <td style={{ padding: '0.5rem', fontWeight: '800', color: '#0f172a' }}>{item.codigo_referencia || '—'}</td>
+                          <td style={{ padding: '0.5rem', fontWeight: '800', color: '#0f172a' }}>{item.codigo_referencia || 'â€”'}</td>
                           <td style={{ padding: '0.5rem', fontWeight: '700' }}>{item.nombre_producto}</td>
-                          <td style={{ padding: '0.5rem', textAlign: 'center', textTransform: 'uppercase' }}>{item.genero || '—'}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center', textTransform: 'uppercase' }}>{item.genero || 'â€”'}</td>
                           <td style={{ padding: '0.5rem', color: '#475569' }}>{categoryName}</td>
                           <td style={{ padding: '0.5rem', color: '#0f172a' }}>
                             {accs.length > 0 ? (
@@ -1458,3 +1491,4 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
     </div>
   );
 }
+

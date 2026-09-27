@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -367,11 +367,11 @@ export default function FinishedGoodsInventory() {
           <div class="info-grid">
             <div class="info-block">
               <label>Bodega Origen (Despacho)</label>
-              <span>${tx.orig?.nombre_bodega || '—'}</span>
+              <span>${tx.orig?.nombre_bodega || 'â€”'}</span>
             </div>
             <div class="info-block">
               <label>Bodega Destino (Recepción)</label>
-              <span>${tx.dest?.nombre_bodega || '—'}</span>
+              <span>${tx.dest?.nombre_bodega || 'â€”'}</span>
             </div>
             <div class="info-block">
               <label>Solicitado / Responsable</label>
@@ -642,8 +642,8 @@ export default function FinishedGoodsInventory() {
           refCode,
           prodName,
           catName,
-          g.color_name || '—',
-          g.size_code || '—',
+          g.color_name || 'â€”',
+          g.size_code || 'â€”',
           dateFormatted
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
 
@@ -655,7 +655,7 @@ export default function FinishedGoodsInventory() {
       '=== INFORME CONSOLIDADO DE LOTES DE ETIQUETAS ===\n' +
       headersLotes.join(';') + '\n' +
       rowsLotes.join('\n') + '\n\n' +
-      '=== CONSOLIDADO POR CATEGORÍA Y PRODUCTO ===\n' +
+      '=== CONSOLIDADO POR CATEGORÃA Y PRODUCTO ===\n' +
       headersCat.join(';') + '\n' +
       rowsCat.join('\n') + '\n\n' +
       '=== DETALLE COMPLETO DE ETIQUETAS GENERADAS ===\n' +
@@ -698,8 +698,8 @@ export default function FinishedGoodsInventory() {
     const rows = kardex.map(mov => {
       const dateStr = mov.created_at ? new Date(mov.created_at).toLocaleString('es-CO') : '';
       const catName = mov.products?.categories?.categoria || mov.products?.categoria || 'Sin Categoría';
-      const colorTela = mov.colors?.nombre_color || mov.fabrics?.nombre_tela || '—';
-      const warehouseName = mov.warehouse_dest?.nombre_bodega || mov.warehouse_orig?.nombre_bodega || '—';
+      const colorTela = mov.colors?.nombre_color || mov.fabrics?.nombre_tela || 'â€”';
+      const warehouseName = mov.warehouse_dest?.nombre_bodega || mov.warehouse_orig?.nombre_bodega || 'â€”';
       const isPositive = mov.tipo_movimiento.toLowerCase().includes('ingreso') || mov.tipo_movimiento.toLowerCase().includes('positivo') || mov.tipo_movimiento.toLowerCase().includes('entrada') || mov.tipo_movimiento.toLowerCase().includes('devolucion');
       const formattedQty = isPositive ? `+${mov.cantidad}` : `-${mov.cantidad}`;
 
@@ -794,7 +794,7 @@ export default function FinishedGoodsInventory() {
     const totalQty = histCountedList.reduce((sum, item) => sum + item.qty, 0);
     const selectedWhName = warehouses.find(w => w.id === histWarehouseId)?.nombre_bodega || 'la bodega seleccionada';
 
-    if (!confirm(`¿Confirmas la carga de este inventario histórico?\n\n  Se generarán ${totalQty} códigos individuales.\n  Se alimentará ${selectedWhName}.\n  Se registrarán los ingresos correspondientes en el Kardex.`)) {
+    if (!confirm(`Â¿Confirmas la carga de este inventario histórico?\n\n  Se generarán ${totalQty} códigos individuales.\n  Se alimentará ${selectedWhName}.\n  Se registrarán los ingresos correspondientes en el Kardex.`)) {
       return;
     }
 
@@ -814,7 +814,7 @@ export default function FinishedGoodsInventory() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al procesar inventario histórico.');
 
-      alert(`✅ CARGA EXITOSA:\n\n• Se crearon ${data.createdCount} prendas individuales con códigos de barras.\n• El stock consolidado fue actualizado en ${selectedWhName}.`);
+      alert(`âœ… CARGA EXITOSA:\n\nâ€¢ Se crearon ${data.createdCount} prendas individuales con códigos de barras.\nâ€¢ El stock consolidado fue actualizado en ${selectedWhName}.`);
       setHistSuccessGarments(data.garments || []);
       setHistCountedList([]);
       setShowHistLabelsModal(true);
@@ -823,7 +823,7 @@ export default function FinishedGoodsInventory() {
       await fetchHistoricalBatches();
     } catch (err: any) {
       console.error(err);
-      alert('❌ Error al cargar inventario: ' + err.message);
+      alert('âŒ Error al cargar inventario: ' + err.message);
     } finally {
       setHistProcessing(false);
     }
@@ -1029,7 +1029,7 @@ export default function FinishedGoodsInventory() {
     const selectedIns = recentApprovedInspections.find(i => i.id === selectedInspectionId);
     const orderCode = selectedIns?.sewing_orders?.confeccion_code || (selectedIns?.orders?.consecutive ? `OC-${selectedIns.orders.consecutive.toString().padStart(4, '0')}` : selectedInspectionId);
 
-    if (!confirm(`⚠️ ¿Confirmas revertir el ingreso a inventario de la inspección/lote ${orderCode}?\n\n• Se descontarán las prendas ingresadas al inventario.\n• Se registrará la reversión en el Kardex.\n• La inspección se moverá a la Etapa ${targetStage} de Calidad para que pueda corregirse.`)) {
+    if (!confirm(`âš ï¸ Â¿Confirmas revertir el ingreso a inventario de la inspección/lote ${orderCode}?\n\nâ€¢ Se descontarán las prendas ingresadas al inventario.\nâ€¢ Se registrará la reversión en el Kardex.\nâ€¢ La inspección se moverá a la Etapa ${targetStage} de Calidad para que pueda corregirse.`)) {
       return;
     }
 
@@ -1051,7 +1051,7 @@ export default function FinishedGoodsInventory() {
         })
         .eq('id', selectedInspectionId);
 
-      alert(`✅ REVERSIÓN EXITOSA:\n\n• El inventario de la orden ${orderCode} fue devuelto y descontado correctamente.\n• Se registró la reversión en el Kardex.\n• La orden fue enviada a Calidad (Etapa ${targetStage}) para su reingreso.`);
+      alert(`âœ… REVERSIÓN EXITOSA:\n\nâ€¢ El inventario de la orden ${orderCode} fue devuelto y descontado correctamente.\nâ€¢ Se registró la reversión en el Kardex.\nâ€¢ La orden fue enviada a Calidad (Etapa ${targetStage}) para su reingreso.`);
 
       setShowRevertModal(false);
       setSelectedInspectionId('');
@@ -1059,7 +1059,7 @@ export default function FinishedGoodsInventory() {
       await fetchKardex();
     } catch (err: any) {
       console.error('Error executing inventory revert:', err);
-      alert('❌ Error al revertir inventario: ' + err.message);
+      alert('âŒ Error al revertir inventario: ' + err.message);
     } finally {
       setExecutingRevert(false);
     }
@@ -1092,7 +1092,7 @@ export default function FinishedGoodsInventory() {
       if (sizeCode) {
         query = query.eq('size_code', sizeCode);
       }
-      if (colorName && colorName !== '—') {
+      if (colorName && colorName !== 'â€”') {
         query = query.eq('color_name', colorName);
       }
 
@@ -1201,7 +1201,7 @@ export default function FinishedGoodsInventory() {
             if (!code) continue;
 
             const refKey = (g.reference_name || '').replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
-            const colorKey = (g.color_name || '—').trim().toUpperCase();
+            const colorKey = (g.color_name || 'â€”').trim().toUpperCase();
             const sizeKey = (g.size_code || '').trim().toUpperCase();
 
             const key = `${refKey}___${colorKey}___${sizeKey}`;
@@ -1478,7 +1478,7 @@ export default function FinishedGoodsInventory() {
         }
       }
 
-      // 1. Fetch current stock — discriminar por color_id Y fabric_id para que cada color/tela sea una fila distinta
+      // 1. Fetch current stock â€” discriminar por color_id Y fabric_id para que cada color/tela sea una fila distinta
       let stockQuery = supabase
         .from('finished_goods_stock')
         .select('*')
@@ -1685,7 +1685,7 @@ export default function FinishedGoodsInventory() {
       await fetchStock();
       await fetchKardex();
       await fetchTransfers();
-      alert('✓ Solicitud de transferencia enviada. Queda en estado Pendiente hasta que la tienda destino la Acepte.');
+      alert('âœ“ Solicitud de transferencia enviada. Queda en estado Pendiente hasta que la tienda destino la Acepte.');
     } catch (err: any) {
       alert('Error en transferencia: ' + err.message);
     } finally {
@@ -1694,7 +1694,7 @@ export default function FinishedGoodsInventory() {
   };
 
   const handleAcceptTransfer = async (tx: any) => {
-    if (!confirm(`¿Confirmas la recepción y aceptación de la transferencia TR-${tx.consecutive}? Se ingresarán los productos al stock.`)) return;
+    if (!confirm(`Â¿Confirmas la recepción y aceptación de la transferencia TR-${tx.consecutive}? Se ingresarán los productos al stock.`)) return;
     try {
       // 1. Update transfer status
       await supabase
@@ -1801,14 +1801,14 @@ export default function FinishedGoodsInventory() {
       await fetchStock();
       await fetchKardex();
       await fetchTransfers();
-      alert('✓ Transferencia aceptada con éxito y stock ingresado.');
+      alert('âœ“ Transferencia aceptada con éxito y stock ingresado.');
     } catch (err: any) {
       alert('Error al aceptar transferencia: ' + err.message);
     }
   };
 
   const handleRevertTransfer = async (tx: any) => {
-    const reason = prompt(`⚠️ REVERSIÓN DE TRASLADO (SOLO SUPERADMIN)\n\n¿Estás seguro de reversar el traslado TR-${tx.consecutive || tx.id?.slice(0, 6)}?\n\n• Se reintegrarán las prendas a la Bodega Origen (${tx.orig?.nombre_bodega || 'Origen'}).\n• Se descontarán de la Bodega Destino (${tx.dest?.nombre_bodega || 'Destino'}).\n• El estado del traslado cambiará a 'Cancelada'.\n\nMotivo de reversión:`, 'Reversión autorizada por SuperAdmin');
+    const reason = prompt(`âš ï¸ REVERSIÓN DE TRASLADO (SOLO SUPERADMIN)\n\nÂ¿Estás seguro de reversar el traslado TR-${tx.consecutive || tx.id?.slice(0, 6)}?\n\nâ€¢ Se reintegrarán las prendas a la Bodega Origen (${tx.orig?.nombre_bodega || 'Origen'}).\nâ€¢ Se descontarán de la Bodega Destino (${tx.dest?.nombre_bodega || 'Destino'}).\nâ€¢ El estado del traslado cambiará a 'Cancelada'.\n\nMotivo de reversión:`, 'Reversión autorizada por SuperAdmin');
     if (reason === null) return;
 
     try {
@@ -1904,12 +1904,12 @@ export default function FinishedGoodsInventory() {
         })
         .eq('id', tx.id);
 
-      alert(`✅ Traslado TR-${tx.consecutive || tx.id?.slice(0, 6)} reversado exitosamente. Las existencias retornaron a la bodega de origen.`);
+      alert(`âœ… Traslado TR-${tx.consecutive || tx.id?.slice(0, 6)} reversado exitosamente. Las existencias retornaron a la bodega de origen.`);
       await fetchStock();
       await fetchKardex();
       await fetchTransfers();
     } catch (err: any) {
-      alert('❌ Error al reversar traslado: ' + err.message);
+      alert('âŒ Error al reversar traslado: ' + err.message);
     }
   };
 
@@ -2024,7 +2024,7 @@ export default function FinishedGoodsInventory() {
         });
       }
 
-      alert('¡Importación completada con éxito!');
+      alert('Â¡Importación completada con éxito!');
       setParsedData([]);
       setRawPaste('');
       setActiveTab('stock');
@@ -2072,7 +2072,7 @@ export default function FinishedGoodsInventory() {
               gap: '0.5rem'
             }}
           >
-            <RefreshCw size={16} /> ↩️ Revertir a Calidad (SuperAdmin)
+            <RefreshCw size={16} /> â†©ï¸ Revertir a Calidad (SuperAdmin)
           </button>
           <button className="btn btn-primary" onClick={() => setShowAdjustmentModal(true)}>
             <Plus size={18} /> Ajustar Inventario
@@ -2134,7 +2134,7 @@ export default function FinishedGoodsInventory() {
 
       {/* TAB CONTENTS */}
 
-      {/* 0. AUDITORÍA Y CONTROL BREINER */}
+      {/* 0. AUDITORÃA Y CONTROL BREINER */}
       {activeTab === 'audit_control' && (
         activeAuditScannerSession ? (
           <AuditGunScannerView
@@ -2310,7 +2310,7 @@ export default function FinishedGoodsInventory() {
                       <AlertTriangle size={18} style={{ color: '#d97706', flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: '0.8rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>{item.products?.nombre_producto}</p>
-                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Talla: {item.sizes?.codigo_talla} | Color: {item.colors?.nombre_color || '—'}</p>
+                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Talla: {item.sizes?.codigo_talla} | Color: {item.colors?.nombre_color || 'â€”'}</p>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <p style={{ fontSize: '0.85rem', fontWeight: '900', color: '#dc2626', margin: 0 }}>{item.cantidad_disponible} uds</p>
@@ -2409,15 +2409,15 @@ export default function FinishedGoodsInventory() {
                     const stockKey = `${item.product_id}_${item.color_id || 'null'}_${item.size_id}_${item.warehouse_id}`;
                     
                     const refNameKey = (item.products?.nombre_producto || item.products?.codigo_referencia || '').replace(/\s*\[.*?\]/g, '').trim().toUpperCase();
-                    const colorNameKey = (item.colors?.nombre_color || item.fabrics?.nombre_tela || '—').trim().toUpperCase();
+                    const colorNameKey = (item.colors?.nombre_color || item.fabrics?.nombre_tela || 'â€”').trim().toUpperCase();
                     const sizeCodeKey = (item.sizes?.codigo_talla || '').trim().toUpperCase();
                     const refKey = `${refNameKey}___${colorNameKey}___${sizeCodeKey}`;
                     
-                    const linkedOrder = stockOrderMap[refKey] || stockOrderMap[stockKey] || '—';
+                    const linkedOrder = stockOrderMap[refKey] || stockOrderMap[stockKey] || 'â€”';
 
                     return (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background-color 0.2s' }}>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia || 'â€”'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           <span style={{
                             display: 'inline-flex',
@@ -2427,14 +2427,14 @@ export default function FinishedGoodsInventory() {
                             borderRadius: '6px',
                             fontSize: '0.78rem',
                             fontWeight: '850',
-                            backgroundColor: linkedOrder !== '—' ? '#fdf2f4' : '#f8fafc',
-                            color: linkedOrder !== '—' ? '#80082E' : '#94a3b8',
-                            border: `1px solid ${linkedOrder !== '—' ? '#fecdd3' : '#e2e8f0'}`
+                            backgroundColor: linkedOrder !== 'â€”' ? '#fdf2f4' : '#f8fafc',
+                            color: linkedOrder !== 'â€”' ? '#80082E' : '#94a3b8',
+                            border: `1px solid ${linkedOrder !== 'â€”' ? '#fecdd3' : '#e2e8f0'}`
                           }}>
-                            📦 {linkedOrder}
+                            ðŸ“¦ {linkedOrder}
                           </span>
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || 'â€”'}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           {(() => {
                             const colorObj = item.colors;
@@ -2462,19 +2462,19 @@ export default function FinishedGoodsInventory() {
                           })()}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
-                          {item.products?.categories?.categoria || item.products?.categoria || '—'}
+                          {item.products?.categories?.categoria || item.products?.categoria || 'â€”'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.warehouses?.nombre_bodega || 'â€”'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{item.sizes?.codigo_talla}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '950', fontSize: '1rem' }}>{item.cantidad_disponible}</td>
                         <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{item.cantidad_reservada}</td>
                         <td style={{ padding: '1rem 1.5rem', color: '#3b82f6' }}>{item.cantidad_en_transito}</td>
                         <td style={{ padding: '1rem 1.5rem' }}>
-                          <span style={{ color: '#64748b' }}>{item.stock_minimo || '—'} / {item.stock_maximo || '—'}</span>
+                          <span style={{ color: '#64748b' }}>{item.stock_minimo || 'â€”'} / {item.stock_maximo || 'â€”'}</span>
                         </td>
                         <td style={{ padding: '1rem 1.5rem' }}>
                           {isCritical ? (
-                            <span style={{ padding: '0.25rem 0.5rem', backgroundColor: '#fef3c7', color: '#b45309', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800' }}>STOCK CRÍTICO</span>
+                            <span style={{ padding: '0.25rem 0.5rem', backgroundColor: '#fef3c7', color: '#b45309', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800' }}>STOCK CRÃTICO</span>
                           ) : isOver ? (
                             <span style={{ padding: '0.25rem 0.5rem', backgroundColor: '#ccfbf1', color: '#0f766e', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800' }}>SOBRE-STOCK</span>
                           ) : (
@@ -2487,7 +2487,7 @@ export default function FinishedGoodsInventory() {
                             className="btn"
                             style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', border: '1.5px solid #6366f1', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: '800' }}
                           >
-                            👁️ Ver Unidades
+                            ðŸ‘ï¸ Ver Unidades
                           </button>
                           <button
                             onClick={() => {
@@ -2553,7 +2553,7 @@ export default function FinishedGoodsInventory() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                  {['Fecha / Hora', 'Movimiento', 'Documento', 'Referencia', 'Producto', 'Categoría', 'Color', 'Talla', 'Cant.', 'Saldo Ant. ➔ Nuevo', 'Bodega', 'Usuario'].map(h => (
+                  {['Fecha / Hora', 'Movimiento', 'Documento', 'Referencia', 'Producto', 'Categoría', 'Color', 'Talla', 'Cant.', 'Saldo Ant. âž” Nuevo', 'Bodega', 'Usuario'].map(h => (
                     <th key={h} style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
@@ -2598,27 +2598,27 @@ export default function FinishedGoodsInventory() {
                               color: '#80082E',
                               border: '1px solid #fecdd3'
                             }}>
-                              📦 {mov.documento_origen}
+                              ðŸ“¦ {mov.documento_origen}
                             </span>
-                          ) : '—'}
+                          ) : 'â€”'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia || '—'}</td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{mov.products?.nombre_producto || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: 'var(--primary)' }}>{mov.products?.codigo_referencia || 'â€”'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '800', color: '#0f172a' }}>{mov.products?.nombre_producto || 'â€”'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700', color: '#475569' }}>
-                          {mov.products?.categories?.categoria || mov.products?.categoria || '—'}
+                          {mov.products?.categories?.categoria || mov.products?.categoria || 'â€”'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || mov.fabrics?.nombre_tela || '—'}</td>
+                        <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{mov.colors?.nombre_color || mov.fabrics?.nombre_tela || 'â€”'}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '700' }}>{mov.sizes?.codigo_talla}</td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '950', fontSize: '0.95rem', color: isPositive ? '#16a34a' : '#dc2626' }}>
                           {isPositive ? `+${mov.cantidad}` : `-${mov.cantidad}`}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>
                           <span style={{ color: '#64748b' }}>{mov.saldo_anterior}</span>
-                          <span style={{ margin: '0 0.4rem', color: '#94a3b8' }}>➔</span>
+                          <span style={{ margin: '0 0.4rem', color: '#94a3b8' }}>âž”</span>
                           <span style={{ color: '#0f172a', fontWeight: '700' }}>{mov.saldo_nuevo}</span>
                         </td>
                         <td style={{ padding: '1rem 1.5rem' }}>
-                          {mov.warehouse_dest?.nombre_bodega || mov.warehouse_orig?.nombre_bodega || '—'}
+                          {mov.warehouse_dest?.nombre_bodega || mov.warehouse_orig?.nombre_bodega || 'â€”'}
                         </td>
                         <td style={{ padding: '1rem 1.5rem', color: '#64748b' }}>{mov.usuario}</td>
                       </tr>
@@ -2721,7 +2721,7 @@ export default function FinishedGoodsInventory() {
                                   boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.25)'
                                 }}
                               >
-                                <Barcode size={15} /> 🔍 Escanear y Recibir
+                                <Barcode size={15} /> ðŸ” Escanear y Recibir
                               </button>
                             ) : (
                               <span style={{
@@ -2755,19 +2755,19 @@ export default function FinishedGoodsInventory() {
                                     fontWeight: '800',
                                     display: 'inline-block'
                                   }}>
-                                    📣 Recepción: {tx.observaciones.split('| Recepción:')[1]}
+                                    ðŸ“£ Recepción: {tx.observaciones.split('| Recepción:')[1]}
                                   </span>
                                 </div>
                               ) : (
                                 <span style={{ fontSize: '0.8rem', color: '#475569' }}>{tx.observaciones}</span>
                               )
                             ) : (
-                              <span style={{ color: '#94a3b8' }}>—</span>
+                              <span style={{ color: '#94a3b8' }}>â€”</span>
                             )}
                           </td>
                           <td style={{ padding: '1rem 1.5rem', minWidth: '130px' }}>
                             <span style={{ fontWeight: '800', color: '#0f172a' }}>
-                              {tx.finished_goods_transfer_items?.length || 0} Ítems/Lotes
+                              {tx.finished_goods_transfer_items?.length || 0} Ãtems/Lotes
                             </span>
                             <br />
                             <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
@@ -2996,7 +2996,7 @@ export default function FinishedGoodsInventory() {
                       const wh = warehouses.find(w => w.id === loc.warehouse_id);
                       return (
                         <tr key={loc.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '1rem 1.5rem', fontWeight: '800' }}>{wh?.nombre_bodega || '—'}</td>
+                          <td style={{ padding: '1rem 1.5rem', fontWeight: '800' }}>{wh?.nombre_bodega || 'â€”'}</td>
                           <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{loc.pasillo}</td>
                           <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{loc.estanteria}</td>
                           <td style={{ padding: '1rem 1.5rem', fontWeight: '600' }}>{loc.nivel}</td>
@@ -3058,11 +3058,11 @@ export default function FinishedGoodsInventory() {
                     {parsedData.map((row, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: row.valid ? 'transparent' : '#fef2f2' }}>
                         <td style={{ padding: '0.6rem 1rem' }}>{row.rowNum}</td>
-                        <td style={{ padding: '0.6rem 1rem', fontWeight: '700' }}>{row.rawRef} {row.productId ? '✓' : '❌ (No existe)'}</td>
-                        <td style={{ padding: '0.6rem 1rem' }}>{row.rawColor} {row.colorId ? '✓' : '⚠️ (Sin color)'}</td>
-                        <td style={{ padding: '0.6rem 1rem', fontWeight: '700' }}>{row.rawSize} {row.sizeId ? '✓' : '❌ (Talla inválida)'}</td>
+                        <td style={{ padding: '0.6rem 1rem', fontWeight: '700' }}>{row.rawRef} {row.productId ? 'âœ“' : 'âŒ (No existe)'}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>{row.rawColor} {row.colorId ? 'âœ“' : 'âš ï¸ (Sin color)'}</td>
+                        <td style={{ padding: '0.6rem 1rem', fontWeight: '700' }}>{row.rawSize} {row.sizeId ? 'âœ“' : 'âŒ (Talla inválida)'}</td>
                         <td style={{ padding: '0.6rem 1rem', fontWeight: '800' }}>{row.qty}</td>
-                        <td style={{ padding: '0.6rem 1rem' }}>{row.rawWh} {row.warehouseId ? '✓' : '❌ (Bodega inválida)'}</td>
+                        <td style={{ padding: '0.6rem 1rem' }}>{row.rawWh} {row.warehouseId ? 'âœ“' : 'âŒ (Bodega inválida)'}</td>
                         <td style={{ padding: '0.6rem 1rem' }}>
                           {row.valid ? (
                             <span style={{ color: '#16a34a', fontWeight: '700' }}>Válido</span>
@@ -3138,7 +3138,7 @@ export default function FinishedGoodsInventory() {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  <BarChart3 size={16} /> 📊 Tablero e Informe Consolidado
+                  <BarChart3 size={16} /> ðŸ“Š Tablero e Informe Consolidado
                 </button>
 
                 <button
@@ -3160,7 +3160,7 @@ export default function FinishedGoodsInventory() {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  <Plus size={16} /> 📝 Registrar Conteo de Lote
+                  <Plus size={16} /> ðŸ“ Registrar Conteo de Lote
                 </button>
 
                 <button
@@ -3182,7 +3182,7 @@ export default function FinishedGoodsInventory() {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  <History size={16} /> 📜 Histórico de Lotes ({histBatches.length})
+                  <History size={16} /> ðŸ“œ Histórico de Lotes ({histBatches.length})
                 </button>
               </div>
 
@@ -3208,7 +3208,7 @@ export default function FinishedGoodsInventory() {
               </button>
             </div>
 
-            {/* 📊 TABLERO INICIAL E INFORME CONSOLIDADO */}
+            {/* ðŸ“Š TABLERO INICIAL E INFORME CONSOLIDADO */}
             {histSubTab === 'dashboard' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {/* Header Info */}
@@ -3216,7 +3216,7 @@ export default function FinishedGoodsInventory() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
                       <h3 style={{ fontSize: '1.15rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        📊 Tablero General - Histórico de Lotes & Etiquetas Generadas
+                        ðŸ“Š Tablero General - Histórico de Lotes & Etiquetas Generadas
                       </h3>
                       <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
                         Monitoreo general de prendas registradas, desglose por categorías y resumen exportable a Excel.
@@ -3279,10 +3279,10 @@ export default function FinishedGoodsInventory() {
                   </div>
                 </div>
 
-                {/* RESUMEN DE CATEGORÍAS */}
+                {/* RESUMEN DE CATEGORÃAS */}
                 <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                   <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    🗂️ Distribución por Categorías de Producto
+                    ðŸ—‚ï¸ Distribución por Categorías de Producto
                   </h3>
                   {categoryList.length === 0 ? (
                     <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem' }}>
@@ -3322,7 +3322,7 @@ export default function FinishedGoodsInventory() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <div>
                       <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>
-                        📋 Consolidado por Producto y Referencia ({productList.length})
+                        ðŸ“‹ Consolidado por Producto y Referencia ({productList.length})
                       </h3>
                       <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>
                         Resumen detallado de prendas contadas por cada referencia en el histórico.
@@ -3394,12 +3394,12 @@ export default function FinishedGoodsInventory() {
               </div>
             )}
 
-            {/* 📝 FORMULARIO DE REGISTRO DE CONTEO */}
+            {/* ðŸ“ FORMULARIO DE REGISTRO DE CONTEO */}
             {histSubTab === 'counted_form' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                   <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    📝 Registrar Conteo de Inventario Histórico
+                    ðŸ“ Registrar Conteo de Inventario Histórico
                   </h3>
                   <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1.5rem' }}>
                     Registra los productos físicos que deseas ingresar al sistema. Cada prenda recibirá un código único correlativo y se registrará como ingreso histórico en la Bodega Principal.
@@ -3440,7 +3440,7 @@ export default function FinishedGoodsInventory() {
                       {/* Buscador Ultra Rápido e Intuitivo de Producto (Combobox UX) */}
                       <div style={{ position: 'relative' }}>
                         <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>
-                          🔍 Buscar Referencia / Producto ({displayProducts.length} habilitados)
+                          ðŸ” Buscar Referencia / Producto ({displayProducts.length} habilitados)
                         </label>
 
                         {histProduct ? (
@@ -3457,7 +3457,7 @@ export default function FinishedGoodsInventory() {
                             fontSize: '0.82rem'
                           }}>
                             <span>
-                              📦 {products.find(p => p.id === histProduct)?.nombre_producto} ({products.find(p => p.id === histProduct)?.codigo_referencia})
+                              ðŸ“¦ {products.find(p => p.id === histProduct)?.nombre_producto} ({products.find(p => p.id === histProduct)?.codigo_referencia})
                             </span>
                             <button
                               type="button"
@@ -3476,7 +3476,7 @@ export default function FinishedGoodsInventory() {
                               }}
                               title="Cambiar producto"
                             >
-                              ✕
+                              âœ•
                             </button>
                           </div>
                         ) : (
@@ -3615,7 +3615,7 @@ export default function FinishedGoodsInventory() {
                 <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
                     <div>
-                      <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>📋 Referencias Agregadas ({histCountedList.length})</h3>
+                      <h3 style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>ðŸ“‹ Referencias Agregadas ({histCountedList.length})</h3>
                       <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Lista de productos pendientes por ingresar a base de datos.</p>
                     </div>
                     
@@ -3645,7 +3645,7 @@ export default function FinishedGoodsInventory() {
                           </>
                         ) : (
                           <>
-                            ⚡ Guardar y Generar Códigos ({histCountedList.reduce((sum, item) => sum + item.qty, 0)} uds)
+                            âš¡ Guardar y Generar Códigos ({histCountedList.reduce((sum, item) => sum + item.qty, 0)} uds)
                           </>
                         )}
                       </button>
@@ -3680,7 +3680,7 @@ export default function FinishedGoodsInventory() {
                                 <span style={{ backgroundColor: '#f1f5f9', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>{item.sizeCode}</span>
                               </td>
                               <td style={{ padding: '0.75rem 1rem', fontWeight: '850', textAlign: 'center', fontSize: '0.9rem', color: '#0f172a' }}>{item.qty} uds</td>
-                              <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{item.notes || '—'}</td>
+                              <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{item.notes || 'â€”'}</td>
                               <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                                 <button
                                   type="button"
@@ -3707,13 +3707,13 @@ export default function FinishedGoodsInventory() {
               </div>
             )}
 
-            {/* 📜 HISTÓRICO DE LOTES Y ETIQUETAS GENERADAS */}
+            {/* ðŸ“œ HISTÓRICO DE LOTES Y ETIQUETAS GENERADAS */}
             {histSubTab === 'batches_list' && (
               <div className="card" style={{ padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
                   <div>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      📜 Histórico de Lotes de Etiquetas Generadas
+                      ðŸ“œ Histórico de Lotes de Etiquetas Generadas
                     </h3>
                     <p style={{ fontSize: '0.76rem', color: '#64748b', margin: '0.2rem 0 0' }}>
                       Consulta los conjuntos de etiquetas creados en cargas históricas y reimprímelos cuando lo necesites.
@@ -3810,7 +3810,7 @@ export default function FinishedGoodsInventory() {
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
                                   <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
-                                    🏷️ {batch.garments.length} etiquetas
+                                    ðŸ·ï¸ {batch.garments.length} etiquetas
                                   </span>
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem' }}>
@@ -3939,7 +3939,7 @@ export default function FinishedGoodsInventory() {
                 </>
               ) : (
                 <div style={{ padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: '8px', fontSize: '0.85rem' }}>
-                  <strong>Ajustando SKU:</strong> {products.find(p => p.id === adjustmentForm.product_id)?.nombre_producto} | {colors.find(c => c.id === adjustmentForm.color_id)?.nombre_color || '—'} | {sizes.find(s => s.id === adjustmentForm.size_id)?.codigo_talla}
+                  <strong>Ajustando SKU:</strong> {products.find(p => p.id === adjustmentForm.product_id)?.nombre_producto} | {colors.find(c => c.id === adjustmentForm.color_id)?.nombre_color || 'â€”'} | {sizes.find(s => s.id === adjustmentForm.size_id)?.codigo_talla}
                 </div>
               )}
 
@@ -4018,7 +4018,7 @@ export default function FinishedGoodsInventory() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.35rem' }}>
-                    📍 Bodega Origen (Despacho)
+                    ðŸ“ Bodega Origen (Despacho)
                   </label>
                   <select
                     required
@@ -4033,7 +4033,7 @@ export default function FinishedGoodsInventory() {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.35rem' }}>
-                    🎯 Bodega Destino (Recepción)
+                    ðŸŽ¯ Bodega Destino (Recepción)
                   </label>
                   <select
                     required
@@ -4053,7 +4053,7 @@ export default function FinishedGoodsInventory() {
                   <Barcode size={22} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#818cf8' }} />
                   <input
                     type="text"
-                    placeholder="🔍 ESCANEAR CÓDIGO DE BARRAS / SKU (Pistola Lectora USB/Bluetooth)..."
+                    placeholder="ðŸ” ESCANEAR CÓDIGO DE BARRAS / SKU (Pistola Lectora USB/Bluetooth)..."
                     autoFocus
                     onKeyDown={async (e) => {
                       if (e.key === 'Enter') {
@@ -4079,7 +4079,7 @@ export default function FinishedGoodsInventory() {
                           // Check if this exact barcode sticker has already been scanned in this transfer
                           const alreadyScanned = transferForm.items.some(i => i.barcodes && i.barcodes.includes(codeClean));
                           if (alreadyScanned) {
-                            alert(`ℹ️ La prenda única con ID / Código de Barras ${codeClean} ya fue agregada al traslado.`);
+                            alert(`â„¹ï¸ La prenda única con ID / Código de Barras ${codeClean} ya fue agregada al traslado.`);
                             return;
                           }
 
@@ -4133,15 +4133,14 @@ export default function FinishedGoodsInventory() {
                             items[existingIdx].barcodes = [...(items[existingIdx].barcodes || []), codeClean];
                             setTransferForm({ ...transferForm, items });
                           } else {
-                            const items = [...transferForm.items, {
+                            const items = [{
                               product_id: resolvedProductId || null,
                               color_id: resolvedColorId || null,
                               size_id: resolvedSizeId || null,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              nameLabel: displayName
-                            }];
+                              nameLabel: displayName }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
                           return;
@@ -4162,21 +4161,20 @@ export default function FinishedGoodsInventory() {
                             items[existingIdx].cantidad += 1;
                             setTransferForm({ ...transferForm, items });
                           } else {
-                            const items = [...transferForm.items, {
+                            const items = [{
                               product_id: prod.id,
                               color_id: colors[0]?.id || '',
                               size_id: sizes[0]?.id || '',
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              nameLabel: prod.nombre_producto
-                            }];
+                              nameLabel: prod.nombre_producto }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
                           return;
                         }
 
-                        alert(`⚠️ Código de Barras ID Único no encontrado: ${codeClean}`);
+                        alert(`âš ï¸ Código de Barras ID Único no encontrado: ${codeClean}`);
                       }
                     }}
                     style={{
@@ -4192,7 +4190,7 @@ export default function FinishedGoodsInventory() {
                   onClick={() => {
                     setTransferForm({
                       ...transferForm,
-                      items: [...transferForm.items, { product_id: products[0]?.id || '', color_id: colors[0]?.id || '', size_id: sizes[0]?.id || '', cantidad: 1 }]
+                      items: [{ product_id: products[0]?.id || '', color_id: colors[0]?.id || '', size_id: sizes[0]?.id || '', cantidad: 1 }, ...transferForm.items]
                     });
                   }}
                   style={{ padding: '0.75rem 1.25rem', backgroundColor: '#4338ca', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '900', fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
@@ -4384,7 +4382,7 @@ export default function FinishedGoodsInventory() {
                   className="btn btn-primary"
                   style={{ padding: '0.75rem 1.75rem', fontWeight: '950', fontSize: '0.9rem', borderRadius: '10px', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 >
-                  {savingTransfer ? <Loader2 size={16} className="animate-spin" /> : '🚀 Confirmar y Despachar Traslado'}
+                  {savingTransfer ? <Loader2 size={16} className="animate-spin" /> : 'ðŸš€ Confirmar y Despachar Traslado'}
                 </button>
               </div>
 
@@ -4393,7 +4391,7 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* 🚨 MODAL REVERSIÓN A CALIDAD PARA SUPERADMINISTRADOR */}
+      {/* ðŸš¨ MODAL REVERSIÓN A CALIDAD PARA SUPERADMINISTRADOR */}
       {showRevertModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '620px', width: '100%', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '2px solid #dc2626' }}>
@@ -4401,7 +4399,7 @@ export default function FinishedGoodsInventory() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <span style={{ fontSize: '0.65rem', fontWeight: 950, color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', padding: '0.15rem 0.6rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  🚨 EXCLUSIVO SUPERADMINISTRADOR
+                  ðŸš¨ EXCLUSIVO SUPERADMINISTRADOR
                 </span>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 950, color: '#0f172a', margin: '0.35rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <RefreshCw className="animate-spin-slow" size={20} color="#dc2626" />
@@ -4411,7 +4409,7 @@ export default function FinishedGoodsInventory() {
                   Descuenta automáticamente del inventario físico y Kardex las prendas ingresadas por error y regresa la orden al módulo de Calidad para su corrección.
                 </p>
               </div>
-              <button onClick={() => setShowRevertModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setShowRevertModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>âœ•</button>
             </div>
 
             <form onSubmit={handleExecuteInventoryRevert} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
@@ -4433,7 +4431,7 @@ export default function FinishedGoodsInventory() {
                     const dateStr = new Date(ins.created_at).toLocaleDateString('es-CO');
                     return (
                       <option key={ins.id} value={ins.id}>
-                        {code} — {prodName} ({ins.status} | Etapa {ins.current_stage || 4} | {dateStr})
+                        {code} â€” {prodName} ({ins.status} | Etapa {ins.current_stage || 4} | {dateStr})
                       </option>
                     );
                   })}
@@ -4487,7 +4485,7 @@ export default function FinishedGoodsInventory() {
               </div>
 
               <div style={{ backgroundColor: '#fff7ed', border: '1px solid #ffedd5', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.75rem', color: '#9a3412' }}>
-                💡 <strong>Efecto Automático:</strong> El sistema calculará las prendas aprobadas de este lote, las descontará del stock disponible de la bodega correspondiente y registrará un movimiento de salida tipo <em>Reversión / Deshacer por SuperAdmin</em> en el Kardex.
+                ðŸ’¡ <strong>Efecto Automático:</strong> El sistema calculará las prendas aprobadas de este lote, las descontará del stock disponible de la bodega correspondiente y registrará un movimiento de salida tipo <em>Reversión / Deshacer por SuperAdmin</em> en el Kardex.
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
@@ -4517,7 +4515,7 @@ export default function FinishedGoodsInventory() {
                     opacity: (!selectedInspectionId || executingRevert) ? 0.6 : 1
                   }}
                 >
-                  {executingRevert ? <Loader2 className="animate-spin" size={16} /> : '⚠️ Confirmar Reversión e Inventario'}
+                  {executingRevert ? <Loader2 className="animate-spin" size={16} /> : 'âš ï¸ Confirmar Reversión e Inventario'}
                 </button>
               </div>
 
@@ -4526,7 +4524,7 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* 🏷️ MODAL DETALLE DE UNIDADES ÚNICAS POR REFERENCIA */}
+      {/* ðŸ·ï¸ MODAL DETALLE DE UNIDADES ÚNICAS POR REFERENCIA */}
       {showUnitDetailModal && selectedStockItemForDetail && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1150, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '16px', maxWidth: '750px', width: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
@@ -4535,16 +4533,16 @@ export default function FinishedGoodsInventory() {
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.68rem', fontWeight: 900, color: '#4338ca', backgroundColor: '#eef2ff', padding: '0.15rem 0.6rem', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  🏷️ DETALLE DE PRENDAS ÚNICAS
+                  ðŸ·ï¸ DETALLE DE PRENDAS ÚNICAS
                 </span>
                 <h3 style={{ fontSize: '1.15rem', fontWeight: 950, color: '#0f172a', margin: '0.25rem 0 0' }}>
-                  {selectedStockItemForDetail.products?.codigo_referencia || '—'} — {selectedStockItemForDetail.products?.nombre_producto || '—'}
+                  {selectedStockItemForDetail.products?.codigo_referencia || 'â€”'} â€” {selectedStockItemForDetail.products?.nombre_producto || 'â€”'}
                 </h3>
                 <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.1rem 0 0' }}>
-                  Color: <strong>{selectedStockItemForDetail.colors?.nombre_color || '—'}</strong> | Talla: <strong>{selectedStockItemForDetail.sizes?.codigo_talla || '—'}</strong> | Bodega: <strong>{selectedStockItemForDetail.warehouses?.nombre_bodega || '—'}</strong> ({unitGarments.length} unidades registradas)
+                  Color: <strong>{selectedStockItemForDetail.colors?.nombre_color || 'â€”'}</strong> | Talla: <strong>{selectedStockItemForDetail.sizes?.codigo_talla || 'â€”'}</strong> | Bodega: <strong>{selectedStockItemForDetail.warehouses?.nombre_bodega || 'â€”'}</strong> ({unitGarments.length} unidades registradas)
                 </p>
               </div>
-              <button onClick={() => setShowUnitDetailModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setShowUnitDetailModal(false)} style={{ border: 'none', background: 'none', fontSize: '1.25rem', color: '#94a3b8', cursor: 'pointer' }}>âœ•</button>
             </div>
 
             {/* Modal Content / Table */}
@@ -4598,7 +4596,7 @@ export default function FinishedGoodsInventory() {
                           </td>
                           <td style={{ padding: '0.65rem 1rem' }}>
                             <span style={{ fontWeight: 900, color: badgeColor, backgroundColor: badgeBg, padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', border: `1px solid ${badgeBorder}` }}>
-                              📦 {docLabel}
+                              ðŸ“¦ {docLabel}
                             </span>
                           </td>
                           <td style={{ padding: '0.65rem 1rem' }}>
@@ -4624,7 +4622,7 @@ export default function FinishedGoodsInventory() {
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  if (!confirm(`⚠️ ACCIÓN SUPERADMINISTRADOR:\n\n¿Estás seguro de eliminar la prenda ${g.barcode}?\n\n• Se eliminará la unidad física.\n• Se descontará 1 unidad del stock de la bodega.\n• Se revertirá el saldo y registrará la salida en el Kardex.`)) return;
+                                  if (!confirm(`âš ï¸ ACCIÓN SUPERADMINISTRADOR:\n\nÂ¿Estás seguro de eliminar la prenda ${g.barcode}?\n\nâ€¢ Se eliminará la unidad física.\nâ€¢ Se descontará 1 unidad del stock de la bodega.\nâ€¢ Se revertirá el saldo y registrará la salida en el Kardex.`)) return;
 
                                   try {
                                     // 1. Eliminar prenda individual
@@ -4655,7 +4653,7 @@ export default function FinishedGoodsInventory() {
                                       });
                                     }
 
-                                    alert(`✅ Prenda ${g.barcode} eliminada e inventario revertido correctamente.`);
+                                    alert(`âœ… Prenda ${g.barcode} eliminada e inventario revertido correctamente.`);
                                     setUnitGarments(prev => prev.filter(item => item.id !== g.id));
                                     await fetchStock();
                                     await fetchKardex();
@@ -4674,7 +4672,7 @@ export default function FinishedGoodsInventory() {
                                   cursor: 'pointer'
                                 }}
                               >
-                                🗑️ Eliminar y Reversar
+                                ðŸ—‘ï¸ Eliminar y Reversar
                               </button>
                             </td>
                           )}
@@ -4689,7 +4687,7 @@ export default function FinishedGoodsInventory() {
             {/* Modal Footer */}
             <div style={{ padding: '1rem 1.5rem', borderTop: '1.5px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                💡 Cada prenda física posee su propio número de 10 dígitos escaneable mediante lector láser o 2D.
+                ðŸ’¡ Cada prenda física posee su propio número de 10 dígitos escaneable mediante lector láser o 2D.
               </span>
               <button
                 type="button"
@@ -4704,7 +4702,7 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* 🏷️ MODAL PARA IMPRIMIR ETIQUETAS DE INVENTARIO HISTÓRICO */}
+      {/* ðŸ·ï¸ MODAL PARA IMPRIMIR ETIQUETAS DE INVENTARIO HISTÓRICO */}
       {showHistLabelsModal && histSuccessGarments.length > 0 && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(8px)' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '20px', maxWidth: '780px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
@@ -4713,15 +4711,15 @@ export default function FinishedGoodsInventory() {
             <div style={{ padding: '1.25rem 2rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <div>
                 <span style={{ fontSize: '0.65rem', fontWeight: '800', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Proceso Exitoso</span>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: '950', color: 'white', margin: '0.15rem 0 0' }}>🏷️ Imprimir Etiquetas de Lote Histórico</h3>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: '950', color: 'white', margin: '0.15rem 0 0' }}>ðŸ·ï¸ Imprimir Etiquetas de Lote Histórico</h3>
               </div>
-              <button type="button" onClick={() => setShowHistLabelsModal(false)} style={{ border: 'none', background: 'rgba(255,255,255,0.2)', fontSize: '1rem', color: 'white', cursor: 'pointer', borderRadius: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>✕</button>
+              <button type="button" onClick={() => setShowHistLabelsModal(false)} style={{ border: 'none', background: 'rgba(255,255,255,0.2)', fontSize: '1rem', color: 'white', cursor: 'pointer', borderRadius: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>âœ•</button>
             </div>
 
             {/* Modal Body */}
             <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', backgroundColor: '#f8fafc' }}>
               <div style={{ padding: '1rem 1.25rem', backgroundColor: '#ecfdf5', borderRadius: '12px', border: '1px solid #a7f3d0', color: '#065f46', fontSize: '0.8rem', fontWeight: '700' }}>
-                ✓ Se han cargado exitosamente {histSuccessGarments.length} prendas. A continuación puedes previsualizar y generar los archivos de impresión.
+                âœ“ Se han cargado exitosamente {histSuccessGarments.length} prendas. A continuación puedes previsualizar y generar los archivos de impresión.
               </div>
 
               {/* Grid of Garments and canvas generator */}
@@ -4769,8 +4767,8 @@ export default function FinishedGoodsInventory() {
                   onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
                   style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '700', backgroundColor: 'white' }}
                 >
-                  <option value="code128">CODE 128 — Universal</option>
-                  <option value="code39">CODE 39 — Alfanumérico</option>
+                  <option value="code128">CODE 128 â€” Universal</option>
+                  <option value="code39">CODE 39 â€” Alfanumérico</option>
                   <option value="qr">QR 2D</option>
                 </select>
               </div>
@@ -4788,7 +4786,7 @@ export default function FinishedGoodsInventory() {
                   onClick={handlePrintHistLabels}
                   style={{ padding: '0.6rem 1.75rem', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontSize: '0.8rem', fontWeight: '900', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)' }}
                 >
-                  🖨️ Generar PDF e Imprimir
+                  ðŸ–¨ï¸ Generar PDF e Imprimir
                 </button>
               </div>
             </div>
@@ -4797,7 +4795,7 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* 🏬 MODAL LISTADO DE CONTENIDO POR BODEGA (PAGINACIÓN 20 EN 20) */}
+      {/* ðŸ¬ MODAL LISTADO DE CONTENIDO POR BODEGA (PAGINACIÓN 20 EN 20) */}
       {showWarehouseItemsModal && selectedWarehouseForModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1150, padding: '1rem' }}>
           <div className="card" style={{ width: '95%', maxWidth: '850px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
@@ -4806,10 +4804,10 @@ export default function FinishedGoodsInventory() {
             <div style={{ padding: '1.25rem 1.75rem', backgroundColor: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  INVENTARIO FÍSICO POR BODEGA
+                  INVENTARIO FÃSICO POR BODEGA
                 </span>
                 <h3 style={{ margin: '0.15rem 0 0 0', fontSize: '1.25rem', fontWeight: '950' }}>
-                  🏬 {selectedWarehouseForModal.nombre_bodega} ({selectedWarehouseForModal.tipo || 'Bodega'})
+                  ðŸ¬ {selectedWarehouseForModal.nombre_bodega} ({selectedWarehouseForModal.tipo || 'Bodega'})
                 </h3>
               </div>
               <button onClick={() => setShowWarehouseItemsModal(false)} style={{ border: 'none', backgroundColor: 'rgba(255,255,255,0.1)', color: 'white', padding: '0.4rem', borderRadius: '8px', cursor: 'pointer' }}>
@@ -4823,7 +4821,7 @@ export default function FinishedGoodsInventory() {
                 <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                 <input
                   type="text"
-                  placeholder="🔍 Buscar por nombre de producto, referencia, color o talla..."
+                  placeholder="ðŸ” Buscar por nombre de producto, referencia, color o talla..."
                   value={warehouseModalSearch}
                   onChange={e => {
                     setWarehouseModalSearch(e.target.value);
@@ -4880,13 +4878,13 @@ export default function FinishedGoodsInventory() {
                           {currentPageItems.map(item => (
                             <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '0.65rem 1rem', fontWeight: '800', color: '#4338ca' }}>
-                                {item.products?.codigo_referencia || '—'}
+                                {item.products?.codigo_referencia || 'â€”'}
                               </td>
                               <td style={{ padding: '0.65rem 1rem', fontWeight: '800', color: '#0f172a' }}>
-                                {item.products?.nombre_producto || '—'}
+                                {item.products?.nombre_producto || 'â€”'}
                               </td>
                               <td style={{ padding: '0.65rem 1rem', color: '#475569' }}>
-                                {item.colors?.nombre_color || '—'}
+                                {item.colors?.nombre_color || 'â€”'}
                               </td>
                               <td style={{ padding: '0.65rem 1rem', textAlign: 'center', fontWeight: '900' }}>
                                 <span style={{ backgroundColor: '#0f172a', color: 'white', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem' }}>
@@ -4909,7 +4907,7 @@ export default function FinishedGoodsInventory() {
                         onClick={() => setWarehouseModalPage(p => Math.max(1, p - 1))}
                         style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.78rem', cursor: warehouseModalPage <= 1 ? 'not-allowed' : 'pointer', opacity: warehouseModalPage <= 1 ? 0.5 : 1 }}
                       >
-                        ← Anterior (20)
+                        â† Anterior (20)
                       </button>
                       <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>
                         Página {warehouseModalPage} de {totalPages}
@@ -4919,7 +4917,7 @@ export default function FinishedGoodsInventory() {
                         onClick={() => setWarehouseModalPage(p => Math.min(totalPages, p + 1))}
                         style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', fontWeight: '800', fontSize: '0.78rem', cursor: warehouseModalPage >= totalPages ? 'not-allowed' : 'pointer', opacity: warehouseModalPage >= totalPages ? 0.5 : 1 }}
                       >
-                        Siguiente (20) →
+                        Siguiente (20) â†’
                       </button>
                     </div>
                   </div>
@@ -4941,7 +4939,7 @@ export default function FinishedGoodsInventory() {
         </div>
       )}
 
-      {/* 📦 MODAL RECEPCIÓN Y CONCILIACIÓN DE TRASLADO CON PISTOLA LECTORA */}
+      {/* ðŸ“¦ MODAL RECEPCIÓN Y CONCILIACIÓN DE TRASLADO CON PISTOLA LECTORA */}
       {showReceiveTransferModal && activeReceivingTransfer && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '1rem' }}>
           <div className="card" style={{ width: '95%', maxWidth: '880px', backgroundColor: 'white', borderRadius: '20px', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
@@ -4954,10 +4952,10 @@ export default function FinishedGoodsInventory() {
                 </div>
                 <div>
                   <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    RECEPCIÓN DE TRASLADO EN TRÁNSITO — TR-{activeReceivingTransfer.consecutive || activeReceivingTransfer.id?.slice(0, 6)}
+                    RECEPCIÓN DE TRASLADO EN TRÃNSITO â€” TR-{activeReceivingTransfer.consecutive || activeReceivingTransfer.id?.slice(0, 6)}
                   </span>
                   <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '950' }}>
-                    De {activeReceivingTransfer.orig?.nombre_bodega} ➔ Hacia {activeReceivingTransfer.dest?.nombre_bodega}
+                    De {activeReceivingTransfer.orig?.nombre_bodega} âž” Hacia {activeReceivingTransfer.dest?.nombre_bodega}
                   </h3>
                 </div>
               </div>
@@ -4972,7 +4970,7 @@ export default function FinishedGoodsInventory() {
                 <Barcode size={22} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#34d399' }} />
                 <input
                   type="text"
-                  placeholder="🔍 ESCANEAR CÓDIGO DE BARRAS / ID ÚNICO DE PRENDA QUE LLEGA..."
+                  placeholder="ðŸ” ESCANEAR CÓDIGO DE BARRAS / ID ÚNICO DE PRENDA QUE LLEGA..."
                   autoFocus
                   onKeyDown={async (e) => {
                     if (e.key === 'Enter') {
@@ -4983,7 +4981,7 @@ export default function FinishedGoodsInventory() {
 
                       // 1. Check if barcode is already scanned
                       if (scannedReceivingBarcodes.has(codeInput)) {
-                        alert(`ℹ️ El código ${codeInput} ya fue escaneado en este proceso de recepción.`);
+                        alert(`â„¹ï¸ El código ${codeInput} ya fue escaneado en este proceso de recepción.`);
                         return;
                       }
 
@@ -5027,7 +5025,7 @@ export default function FinishedGoodsInventory() {
                       }
 
                       if (!matchedItemId) {
-                        alert(`⚠️ El código escaneado (${codeInput}) no pertenece a ningún producto registrado en este despacho.`);
+                        alert(`âš ï¸ El código escaneado (${codeInput}) no pertenece a ningún producto registrado en este despacho.`);
                         return;
                       }
 
@@ -5068,13 +5066,13 @@ export default function FinishedGoodsInventory() {
                       </div>
 
                       <div style={{ padding: '1rem', backgroundColor: '#ecfdf5', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
-                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#047857', textTransform: 'uppercase' }}>FÍSICAMENTE ESCANEADO / LLEGADO</span>
+                        <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#047857', textTransform: 'uppercase' }}>FÃSICAMENTE ESCANEADO / LLEGADO</span>
                         <h4 style={{ margin: '0.2rem 0 0 0', fontSize: '1.3rem', fontWeight: '950', color: '#059669' }}>{totalLlegado} uds</h4>
                       </div>
 
                       <div style={{ padding: '1rem', backgroundColor: faltanteTotal > 0 ? '#fef2f2' : '#f0f9ff', borderRadius: '12px', border: `1px solid ${faltanteTotal > 0 ? '#fca5a5' : '#bae6fd'}` }}>
                         <span style={{ fontSize: '0.68rem', fontWeight: '900', color: faltanteTotal > 0 ? '#dc2626' : '#0284c7', textTransform: 'uppercase' }}>
-                          {faltanteTotal > 0 ? '⚠️ FALTANTES EN RECEPCIÓN' : '✅ RECEPCIÓN COMPLETA'}
+                          {faltanteTotal > 0 ? 'âš ï¸ FALTANTES EN RECEPCIÓN' : 'âœ… RECEPCIÓN COMPLETA'}
                         </span>
                         <h4 style={{ margin: '0.2rem 0 0 0', fontSize: '1.3rem', fontWeight: '950', color: faltanteTotal > 0 ? '#b91c1c' : '#0369a1' }}>
                           {faltanteTotal > 0 ? `-${faltanteTotal} uds` : '0 Faltantes'}
@@ -5106,7 +5104,7 @@ export default function FinishedGoodsInventory() {
                                   {item.resolved_display_name || item.products?.nombre_producto || item.products?.codigo_referencia || item.nameLabel || item.reference_name || 'Prenda en Traslado'}
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
-                                  {item.colors?.nombre_color || '—'} | <span style={{ fontWeight: '900', color: '#0f172a' }}>{item.sizes?.codigo_talla || 'ST'}</span>
+                                  {item.colors?.nombre_color || 'â€”'} | <span style={{ fontWeight: '900', color: '#0f172a' }}>{item.sizes?.codigo_talla || 'ST'}</span>
                                 </td>
                                 <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: '800', color: '#475569' }}>
                                   {cantidadDespachada} uds
@@ -5157,7 +5155,7 @@ export default function FinishedGoodsInventory() {
                 type="button"
                 disabled={isProcessingReceipt || scannedReceivingBarcodes.size === 0}
                 onClick={async () => {
-                  if (!confirm(`¿Confirmas finalizar la recepción de este traslado?\n\n• Se ingresarán al stock de destino exactamente las prendas escaneadas.\n• Los faltantes quedarán registrados en la novedad del despacho.`)) return;
+                  if (!confirm(`Â¿Confirmas finalizar la recepción de este traslado?\n\nâ€¢ Se ingresarán al stock de destino exactamente las prendas escaneadas.\nâ€¢ Los faltantes quedarán registrados en la novedad del despacho.`)) return;
 
                   setIsProcessingReceipt(true);
                   try {
@@ -5233,13 +5231,13 @@ export default function FinishedGoodsInventory() {
                         .in('barcode', Array.from(scannedReceivingBarcodes));
                     }
 
-                    alert('✅ ¡Recepción completada con éxito! Las prendas escaneadas fueron ingresadas al inventario de la bodega destino.');
+                    alert('âœ… Â¡Recepción completada con éxito! Las prendas escaneadas fueron ingresadas al inventario de la bodega destino.');
                     setShowReceiveTransferModal(false);
                     await fetchStock();
                     await fetchKardex();
                     await fetchTransfers();
                   } catch (err: any) {
-                    alert('❌ Error al procesar recepción: ' + err.message);
+                    alert('âŒ Error al procesar recepción: ' + err.message);
                   } finally {
                     setIsProcessingReceipt(false);
                   }
@@ -5257,7 +5255,7 @@ export default function FinishedGoodsInventory() {
                   opacity: scannedReceivingBarcodes.size === 0 ? 0.5 : 1
                 }}
               >
-                {isProcessingReceipt ? <Loader2 size={16} className="animate-spin" /> : '✅ Finalizar Recepción e Ingresar a Stock'}
+                {isProcessingReceipt ? <Loader2 size={16} className="animate-spin" /> : 'âœ… Finalizar Recepción e Ingresar a Stock'}
               </button>
             </div>
 
@@ -5347,11 +5345,11 @@ export default function FinishedGoodsInventory() {
               }}>
                 <div>
                   <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', display: 'block' }}>Bodega Origen</span>
-                  <strong style={{ fontSize: '1.05rem', color: '#0f172a' }}>{selectedTransferForDetail.orig?.nombre_bodega || '—'}</strong>
+                  <strong style={{ fontSize: '1.05rem', color: '#0f172a' }}>{selectedTransferForDetail.orig?.nombre_bodega || 'â€”'}</strong>
                 </div>
                 <div>
                   <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', display: 'block' }}>Bodega Destino</span>
-                  <strong style={{ fontSize: '1.05rem', color: '#2563eb' }}>{selectedTransferForDetail.dest?.nombre_bodega || '—'}</strong>
+                  <strong style={{ fontSize: '1.05rem', color: '#2563eb' }}>{selectedTransferForDetail.dest?.nombre_bodega || 'â€”'}</strong>
                 </div>
                 {selectedTransferForDetail.observaciones && (
                   <div style={{ gridColumn: 'span 2', borderTop: '1px solid #e2e8f0', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
@@ -5364,7 +5362,7 @@ export default function FinishedGoodsInventory() {
               {/* Items List Table */}
               <div>
                 <h4 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Ítems y Productos Incluidos ({selectedTransferForDetail.finished_goods_transfer_items?.length || 0})</span>
+                  <span>Ãtems y Productos Incluidos ({selectedTransferForDetail.finished_goods_transfer_items?.length || 0})</span>
                   <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: '800' }}>
                     Total: {selectedTransferForDetail.finished_goods_transfer_items?.reduce((a: number, b: any) => a + (Number(b.cantidad) || 0), 0)} Uds
                   </span>
@@ -5398,7 +5396,7 @@ export default function FinishedGoodsInventory() {
                                     borderRadius: '6px',
                                     fontWeight: '900'
                                   }}>
-                                    🏷️ {bc}
+                                    ðŸ·ï¸ {bc}
                                   </span>
                                 ))}
                               </div>
@@ -5501,4 +5499,6 @@ export default function FinishedGoodsInventory() {
     </div>
   );
 }
+
+
 

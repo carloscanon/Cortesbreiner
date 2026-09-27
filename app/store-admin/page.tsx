@@ -101,6 +101,7 @@ export default function StoreAdminPage() {
   const [sizes, setSizes] = useState<any[]>([]);
   const [profilesList, setProfilesList] = useState<any[]>([]);
   const [salesList, setSalesList] = useState<any[]>([]);
+  const [billingSearch, setBillingSearch] = useState('');
   const [shifts, setShifts] = useState<any[]>([]);
   const [priceLists, setPriceLists] = useState<any[]>([]);
   const [priceListItems, setPriceListItems] = useState<any[]>([]);
@@ -876,13 +877,20 @@ export default function StoreAdminPage() {
   };
 
   // Platform admin restriction check
-  const isPlatformAdmin = profile?.roles?.name === 'Administrador de plataforma' || profile?.roles?.name?.toLowerCase() === 'administrador de plataforma' || profile?.roles?.name?.toLowerCase().includes('admin');
+  const roleName = profile?.roles?.name?.toLowerCase() || '';
+  const isPlatformAdmin = roleName === 'administrador de plataforma' || roleName.includes('admin');
+  const isSuperUser = roleName.includes('super') || roleName.includes('admin master') || profile?.role_id === 'superadmin';
 
   useEffect(() => {
-    if (profile && !isPlatformAdmin && (activeTab === 'price_lists' || activeTab === 'promotions' || activeTab === 'sales_billing' || activeTab === 'ux_manager')) {
-      setActiveTab('dashboard');
+    if (profile) {
+      if (!isPlatformAdmin && (activeTab === 'price_lists' || activeTab === 'promotions' || activeTab === 'sales_billing')) {
+        setActiveTab('dashboard');
+      }
+      if (!isSuperUser && activeTab === 'ux_manager') {
+        setActiveTab('dashboard');
+      }
     }
-  }, [activeTab, isPlatformAdmin, profile]);
+  }, [activeTab, isPlatformAdmin, isSuperUser, profile]);
 
   return (
     <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -929,11 +937,12 @@ export default function StoreAdminPage() {
           { id: 'registers', label: 'Cajas', icon: <CreditCard size={14} /> },
           { id: 'sessions', label: 'Sesiones y Arqueos', icon: <Activity size={14} /> },
           { id: 'promotions', label: 'Promociones', icon: <ShoppingBag size={14} />, adminOnly: true },
-          { id: 'inventory_monitoring', label: 'Inventario', icon: <Layers size={14} /> },
           { id: 'sales_billing', label: 'Facturación', icon: <DollarSign size={14} />, adminOnly: true },
-          { id: 'ux_manager', label: 'Temas UX', icon: <Settings size={14} />, adminOnly: true },
+          { id: 'ux_manager', label: 'Temas UX', icon: <Settings size={14} />, superAdminOnly: true },
           { id: 'chat_erp', label: 'Chat Puntos', icon: <Users size={14} /> }
-        ] as Array<{id: string; label: string; icon: React.ReactNode; adminOnly?: boolean}>).filter(t => !t.adminOnly || isPlatformAdmin).map(t => {
+        ] as Array<{id: string; label: string; icon: React.ReactNode; adminOnly?: boolean; superAdminOnly?: boolean}>).filter(t => 
+          (!t.adminOnly || isPlatformAdmin) && (!t.superAdminOnly || isSuperUser)
+        ).map(t => {
           const isActive = activeTab === t.id;
           return (
             <button
@@ -1616,6 +1625,17 @@ export default function StoreAdminPage() {
 
               </div>
 
+              {/* Buscador de Facturación */}
+              <div style={{ display: 'flex', marginBottom: '1rem' }}>
+                <input
+                  type="text"
+                  placeholder="Buscar por cliente, cédula, ticket o vendedor..."
+                  value={billingSearch}
+                  onChange={(e) => setBillingSearch(e.target.value)}
+                  style={{ width: '100%', maxWidth: '400px', padding: '0.625rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
+                />
+              </div>
+
               {/* Sales List Table with checkboxes */}
               <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                 <div style={{ overflowX: 'auto' }}>
@@ -1625,10 +1645,14 @@ export default function StoreAdminPage() {
                         <th style={{ padding: '1rem', width: '40px', textAlign: 'center' }}>
                           <input
                             type="checkbox"
-                            checked={selectedSales.length === salesList.length && salesList.length > 0}
+                            checked={
+                              salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).length > 0 &&
+                              selectedSales.length === salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).length
+                            }
                             onChange={(e) => {
+                              const filtered = salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase()));
                               if (e.target.checked) {
-                                setSelectedSales(salesList.map(s => s.id));
+                                setSelectedSales(filtered.map(s => s.id));
                               } else {
                                 setSelectedSales([]);
                               }
@@ -1645,7 +1669,7 @@ export default function StoreAdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {salesList.map((sale) => (
+                      {salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).map((sale) => (
                         <tr key={sale.id} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '1rem', textAlign: 'center' }}>
                             <input

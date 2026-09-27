@@ -13,6 +13,7 @@ export default function Navbar() {
   const [allowedModules, setAllowedModules] = useState<string[]>([]);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [unreadPosChatCount, setUnreadPosChatCount] = useState(0);
 
   const avatarSizeParam = config?.['nav_avatar_size'] || 'normal';
   let avatarWidth = '40px';
@@ -59,6 +60,7 @@ export default function Navbar() {
   const fetchUnreadCount = async () => {
     try {
       const isWorkshopUser = profile?.roles?.name === 'Taller';
+      const isPlatformAdmin = profile?.roles?.name === 'Administrador de plataforma' || profile?.roles?.name?.toLowerCase() === 'administrador de plataforma' || profile?.roles?.name?.toLowerCase().includes('admin');
       if (isWorkshopUser) {
         const workshopId = profile?.workshop_id;
         if (workshopId) {
@@ -78,6 +80,16 @@ export default function Navbar() {
         if (data) {
           const total = data.reduce((sum, r) => sum + (r.unread_count_erp || 0), 0);
           setUnreadChatCount(total);
+        }
+
+        if (isPlatformAdmin) {
+          const { data: posData } = await supabase
+            .from('pos_chat_rooms')
+            .select('unread_count_erp');
+          if (posData) {
+            const totalPos = posData.reduce((sum, r) => sum + (r.unread_count_erp || 0), 0);
+            setUnreadPosChatCount(totalPos);
+          }
         }
       }
     } catch (err) {
@@ -236,6 +248,32 @@ export default function Navbar() {
             </div>
           );
         })()}
+
+        {/* POS Chat Icon for Admins */}
+        {profile?.roles?.name?.toLowerCase().includes('admin') && (
+          <button className="btn-icon" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => { window.location.href = '/store-admin?tab=chat_erp'; }} title="Chat Puntos de Venta (POS)">
+            <Store size={iconSize} color="var(--text-muted)" />
+            {unreadPosChatCount > 0 && (
+              <span style={{ 
+                position: 'absolute', 
+                top: badgeTop, 
+                right: badgeRight, 
+                backgroundColor: '#ef4444', 
+                color: 'white',
+                borderRadius: '999px',
+                fontSize: '0.625rem',
+                fontWeight: '900',
+                padding: '0.1rem 0.35rem',
+                minWidth: '16px',
+                textAlign: 'center',
+                lineHeight: '1.2',
+                border: '1.5px solid white'
+              }}>
+                {unreadPosChatCount}
+              </span>
+            )}
+          </button>
+        )}
 
         <button className="btn-icon" style={{ position: 'relative', cursor: 'pointer' }} onClick={handleMailClick} title="Mensajes / Chat">
           <Mail size={iconSize} color="var(--text-muted)" />
