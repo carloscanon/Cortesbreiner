@@ -699,29 +699,30 @@ export default function StoreAdminPage() {
     }
   };
 
-  const handleUpdateItemPrice = async (listId: string, productId: string, priceStr: string) => {
-    const price = Number(priceStr);
+  const handleUpdateCategoryDiscount = async (listId: string, category: string, type: string, valueStr: string) => {
+    const val = Number(valueStr);
     try {
-      const existing = priceListItems.find(item => item.price_list_id === listId && item.product_id === productId);
-      if (isNaN(price) || price <= 0) {
+      const existing = priceListItems.find(item => item.price_list_id === listId && item.categoria === category);
+      if (isNaN(val) || val <= 0) {
         if (existing) {
           await supabase.from('pos_price_list_items').delete().eq('id', existing.id);
         }
       } else {
         if (existing) {
-          await supabase.from('pos_price_list_items').update({ precio: price }).eq('id', existing.id);
+          await supabase.from('pos_price_list_items').update({ tipo_descuento: type, valor_descuento: val }).eq('id', existing.id);
         } else {
           await supabase.from('pos_price_list_items').insert([{
             price_list_id: listId,
-            product_id: productId,
-            precio: price
+            categoria: category,
+            tipo_descuento: type,
+            valor_descuento: val
           }]);
         }
       }
-      alert("✓ Precio especial actualizado.");
+      alert("✓ Descuento de categoría actualizado.");
       fetchData();
     } catch (err: any) {
-      alert("Error al actualizar precio: " + err.message);
+      alert("Error al actualizar descuento: " + err.message);
     }
   };
 
@@ -1308,7 +1309,7 @@ export default function StoreAdminPage() {
                 <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
                   <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
                     <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                      Escribe el precio especial para cada producto en esta lista. Si se deja en blanco, la caja usará el <strong>Precio Base General</strong> por defecto.
+                      Escribe el descuento para cada categoría en esta lista. Si se deja en blanco, la caja usará el <strong>Precio Base General</strong> por defecto.
                     </p>
                   </div>
                   
@@ -1316,29 +1317,48 @@ export default function StoreAdminPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                       <thead>
                         <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                          <th style={{ padding: '1rem' }}>Referencia SKU</th>
-                          <th style={{ padding: '1rem' }}>Producto</th>
-                          <th style={{ padding: '1rem' }}>Precio Base General</th>
-                          <th style={{ padding: '1rem' }}>Precio Especial en esta Lista ($)</th>
+                          <th style={{ padding: '1rem' }}>Categoría</th>
+                          <th style={{ padding: '1rem' }}>Tipo de Descuento</th>
+                          <th style={{ padding: '1rem' }}>Valor a Descontar</th>
                           <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {products.map((p) => {
-                          const inputKey = `${selectedPriceListPricing.id}_${p.id}`;
-                          const inputValue = pricingInputs[inputKey] || '';
+                        {Array.from(new Set(products.map(p => p.categoria).filter(Boolean))).map((catName) => {
+                          const cat = catName as string;
+                          const inputKeyType = `${selectedPriceListPricing.id}_${cat}_type`;
+                          const inputKeyVal = `${selectedPriceListPricing.id}_${cat}_val`;
+                          
+                          // Pre-fill existing value
+                          const existing = priceListItems.find(item => item.price_list_id === selectedPriceListPricing.id && item.categoria === cat);
+                          const currentType = pricingInputs[inputKeyType] || (existing ? existing.tipo_descuento : 'valor');
+                          const currentVal = pricingInputs[inputKeyVal] !== undefined ? pricingInputs[inputKeyVal] : (existing ? existing.valor_descuento : '');
                           
                           return (
-                            <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '1rem', fontWeight: '800', color: 'var(--primary)' }}>{p.codigo_referencia}</td>
-                              <td style={{ padding: '1rem', fontWeight: '750' }}>{p.nombre_producto}</td>
-                              <td style={{ padding: '1rem' }}>${(p.precio || 35000).toLocaleString('es-CO')}</td>
+                            <tr key={cat} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '1rem', fontWeight: '800', color: 'var(--primary)' }}>{cat}</td>
+                              <td style={{ padding: '1rem' }}>
+                                <select
+                                  value={currentType}
+                                  onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyType]: e.target.value })}
+                                  style={{
+                                    padding: '0.4rem 0.75rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid var(--border)',
+                                    fontSize: '0.85rem',
+                                    width: '150px'
+                                  }}
+                                >
+                                  <option value="valor">Valor Fijo ($)</option>
+                                  <option value="porcentaje">Porcentaje (%)</option>
+                                </select>
+                              </td>
                               <td style={{ padding: '1rem' }}>
                                 <input
                                   type="number"
-                                  placeholder="Usar base..."
-                                  value={inputValue}
-                                  onChange={e => setPricingInputs({ ...pricingInputs, [inputKey]: e.target.value })}
+                                  placeholder={currentType === 'porcentaje' ? 'Ej: 10' : 'Ej: 5000'}
+                                  value={currentVal}
+                                  onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyVal]: e.target.value })}
                                   style={{
                                     padding: '0.4rem 0.75rem',
                                     borderRadius: '6px',
@@ -1351,7 +1371,7 @@ export default function StoreAdminPage() {
                               </td>
                               <td style={{ padding: '1rem', textAlign: 'center' }}>
                                 <button
-                                  onClick={() => handleUpdateItemPrice(selectedPriceListPricing.id, p.id, inputValue)}
+                                  onClick={() => handleUpdateCategoryDiscount(selectedPriceListPricing.id, cat, currentType, currentVal.toString())}
                                   style={{
                                     padding: '0.4rem 0.85rem',
                                     borderRadius: '6px',

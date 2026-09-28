@@ -1516,13 +1516,18 @@ export default function POSPage() {
   };
 
   const getProductPrice = (product: any, priceListId: string, customItems: any[]) => {
+    let basePrice = product.precio || 35000;
     if (priceListId) {
-      const special = customItems.find(item => item.price_list_id === priceListId && item.product_id === product.id);
+      const special = customItems.find(item => item.price_list_id === priceListId && item.categoria === product.categoria);
       if (special) {
-        return Number(special.precio);
+        if (special.tipo_descuento === 'porcentaje') {
+          return Math.max(0, basePrice - (basePrice * (Number(special.valor_descuento) / 100)));
+        } else {
+          return Math.max(0, basePrice - Number(special.valor_descuento));
+        }
       }
     }
-    return product.precio || 35000;
+    return basePrice;
   };
 
   useEffect(() => {
