@@ -1288,7 +1288,11 @@ export default function StoreAdminPage() {
                                   </button>
                                   <button
                                     onClick={() => {
-                                      setPriceListForm(pl);
+                                      setPriceListForm({
+                                        ...pl,
+                                        valor_descuento_global: pl.valor_descuento_global ?? '',
+                                        tipo_descuento_global: pl.tipo_descuento_global || 'valor'
+                                      });
                                       setShowPriceListModal(true);
                                     }}
                                     style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#475569' }}
