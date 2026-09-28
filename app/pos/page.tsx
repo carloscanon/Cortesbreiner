@@ -131,6 +131,7 @@ export default function POSPage() {
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustCity, setNewCustCity] = useState('');
   const [newCustAvatarUrl, setNewCustAvatarUrl] = useState('');
+  const [newCustPriceListId, setNewCustPriceListId] = useState('');
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
 
   // Inline inventory states
@@ -1518,12 +1519,20 @@ export default function POSPage() {
   const getProductPrice = (product: any, priceListId: string, customItems: any[]) => {
     let basePrice = product.precio || 35000;
     if (priceListId) {
+      const pl = priceLists.find(l => l.id === priceListId);
       const special = customItems.find(item => item.price_list_id === priceListId && item.categoria === product.categoria);
+      
       if (special) {
         if (special.tipo_descuento === 'porcentaje') {
           return Math.max(0, basePrice - (basePrice * (Number(special.valor_descuento) / 100)));
         } else {
           return Math.max(0, basePrice - Number(special.valor_descuento));
+        }
+      } else if (pl && pl.valor_descuento_global) {
+        if (pl.tipo_descuento_global === 'porcentaje') {
+          return Math.max(0, basePrice - (basePrice * (Number(pl.valor_descuento_global) / 100)));
+        } else {
+          return Math.max(0, basePrice - Number(pl.valor_descuento_global));
         }
       }
     }
@@ -2918,6 +2927,15 @@ export default function POSPage() {
                       <input placeholder="Dirección física" value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
                       <input placeholder="Ciudad / Municipio" value={newCustCity} onChange={e => setNewCustCity(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
                       
+                      <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#64748b', fontWeight: '700' }}>Lista de Precios Asociada</span>
+                        <select value={newCustPriceListId} onChange={e => setNewCustPriceListId(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}>
+                          <option value="">Ninguna (Precio Base)</option>
+                          {priceLists.map(pl => (
+                            <option key={pl.id} value={pl.id}>{pl.nombre}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem', border: '1px dashed #cbd5e1', borderRadius: '8px' }}>
                         {newCustAvatarUrl ? (
                           <img src={newCustAvatarUrl} style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} alt="Avatar" />
@@ -2965,7 +2983,8 @@ export default function POSPage() {
                             tipo_persona: newCustTypePerson,
                             direccion: newCustAddress,
                             ciudad: newCustCity,
-                            avatar_url: newCustAvatarUrl
+                            avatar_url: newCustAvatarUrl,
+                            price_list_id: newCustPriceListId || null
                           };
                           if (editingCustomerId) {
                             payload.id = editingCustomerId;
@@ -2974,7 +2993,7 @@ export default function POSPage() {
                           if (error) throw error;
                           
                           setNewCustName(''); setNewCustDoc(''); setNewCustEmail(''); setNewCustPhone('');
-                          setNewCustAddress(''); setNewCustCity(''); setNewCustAvatarUrl('');
+                          setNewCustAddress(''); setNewCustCity(''); setNewCustAvatarUrl(''); setNewCustPriceListId('');
                           setNewCustTypeDoc('Cedula'); setNewCustTypePerson('Natural');
                           setEditingCustomerId(null);
                           setShowNewCustomerForm(false); 
@@ -3048,7 +3067,12 @@ export default function POSPage() {
                         }} style={{ padding: '0.35rem 0.6rem', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}>
                           ✏️ Editar
                         </button>
-                        <button onClick={() => { setSelectedCustomer({ name: c.name, document: c.identification }); setActiveMenuId('pos'); }} style={{ padding: '0.35rem 0.75rem', background: 'linear-gradient(90deg,#80082E,#D81B60)', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}>
+                        <button onClick={() => { 
+                          setSelectedCustomer({ name: c.name, document: c.identification }); 
+                          if (c.price_list_id) setSelectedPriceListId(c.price_list_id);
+                          else setSelectedPriceListId('');
+                          setActiveMenuId('pos'); 
+                        }} style={{ padding: '0.35rem 0.75rem', background: 'linear-gradient(90deg,#80082E,#D81B60)', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}>
                           Seleccionar
                         </button>
                       </div>

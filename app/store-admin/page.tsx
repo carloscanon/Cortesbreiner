@@ -287,7 +287,7 @@ export default function StoreAdminPage() {
   const [registerForm, setRegisterForm] = useState({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
   const [promoForm, setPromoForm] = useState({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
   const [shiftForm, setShiftForm] = useState({ id: '', store_id: '', user_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-  const [priceListForm, setPriceListForm] = useState({ id: '', nombre: '', descripcion: '', activo: true });
+  const [priceListForm, setPriceListForm] = useState({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
   const [storeInvForm, setStoreInvForm] = useState({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
 
   const [savingStore, setSavingStore] = useState(false);
@@ -572,21 +572,21 @@ export default function StoreAdminPage() {
     e.preventDefault();
     setSavingPriceList(true);
     try {
+      const payload = {
+        nombre: priceListForm.nombre,
+        descripcion: priceListForm.descripcion,
+        activo: priceListForm.activo,
+        tipo_descuento_global: priceListForm.tipo_descuento_global,
+        valor_descuento_global: priceListForm.valor_descuento_global === '' ? null : Number(priceListForm.valor_descuento_global)
+      };
+
       if (priceListForm.id) {
-        await supabase.from('pos_price_lists').update({
-          nombre: priceListForm.nombre,
-          descripcion: priceListForm.descripcion,
-          activo: priceListForm.activo
-        }).eq('id', priceListForm.id);
+        await supabase.from('pos_price_lists').update(payload).eq('id', priceListForm.id);
       } else {
-        await supabase.from('pos_price_lists').insert([{
-          nombre: priceListForm.nombre,
-          descripcion: priceListForm.descripcion,
-          activo: priceListForm.activo
-        }]);
+        await supabase.from('pos_price_lists').insert([payload]);
       }
       setShowPriceListModal(false);
-      setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true });
+      setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
       fetchData();
     } catch (err: any) {
       alert("Error guardando lista de precios: " + err.message);
@@ -2566,6 +2566,31 @@ export default function StoreAdminPage() {
                   onChange={e => setPriceListForm({ ...priceListForm, descripcion: e.target.value })}
                   style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', minHeight: '60px', fontFamily: 'inherit' }}
                 />
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Tipo de Descuento (Global)</label>
+                  <select
+                    value={priceListForm.tipo_descuento_global}
+                    onChange={e => setPriceListForm({ ...priceListForm, tipo_descuento_global: e.target.value })}
+                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                  >
+                    <option value="valor">Valor Fijo ($)</option>
+                    <option value="porcentaje">Porcentaje (%)</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Valor a Descontar (Global)</label>
+                  <input
+                    type="number"
+                    placeholder={priceListForm.tipo_descuento_global === 'porcentaje' ? 'Ej: 10' : 'Ej: 5000'}
+                    value={priceListForm.valor_descuento_global}
+                    onChange={e => setPriceListForm({ ...priceListForm, valor_descuento_global: e.target.value })}
+                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                  />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem', marginBottom: 0 }}>Dejar vacío si no aplica a todo el inventario.</p>
+                </div>
               </div>
 
               <div>
