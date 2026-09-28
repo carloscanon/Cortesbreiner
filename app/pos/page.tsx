@@ -1523,13 +1523,13 @@ export default function POSPage() {
       const pl = priceLists.find(l => l.id === priceListId);
       const special = customItems.find(item => item.price_list_id === priceListId && item.categoria === product.categoria);
       
-      if (special) {
+      if (special && special.valor_descuento !== null && special.valor_descuento !== undefined) {
         if (special.tipo_descuento === 'porcentaje') {
           return Math.max(0, basePrice - (basePrice * (Number(special.valor_descuento) / 100)));
         } else {
           return Math.max(0, basePrice - Number(special.valor_descuento));
         }
-      } else if (pl && pl.valor_descuento_global) {
+      } else if (pl && pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined) {
         if (pl.tipo_descuento_global === 'porcentaje') {
           return Math.max(0, basePrice - (basePrice * (Number(pl.valor_descuento_global) / 100)));
         } else {
@@ -1541,7 +1541,7 @@ export default function POSPage() {
   };
 
   useEffect(() => {
-    const updatedCart = cart.map(item => {
+    setCart(prevCart => prevCart.map(item => {
       if (item.is_return) return item;
       const productObj = products.find(p => p.id === item.product_id);
       if (productObj) {
@@ -1549,9 +1549,8 @@ export default function POSPage() {
         return { ...item, precio: newPrice };
       }
       return item;
-    });
-    setCart(updatedCart);
-  }, [selectedPriceListId, products, priceListItems]);
+    }));
+  }, [selectedPriceListId, products, priceListItems, priceLists]);
 
   const doAddToCart = (product: any, colorId: string | null, sizeId: string | null) => {
     const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems);
