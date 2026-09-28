@@ -3063,6 +3063,7 @@ export default function POSPage() {
                           setNewCustAddress(c.direccion || c.address_line || '');
                           setNewCustCity(c.ciudad || c.city_name || '');
                           setNewCustAvatarUrl(c.avatar_url || '');
+                          setNewCustPriceListId(c.price_list_id || '');
                           setShowNewCustomerForm(true);
                         }} style={{ padding: '0.35rem 0.6rem', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}>
                           ✏️ Editar
