@@ -133,6 +133,7 @@ export default function POSPage() {
   const [newCustAvatarUrl, setNewCustAvatarUrl] = useState('');
   const [newCustPriceListId, setNewCustPriceListId] = useState('');
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [showPosClientModal, setShowPosClientModal] = useState(false);
 
   // Inline inventory states
   const [inventoryList, setInventoryList] = useState<any[]>([]);
@@ -5291,7 +5292,7 @@ export default function POSPage() {
                       <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#0f172a' }}>{selectedCustomer.name}</span>
                     </div>
                   </div>
-                  <button style={{
+                  <button onClick={() => setShowPosClientModal(true)} style={{
                     backgroundColor: '#fff0f3',
                     color: '#80082E',
                     border: 'none',
@@ -5458,6 +5459,142 @@ export default function POSPage() {
 
         </div>
       </div>
+
+      {/* MODAL DE SELECCIÓN Y CREACIÓN DE CLIENTE EN POS */}
+      {showPosClientModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)' }}>
+          <div className="pos-modal" style={{ width: '90%', maxWidth: '650px', backgroundColor: 'white', borderRadius: '16px', padding: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>Seleccionar o Crear Cliente</h3>
+              <button onClick={() => { setShowPosClientModal(false); setShowNewCustomerForm(false); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={24} /></button>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <button onClick={() => setShowNewCustomerForm(false)} style={{ flex: 1, padding: '0.6rem', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', backgroundColor: !showNewCustomerForm ? '#80082E' : '#f1f5f9', color: !showNewCustomerForm ? 'white' : '#64748b' }}>Buscar Cliente</button>
+              <button onClick={() => { 
+                setNewCustName(''); setNewCustDoc(''); setNewCustEmail(''); setNewCustPhone('');
+                setNewCustAddress(''); setNewCustCity(''); setNewCustAvatarUrl(''); setNewCustPriceListId('');
+                setNewCustTypeDoc('Cedula'); setNewCustTypePerson('Natural');
+                setEditingCustomerId(null);
+                setShowNewCustomerForm(true); 
+              }} style={{ flex: 1, padding: '0.6rem', border: 'none', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', backgroundColor: showNewCustomerForm ? '#80082E' : '#f1f5f9', color: showNewCustomerForm ? 'white' : '#64748b' }}>Nuevo Cliente</button>
+            </div>
+
+            {!showNewCustomerForm ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <input type="text" placeholder="Buscar cliente por nombre o documento..." value={crmSearch} onChange={e => setCrmSearch(e.target.value)} style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', width: '100%' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto' }}>
+                  {crmCustomers.filter(c => !crmSearch || (c.name || '').toLowerCase().includes(crmSearch.toLowerCase()) || (c.identification || '').includes(crmSearch)).map((c, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        {c.avatar_url ? (
+                          <img src={c.avatar_url} style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} alt="Avatar" />
+                        ) : (
+                          <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', color: '#64748b', flexShrink: 0 }}>👤</div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#1e293b' }}>{c.name || 'Sin Nombre'}</span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{c.tipo_documento}: {c.identification}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => { 
+                        setSelectedCustomer({ name: c.name, document: c.identification }); 
+                        if (c.price_list_id) setSelectedPriceListId(c.price_list_id);
+                        else setSelectedPriceListId('');
+                        setShowPosClientModal(false); 
+                      }} style={{ padding: '0.35rem 0.75rem', background: '#80082E', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer' }}>
+                        Seleccionar
+                      </button>
+                    </div>
+                  ))}
+                  {crmCustomers.length === 0 && <div style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem', fontSize: '0.8rem' }}>No hay clientes registrados.</div>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <input placeholder="Nombre / Razón Social" value={newCustName} onChange={e => setNewCustName(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
+                  <input placeholder="Documento / NIT" value={newCustDoc} disabled={!!editingCustomerId} onChange={e => setNewCustDoc(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: editingCustomerId ? '#f1f5f9' : 'white' }} />
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.625rem', color: '#64748b', fontWeight: '700' }}>Tipo de Identificación</span>
+                    <select value={newCustTypeDoc} onChange={e => setNewCustTypeDoc(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}>
+                      <option value="Cedula">Cédula de Ciudadanía</option>
+                      <option value="Nit">NIT (Empresa)</option>
+                      <option value="CedulaExtranjeria">Cédula de Extranjería</option>
+                      <option value="Pasaporte">Pasaporte</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.625rem', color: '#64748b', fontWeight: '700' }}>Tipo de Persona</span>
+                    <select value={newCustTypePerson} onChange={e => setNewCustTypePerson(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}>
+                      <option value="Natural">Persona Natural</option>
+                      <option value="Juridica">Persona Jurídica</option>
+                    </select>
+                  </div>
+
+                  <input placeholder="Email corporativo" value={newCustEmail} onChange={e => setNewCustEmail(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
+                  <input placeholder="Teléfono celular" value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
+                  <input placeholder="Dirección física" value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
+                  <input placeholder="Ciudad / Municipio" value={newCustCity} onChange={e => setNewCustCity(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem' }} />
+                  
+                  <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.625rem', color: '#64748b', fontWeight: '700' }}>Lista de Precios Asociada</span>
+                    <select value={newCustPriceListId} onChange={e => setNewCustPriceListId(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}>
+                      <option value="">Ninguna (Precio Base)</option>
+                      {priceLists.map(pl => (
+                        <option key={pl.id} value={pl.id}>{pl.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button onClick={async () => {
+                    if (!newCustName || !selectedStore) return;
+                    try {
+                      const payload: any = { 
+                        name: newCustName, 
+                        identification: newCustDoc, 
+                        email: newCustEmail, 
+                        phone: newCustPhone,
+                        store_id: selectedStore.id,
+                        tipo_documento: newCustTypeDoc,
+                        tipo_persona: newCustTypePerson,
+                        direccion: newCustAddress,
+                        ciudad: newCustCity,
+                        avatar_url: newCustAvatarUrl,
+                        price_list_id: newCustPriceListId || null
+                      };
+                      if (editingCustomerId) payload.id = editingCustomerId;
+                      const { data, error } = await supabase.from('siigo_customers').upsert(payload, { onConflict: 'identification' }).select().single();
+                      if (error) throw error;
+                      
+                      fetchCrmCustomers();
+                      
+                      // Auto select it for POS!
+                      setSelectedCustomer({ name: data.name, document: data.identification }); 
+                      if (data.price_list_id) setSelectedPriceListId(data.price_list_id);
+                      else setSelectedPriceListId('');
+                      
+                      setShowPosClientModal(false);
+                      setShowNewCustomerForm(false);
+                    } catch (err: any) {
+                      alert('Error al guardar cliente: ' + err.message);
+                    }
+                  }} style={{ flex: 1, padding: '0.75rem', background: '#80082E', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer' }}>
+                    Guardar y Seleccionar
+                  </button>
+                  <button onClick={() => setShowNewCustomerForm(false)} style={{ padding: '0.75rem 1.5rem', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer' }}>
+                    Atrás
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* SELECTOR DE VARIANTES MODAL */}
       {showVariantModal && selectedProductForVariants && (
