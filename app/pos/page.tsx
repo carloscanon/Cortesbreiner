@@ -5290,6 +5290,11 @@ export default function POSPage() {
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '755' }}>CLIENTE</span>
                       <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#0f172a' }}>{selectedCustomer.name}</span>
+                      {selectedPriceListId && (
+                        <span style={{ fontSize: '0.6rem', color: '#10b981' }}>
+                          Lista: {priceLists.find(l => l.id === selectedPriceListId)?.nombre} ({priceLists.find(l => l.id === selectedPriceListId)?.tipo_descuento_global} - {priceLists.find(l => l.id === selectedPriceListId)?.valor_descuento_global})
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button onClick={() => setShowPosClientModal(true)} style={{
