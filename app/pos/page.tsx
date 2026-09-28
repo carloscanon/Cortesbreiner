@@ -92,6 +92,7 @@ export default function POSPage() {
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<any>(null);
   const [productVariants, setProductVariants] = useState<any[]>([]);
+  const [variantSearch, setVariantSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [resolvedBarcodeRef, setResolvedBarcodeRef] = useState<string | null>(null);
   const [scannedGarment, setScannedGarment] = useState<any>(null);
@@ -1590,6 +1591,7 @@ export default function POSPage() {
     if (inStockItems.length > 1) {
       setSelectedProductForVariants(product);
       setProductVariants(inStockItems);
+      setVariantSearch('');
       setShowVariantModal(true);
     } else {
       alert('Este producto no tiene inventario disponible en ninguna talla/color.');
@@ -5444,14 +5446,31 @@ export default function POSPage() {
               <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: customPrimary }}><Shirt size={22} /> Escoger Variante</h3>
               <button onClick={() => setShowVariantModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
             </div>
-            
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
                 El producto <strong>{selectedProductForVariants.nombre_producto}</strong> tiene varias combinaciones de talla y color en esta tienda. Selecciona la que deseas vender:
               </p>
+
+              <div style={{ position: 'relative', width: '100%' }}>
+                 <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                 <input
+                   type="text"
+                   autoFocus
+                   placeholder="Buscar por color o talla..."
+                   value={variantSearch}
+                   onChange={(e) => setVariantSearch(e.target.value)}
+                   style={{ padding: '0.6rem 1rem 0.6rem 2.25rem', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem', width: '100%', outline: 'none' }}
+                 />
+              </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
-                {productVariants.map((inv, idx) => {
+                {productVariants.filter(inv => {
+                  if (!variantSearch) return true;
+                  const searchUpper = variantSearch.toUpperCase();
+                  const cName = (inv.colors?.nombre_color || '').toUpperCase();
+                  const sCode = (inv.sizes?.codigo_talla || '').toUpperCase();
+                  return cName.includes(searchUpper) || sCode.includes(searchUpper);
+                }).map((inv, idx) => {
                   const cName = inv.colors?.nombre_color || '(Sin color)';
                   const sCode = inv.sizes?.codigo_talla || '(Sin talla)';
                   return (
