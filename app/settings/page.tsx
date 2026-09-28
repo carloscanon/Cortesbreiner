@@ -64,7 +64,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
-    if (!confirm(`Â¿Estás seguro de que deseas eliminar al usuario "${userName}"? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`Â¿EstÃ¡s seguro de que deseas eliminar al usuario "${userName}"? Esta acciÃ³n no se puede deshacer.`)) return;
     try {
       const res = await fetch('/api/users/delete', {
         method: 'DELETE',
@@ -323,9 +323,9 @@ export default function SettingsPage() {
       }
 
       // Esperar que los datos se recarguen ANTES de cerrar el modal
-      // para que al reabrirlo los permisos ya estén actualizados
+      // para que al reabrirlo los permisos ya estÃ©n actualizados
       await fetchData();
-      // Refresca la navegación/sidebar para reflejar los nuevos módulos del rol
+      // Refresca la navegaciÃ³n/sidebar para reflejar los nuevos mÃ³dulos del rol
       await refreshConfig();
 
       setShowRoleModal(false);
@@ -341,7 +341,7 @@ export default function SettingsPage() {
   };
 
   const handleDeleteRole = async (id: string) => {
-    if (!confirm('Â¿Seguro que deseas eliminar este rol? Se perderán todos sus permisos asignados.')) return;
+    if (!confirm('Â¿Seguro que deseas eliminar este rol? Se perderÃ¡n todos sus permisos asignados.')) return;
     try {
       const { error } = await supabase.from('roles').delete().eq('id', id);
       if (error) throw error;
@@ -356,7 +356,7 @@ export default function SettingsPage() {
     setSaving(true);
     const formData = new FormData(e.target as HTMLFormElement);
     
-    // Colectar checkboxes de edición
+    // Colectar checkboxes de ediciÃ³n
     const editCheckboxes = document.getElementsByName('edit_workshop_ids_check');
     const selectedEditWorkshopIds: string[] = [];
     editCheckboxes.forEach((cb: any) => {
@@ -427,7 +427,7 @@ export default function SettingsPage() {
     const full_name = formData.get('full_name') as string;
     const role_id = formData.get('role_id') as string;
 
-    // Colectar checkboxes de creación
+    // Colectar checkboxes de creaciÃ³n
     const createCheckboxes = document.getElementsByName('workshop_ids_check');
     const selectedCreateWorkshopIds: string[] = [];
     createCheckboxes.forEach((cb: any) => {
@@ -439,7 +439,7 @@ export default function SettingsPage() {
     const cleanWorkshopId = workshop_id_val && workshop_id_val !== '' ? workshop_id_val : null;
 
     if (password.length < 6) {
-      alert('La contraseña debe tener al menos 6 caracteres.');
+      alert('La contraseÃ±a debe tener al menos 6 caracteres.');
       setSaving(false);
       return;
     }
@@ -559,7 +559,7 @@ export default function SettingsPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1>Configuración del Sistema</h1>
+          <h1>ConfiguraciÃ³n del Sistema</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Administra roles, accesos y usuarios.</p>
         </div>
         {message && (
@@ -612,7 +612,7 @@ export default function SettingsPage() {
               {activeTab === 'roles' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                    <h3>Definición de Roles</h3>
+                    <h3>DefiniciÃ³n de Roles</h3>
                     <button className="btn btn-primary" onClick={() => { setEditingRole(null); setSelectedPermissions([]); setShowRoleModal(true); }}>
                       <Plus size={18} /> Crear Nuevo Rol
                     </button>
@@ -629,14 +629,14 @@ export default function SettingsPage() {
                         </div>
                         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.5rem', minHeight: '3em' }}>{role.description}</p>
                         <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-                          <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Accesos a Módulos:</p>
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Accesos a MÃ³dulos:</p>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                             {permissions.map(perm => {
                               const hasAccess = role.permissions?.includes(perm.id);
                               return (
                                 <div key={perm.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: hasAccess ? 'var(--text)' : 'var(--text-muted)', opacity: hasAccess ? 1 : 0.6 }}>
                                   {hasAccess ? <CheckCircle2 size={14} color="#10b981" /> : <X size={14} color="#ef4444" />}
-                                  {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
+                                  {perm.name.replace('Acceso a ', '').replace('GestiÃ³n de ', '')}
                                 </div>
                               );
                             })}
@@ -651,7 +651,7 @@ export default function SettingsPage() {
               {activeTab === 'users' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                    <h3>Gestión de Usuarios</h3>
+                    <h3>GestiÃ³n de Usuarios</h3>
                     <button className="btn btn-primary" onClick={() => setShowCreateUserModal(true)}><Plus size={18} /> Nuevo Usuario</button>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1832,18 +1832,18 @@ export default function SettingsPage() {
                             onTouchEnd={(e: any) => handleUpdateParam('logo_width', e.target.value)}
                           />
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
-                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Pequeño</span>
+                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>PequeÃ±o</span>
                             <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Grande</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Configuración de Barra Superior y Sesión */}
+                    {/* ConfiguraciÃ³n de Barra Superior y SesiÃ³n */}
                     <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc', gridColumn: 'span 2' }}>
-                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><SettingsIcon size={18} /> Configuración de Barra Superior y Sesión</h4>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><SettingsIcon size={18} /> ConfiguraciÃ³n de Barra Superior y SesiÃ³n</h4>
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                        Configura qué iconos aparecen en la cabecera y el tamaño de visualización de la sesión del usuario (taller/ERP).
+                        Configura quÃ© iconos aparecen en la cabecera y el tamaÃ±o de visualizaciÃ³n de la sesiÃ³n del usuario (taller/ERP).
                       </p>
                       
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
@@ -1881,7 +1881,7 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.5rem' }}>Escala del Bloque de Sesión</label>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.5rem' }}>Escala del Bloque de SesiÃ³n</label>
                           <select
                             value={companyParams.find(p => p.name === 'nav_avatar_size')?.value || 'normal'}
                             onChange={(e) => handleUpdateParam('nav_avatar_size', e.target.value)}
@@ -1891,7 +1891,7 @@ export default function SettingsPage() {
                             <option value="normal">Normal (40px, circular)</option>
                             <option value="large">Grande (55px, circular)</option>
                             <option value="xlarge">Muy Grande (70px, circular)</option>
-                            <option value="xxlarge">Súper Grande (85px, circular)</option>
+                            <option value="xxlarge">SÃºper Grande (85px, circular)</option>
                           </select>
                         </div>
 
@@ -1903,7 +1903,7 @@ export default function SettingsPage() {
                             className="select"
                             style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700' }}
                           >
-                            <option value="small">Pequeño (32px)</option>
+                            <option value="small">PequeÃ±o (32px)</option>
                             <option value="normal">Mediano (46px)</option>
                             <option value="large">Grande (64px)</option>
                             <option value="xlarge">Muy Grande (80px)</option>
@@ -1916,7 +1916,7 @@ export default function SettingsPage() {
                     <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc', gridColumn: 'span 2' }}>
                       <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><UserIcon size={18} /> Mi Perfil y Datos Personales</h4>
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                        Actualiza tu avatar personal, nombre de visualización y contraseña directamente desde aquí.
+                        Actualiza tu avatar personal, nombre de visualizaciÃ³n y contraseÃ±a directamente desde aquÃ­.
                       </p>
                       
                       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
@@ -1970,7 +1970,7 @@ export default function SettingsPage() {
                                   })
                                 });
                                 if (!res.ok) throw new Error('Error al actualizar avatar');
-                                alert('Avatar actualizado correctamente. Recargando página...');
+                                alert('Avatar actualizado correctamente. Recargando pÃ¡gina...');
                                 window.location.reload();
                               } catch(err: any) {
                                 alert(err.message);
@@ -1999,7 +1999,7 @@ export default function SettingsPage() {
                           </div>
                           
                           <div>
-                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Nueva Contraseña (Dejar vacío para conservar)</label>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Nueva ContraseÃ±a (Dejar vacÃ­o para conservar)</label>
                             <input 
                               type="password" 
                               className="input" 
@@ -2036,7 +2036,7 @@ export default function SettingsPage() {
                                   })
                                 });
                                 if (!res.ok) throw new Error('Error al actualizar perfil');
-                                alert('Perfil actualizado correctamente. Recargando página...');
+                                alert('Perfil actualizado correctamente. Recargando pÃ¡gina...');
                                 window.location.reload();
                               } catch(err: any) {
                                 alert(err.message);
@@ -2051,7 +2051,7 @@ export default function SettingsPage() {
 
                     {/* Mobile App Image Config */}
                     <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc' }}>
-                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Maximize size={18} /> Imagen App Móvil (Sidebar)</h4>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Maximize size={18} /> Imagen App MÃ³vil (Sidebar)</h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <div style={{ 
                           height: '120px', 
@@ -2109,22 +2109,22 @@ export default function SettingsPage() {
                         <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('mobile-app-upload')?.click()}>
                           <Upload size={16} /> Cambiar Imagen App
                         </button>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrará en la tarjeta de promoción de la app móvil en el menú lateral.</p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrarÃ¡ en la tarjeta de promociÃ³n de la app mÃ³vil en el menÃº lateral.</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* â”€â”€ Personalización de Título de Inicio de Sesión (Login) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* â”€â”€ PersonalizaciÃ³n de TÃ­tulo de Inicio de SesiÃ³n (Login) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
                     <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Building2 size={18} /> Título de Login (Identidad de Empresa)
+                      <Building2 size={18} /> TÃ­tulo de Login (Identidad de Empresa)
                     </h4>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                      Personaliza el texto, color, tipografía, tamaño e ícono que aparece en la pantalla de inicio de sesión abajo del logo principal.
+                      Personaliza el texto, color, tipografÃ­a, tamaÃ±o e Ã­cono que aparece en la pantalla de inicio de sesiÃ³n abajo del logo principal.
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Texto del Título</label>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Texto del TÃ­tulo</label>
                         <input 
                           type="text" 
                           className="input"
@@ -2197,7 +2197,7 @@ export default function SettingsPage() {
                           }}
                         >
                           <option value="Outfit">Outfit (Moderna)</option>
-                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Inter">Inter (ClÃ¡sica)</option>
                           <option value="Roboto">Roboto (Limpia)</option>
                           <option value="Montserrat">Montserrat (Elegante)</option>
                           <option value="Playfair Display">Playfair Display (Serif Elegante)</option>
@@ -2231,7 +2231,7 @@ export default function SettingsPage() {
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra</label>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>TamaÃ±o de Letra</label>
                         <select
                           className="select"
                           style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
@@ -2246,16 +2246,16 @@ export default function SettingsPage() {
                             handleUpdateParam('login_title_size', val);
                           }}
                         >
-                          <option value="1.25rem">Pequeño (1.25rem)</option>
+                          <option value="1.25rem">PequeÃ±o (1.25rem)</option>
                           <option value="1.5rem">Mediano (1.5rem)</option>
-                          <option value="1.75rem">Estándar (1.75rem)</option>
+                          <option value="1.75rem">EstÃ¡ndar (1.75rem)</option>
                           <option value="2.25rem">Grande (2.25rem)</option>
                           <option value="3rem">Gigante (3rem)</option>
                         </select>
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Ãcono del Título</label>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Ãcono del TÃ­tulo</label>
                         <select
                           className="select"
                           style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
@@ -2283,7 +2283,7 @@ export default function SettingsPage() {
                       <div>
                         <p style={{ fontWeight: '700', fontSize: '0.8rem', margin: 0 }}>Mostrar mensaje de bienvenida</p>
                         <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
-                          Muestra u oculta el texto descriptivo debajo del título en la pantalla de inicio de sesión.
+                          Muestra u oculta el texto descriptivo debajo del tÃ­tulo en la pantalla de inicio de sesiÃ³n.
                         </p>
                       </div>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>
@@ -2327,7 +2327,7 @@ export default function SettingsPage() {
                       <Palette size={18} /> Color Principal del Sistema
                     </h4>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                      Define el color primario que se aplica en toda la plataforma: botones, barras laterales, íconos y acentos.
+                      Define el color primario que se aplica en toda la plataforma: botones, barras laterales, Ã­conos y acentos.
                     </p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
                       {/* Color Picker */}
@@ -2369,15 +2369,15 @@ export default function SettingsPage() {
 
                       {/* Palette presets */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Paletas Rápidas</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Paletas RÃ¡pidas</span>
                         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
                           {[
                             { color: '#104433', label: 'Verde Selva' },
                             { color: '#1e3a5f', label: 'Azul Marino' },
-                            { color: '#4f46e5', label: 'Índigo' },
+                            { color: '#4f46e5', label: 'Ãndigo' },
                             { color: '#7c3aed', label: 'Violeta' },
                             { color: '#b91c1c', label: 'Rojo' },
-                            { color: '#b45309', label: 'Ámbar' },
+                            { color: '#b45309', label: 'Ãmbar' },
                             { color: '#0e7490', label: 'Cian' },
                             { color: '#0f172a', label: 'Negro Slate' },
                           ].map(({ color, label }) => (
@@ -2414,17 +2414,17 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  {/* â”€â”€ Tipografía y Dimensiones (ERP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* â”€â”€ TipografÃ­a y Dimensiones (ERP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                   <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', marginTop: '1.5rem' }}>
                     <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Palette size={18} /> Tipografía y Visualización ERP
+                      <Palette size={18} /> TipografÃ­a y VisualizaciÃ³n ERP
                     </h4>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-                      Define la tipografía predeterminada y tamaño de los textos de la plataforma.
+                      Define la tipografÃ­a predeterminada y tamaÃ±o de los textos de la plataforma.
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', flexWrap: 'wrap' }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Familia Tipográfica</label>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Familia TipogrÃ¡fica</label>
                         <select
                           value={companyParams.find(p => p.name === 'theme_font_family')?.value || 'Outfit'}
                           onChange={e => {
@@ -2432,7 +2432,7 @@ export default function SettingsPage() {
                             setCompanyParams(prev => {
                               const exists = prev.some(p => p.name === 'theme_font_family');
                               if (exists) return prev.map(p => p.name === 'theme_font_family' ? { ...p, value: val } : p);
-                              return [...prev, { name: 'theme_font_family', value: val, description: 'Tipografía del sistema' }];
+                              return [...prev, { name: 'theme_font_family', value: val, description: 'TipografÃ­a del sistema' }];
                             });
                             document.documentElement.style.setProperty('--font-family', val);
                             handleUpdateParam('theme_font_family', val);
@@ -2440,14 +2440,14 @@ export default function SettingsPage() {
                           style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
                         >
                           <option value="Outfit">Outfit (Moderna)</option>
-                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Inter">Inter (ClÃ¡sica)</option>
                           <option value="Roboto">Roboto (Limpia)</option>
                           <option value="Montserrat">Montserrat (Elegante)</option>
                         </select>
                       </div>
 
                       <div>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra Base</label>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>TamaÃ±o de Letra Base</label>
                         <select
                           value={companyParams.find(p => p.name === 'theme_font_size')?.value || '14px'}
                           onChange={e => {
@@ -2455,16 +2455,16 @@ export default function SettingsPage() {
                             setCompanyParams(prev => {
                               const exists = prev.some(p => p.name === 'theme_font_size');
                               if (exists) return prev.map(p => p.name === 'theme_font_size' ? { ...p, value: val } : p);
-                              return [...prev, { name: 'theme_font_size', value: val, description: 'Tamaño de letra' }];
+                              return [...prev, { name: 'theme_font_size', value: val, description: 'TamaÃ±o de letra' }];
                             });
                             document.documentElement.style.setProperty('--font-size', val);
                             handleUpdateParam('theme_font_size', val);
                           }}
                           style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
                         >
-                          <option value="12px">Pequeño (12px)</option>
-                          <option value="13px">Mediano-Pequeño (13px)</option>
-                          <option value="14px">Estándar (14px)</option>
+                          <option value="12px">PequeÃ±o (12px)</option>
+                          <option value="13px">Mediano-PequeÃ±o (13px)</option>
+                          <option value="14px">EstÃ¡ndar (14px)</option>
                           <option value="15px">Grande (15px)</option>
                         </select>
                       </div>
@@ -2498,7 +2498,7 @@ export default function SettingsPage() {
                         >
                           <option value="0px">Sin Redondeo (Recto)</option>
                           <option value="6px">Suave (6px)</option>
-                          <option value="12px">Estándar (12px)</option>
+                          <option value="12px">EstÃ¡ndar (12px)</option>
                           <option value="16px">Boutique (16px)</option>
                           <option value="24px">Muy Redondeado (24px)</option>
                         </select>
@@ -2541,12 +2541,12 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h3>Variables Globales</h3>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura los valores base para cálculos de costos.</p>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura los valores base para cÃ¡lculos de costos.</p>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                     <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
-                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>Salario Mínimo Legal</label>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>Salario MÃ­nimo Legal</label>
                       <div style={{ position: 'relative' }}>
                         <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>$</span>
                         <input 
@@ -2561,7 +2561,7 @@ export default function SettingsPage() {
                           onBlur={(e) => handleUpdateParam('min_wage', e.target.value)}
                         />
                       </div>
-                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Utilizado para el cálculo de carga prestacional y MOD.</p>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Utilizado para el cÃ¡lculo de carga prestacional y MOD.</p>
                     </div>
 
                     <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
@@ -2584,8 +2584,8 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)' }}>
-                       <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ”¢ Máximo de Marcaciones</label>
-                       <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla hasta qué número de marcación estarán disponibles en la orden de corte (Marc. 0 â€¦ N).</p>
+                       <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ”¢ MÃ¡ximo de Marcaciones</label>
+                       <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla hasta quÃ© nÃºmero de marcaciÃ³n estarÃ¡n disponibles en la orden de corte (Marc. 0 â€¦ N).</p>
                        <div style={{ position: 'relative' }}>
                          <input 
                            type="number" 
@@ -2599,13 +2599,13 @@ export default function SettingsPage() {
                              setCompanyParams(prev => {
                                const exists = prev.some(p => p.name === 'max_marcaciones');
                                if (exists) return prev.map(p => p.name === 'max_marcaciones' ? { ...p, value: val } : p);
-                               return [...prev, { name: 'max_marcaciones', value: val, description: 'Máximo número de marcación' }];
+                               return [...prev, { name: 'max_marcaciones', value: val, description: 'MÃ¡ximo nÃºmero de marcaciÃ³n' }];
                              });
                            }}
                            onBlur={(e) => handleUpdateParam('max_marcaciones', e.target.value)}
                          />
                        </div>
-                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Ej: Si colocas <strong>12</strong>, en la orden aparecerán las marcaciones del 0 al 12.</p>
+                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Ej: Si colocas <strong>12</strong>, en la orden aparecerÃ¡n las marcaciones del 0 al 12.</p>
                      </div>
 
                       <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -2632,13 +2632,13 @@ export default function SettingsPage() {
                             <option value="true">Activado (Permitir reversar)</option>
                           </select>
                         </div>
-                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Si se activa, los administradores tendrán la opción en el historial de notas.</p>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Si se activa, los administradores tendrÃ¡n la opciÃ³n en el historial de notas.</p>
                       </div>
 
                       <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ“„ Registros por Página (Listados)</label>
-                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Define cuántos registros mostrar por tanda en las tablas del POS y ERP.</p>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ“„ Registros por PÃ¡gina (Listados)</label>
+                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Define cuÃ¡ntos registros mostrar por tanda en las tablas del POS y ERP.</p>
                         </div>
                         <div style={{ position: 'relative' }}>
                           <input 
@@ -2653,7 +2653,7 @@ export default function SettingsPage() {
                               setCompanyParams(prev => {
                                 const exists = prev.some(p => p.name === 'pos_page_size');
                                 if (exists) return prev.map(p => p.name === 'pos_page_size' ? { ...p, value: val } : p);
-                                return [...prev, { name: 'pos_page_size', value: val, description: 'Tamaño de paginación de listas (POS/ERP)' }];
+                                return [...prev, { name: 'pos_page_size', value: val, description: 'TamaÃ±o de paginaciÃ³n de listas (POS/ERP)' }];
                               });
                             }}
                             onBlur={(e) => handleUpdateParam('pos_page_size', e.target.value)}
@@ -2748,19 +2748,19 @@ export default function SettingsPage() {
             <form onSubmit={handleSaveRole}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2.5rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Información Básica</h4>
+                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>InformaciÃ³n BÃ¡sica</h4>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.5rem' }}>Nombre del Rol</label>
-                    <input name="name" defaultValue={editingRole?.name} required className="input" style={{ width: '100%' }} placeholder="Ej: Jefe de Producción" />
+                    <input name="name" defaultValue={editingRole?.name} required className="input" style={{ width: '100%' }} placeholder="Ej: Jefe de ProducciÃ³n" />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.5rem' }}>Descripción</label>
-                    <textarea name="description" defaultValue={editingRole?.description} className="input" style={{ width: '100%', minHeight: '120px' }} placeholder="Â¿Qué responsabilidades tiene este rol?" />
+                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.5rem' }}>DescripciÃ³n</label>
+                    <textarea name="description" defaultValue={editingRole?.description} className="input" style={{ width: '100%', minHeight: '120px' }} placeholder="Â¿QuÃ© responsabilidades tiene este rol?" />
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Accesos al Menú</h4>
+                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Accesos al MenÃº</h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     {permissions.map(perm => (
                       <label key={perm.id} style={{ 
@@ -2781,7 +2781,7 @@ export default function SettingsPage() {
                           style={{ width: '18px', height: '18px', accentColor: 'var(--primary)', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '0.8125rem', fontWeight: selectedPermissions.includes(perm.id) ? '700' : '500' }}>
-                          {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
+                          {perm.name.replace('Acceso a ', '').replace('GestiÃ³n de ', '')}
                         </span>
                       </label>
                     ))}
@@ -2792,7 +2792,7 @@ export default function SettingsPage() {
               <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid var(--border)', paddingTop: '2rem' }}>
                 <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem' }} onClick={() => setShowRoleModal(false)}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '1rem', justifyContent: 'center' }} disabled={saving}>
-                  {saving ? <Loader2 className="animate-spin" /> : 'Guardar Configuración'}
+                  {saving ? <Loader2 className="animate-spin" /> : 'Guardar ConfiguraciÃ³n'}
                 </button>
               </div>
             </form>
@@ -2848,12 +2848,12 @@ export default function SettingsPage() {
                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
                 <div style={{ position: 'relative' }}>
                   <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                  <input name="full_name" required placeholder="Ej. Ana Pérez" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                  <input name="full_name" required placeholder="Ej. Ana PÃ©rez" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
                 </div>
               </div>
 
               <div className="input-group">
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO (EMAIL)</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÃ“NICO (EMAIL)</label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input name="email" type="email" required placeholder="correo@empresa.com" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
@@ -2861,14 +2861,14 @@ export default function SettingsPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CONTRASEÑA SECRETA</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CONTRASEÃ‘A SECRETA</label>
                 <div style={{ position: 'relative' }}>
                   <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input 
                     name="password" 
                     type={showPassword ? 'text' : 'password'} 
                     required 
-                    placeholder="Mínimo 6 caracteres" 
+                    placeholder="MÃ­nimo 6 caracteres" 
                     minLength={6}
                     style={{ width: '100%', padding: '0.875rem 3rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} 
                   />
@@ -2912,7 +2912,7 @@ export default function SettingsPage() {
                     })}
                   </div>
                   <input type="hidden" name="workshop_id" id="create_workshop_ids_hidden" />
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar mÃ¡s de un taller satÃ©lite para que este usuario los gestione de forma consolidada.</p>
                 </div>
               )}
 
@@ -2971,7 +2971,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="input-group">
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÃ“NICO</label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input name="email" value={editingUser?.email || ''} readOnly style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500', backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }} />
@@ -3019,12 +3019,12 @@ export default function SettingsPage() {
                     })}
                   </div>
                   <input type="hidden" name="workshop_id" id="edit_workshop_ids_hidden" />
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar mÃ¡s de un taller satÃ©lite para que este usuario los gestione de forma consolidada.</p>
                 </div>
               )}
 
               <div className="input-group">
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NUEVA CONTRASEÑA (OPCIONAL)</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NUEVA CONTRASEÃ‘A (OPCIONAL)</label>
                 <div style={{ position: 'relative' }}>
                   <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input 
@@ -3042,7 +3042,7 @@ export default function SettingsPage() {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-                <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem' }}>Escribe aquí solo si deseas cambiar la contraseña de este usuario.</p>
+                <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem' }}>Escribe aquÃ­ solo si deseas cambiar la contraseÃ±a de este usuario.</p>
               </div>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>

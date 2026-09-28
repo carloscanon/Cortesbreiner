@@ -28,13 +28,13 @@ const MASTER_CONFIG: any = {
     icon: Droplets,
     listFields: ['factura_relacionada', 'tipo_tela', 'composicion', 'kilos', 'metros', 'capas', 'costo_con_iva'],
     fields: [
-      { name: 'factura_relacionada', label: 'NÂ° Factura Relacionada', type: 'text' },
+      { name: 'factura_relacionada', label: 'N° Factura Relacionada', type: 'text' },
       { name: 'codigo_tela', label: 'Código Tela', type: 'text' },
       { name: 'nombre_tela', label: 'Nombre Tela', type: 'text', required: true },
       { name: 'tipo_tela', label: 'Tipo de Tela', type: 'text' },
       { name: 'composicion', label: 'Composición', type: 'text' },
       { name: 'ancho', label: 'Ancho (m)', type: 'number' },
-      { name: 'gramaje', label: 'Gramaje (g/mÂ²)', type: 'number' },
+      { name: 'gramaje', label: 'Gramaje (g/m²)', type: 'number' },
       { name: 'rendimiento_estimado', label: 'Rendimiento Estimado', type: 'number' },
       { name: 'kilos', label: 'Kilos (Facturados)', type: 'number' },
       { name: 'metros', label: 'Metros (Calculados)', type: 'number' },
@@ -555,7 +555,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Â¿Estás seguro de eliminar este registro?')) return;
+    if (!confirm('¿Estás seguro de eliminar este registro?')) return;
     try {
       const { error } = await supabase.from(config.table).delete().eq('id', id);
       if (error) throw error;
@@ -947,22 +947,22 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                                 {/* Badge de unidades disponibles */}
                                 {availableQty > 0 ? (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
-                                    ðŸŸ¢ En Stock ({availableQty} unidades disponibles)
+                                    🟢 En Stock ({availableQty} unidades disponibles)
                                   </span>
                                 ) : (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1' }}>
-                                    âšª Sin Unidades (0 en stock)
+                                    ⚪ Sin Unidades (0 en stock)
                                   </span>
                                 )}
 
                                 {/* Badge de Estado Activo / Inactivo */}
                                 {isInactive ? (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fecdd3' }}>
-                                    ðŸ”´ INHABILITADO (Oculto en Módulos)
+                                    🔴 INHABILITADO (Oculto en Módulos)
                                   </span>
                                 ) : (
                                   <span style={{ padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>
-                                    ðŸŸ¢ ACTIVO
+                                    🟢 ACTIVO
                                   </span>
                                 )}
 
@@ -985,7 +985,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                                     transition: 'opacity 0.2s'
                                   }}
                                 >
-                                  {isInactive ? 'âš¡ Habilitar' : 'ðŸš« Inhabilitar'}
+                                  {isInactive ? '⚡ Habilitar' : '🚫 Inhabilitar'}
                                 </button>
                               </div>
                             );
@@ -1012,7 +1012,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                               displayVal = `$${Number(val).toLocaleString()}`;
                             }
                             if (fieldKey === 'ancho') displayVal = `${val}m`;
-                            if (fieldKey === 'gramaje') displayVal = `${val}g/mÂ²`;
+                            if (fieldKey === 'gramaje') displayVal = `${val}g/m²`;
                             
                             return (
                               <div key={fieldKey} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1064,7 +1064,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
                               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                             >
-                              {item.estado === 'inactivo' ? 'âš¡ Habilitar Producto' : 'ðŸš« Inhabilitar Producto'}
+                              {item.estado === 'inactivo' ? '⚡ Habilitar Producto' : '🚫 Inhabilitar Producto'}
                             </button>
                           )}
                           <button 
@@ -1402,7 +1402,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                       Catálogo General de Productos
                     </h2>
                     <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0' }}>
-                      Cortesbreiner Producción â€” Reporte Técnico
+                      Cortesbreiner Producción — Reporte Técnico
                     </p>
                   </div>
                   <div style={{ textAlign: 'right', fontSize: '0.7rem', color: '#475569' }}>
@@ -1432,9 +1432,9 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
 
                       return (
                         <tr key={item.id || idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                          <td style={{ padding: '0.5rem', fontWeight: '800', color: '#0f172a' }}>{item.codigo_referencia || 'â€”'}</td>
+                          <td style={{ padding: '0.5rem', fontWeight: '800', color: '#0f172a' }}>{item.codigo_referencia || '—'}</td>
                           <td style={{ padding: '0.5rem', fontWeight: '700' }}>{item.nombre_producto}</td>
-                          <td style={{ padding: '0.5rem', textAlign: 'center', textTransform: 'uppercase' }}>{item.genero || 'â€”'}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center', textTransform: 'uppercase' }}>{item.genero || '—'}</td>
                           <td style={{ padding: '0.5rem', color: '#475569' }}>{categoryName}</td>
                           <td style={{ padding: '0.5rem', color: '#0f172a' }}>
                             {accs.length > 0 ? (
@@ -1491,4 +1491,3 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
     </div>
   );
 }
-
