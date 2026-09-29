@@ -493,6 +493,39 @@ export default function FinishedGoodsInventory() {
   const [histProdSearchQuery, setHistProdSearchQuery] = useState('');
   const [showHistProdDropdown, setShowHistProdDropdown] = useState(false);
 
+  const [resolvedBarcodeRef, setResolvedBarcodeRef] = useState<string | null>(null);
+  const [resolvedBarcodeColorId, setResolvedBarcodeColorId] = useState<string | null>(null);
+  const [resolvedBarcodeSizeId, setResolvedBarcodeSizeId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchQuery.trim().length >= 8 && /^\d+$/.test(searchQuery.trim())) {
+      const lookupBarcode = async () => {
+        const { data } = await supabase
+          .from('individual_garments')
+          .select('reference_name, color_name, size_code')
+          .eq('barcode', searchQuery.trim())
+          .limit(1)
+          .single();
+        if (data?.reference_name) {
+          setResolvedBarcodeRef(data.reference_name);
+          const colorFound = colors.find(c => c.nombre_color?.toLowerCase() === data.color_name?.toLowerCase());
+          const sizeFound = sizes.find(s => s.codigo_talla?.toLowerCase() === data.size_code?.toLowerCase());
+          setResolvedBarcodeColorId(colorFound?.id || null);
+          setResolvedBarcodeSizeId(sizeFound?.id || null);
+        } else {
+          setResolvedBarcodeRef(null);
+          setResolvedBarcodeColorId(null);
+          setResolvedBarcodeSizeId(null);
+        }
+      };
+      lookupBarcode();
+    } else {
+      setResolvedBarcodeRef(null);
+      setResolvedBarcodeColorId(null);
+      setResolvedBarcodeSizeId(null);
+    }
+  }, [searchQuery, colors, sizes]);
+
   const displayProducts = useMemo(() => {
     return (products || [])
       .filter(p => p.estado !== 'inactivo')
@@ -1411,14 +1444,23 @@ export default function FinishedGoodsInventory() {
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';
     
-
-    const matchesSearch = 
-      ref.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cat.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      color.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      size.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      wh.toLowerCase().includes(searchQuery.toLowerCase());
+    let matchesSearch = false;
+    if (resolvedBarcodeRef) {
+      matchesSearch = (
+        ref.toLowerCase() === resolvedBarcodeRef.toLowerCase() ||
+        name.toLowerCase() === resolvedBarcodeRef.toLowerCase()
+      );
+      if (resolvedBarcodeColorId) matchesSearch = matchesSearch && item.color_id === resolvedBarcodeColorId;
+      if (resolvedBarcodeSizeId) matchesSearch = matchesSearch && item.size_id === resolvedBarcodeSizeId;
+    } else {
+      matchesSearch = 
+        ref.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        cat.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        color.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        size.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        wh.toLowerCase().includes(searchQuery.toLowerCase());
+    }
       
     const matchesWarehouse = filterWarehouse 
       ? isSameWarehouse(item, warehouses.find(w => w.id === filterWarehouse))
