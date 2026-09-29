@@ -4411,7 +4411,7 @@ export default function FinishedGoodsInventory() {
                                 ) : (
                                   <select
                                     required
-                                    value={item.product_id}
+                                    value={item.product_id || ''}
                                     onChange={e => {
                                       const items = [...transferForm.items];
                                       items[index].product_id = e.target.value;
@@ -4427,7 +4427,7 @@ export default function FinishedGoodsInventory() {
 
                               <td style={{ padding: '0.5rem 0.85rem' }}>
                                 <select
-                                  value={item.color_id}
+                                  value={item.color_id || ''}
                                   onChange={e => {
                                     const items = [...transferForm.items];
                                     items[index].color_id = e.target.value;
@@ -4443,7 +4443,7 @@ export default function FinishedGoodsInventory() {
                               <td style={{ padding: '0.5rem 0.85rem' }}>
                                 <select
                                   required
-                                  value={item.size_id}
+                                  value={item.size_id || ''}
                                   onChange={e => {
                                     const items = [...transferForm.items];
                                     items[index].size_id = e.target.value;
