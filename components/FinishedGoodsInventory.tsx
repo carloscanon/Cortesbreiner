@@ -512,10 +512,7 @@ export default function FinishedGoodsInventory() {
       
       let query = supabase
         .from('individual_garments')
-        .select(`
-          *,
-          warehouses!warehouse_id(nombre_bodega)
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -2666,7 +2663,7 @@ export default function FinishedGoodsInventory() {
                           <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
                           <strong style={{ color: '#0f172a' }}>
                             <Package size={12} style={{ marginRight: '4px', verticalAlign: 'middle', color: '#80082E' }} />
-                            {g.warehouses?.nombre_bodega || 'Sin Asignar / En Tránsito'}
+                            {warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || 'Sin Asignar / En Tránsito'}
                           </strong>
                         </div>
                         <div>
