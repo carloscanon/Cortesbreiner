@@ -138,6 +138,7 @@ export default function FinishedGoodsInventory() {
   const [locations, setLocations] = useState<any[]>([]);
   const [fabrics, setFabrics] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [stores, setStores] = useState<any[]>([]);
 
   // State
   const [loading, setLoading] = useState(true);
@@ -1199,14 +1200,15 @@ export default function FinishedGoodsInventory() {
   const fetchMasters = async () => {
     setLoading(true);
     try {
-      const [p, c, s, w, loc, fab, cat] = await Promise.all([
+      const [p, c, s, w, loc, fab, cat, st] = await Promise.all([
         fetchAllPages(supabase.from('products').select('*').neq('estado', 'inactivo')),
         fetchAllPages(supabase.from('colors').select('*')),
         fetchAllPages(supabase.from('sizes').select('*').order('orden_visual', { ascending: true })),
         fetchAllPages(supabase.from('warehouses').select('*').eq('estado', 'activo')),
         fetchAllPages(supabase.from('warehouse_locations').select('*')),
         fetchAllPages(supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true })),
-        fetchAllPages(supabase.from('categories').select('*'))
+        fetchAllPages(supabase.from('categories').select('*')),
+        fetchAllPages(supabase.from('stores').select('*'))
       ]);
 
       setProducts(p || []);
@@ -1216,6 +1218,7 @@ export default function FinishedGoodsInventory() {
       setLocations(loc || []);
       setFabrics(fab || []);
       setCategories(cat || []);
+      setStores(st || []);
     } catch (err) {
       console.error('Error fetching masters:', err);
     } finally {
@@ -2661,10 +2664,19 @@ export default function FinishedGoodsInventory() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.8rem' }}>
                         <div>
                           <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
-                          <strong style={{ color: '#0f172a' }}>
-                            <Package size={12} style={{ marginRight: '4px', verticalAlign: 'middle', color: '#80082E' }} />
-                            {warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || 'Sin Asignar / En Tránsito'}
+                          <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }}>
+                            <Package size={12} style={{ color: '#80082E' }} />
+                            Bodega: {warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || 'N/A'}
                           </strong>
+                          {g.store_id && (
+                            <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }}>
+                              <Package size={12} style={{ color: '#0ea5e9' }} />
+                              Local: {stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
+                            </strong>
+                          )}
+                          {!g.warehouse_id && !g.store_id && (
+                            <strong style={{ color: '#94a3b8', display: 'block', marginTop: '0.2rem' }}>En Tránsito / Fábrica</strong>
+                          )}
                         </div>
                         <div>
                           <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>ID Único / Código Barras</span>
