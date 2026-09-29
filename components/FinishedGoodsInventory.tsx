@@ -489,6 +489,10 @@ export default function FinishedGoodsInventory() {
   const [histBatches, setHistBatches] = useState<any[]>([]);
   const [loadingHistBatches, setLoadingHistBatches] = useState(false);
   const [histSearchTerm, setHistSearchTerm] = useState('');
+  const [histPage, setHistPage] = useState(1);
+  const [histTotalCount, setHistTotalCount] = useState(0);
+  const [histFilterWarehouse, setHistFilterWarehouse] = useState('');
+  const histPageSize = 10;
 
   // Buscador de productos UX para registro histórico
   const [histProdSearchQuery, setHistProdSearchQuery] = useState('');
@@ -579,52 +583,35 @@ export default function FinishedGoodsInventory() {
     }).slice(0, 35);
   }, [displayProducts, histProdSearchQuery]);
 
-  const fetchHistoricalBatches = async () => {
+  const fetchHistoricalBatches = async (page = 1) => {
     setLoadingHistBatches(true);
     try {
-      const { data, error } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .eq('is_historical', true)
-        .order('created_at', { ascending: false });
+      let query = supabase
+        .from('view_historical_batches')
+        .select('*, warehouses!view_historical_batches_warehouse_id_fkey(nombre_bodega)', { count: 'exact' });
+        
+      if (histSearchTerm.trim()) {
+        query = query.ilike('doc_name', `%${histSearchTerm.trim()}%`);
+      }
+      if (histFilterWarehouse) {
+        query = query.eq('warehouse_id', histFilterWarehouse);
+      }
+      
+      const from = (page - 1) * histPageSize;
+      const to = from + histPageSize - 1;
+      
+      const { data, count, error } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (error) {
-        console.error('Error fetching historical garments:', error);
+        console.error('Error fetching historical batches:', error);
         return;
       }
 
-      if (!data || data.length === 0) {
-        setHistBatches([]);
-        return;
-      }
-
-      // Agrupar prendas por lote/documento y fecha
-      const batchesMap: Record<string, { docName: string; createdAt: string; garments: any[]; summary: Record<string, number> }> = {};
-
-      data.forEach((garment: any) => {
-        const docName = garment.historical_doc || 'Inventario Histórico';
-        const dateStr = garment.created_at ? new Date(garment.created_at).toISOString().slice(0, 16) : 'sin-fecha';
-        const batchKey = `${docName}___${dateStr}`;
-
-        if (!batchesMap[batchKey]) {
-          batchesMap[batchKey] = {
-            docName,
-            createdAt: garment.created_at || new Date().toISOString(),
-            garments: [],
-            summary: {}
-          };
-        }
-
-        batchesMap[batchKey].garments.push(garment);
-        const refName = garment.reference_name || 'Desconocido';
-        batchesMap[batchKey].summary[refName] = (batchesMap[batchKey].summary[refName] || 0) + 1;
-      });
-
-      const batchList = Object.values(batchesMap).sort((a, b) => {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-
-      setHistBatches(batchList);
+      setHistBatches(data || []);
+      setHistTotalCount(count || 0);
+      setHistPage(page);
     } catch (err) {
       console.error('Error fetching historical batches:', err);
     } finally {
@@ -633,6 +620,14 @@ export default function FinishedGoodsInventory() {
   };
 
   const [histSubTab, setHistSubTab] = useState<'dashboard' | 'counted_form' | 'batches_list'>('dashboard');
+
+  // Re-fetch when page or filters change
+  useEffect(() => {
+    if (activeTab === 'historical' && histSubTab === 'batches_list') {
+      fetchHistoricalBatches(histPage);
+    }
+  }, [histPage, histFilterWarehouse, histSubTab, activeTab]);
+
   const [transfersPage, setTransfersPage] = useState(1);
   const [transfersSearchQuery, setTransfersSearchQuery] = useState('');
 
@@ -3895,6 +3890,17 @@ export default function FinishedGoodsInventory() {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <select
+                      value={histFilterWarehouse}
+                      onChange={e => setHistFilterWarehouse(e.target.value)}
+                      style={{ padding: '0.45rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem', fontWeight: '600' }}
+                    >
+                      <option value="">Todas las bodegas</option>
+                      {warehouses.map(w => (
+                        <option key={w.id} value={w.id}>{w.nombre_bodega}</option>
+                      ))}
+                    </select>
+
                     <div style={{ position: 'relative', width: '240px' }}>
                       <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                       <input
@@ -3944,6 +3950,7 @@ export default function FinishedGoodsInventory() {
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
                           <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Nombre de Documento / Lote</th>
+                          <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Bodega Destino</th>
                           <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Fecha de Registro</th>
                           <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569', textAlign: 'center' }}>Total Prendas</th>
                           <th style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#475569' }}>Referencias Incluidas</th>
@@ -3951,74 +3958,77 @@ export default function FinishedGoodsInventory() {
                         </tr>
                       </thead>
                       <tbody>
-                        {histBatches
-                          .filter(b => {
-                            if (!histSearchTerm.trim()) return true;
-                            const term = histSearchTerm.toLowerCase();
-                            const matchDoc = b.docName.toLowerCase().includes(term);
-                            const matchGarments = b.garments.some((g: any) =>
-                              (g.reference_name || '').toLowerCase().includes(term) ||
-                              (g.barcode || '').includes(term) ||
-                              (g.color_name || '').toLowerCase().includes(term)
-                            );
-                            return matchDoc || matchGarments;
-                          })
-                          .map((batch, idx) => {
-                            const dateFormatted = new Date(batch.createdAt).toLocaleString('es-CO', {
-                              year: 'numeric', month: '2-digit', day: '2-digit',
-                              hour: '2-digit', minute: '2-digit'
-                            });
+                        {histBatches.map((batch, idx) => {
+                          const dateFormatted = new Date(batch.created_at).toLocaleString('es-CO', {
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit'
+                          });
 
-                            const summaryEntries = Object.entries(batch.summary);
+                          const summaryEntries = Object.entries(batch.summary || {});
 
-                            return (
-                              <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#0f172a' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <FileText size={15} color="#80082E" />
-                                    {batch.docName}
-                                  </div>
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
-                                  {dateFormatted}
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                                  <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
-                                    🏷️ {batch.garments.length} etiquetas
-                                  </span>
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem' }}>
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                                    {summaryEntries.map(([refName, count], sIdx) => (
-                                      <span key={sIdx} style={{ backgroundColor: '#f1f5f9', color: '#334155', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                                        {refName} ({count as number})
-                                      </span>
-                                    ))}
-                                  </div>
-                                </td>
-                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setHistSuccessGarments(batch.garments);
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                              <td style={{ padding: '0.75rem 1rem', fontWeight: '900', color: '#0f172a' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <FileText size={15} color="#80082E" />
+                                  {batch.doc_name}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
+                                {batch.warehouses?.nombre_bodega || 'N/A'}
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
+                                {dateFormatted}
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                <span style={{ backgroundColor: '#ecfdf5', color: '#065f46', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid #a7f3d0' }}>
+                                  🏷️ {batch.total_garments} etiquetas
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                  {summaryEntries.map(([refName, count], sIdx) => (
+                                    <span key={sIdx} style={{ backgroundColor: '#f1f5f9', color: '#334155', fontSize: '0.72rem', fontWeight: '700', padding: '0.15rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                                      {refName} ({count as number})
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setLoadingHistBatches(true);
+                                    try {
+                                      const { data: gData } = await supabase
+                                        .from('individual_garments')
+                                        .select('*')
+                                        .eq('historical_doc', batch.doc_name)
+                                        .eq('is_historical', true);
+                                      setHistSuccessGarments(gData || []);
                                       setShowHistLabelsModal(true);
-                                    }}
-                                    style={{
-                                      backgroundColor: '#80082E',
-                                      color: 'white',
-                                      border: 'none',
-                                      borderRadius: '8px',
-                                      padding: '0.45rem 0.9rem',
-                                      fontSize: '0.76rem',
-                                      fontWeight: '900',
-                                      cursor: 'pointer',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.4rem',
-                                      boxShadow: '0 2px 4px rgba(128, 8, 46, 0.15)'
-                                    }}
-                                  >
-                                    <Printer size={14} /> Reimprimir Etiquetas
+                                    } catch(err) {
+                                      console.error(err);
+                                    } finally {
+                                      setLoadingHistBatches(false);
+                                    }
+                                  }}
+                                  style={{
+                                    backgroundColor: '#80082E',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '0.45rem 0.9rem',
+                                    fontSize: '0.76rem',
+                                    fontWeight: '900',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    boxShadow: '0 2px 4px rgba(128, 8, 46, 0.15)'
+                                  }}
+                                >
+                                  <Printer size={14} /> Reimprimir Etiquetas
                                   </button>
                                 </td>
                               </tr>
@@ -4026,6 +4036,35 @@ export default function FinishedGoodsInventory() {
                           })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {histBatches.length > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', padding: '0.5rem 0' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '700' }}>
+                      Mostrando {(histPage - 1) * histPageSize + 1} a {Math.min(histPage * histPageSize, histTotalCount)} de {histTotalCount} lotes
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        disabled={histPage <= 1}
+                        onClick={() => setHistPage(p => Math.max(1, p - 1))}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: 'white',
+                          fontWeight: '800', fontSize: '0.78rem', cursor: histPage <= 1 ? 'not-allowed' : 'pointer', opacity: histPage <= 1 ? 0.5 : 1
+                        }}
+                      >
+                        ← Anterior
+                      </button>
+                      <button
+                        disabled={histPage * histPageSize >= histTotalCount}
+                        onClick={() => setHistPage(p => p + 1)}
+                        style={{
+                          padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: 'white',
+                          fontWeight: '800', fontSize: '0.78rem', cursor: histPage * histPageSize >= histTotalCount ? 'not-allowed' : 'pointer', opacity: histPage * histPageSize >= histTotalCount ? 0.5 : 1
+                        }}
+                      >
+                        Siguiente →
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

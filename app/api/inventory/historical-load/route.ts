@@ -134,6 +134,7 @@ export async function POST(req: Request) {
           size_code: sCode,
           status: 'Aprobada',
           is_historical: true,
+          warehouse_id: defaultWarehouseId,
           historical_doc: docName || 'Inventario Histórico',
           notes: notes || 'Ingreso por Inventario Histórico',
           defect_checklist: { origen: 'inventario_historico' }
