@@ -1886,12 +1886,13 @@ export default function POSPage() {
       const lookupBarcode = async () => {
         const { data } = await supabase
           .from('individual_garments')
-          .select('reference_name, color_name, size_code')
+          .select('reference_name, color_name, size_code, sewing_orders(product_id)')
           .eq('barcode', searchQuery.trim())
           .limit(1)
           .single();
-        if (data?.reference_name) {
-          setResolvedBarcodeRef(data.reference_name);
+        if (data) {
+          const resolvedIdOrRef = (data as any).sewing_orders?.product_id || data.reference_name;
+          setResolvedBarcodeRef(resolvedIdOrRef);
           setScannedGarment(data);
         } else {
           setResolvedBarcodeRef(null);
@@ -1915,6 +1916,7 @@ export default function POSPage() {
       p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.categories?.categoria?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (resolvedBarcodeRef && (
+        p.id === resolvedBarcodeRef ||
         p.codigo_referencia?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) || 
         p.nombre_producto?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase())
       ));
