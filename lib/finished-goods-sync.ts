@@ -297,6 +297,18 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       }
     }
 
+    // 5. Asignar bodega principal a las prendas físicas individuales
+    if (garments && garments.length > 0) {
+      const barcodeIds = garments.map(g => g.id);
+      await supabase
+        .from('individual_garments')
+        .update({
+          warehouse_id: defaultWarehouse.id
+        })
+        .in('id', barcodeIds);
+      console.log(`Asignada bodega principal a ${barcodeIds.length} prendas individuales.`);
+    }
+
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
   } catch (err) {
     console.error('Error in syncQualityApprovalToInventory:', err);
@@ -360,6 +372,13 @@ export async function revertQualityApprovalFromInventory(inspectionId: string) {
 
       await supabase.from('finished_goods_kardex').delete().eq('documento_origen', docOrigin);
       await supabase.from('finished_goods_inventory').delete().eq('quality_inspection_id', inspectionId);
+      
+      // Revert individual garments and clear warehouse_id
+      await supabase
+        .from('individual_garments')
+        .update({ warehouse_id: null })
+        .eq('quality_inspection_id', inspectionId);
+
       console.log(`✓ Inventario revertido exitosamente para la inspección #${inspectionId}.`);
     }
   } catch (err) {
