@@ -588,7 +588,7 @@ export default function FinishedGoodsInventory() {
     try {
       let query = supabase
         .from('view_historical_batches')
-        .select('*, warehouses!view_historical_batches_warehouse_id_fkey(nombre_bodega)', { count: 'exact' });
+        .select('*', { count: 'exact' });
         
       if (histSearchTerm.trim()) {
         query = query.ilike('doc_name', `%${histSearchTerm.trim()}%`);
@@ -3975,7 +3975,7 @@ export default function FinishedGoodsInventory() {
                                 </div>
                               </td>
                               <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
-                                {batch.warehouses?.nombre_bodega || 'N/A'}
+                                {batch.nombre_bodega || 'N/A'}
                               </td>
                               <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: '600' }}>
                                 {dateFormatted}
