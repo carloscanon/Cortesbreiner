@@ -96,7 +96,7 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
   );
 }
 
-type TabType = 'dashboard' | 'general_inventory' | 'audit_control' | 'consolidated_stock' | 'stock' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
+type TabType = 'dashboard' | 'general_inventory' | 'audit_control' | 'consolidated_stock' | 'stock' | 'item_locator' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
@@ -496,6 +496,45 @@ export default function FinishedGoodsInventory() {
   const [resolvedBarcodeRef, setResolvedBarcodeRef] = useState<string | null>(null);
   const [resolvedBarcodeColorId, setResolvedBarcodeColorId] = useState<string | null>(null);
   const [resolvedBarcodeSizeId, setResolvedBarcodeSizeId] = useState<string | null>(null);
+
+  const [locatorSearch, setLocatorSearch] = useState('');
+  const [locatorResults, setLocatorResults] = useState<any[]>([]);
+  const [locatorLoading, setLocatorLoading] = useState(false);
+  const [locatorSearched, setLocatorSearched] = useState(false);
+
+  const executeLocatorSearch = async (e?: any) => {
+    if (e) e.preventDefault();
+    if (!locatorSearch.trim()) return;
+    setLocatorLoading(true);
+    setLocatorSearched(true);
+    try {
+      const isBarcode = /^\d+$/.test(locatorSearch.trim()) && locatorSearch.trim().length >= 8;
+      
+      let query = supabase
+        .from('individual_garments')
+        .select(`
+          *,
+          warehouses!warehouse_id(nombre_bodega)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (isBarcode) {
+        query = query.eq('barcode', locatorSearch.trim());
+      } else {
+        query = query.ilike('reference_name', `%${locatorSearch.trim()}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setLocatorResults(data || []);
+    } catch (err: any) {
+      console.error('Locator search error:', err);
+      alert('Error en la búsqueda de la prenda: ' + err.message);
+    } finally {
+      setLocatorLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (searchQuery.trim().length >= 8 && /^\d+$/.test(searchQuery.trim())) {
@@ -2133,6 +2172,7 @@ export default function FinishedGoodsInventory() {
           { id: 'general_inventory', label: 'Inventario General', badge: null },
           { id: 'consolidated_stock', label: 'Stock Único', badge: null },
           { id: 'stock', label: 'Existencias por SKU', badge: null },
+          { id: 'item_locator', label: 'Localizador de Prenda', badge: 'Nuevo' },
           { id: 'kardex', label: 'Kardex Historial', badge: null },
           { id: 'transfers', label: 'En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length}` : null },
           { id: 'historical_inventory', label: 'Inventario Histórico', badge: null }
@@ -2558,6 +2598,89 @@ export default function FinishedGoodsInventory() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* LOCALIZADOR DE PRENDA ÚNICA */}
+      {activeTab === 'item_locator' && (
+        <div className="card" style={{ padding: '2rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', minHeight: '60vh' }}>
+          <div style={{ maxWidth: '700px', margin: '0 auto', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+              <div style={{ width: '64px', height: '64px', backgroundColor: '#fff0f3', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Search size={32} style={{ color: '#80082E' }} />
+              </div>
+            </div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a', marginBottom: '0.5rem' }}>Localizador de Prenda Única</h2>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '2rem' }}>Escanea un código de barras, o ingresa la referencia para localizar las unidades físicas exactas, su estado y su bodega/local asignado.</p>
+            
+            <form onSubmit={executeLocatorSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem' }}>
+              <input
+                type="text"
+                placeholder="Escanea el código de barras o escribe la referencia..."
+                value={locatorSearch}
+                onChange={e => setLocatorSearch(e.target.value)}
+                style={{ flex: 1, padding: '0.85rem 1.25rem', borderRadius: '12px', border: '2px solid #cbd5e1', fontSize: '1.1rem', textAlign: 'center', fontWeight: '800' }}
+                autoFocus
+              />
+              <button type="submit" disabled={locatorLoading} style={{ padding: '0 2rem', borderRadius: '12px', backgroundColor: '#80082E', color: 'white', border: 'none', fontWeight: '900', cursor: 'pointer', fontSize: '1rem', transition: 'background 0.2s' }}>
+                {locatorLoading ? 'Buscando...' : 'Localizar'}
+              </button>
+            </form>
+
+            {locatorSearched && !locatorLoading && locatorResults.length === 0 && (
+              <div style={{ padding: '2rem', backgroundColor: '#f8fafc', borderRadius: '12px', color: '#64748b', fontWeight: '700' }}>
+                No se encontraron prendas con ese código de barras o referencia.
+              </div>
+            )}
+
+            {locatorResults.length > 0 && (
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>Resultados ({locatorResults.length})</h3>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {locatorResults.map(g => (
+                    <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '900', color: '#80082E' }}>{g.reference_name || 'Sin Ref'}</h4>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>Talla: {g.size_code || 'N/A'}</span>
+                            <span style={{ color: '#cbd5e1' }}>•</span>
+                            <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>Color: {g.color_name || 'N/A'}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: '900', backgroundColor: g.status === 'Vendido' ? '#fef2f2' : '#f0fdf4', color: g.status === 'Vendido' ? '#dc2626' : '#16a34a', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                            {g.status || 'Desconocido'}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                            Ingresó: {new Date(g.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ borderTop: '1px dashed #cbd5e1', margin: '0.5rem 0' }}></div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.8rem' }}>
+                        <div>
+                          <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
+                          <strong style={{ color: '#0f172a' }}>
+                            <Package size={12} style={{ marginRight: '4px', verticalAlign: 'middle', color: '#80082E' }} />
+                            {g.warehouses?.nombre_bodega || 'Sin Asignar / En Tránsito'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>ID Único / Código Barras</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: '800', color: '#475569', backgroundColor: '#e2e8f0', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+                            {g.barcode || g.id.slice(0,8)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
