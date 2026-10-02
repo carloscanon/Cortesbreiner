@@ -623,7 +623,7 @@ export default function FinishedGoodsInventory() {
 
   // Re-fetch when page or filters change
   useEffect(() => {
-    if (activeTab === 'historical' && histSubTab === 'batches_list') {
+    if (activeTab === 'historical_inventory' && histSubTab === 'batches_list') {
       fetchHistoricalBatches(histPage);
     }
   }, [histPage, histFilterWarehouse, histSubTab, activeTab]);
@@ -3913,7 +3913,7 @@ export default function FinishedGoodsInventory() {
                     </div>
                     <button
                       type="button"
-                      onClick={fetchHistoricalBatches}
+                      onClick={() => fetchHistoricalBatches(histPage)}
                       disabled={loadingHistBatches}
                       title="Actualizar histórico"
                       style={{
