@@ -9,7 +9,7 @@ import {
   DollarSign, FileText, Lock, Unlock, AlertCircle, Sparkles, X, Loader2,
   RefreshCcw, ArrowLeftRight, Clock, MoreHorizontal, XCircle,
   ShoppingBag, Shirt, Users, Receipt, Landmark, BarChart3, Award, Settings,
-  Bell, MessageSquare, Heart, LogOut
+  Bell, MessageSquare, Heart, LogOut, Package
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -137,6 +137,9 @@ export default function POSPage() {
 
   // Inline inventory states
   const [inventoryList, setInventoryList] = useState<any[]>([]);
+  const [individualGarments, setIndividualGarments] = useState<any[]>([]);
+  const [inventoryViewMode, setInventoryViewMode] = useState<'etiquetas' | 'resumen'>('etiquetas');
+  const [garmentsPage, setGarmentsPage] = useState(0);
   const [invSearch, setInvSearch] = useState('');
 
   // Inline sales logs states
@@ -318,6 +321,18 @@ export default function POSPage() {
           .eq('store_id', selectedStore.id);
         setInventoryList(inv || []);
       }
+
+      // Fetch individual garment barcode tags physically in this store or its associated warehouse
+      let garmentFilter = `store_id.eq.${selectedStore.id}`;
+      if (selectedStore.bodega_asociada_id) {
+        garmentFilter += `,warehouse_id.eq.${selectedStore.bodega_asociada_id}`;
+      }
+      const { data: garments } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .or(garmentFilter)
+        .order('created_at', { ascending: false });
+      setIndividualGarments(garments || []);
     } catch (e) {
       console.error(e);
     }
@@ -1626,6 +1641,41 @@ export default function POSPage() {
     }
   };
 
+  const handleQuickAddGarmentToCart = (garment: any) => {
+    // 1. Find product in catalog
+    const matchedProduct = products.find(p => 
+      p.id === garment.sewing_orders?.product_id ||
+      p.nombre_producto?.trim().toLowerCase() === garment.reference_name?.trim().toLowerCase() ||
+      p.codigo_referencia?.trim().toLowerCase() === garment.reference_name?.trim().toLowerCase() ||
+      p.nombre_producto?.toLowerCase().includes(garment.reference_name?.toLowerCase()) ||
+      garment.reference_name?.toLowerCase().includes(p.nombre_producto?.toLowerCase())
+    );
+
+    if (!matchedProduct) {
+      alert(`No se encontró el producto en catálogo para la referencia "${garment.reference_name}".`);
+      return;
+    }
+
+    // 2. Match color and size
+    const gColor = (garment.color_name || '').trim().toLowerCase();
+    const gSize = (garment.size_code || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+
+    const matchedColor = colors.find(c => {
+      const cName = (c.nombre_color || '').trim().toLowerCase();
+      const cCode = (c.codigo_color || '').trim().toLowerCase();
+      return !gColor || cName === gColor || (cCode && gColor.includes(cCode)) || gColor.startsWith(cName.substring(0, 5)) || cName.startsWith(gColor.substring(0, 5));
+    });
+
+    const matchedSize = sizes.find(s => {
+      const sName = (s.nombre_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+      const sCode = (s.codigo_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+      return !gSize || sCode === gSize || sName === gSize || (gSize === 'lxl' && (sCode === 'lxl' || sName.includes('lx'))) || (gSize === 'sm' && (sCode === 'sm' || sName.includes('sm')));
+    });
+
+    doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null);
+    setActiveMenuId('pos');
+  };
+
   const handleAddReturnToCart = (e: React.FormEvent) => {
     e.preventDefault();
     if (!returnProduct) return;
@@ -2794,84 +2844,212 @@ export default function POSPage() {
 
                 {activeProdTab === 'inventario' ? (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <input
-                        type="text"
-                        placeholder="Buscar por referencia, nombre, color o talla..."
-                        value={invSearch}
-                        onChange={e => { setInvSearch(e.target.value); setInventoryPage(0); }}
-                        style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none', width: '360px' }}
-                      />
+                    {/* View mode toggle pills */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#e2e8f0', padding: '0.25rem', borderRadius: '10px' }}>
+                        <button
+                          onClick={() => { setInventoryViewMode('etiquetas'); setGarmentsPage(0); }}
+                          style={{
+                            padding: '0.45rem 0.9rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: inventoryViewMode === 'etiquetas' ? '#ffffff' : 'transparent',
+                            color: inventoryViewMode === 'etiquetas' ? customPrimary : '#64748b',
+                            fontWeight: inventoryViewMode === 'etiquetas' ? '900' : '700',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            boxShadow: inventoryViewMode === 'etiquetas' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          🏷️ Por Etiquetas ({individualGarments.length})
+                        </button>
+                        <button
+                          onClick={() => { setInventoryViewMode('resumen'); setInventoryPage(0); }}
+                          style={{
+                            padding: '0.45rem 0.9rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: inventoryViewMode === 'resumen' ? '#ffffff' : 'transparent',
+                            color: inventoryViewMode === 'resumen' ? customPrimary : '#64748b',
+                            fontWeight: inventoryViewMode === 'resumen' ? '900' : '700',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            boxShadow: inventoryViewMode === 'resumen' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          📦 Resumen por Referencia ({inventoryList.length} SKUs)
+                        </button>
+                      </div>
+
                       <div style={{ display: 'flex', gap: '1rem' }}>
-                        <div style={{ background: '#f8fafc', padding: '0.5rem 1.5rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                          <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Disponible</span>
-                          <span style={{ fontSize: '1.25rem', color: '#10b981', fontWeight: '900' }}>
-                            {inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_disponible) || 0), 0)}
+                        <div style={{ background: '#f8fafc', padding: '0.4rem 1.25rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {inventoryViewMode === 'etiquetas' ? 'Prendas con Etiqueta' : 'Total Disponible'}
+                          </span>
+                          <span style={{ fontSize: '1.2rem', color: '#10b981', fontWeight: '950' }}>
+                            {inventoryViewMode === 'etiquetas' ? individualGarments.length : inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_disponible) || 0), 0)}
                           </span>
                         </div>
-                        <div style={{ background: '#fff7ed', padding: '0.5rem 1.5rem', borderRadius: '10px', border: '1px solid #ffedd5', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                          <span style={{ fontSize: '0.65rem', color: '#ea580c', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reservado</span>
-                          <span style={{ fontSize: '1.25rem', color: '#ea580c', fontWeight: '900' }}>
-                            {inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_reservada) || 0), 0)}
+                        <div style={{ background: '#fff7ed', padding: '0.4rem 1.25rem', borderRadius: '10px', border: '1px solid #ffedd5', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <span style={{ fontSize: '0.62rem', color: '#ea580c', fontWeight: '850', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {inventoryViewMode === 'etiquetas' ? 'Prendas Aprobadas' : 'Reservado'}
+                          </span>
+                          <span style={{ fontSize: '1.2rem', color: '#ea580c', fontWeight: '950' }}>
+                            {inventoryViewMode === 'etiquetas' ? individualGarments.filter(g => g.status === 'Aprobada').length : inventoryList.reduce((acc, curr) => acc + (Number(curr.cantidad_reservada) || 0), 0)}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
-                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Producto</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Referencia</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Color</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Disponible</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'center' }}>Reservado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const sQuery = invSearch.trim().toLowerCase();
-                          const filteredInv = inventoryList.filter(inv => {
-                            if (!sQuery) return true;
-                            const pName = (inv.products?.nombre_producto || '').toLowerCase();
-                            const pRef = (inv.products?.codigo_referencia || '').toLowerCase();
-                            const cName = (inv.colors?.nombre_color || '').toLowerCase();
-                            const cCode = (inv.colors?.codigo_color || '').toLowerCase();
-                            const sCode = (inv.sizes?.codigo_talla || '').toLowerCase();
-                            const sName = (inv.sizes?.nombre_talla || '').toLowerCase();
-                            return pName.includes(sQuery) || pRef.includes(sQuery) || cName.includes(sQuery) || cCode.includes(sQuery) || sCode.includes(sQuery) || sName.includes(sQuery);
-                          });
-                          return (
-                            <>
-                              {filteredInv.slice(inventoryPage * 10, (inventoryPage + 1) * 10).map((inv, idx) => (
-                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+
+                    {/* Search Bar */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <input
+                        type="text"
+                        placeholder={inventoryViewMode === 'etiquetas' ? "Buscar por código de etiqueta (ej: 0081963300), referencia, color o talla..." : "Buscar por referencia, nombre, color o talla..."}
+                        value={invSearch}
+                        onChange={e => { setInvSearch(e.target.value); setGarmentsPage(0); setInventoryPage(0); }}
+                        style={{ padding: '0.65rem 1rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', outline: 'none', width: '100%', maxWidth: '420px', backgroundColor: '#ffffff' }}
+                      />
+                    </div>
+
+                    {/* VISTA POR ETIQUETAS INDIVIDUALES */}
+                    {inventoryViewMode === 'etiquetas' && (() => {
+                      const sQuery = invSearch.trim().toLowerCase();
+                      const filteredGarments = individualGarments.filter(g => {
+                        if (!sQuery) return true;
+                        const bCode = (g.barcode || '').toLowerCase();
+                        const rName = (g.reference_name || '').toLowerCase();
+                        const cName = (g.color_name || '').toLowerCase();
+                        const sCode = (g.size_code || '').toLowerCase();
+                        const status = (g.status || '').toLowerCase();
+                        return bCode.includes(sQuery) || rName.includes(sQuery) || cName.includes(sQuery) || sCode.includes(sQuery) || status.includes(sQuery);
+                      });
+
+                      const gPageSize = 15;
+                      const gTotalPages = Math.ceil(filteredGarments.length / gPageSize);
+                      const paginatedGarments = filteredGarments.slice(garmentsPage * gPageSize, (garmentsPage + 1) * gPageSize);
+
+                      return (
+                        <>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                                <th style={{ padding: '0.75rem', textAlign: 'left' }}># Código Etiqueta</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left' }}>Prenda / Referencia</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Color</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Estado</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Fecha Ingreso</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paginatedGarments.map((garment, idx) => (
+                                <tr key={garment.id || idx} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fcfcfd' }}>
+                                  <td style={{ padding: '0.75rem', fontWeight: '900', color: '#0f172a' }}>
+                                    <span style={{
+                                      backgroundColor: '#f1f5f9',
+                                      border: '1px solid #e2e8f0',
+                                      padding: '0.2rem 0.55rem',
+                                      borderRadius: '6px',
+                                      fontFamily: 'monospace',
+                                      fontSize: '0.85rem',
+                                      color: '#0f172a',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.3rem'
+                                    }}>
+                                      🏷️ {garment.barcode}
+                                    </span>
+                                  </td>
                                   <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                      {inv.products?.imagen_url && (
-                                        <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
-                                      )}
-                                      {inv.products?.nombre_producto || 'Sin nombre'}
-                                    </div>
+                                    {garment.reference_name || 'Sin referencia'}
                                   </td>
-                                  <td style={{ padding: '0.75rem', color: '#64748b' }}>{inv.products?.codigo_referencia || '-'}</td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.colors?.nombre_color || '-'}</td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '-'}</td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
-                                    {inv.cantidad_disponible}
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                    <span style={{ backgroundColor: '#f1f5f9', color: '#334155', padding: '0.15rem 0.5rem', borderRadius: '6px', fontWeight: '750', fontSize: '0.75rem' }}>
+                                      {garment.color_name || '—'}
+                                    </span>
                                   </td>
-                                  <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                    <span style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', color: '#0f172a', padding: '0.15rem 0.45rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.75rem' }}>
+                                      {garment.size_code || '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                    <span style={{
+                                      backgroundColor: garment.status === 'Aprobada' ? '#ecfdf5' : '#fff7ed',
+                                      color: garment.status === 'Aprobada' ? '#059669' : '#ea580c',
+                                      border: `1px solid ${garment.status === 'Aprobada' ? '#a7f3d0' : '#fed7aa'}`,
+                                      padding: '0.15rem 0.45rem',
+                                      borderRadius: '6px',
+                                      fontWeight: '850',
+                                      fontSize: '0.7rem'
+                                    }}>
+                                      {garment.status || 'Disponible'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b', fontSize: '0.72rem' }}>
+                                    {garment.created_at ? new Date(garment.created_at).toLocaleDateString('es-CO') : '—'}
+                                  </td>
+                                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                    <button
+                                      onClick={() => handleQuickAddGarmentToCart(garment)}
+                                      style={{
+                                        backgroundColor: '#10b981',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '0.35rem 0.75rem',
+                                        borderRadius: '6px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: '850',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        boxShadow: '0 2px 6px rgba(16,185,129,0.25)'
+                                      }}
+                                    >
+                                      <ShoppingCart size={13} /> Vender
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
-                              {filteredInv.length === 0 && (
-                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No se encontraron productos en el inventario de esta tienda.</td></tr>
+                              {filteredGarments.length === 0 && (
+                                <tr>
+                                  <td colSpan={7} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
+                                    <Package size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                                    <p style={{ margin: 0, fontWeight: '700' }}>No se encontraron prendas con etiquetas registradas en esta bodega/tienda.</p>
+                                  </td>
+                                </tr>
                               )}
-                            </>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
+                            </tbody>
+                          </table>
 
-                    {(() => {
+                          {gTotalPages > 1 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
+                              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                                Mostrando {garmentsPage * gPageSize + 1} a {Math.min((garmentsPage + 1) * gPageSize, filteredGarments.length)} de {filteredGarments.length} prendas con etiqueta
+                              </span>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => setGarmentsPage(p => Math.max(0, p - 1))} disabled={garmentsPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: garmentsPage === 0 ? '#f1f5f9' : 'white', cursor: garmentsPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
+                                <button onClick={() => setGarmentsPage(p => p + 1)} disabled={(garmentsPage + 1) * gPageSize >= filteredGarments.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (garmentsPage + 1) * gPageSize >= filteredGarments.length ? '#f1f5f9' : 'white', cursor: (garmentsPage + 1) * gPageSize >= filteredGarments.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    {/* VISTA RESUMIDA POR REFERENCIA */}
+                    {inventoryViewMode === 'resumen' && (() => {
                       const sQuery = invSearch.trim().toLowerCase();
                       const filteredInv = inventoryList.filter(inv => {
                         if (!sQuery) return true;
@@ -2883,20 +3061,86 @@ export default function POSPage() {
                         const sName = (inv.sizes?.nombre_talla || '').toLowerCase();
                         return pName.includes(sQuery) || pRef.includes(sQuery) || cName.includes(sQuery) || cCode.includes(sQuery) || sCode.includes(sQuery) || sName.includes(sQuery);
                       });
-                      if (filteredInv.length > 10) {
-                        return (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
-                              Mostrando {inventoryPage * 10 + 1} a {Math.min((inventoryPage + 1) * 10, filteredInv.length)} de {filteredInv.length} productos
-                            </span>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <button onClick={() => setInventoryPage(p => Math.max(0, p - 1))} disabled={inventoryPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: inventoryPage === 0 ? '#f1f5f9' : 'white', cursor: inventoryPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
-                              <button onClick={() => setInventoryPage(p => p + 1)} disabled={(inventoryPage + 1) * 10 >= filteredInv.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (inventoryPage + 1) * 10 >= filteredInv.length ? '#f1f5f9' : 'white', cursor: (inventoryPage + 1) * 10 >= filteredInv.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+
+                      return (
+                        <>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '2px solid #80082E', fontWeight: '900', color: '#64748b', textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                                <th style={{ padding: '0.75rem', textAlign: 'left' }}>Producto</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left' }}>Referencia</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Color</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Talla</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Disponible</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Reservado</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Etiquetas</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredInv.slice(inventoryPage * 10, (inventoryPage + 1) * 10).map((inv, idx) => {
+                                const matchingGarmentCount = individualGarments.filter(g => 
+                                  (g.reference_name || '').toLowerCase() === (inv.products?.nombre_producto || '').toLowerCase()
+                                ).length;
+
+                                return (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '0.75rem', fontWeight: '800', color: '#0f172a' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        {inv.products?.imagen_url && (
+                                          <img src={inv.products.imagen_url} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
+                                        )}
+                                        {inv.products?.nombre_producto || 'Sin nombre'}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '0.75rem', color: '#64748b', fontWeight: '850' }}>{inv.products?.codigo_referencia || '-'}</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.colors?.nombre_color || '-'}</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '-'}</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
+                                      {inv.cantidad_disponible}
+                                    </td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center', color: '#64748b' }}>{inv.cantidad_reservada || 0}</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                      <button
+                                        onClick={() => {
+                                          setInvSearch(inv.products?.nombre_producto || '');
+                                          setInventoryViewMode('etiquetas');
+                                        }}
+                                        style={{
+                                          padding: '0.25rem 0.6rem',
+                                          borderRadius: '6px',
+                                          border: '1px solid #cbd5e1',
+                                          backgroundColor: '#f8fafc',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '800',
+                                          color: customPrimary,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        🏷️ {matchingGarmentCount > 0 ? `${matchingGarmentCount} tags` : 'Ver tags'}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {filteredInv.length === 0 && (
+                                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No se encontraron productos en el inventario de esta tienda.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+
+                          {filteredInv.length > 10 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                                Mostrando {inventoryPage * 10 + 1} a {Math.min((inventoryPage + 1) * 10, filteredInv.length)} de {filteredInv.length} productos
+                              </span>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => setInventoryPage(p => Math.max(0, p - 1))} disabled={inventoryPage === 0} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: inventoryPage === 0 ? '#f1f5f9' : 'white', cursor: inventoryPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Anterior</button>
+                                <button onClick={() => setInventoryPage(p => p + 1)} disabled={(inventoryPage + 1) * 10 >= filteredInv.length} style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (inventoryPage + 1) * 10 >= filteredInv.length ? '#f1f5f9' : 'white', cursor: (inventoryPage + 1) * 10 >= filteredInv.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}>Siguiente</button>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      }
-                      return null;
+                          )}
+                        </>
+                      );
                     })()}
                   </>
                 ) : (
