@@ -2015,34 +2015,28 @@ export default function POSPage() {
     
     if (!hasInventory) return false;
 
+    // 1. If a specific individual barcode tag is scanned/detected, return ONLY the 1 exact product
+    if (scannedGarment) {
+      const orderProdId = scannedGarment.sewing_orders?.product_id;
+      if (orderProdId) {
+        return p.id === orderProdId;
+      }
+      if (resolvedBarcodeRef) {
+        if (p.id === resolvedBarcodeRef || p.codigo_referencia?.trim().toLowerCase() === resolvedBarcodeRef.trim().toLowerCase()) {
+          return true;
+        }
+      }
+      return p.nombre_producto?.trim().toLowerCase() === scannedGarment.reference_name?.trim().toLowerCase();
+    }
+
     const sq = searchQuery.trim().toLowerCase();
     if (!sq) return true;
 
     const matchesName = p.nombre_producto?.toLowerCase().includes(sq);
     const matchesCode = p.codigo_referencia?.toLowerCase().includes(sq);
     const matchesCategory = p.categories?.categoria?.toLowerCase().includes(sq);
-    
-    let matchesGarment = false;
-    if (scannedGarment) {
-      const gRef = (scannedGarment.reference_name || '').toLowerCase();
-      const pName = (p.nombre_producto || '').toLowerCase();
-      const pCode = (p.codigo_referencia || '').toLowerCase();
-      const orderProdId = scannedGarment.sewing_orders?.product_id;
 
-      matchesGarment = (
-        (orderProdId && p.id === orderProdId) ||
-        (gRef && (pName === gRef || pCode === gRef || pName.includes(gRef) || gRef.includes(pName)))
-      );
-    }
-
-    const matchesResolved = resolvedBarcodeRef && (
-      p.id === resolvedBarcodeRef ||
-      p.codigo_referencia?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) || 
-      p.nombre_producto?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) ||
-      resolvedBarcodeRef.toLowerCase().includes(p.nombre_producto?.toLowerCase())
-    );
-
-    return matchesName || matchesCode || matchesCategory || matchesGarment || matchesResolved;
+    return matchesName || matchesCode || matchesCategory;
   });
 
   return (
