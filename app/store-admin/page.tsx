@@ -743,7 +743,8 @@ export default function StoreAdminPage() {
             seller: sellerId ? sellerId : 1,
             payments: [{
               id: paymentId,
-              value: Number(sale.total) || 0
+              value: Number(sale.total) || 0,
+              due_date: new Date().toISOString().split('T')[0]
             }]
           };
 
