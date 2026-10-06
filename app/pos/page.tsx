@@ -981,6 +981,10 @@ export default function POSPage() {
     const checkAssignedStore = async () => {
       try {
         const uId = profile?.id || user?.id;
+        let assignedId = '';
+        let assignedRegCode = '';
+
+        // 1. Check store_staff_shifts table
         const { data: shifts } = await supabase
           .from('store_staff_shifts')
           .select('store_id, observaciones')
@@ -988,7 +992,35 @@ export default function POSPage() {
           .order('created_at', { ascending: false });
 
         if (shifts && shifts.length > 0 && shifts[0].store_id) {
-          const assignedId = shifts[0].store_id;
+          assignedId = shifts[0].store_id;
+          const obs = shifts[0].observaciones || '';
+          if (obs.includes('REG:')) {
+            assignedRegCode = obs.split('REG:')[1].split('|')[0].trim();
+          }
+        }
+
+        // 2. Check staffAssignments in theme meta
+        if (!assignedId && staffAssignments && staffAssignments.length > 0) {
+          const assignedMeta = staffAssignments.find((a: any) => a.userId === uId);
+          if (assignedMeta && assignedMeta.storeId) {
+            assignedId = assignedMeta.storeId;
+          }
+        }
+
+        // 3. Check if user profile is listed as store responsable
+        if (!assignedId) {
+          const uName = (profile?.full_name || '').toLowerCase();
+          const uEmail = (user?.email || '').toLowerCase();
+          const respStore = stores.find(s => {
+            const resp = (s.responsable || '').toLowerCase();
+            return resp && (resp.includes(uName) || (uName && uName.includes(resp)) || resp.includes(uEmail));
+          });
+          if (respStore) {
+            assignedId = respStore.id;
+          }
+        }
+
+        if (assignedId) {
           setUserAssignedStoreId(assignedId);
           const found = stores.find(s => s.id === assignedId);
           if (found) {
@@ -997,10 +1029,8 @@ export default function POSPage() {
             await loadRegistersForStore(assignedId);
             const { data: storeRegs } = await supabase.from('pos_registers').select('*').eq('store_id', assignedId);
 
-            const obs = shifts[0].observaciones || '';
-            if (obs.includes('REG:')) {
-              const regCode = obs.split('REG:')[1].split('|')[0].trim();
-              const foundReg = storeRegs?.find((r: any) => r.id === regCode || r.codigo_caja === regCode);
+            if (assignedRegCode) {
+              const foundReg = storeRegs?.find((r: any) => r.id === assignedRegCode || r.codigo_caja === assignedRegCode);
               if (foundReg) {
                 setSelectedRegister(foundReg);
                 setUserAssignedRegisterId(foundReg.id);
@@ -1014,7 +1044,7 @@ export default function POSPage() {
       }
     };
     checkAssignedStore();
-  }, [profile, user, stores]);
+  }, [profile, user, stores, staffAssignments]);
 
   useEffect(() => {
     if (authLoading || stores.length === 0) return;
