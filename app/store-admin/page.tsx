@@ -626,32 +626,89 @@ export default function StoreAdminPage() {
   const handleMassInvoicing = async () => {
     if (selectedSales.length === 0) return alert('Debes seleccionar al menos una venta para facturar.');
     setInvoicingMass(true);
+    let successCount = 0;
+    let errorCount = 0;
+    const errorsList: string[] = [];
+
     try {
       const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
       
       for (const sale of salesToInvoice) {
-        // Here we simulate the massive invoicing payload keeping the relation between client & products:
-        // Client: sale.client_name / sale.client_document
-        // Items: sale.pos_sale_items: quantity, product pricing, size, color.
-        console.log("Invoicing to ERP:", {
-          cliente: { nombre: sale.client_name, cedula: sale.client_document },
-          articulos: sale.pos_sale_items.map((item: any) => ({
-            sku: item.products?.codigo_referencia,
-            producto: item.products?.nombre_producto,
-            cantidad: item.cantidad,
-            precio: item.precio_unitario,
-            talla: item.sizes?.codigo_talla
-          })),
-          total: sale.total
-        });
+        try {
+          // Prepare SIIGO Invoice Payload according to official SIIGO API schema
+          const invoicePayload = {
+            document: { id: 2430 }, // Default invoice document type
+            date: new Date().toISOString().split('T')[0],
+            customer: {
+              identification: sale.client_document || '222222222222',
+              name: [sale.client_name || 'Cliente Mostrador']
+            },
+            items: sale.pos_sale_items?.map((item: any) => ({
+              code: item.products?.codigo_referencia || 'PROD',
+              description: item.products?.nombre_producto || 'Prenda POS',
+              quantity: item.cantidad || 1,
+              price: item.precio_unitario || 0
+            })) || [{
+              code: 'VENTA',
+              description: `Venta Ticket #${sale.consecutive}`,
+              quantity: 1,
+              price: sale.total
+            }],
+            payments: [{
+              id: 5636, // Cash/Default payment method ID in SIIGO
+              value: sale.total
+            }]
+          };
 
-        await supabase
-          .from('pos_sales')
-          .update({ sincronizado_erp: true })
-          .eq('id', sale.id);
+          // Execute real request through proxy
+          const response = await fetch('/api/siigo/proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              method: 'POST',
+              endpoint: '/invoices',
+              payload: invoicePayload
+            })
+          });
+
+          const resData = await response.json();
+
+          // Strict validation: response must have HTTP 2xx success status or resData.success === true with valid invoice data
+          if (response.ok && resData.success && (resData.data?.id || resData.data?.name || resData.data?.number)) {
+            successCount++;
+            const siigoInvNumber = resData.data?.name || resData.data?.number || resData.data?.id;
+            await supabase
+              .from('pos_sales')
+              .update({ 
+                sincronizado_erp: true,
+                observaciones: `Facturado SIIGO Exitósamente: ${siigoInvNumber}`
+              })
+              .eq('id', sale.id);
+          } else {
+            errorCount++;
+            const errMsg = resData.error || resData.details?.message || resData.message || (typeof resData.data === 'string' ? resData.data : 'Error desconocido de SIIGO');
+            errorsList.push(`Ticket #${sale.consecutive}: ${errMsg}`);
+            
+            // Mark sync status as failed with error details in observations
+            await supabase
+              .from('pos_sales')
+              .update({ 
+                sincronizado_erp: false,
+                observaciones: `Error Facturación SIIGO: ${errMsg.substring(0, 150)}`
+              })
+              .eq('id', sale.id);
+          }
+        } catch (itemErr: any) {
+          errorCount++;
+          errorsList.push(`Ticket #${sale.consecutive}: ${itemErr.message || String(itemErr)}`);
+        }
       }
       
-      alert(`✓ Se enviaron masivamente ${salesToInvoice.length} facturas al sistema contable con éxito.`);
+      let summaryMsg = `📊 Resumen de Facturación SIIGO:\n\n✅ Exitosas: ${successCount}\n❌ Fallidas: ${errorCount}`;
+      if (errorsList.length > 0) {
+        summaryMsg += `\n\nDetalle de errores:\n` + errorsList.join('\n');
+      }
+      alert(summaryMsg);
       setSelectedSales([]);
       fetchData();
     } catch (err: any) {
@@ -1987,10 +2044,26 @@ export default function StoreAdminPage() {
                   </span>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', border: '1px solid #bbf7d0' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ventas Seleccionadas</span>
-                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#14532d' }}>
+                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: '1px solid #bfdbfe' }}>
+                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Seleccionadas</span>
+                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#1e3a8a' }}>
                     {selectedSales.length} transacciones
+                  </span>
+                </div>
+
+                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', border: '1px solid #bbf7d0' }}>
+                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Facturados Exitosos (SIIGO)</span>
+                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#14532d', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckCircle2 size={22} color="#16a34a" />
+                    {salesList.filter(s => s.sincronizado_erp && s.estado !== 'anulada').length}
+                  </span>
+                </div>
+
+                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)', border: '1px solid #fecdd3' }}>
+                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#9f1239', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pendientes / Con Error</span>
+                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#881337', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <AlertTriangle size={22} color="#e11d48" />
+                    {salesList.filter(s => !s.sincronizado_erp && s.estado !== 'anulada').length}
                   </span>
                 </div>
 
