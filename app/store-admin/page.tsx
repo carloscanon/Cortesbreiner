@@ -135,6 +135,12 @@ export default function StoreAdminPage() {
   const [creditNoteType, setCreditNoteType] = useState('01'); // 01: Devolución parcial/total
   const [processingCreditNote, setProcessingCreditNote] = useState(false);
 
+  // Invoice Tracking & Audit Log Modal State
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [selectedSaleForTracking, setSelectedSaleForTracking] = useState<any>(null);
+  const [saleTrackingLogs, setSaleTrackingLogs] = useState<any[]>([]);
+  const [loadingTrackingLogs, setLoadingTrackingLogs] = useState(false);
+
   // SIIGO Diagnostic & Service Tracking Panel (Live Test Console)
   const [siigoTestEndpoint, setSiigoTestEndpoint] = useState('/customers');
   const [siigoTestMethod, setSiigoTestMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('GET');
@@ -684,6 +690,18 @@ export default function StoreAdminPage() {
                 observaciones: `Facturado SIIGO Exitósamente: ${siigoInvNumber}`
               })
               .eq('id', sale.id);
+
+            // Save success audit log entry
+            try {
+              await supabase.from('siigo_sync_logs').insert([{
+                sale_id: sale.id,
+                endpoint: '/invoices',
+                status: 'success',
+                request_body: invoicePayload,
+                response_body: resData,
+                error_message: null
+              }]);
+            } catch (lErr) {}
           } else {
             errorCount++;
             const errMsg = resData.error || resData.details?.message || resData.message || (typeof resData.data === 'string' ? resData.data : 'Error desconocido de SIIGO');
@@ -697,6 +715,18 @@ export default function StoreAdminPage() {
                 observaciones: `Error Facturación SIIGO: ${errMsg.substring(0, 150)}`
               })
               .eq('id', sale.id);
+
+            // Save error audit log entry
+            try {
+              await supabase.from('siigo_sync_logs').insert([{
+                sale_id: sale.id,
+                endpoint: '/invoices',
+                status: 'error',
+                request_body: invoicePayload,
+                response_body: resData,
+                error_message: errMsg
+              }]);
+            } catch (lErr) {}
           }
         } catch (itemErr: any) {
           errorCount++;
@@ -789,6 +819,26 @@ export default function StoreAdminPage() {
       alert('Error al generar la Nota Crédito: ' + (err.message || String(err)));
     } finally {
       setProcessingCreditNote(false);
+    }
+  };
+
+  const handleOpenTrackingModal = async (sale: any) => {
+    setSelectedSaleForTracking(sale);
+    setShowTrackingModal(true);
+    setLoadingTrackingLogs(true);
+    try {
+      const { data, error } = await supabase
+        .from('siigo_sync_logs')
+        .select('*')
+        .eq('sale_id', sale.id)
+        .order('created_at', { ascending: false });
+      if (error) console.warn("Could not fetch siigo_sync_logs:", error);
+      setSaleTrackingLogs(data || []);
+    } catch (err) {
+      console.error(err);
+      setSaleTrackingLogs([]);
+    } finally {
+      setLoadingTrackingLogs(false);
     }
   };
 
@@ -2186,19 +2236,17 @@ export default function StoreAdminPage() {
                             </span>
                           </td>
                           <td style={{ padding: '1rem', textAlign: 'center' }}>
-                            {sale.estado !== 'anulada' ? (
+                            <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', alignItems: 'center' }}>
                               <button
-                                onClick={() => {
-                                  setSelectedSaleForCN(sale);
-                                  setShowCreditNoteModal(true);
-                                }}
+                                onClick={() => handleOpenTrackingModal(sale)}
+                                title="Ver historial de auditoría y trazabilidad SIIGO"
                                 style={{
                                   padding: '0.35rem 0.65rem',
                                   fontSize: '0.75rem',
                                   fontWeight: '850',
-                                  backgroundColor: '#fee2e2',
-                                  color: '#b91c1c',
-                                  border: '1px solid #fca5a5',
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#334155',
+                                  border: '1px solid #cbd5e1',
                                   borderRadius: '8px',
                                   cursor: 'pointer',
                                   display: 'inline-flex',
@@ -2206,12 +2254,36 @@ export default function StoreAdminPage() {
                                   gap: '0.35rem'
                                 }}
                               >
-                                <RefreshCw size={12} />
-                                Nota Crédito
+                                <Activity size={12} />
+                                Seguimiento
                               </button>
-                            ) : (
-                              <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700' }}>Nota emitida</span>
-                            )}
+                              {sale.estado !== 'anulada' ? (
+                                <button
+                                  onClick={() => {
+                                    setSelectedSaleForCN(sale);
+                                    setShowCreditNoteModal(true);
+                                  }}
+                                  style={{
+                                    padding: '0.35rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: '850',
+                                    backgroundColor: '#fee2e2',
+                                    color: '#b91c1c',
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem'
+                                  }}
+                                >
+                                  <RefreshCw size={12} />
+                                  Nota Crédito
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700' }}>Nota emitida</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3664,6 +3736,107 @@ export default function StoreAdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* INVOICE TRACKING & AUDIT LOG MODAL */}
+      {showTrackingModal && selectedSaleForTracking && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div className="card" style={{ width: '90%', maxWidth: '700px', padding: '2rem', borderRadius: '16px', backgroundColor: 'white', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Activity size={18} color="var(--primary)" />
+                  Trazabilidad y Auditoría SIIGO — Ticket #{selectedSaleForTracking.consecutive}
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Cliente: {selectedSaleForTracking.client_name || 'Cliente Mostrador'} • Total: ${selectedSaleForTracking.total?.toLocaleString('es-CO')}
+                </span>
+              </div>
+              <button onClick={() => setShowTrackingModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+
+            {/* Sale Status Info Card */}
+            <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569' }}>Estado Actual en Sistema:</span>
+                <span style={{
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: '12px',
+                  fontSize: '0.75rem',
+                  fontWeight: '850',
+                  backgroundColor: selectedSaleForTracking.estado === 'anulada' ? '#fee2e2' : (selectedSaleForTracking.sincronizado_erp ? '#dcfce7' : '#fef3c7'),
+                  color: selectedSaleForTracking.estado === 'anulada' ? '#991b1b' : (selectedSaleForTracking.sincronizado_erp ? '#166534' : '#92400e')
+                }}>
+                  {selectedSaleForTracking.estado === 'anulada' ? 'Anulada / Nota Crédito' : (selectedSaleForTracking.sincronizado_erp ? '✓ Facturado Exitosamente en SIIGO' : '⚠️ Pendiente / Rechazado')}
+                </span>
+              </div>
+
+              {selectedSaleForTracking.observaciones && (
+                <div style={{ fontSize: '0.78rem', color: '#334155', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+                  <strong>Detalle de Observaciones / Error:</strong> {selectedSaleForTracking.observaciones}
+                </div>
+              )}
+            </div>
+
+            {/* Audit Logs Timeline */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>📋 Historial de Peticiones y Logs SIIGO</h4>
+
+              {loadingTrackingLogs ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem' }} />
+                  <p style={{ margin: 0, fontSize: '0.8rem' }}>Cargando registros de auditoría...</p>
+                </div>
+              ) : saleTrackingLogs.length === 0 ? (
+                <div style={{ padding: '1.5rem', backgroundColor: '#f8fafc', borderRadius: '10px', textAlign: 'center', color: '#64748b', fontSize: '0.8rem', border: '1px solid #e2e8f0' }}>
+                  No se encontraron logs de sincronización grabados para esta venta. Intenta facturarla masivamente para generar registros.
+                </div>
+              ) : (
+                saleTrackingLogs.map((log) => (
+                  <div key={log.id} style={{
+                    padding: '1rem',
+                    borderRadius: '10px',
+                    backgroundColor: log.status === 'success' ? '#f0fdf4' : (log.status === 'warning' ? '#fffbeb' : '#fef2f2'),
+                    border: `1px solid ${log.status === 'success' ? '#bbf7d0' : (log.status === 'warning' ? '#fde68a' : '#fecaca')}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: '850', color: log.status === 'success' ? '#166534' : '#991b1b' }}>
+                        {log.status === 'success' ? '✓ Petición Exitosa' : '✕ Fallo en SIIGO'} ({log.endpoint})
+                      </span>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b', fontFamily: 'monospace' }}>
+                        {new Date(log.created_at).toLocaleString('es-CO')}
+                      </span>
+                    </div>
+
+                    {log.error_message && (
+                      <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: '750' }}>
+                        Error: {log.error_message}
+                      </div>
+                    )}
+
+                    {(profile as any)?.isSuperUser || (profile as any)?.role_id === 'superadmin' ? (
+                      <details style={{ fontSize: '0.72rem', backgroundColor: 'rgba(0,0,0,0.04)', padding: '0.5rem', borderRadius: '6px' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: '800', color: '#334155' }}>Ver Payload & Respuesta Raw (SuperAdmin)</summary>
+                        <pre style={{ margin: '0.5rem 0 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.68rem', maxHeight: '150px', overflowY: 'auto' }}>
+                          {JSON.stringify({ request: log.request_body, response: log.response_body }, null, 2)}
+                        </pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowTrackingModal(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.825rem' }}>
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
