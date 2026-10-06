@@ -644,18 +644,49 @@ export default function StoreAdminPage() {
     let errorCount = 0;
     const errorsList: string[] = [];
 
-    try {
-      const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
-      setMassInvoicingProgress({
-        current: 0,
-        total: salesToInvoice.length,
-        currentTicket: '',
-        status: 'Iniciando conexión con SIIGO...',
-        successCount: 0,
-        errorCount: 0
-      });
+    setMassInvoicingProgress({
+      current: 0,
+      total: selectedSales.length,
+      currentTicket: '',
+      status: 'Consultando tipos de comprobante y formas de pago en SIIGO...',
+      successCount: 0,
+      errorCount: 0
+    });
 
+    try {
+      // 1. Obtain active document type ID from SIIGO (/document-types?type=FV)
+      let docTypeId = 2430; // default fallback
+      let paymentId = 5636;  // default fallback
+
+      try {
+        const docRes = await fetch('/api/siigo/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method: 'GET', endpoint: '/document-types?type=FV' })
+        });
+        const docJson = await docRes.json();
+        const docTypes = docJson.data || docJson;
+        if (Array.isArray(docTypes) && docTypes.length > 0 && docTypes[0].id) {
+          docTypeId = docTypes[0].id;
+        }
+
+        const payRes = await fetch('/api/siigo/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method: 'GET', endpoint: '/payment-types?document_type=FV' })
+        });
+        const payJson = await payRes.json();
+        const payTypes = payJson.data || payJson;
+        if (Array.isArray(payTypes) && payTypes.length > 0 && payTypes[0].id) {
+          paymentId = payTypes[0].id;
+        }
+      } catch (e) {
+        console.warn("Could not dynamically resolve doc/payment types, using fallbacks:", e);
+      }
+
+      const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
       let index = 0;
+
       for (const sale of salesToInvoice) {
         index++;
         setMassInvoicingProgress({
@@ -668,28 +699,38 @@ export default function StoreAdminPage() {
         });
 
         try {
-          // Prepare SIIGO Invoice Payload according to official SIIGO API schema
+          // Format client names properly (First and Last name array for SIIGO)
+          const rawName = (sale.client_name || 'Cliente Mostrador').trim();
+          const nameParts = rawName.split(' ');
+          const firstName = nameParts[0] || 'Cliente';
+          const lastName = nameParts.slice(1).join(' ') || 'Mostrador';
+
+          // Prepare SIIGO Invoice Payload according to official SIIGO API v1 specification
           const invoicePayload = {
-            document: { id: 2430 }, // Default invoice document type
+            document: { id: docTypeId },
             date: new Date().toISOString().split('T')[0],
             customer: {
-              identification: sale.client_document || '222222222222',
-              name: [sale.client_name || 'Cliente Mostrador']
+              person_type: 'Person',
+              id_type: '13', // Cédula de Ciudadanía
+              identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '222222222222',
+              name: [firstName, lastName],
+              commercial_name: rawName,
+              vat_responsible: false
             },
-            items: sale.pos_sale_items?.map((item: any) => ({
+            items: sale.pos_sale_items?.length > 0 ? sale.pos_sale_items.map((item: any) => ({
               code: item.products?.codigo_referencia || 'PROD',
               description: item.products?.nombre_producto || 'Prenda POS',
-              quantity: item.cantidad || 1,
-              price: item.precio_unitario || 0
-            })) || [{
+              quantity: Number(item.cantidad) || 1,
+              price: Number(item.precio_unitario) || Number(item.precio) || 0
+            })) : [{
               code: 'VENTA',
               description: `Venta Ticket #${sale.consecutive}`,
               quantity: 1,
-              price: sale.total
+              price: Number(sale.total) || 0
             }],
             payments: [{
-              id: 5636, // Cash/Default payment method ID in SIIGO
-              value: sale.total
+              id: paymentId,
+              value: Number(sale.total) || 0
             }]
           };
 
@@ -731,7 +772,7 @@ export default function StoreAdminPage() {
             } catch (lErr) {}
           } else {
             errorCount++;
-            const errMsg = resData.error || resData.details?.message || resData.message || (typeof resData.data === 'string' ? resData.data : 'Error desconocido de SIIGO');
+            const errMsg = resData.error || resData.details?.message || resData.message || (typeof resData.data === 'string' ? resData.data : (JSON.stringify(resData.data || resData)));
             errorsList.push(`Ticket #${sale.consecutive}: ${errMsg}`);
             
             // Mark sync status as failed with error details in observations
@@ -739,7 +780,7 @@ export default function StoreAdminPage() {
               .from('pos_sales')
               .update({ 
                 sincronizado_erp: false,
-                observaciones: `Error Facturación SIIGO: ${errMsg.substring(0, 150)}`
+                observaciones: `Error Facturación SIIGO: ${String(errMsg).substring(0, 150)}`
               })
               .eq('id', sale.id);
 
@@ -751,7 +792,7 @@ export default function StoreAdminPage() {
                 status: 'error',
                 request_body: invoicePayload,
                 response_body: resData,
-                error_message: errMsg
+                error_message: String(errMsg)
               }]);
             } catch (lErr) {}
           }
