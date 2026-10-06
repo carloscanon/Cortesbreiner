@@ -142,6 +142,7 @@ export default function POSPage() {
   const [salesPage, setSalesPage] = useState(0);
   const [inventoryPage, setInventoryPage] = useState(0);
   const [posProductsPage, setPosProductsPage] = useState(0);
+  const [userAssignedStoreId, setUserAssignedStoreId] = useState<string | null>(null);
   const [shiftsPage, setShiftsPage] = useState(0);
   const [reportDateRange, setReportDateRange] = useState('today');
   
@@ -974,22 +975,33 @@ export default function POSPage() {
     }
   }, [selectedStore]);
 
-  useEffect(() => {
-    if (authLoading || stores.length === 0) return;
+    useEffect(() => {
+    if ((!profile?.id && !user?.id) || stores.length === 0) return;
+    const checkAssignedStore = async () => {
+      try {
+        const uId = profile?.id || user?.id;
+        const { data: shifts } = await supabase
+          .from('store_staff_shifts')
+          .select('store_id')
+          .eq('user_id', uId)
+          .order('created_at', { ascending: false });
 
-    const initSavedSession = async () => {
-      const savedStoreId = localStorage.getItem('pos_selected_store_id');
-      const savedRegisterId = localStorage.getItem('pos_selected_register_id');
-      if (savedStoreId) {
-        const foundStore = stores.find(s => s.id === savedStoreId);
-        if (foundStore) {
-          setSelectedStore(foundStore);
-          await loadRegistersForStore(savedStoreId, savedRegisterId || undefined);
+        if (shifts && shifts.length > 0 && shifts[0].store_id) {
+          const assignedId = shifts[0].store_id;
+          setUserAssignedStoreId(assignedId);
+          const found = stores.find(s => s.id === assignedId);
+          if (found) {
+            setSelectedStore(found);
+            localStorage.setItem('pos_selected_store_id', assignedId);
+            await loadRegistersForStore(assignedId);
+          }
         }
+      } catch (err) {
+        console.error('Error checking assigned user store:', err);
       }
     };
-    initSavedSession();
-  }, [authLoading, stores]);
+    checkAssignedStore();
+  }, [profile, user, stores]);
 
   useEffect(() => {
     if (authLoading || stores.length === 0) return;
@@ -1361,6 +1373,10 @@ export default function POSPage() {
   };
 
   const handleOpenStoreChange = async (storeId: string) => {
+    if (userAssignedStoreId && storeId !== userAssignedStoreId) {
+      alert('🔒 Tienes una tienda asignada en la Administración del POS y no puedes cambiar a otra sucursal.');
+      return;
+    }
     const store = stores.find(s => s.id === storeId);
     setSelectedStore(store);
     setSelectedRegister(null);
