@@ -143,6 +143,7 @@ export default function POSPage() {
   const [inventoryPage, setInventoryPage] = useState(0);
   const [posProductsPage, setPosProductsPage] = useState(0);
   const [userAssignedStoreId, setUserAssignedStoreId] = useState<string | null>(null);
+  const [userAssignedRegisterId, setUserAssignedRegisterId] = useState<string | null>(null);
   const [shiftsPage, setShiftsPage] = useState(0);
   const [reportDateRange, setReportDateRange] = useState('today');
   
@@ -982,7 +983,7 @@ export default function POSPage() {
         const uId = profile?.id || user?.id;
         const { data: shifts } = await supabase
           .from('store_staff_shifts')
-          .select('store_id')
+          .select('store_id, observaciones')
           .eq('user_id', uId)
           .order('created_at', { ascending: false });
 
@@ -994,6 +995,18 @@ export default function POSPage() {
             setSelectedStore(found);
             localStorage.setItem('pos_selected_store_id', assignedId);
             await loadRegistersForStore(assignedId);
+            const { data: storeRegs } = await supabase.from('pos_registers').select('*').eq('store_id', assignedId);
+
+            const obs = shifts[0].observaciones || '';
+            if (obs.includes('REG:')) {
+              const regCode = obs.split('REG:')[1].split('|')[0].trim();
+              const foundReg = storeRegs?.find((r: any) => r.id === regCode || r.codigo_caja === regCode);
+              if (foundReg) {
+                setSelectedRegister(foundReg);
+                setUserAssignedRegisterId(foundReg.id);
+                localStorage.setItem('pos_selected_register_id', foundReg.id);
+              }
+            }
           }
         }
       } catch (err) {

@@ -291,7 +291,7 @@ export default function StoreAdminPage() {
   const [storeForm, setStoreForm] = useState({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', estado: 'activo' });
   const [registerForm, setRegisterForm] = useState({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
   const [promoForm, setPromoForm] = useState({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
-  const [shiftForm, setShiftForm] = useState({ id: '', store_id: '', user_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
+  const [shiftForm, setShiftForm] = useState({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
   const [priceListForm, setPriceListForm] = useState({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
   const [storeInvForm, setStoreInvForm] = useState({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
 
@@ -571,7 +571,7 @@ export default function StoreAdminPage() {
         }]);
       }
       setShowShiftModal(false);
-      setShiftForm({ id: '', store_id: '', user_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
+      setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
       fetchData();
     } catch (err: any) {
       alert("Error guardando turno. " + err.message);
@@ -921,7 +921,7 @@ export default function StoreAdminPage() {
               if (activeTab === 'stores') setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', estado: 'activo' });
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
-              else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
+              else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
               else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
               else if (activeTab === 'inventory_monitoring') setStoreInvForm({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
               
