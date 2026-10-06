@@ -136,7 +136,7 @@ export default function StoreAdminPage() {
   const [processingCreditNote, setProcessingCreditNote] = useState(false);
 
   // SIIGO Diagnostic & Service Tracking Panel (Live Test Console)
-  const [siigoTestEndpoint, setSiigoTestEndpoint] = useState('/v1/customers');
+  const [siigoTestEndpoint, setSiigoTestEndpoint] = useState('/customers');
   const [siigoTestMethod, setSiigoTestMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('GET');
   const [siigoTestPayload, setSiigoTestPayload] = useState('{\n  "page": 1,\n  "page_size": 5\n}');
   const [siigoTestResponse, setSiigoTestResponse] = useState<any>(null);
@@ -692,7 +692,7 @@ export default function StoreAdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           method: 'POST',
-          endpoint: '/v1/credit-notes',
+          endpoint: '/credit-notes',
           payload: cnPayload
         })
       });

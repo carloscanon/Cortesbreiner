@@ -98,7 +98,15 @@ export class SiigoClient {
     isAuthRequest = false
   ): Promise<any> {
     const config = await this.getConfig();
-    const url = `${config.apiUrl}${endpoint}`;
+    let cleanBase = (config.apiUrl || 'https://api.siigo.com/v1').replace(/\/+$/, '');
+    let cleanEndpoint = endpoint.trim();
+    if (cleanBase.endsWith('/v1') && cleanEndpoint.startsWith('/v1')) {
+      cleanEndpoint = cleanEndpoint.replace(/^\/v1/, '');
+    }
+    if (!cleanEndpoint.startsWith('/')) {
+      cleanEndpoint = '/' + cleanEndpoint;
+    }
+    const url = `${cleanBase}${cleanEndpoint}`;
     
     // Preparar headers
     const headers: Record<string, string> = {
