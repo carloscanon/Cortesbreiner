@@ -165,6 +165,8 @@ export default function FinishedGoodsInventory() {
   const [selectedWarehouseForModal, setSelectedWarehouseForModal] = useState<any>(null);
   const [warehouseModalPage, setWarehouseModalPage] = useState<number>(1);
   const [warehouseModalSearch, setWarehouseModalSearch] = useState<string>('');
+  const [warehouseModalResolvedGarment, setWarehouseModalResolvedGarment] = useState<any | null>(null);
+  const [loadingWarehouseModalBarcode, setLoadingWarehouseModalBarcode] = useState<boolean>(false);
 
   // Inter-Warehouse Transfer Reception Scanner Modal
   const [showReceiveTransferModal, setShowReceiveTransferModal] = useState(false);
@@ -566,6 +568,58 @@ export default function FinishedGoodsInventory() {
       setResolvedBarcodeSizeId(null);
     }
   }, [searchQuery, colors, sizes]);
+
+  // Lookup barcode in warehouse items modal
+  useEffect(() => {
+    const term = warehouseModalSearch.trim();
+    if (!term || term.length < 6) {
+      setWarehouseModalResolvedGarment(null);
+      return;
+    }
+
+    const isBarcodeQuery = /^\d+$/.test(term);
+    if (isBarcodeQuery) {
+      setLoadingWarehouseModalBarcode(true);
+      const lookupBarcodeInModal = async () => {
+        try {
+          const { data } = await supabase
+            .from('individual_garments')
+            .select(`
+              *,
+              warehouses (id, nombre_bodega),
+              stores (id, nombre, nombre_sucursal)
+            `)
+            .eq('barcode', term)
+            .limit(1)
+            .maybeSingle();
+
+          if (data) {
+            setWarehouseModalResolvedGarment(data);
+          } else {
+            const { data: partialData } = await supabase
+              .from('individual_garments')
+              .select(`
+                *,
+                warehouses (id, nombre_bodega),
+                stores (id, nombre, nombre_sucursal)
+              `)
+              .ilike('barcode', `%${term}%`)
+              .limit(1)
+              .maybeSingle();
+            setWarehouseModalResolvedGarment(partialData || null);
+          }
+        } catch (err) {
+          console.error('Error looking up barcode in warehouse modal:', err);
+          setWarehouseModalResolvedGarment(null);
+        } finally {
+          setLoadingWarehouseModalBarcode(false);
+        }
+      };
+      lookupBarcodeInModal();
+    } else {
+      setWarehouseModalResolvedGarment(null);
+    }
+  }, [warehouseModalSearch]);
 
   const displayProducts = useMemo(() => {
     return (products || [])
@@ -5034,27 +5088,98 @@ export default function FinishedGoodsInventory() {
                 <Search size={18} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                 <input
                   type="text"
-                  placeholder="🔍 Buscar por nombre de producto, referencia, color o talla..."
+                  placeholder="🔍 Buscar por código de barras / etiqueta de prenda, referencia, producto, color o talla..."
                   value={warehouseModalSearch}
                   onChange={e => {
                     setWarehouseModalSearch(e.target.value);
                     setWarehouseModalPage(1);
                   }}
-                  style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.8rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
+                  style={{ width: '100%', padding: '0.6rem 2.8rem 0.6rem 2.8rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem' }}
                 />
+                {loadingWarehouseModalBarcode && (
+                  <Loader2 size={16} className="animate-spin" style={{ position: 'absolute', right: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#6366f1' }} />
+                )}
               </div>
             </div>
+
+            {/* Resolved Garment Banner (when scanning/typing a barcode) */}
+            {warehouseModalResolvedGarment && (
+              <div style={{
+                margin: '1rem 1.5rem 0',
+                padding: '0.85rem 1.25rem',
+                borderRadius: '12px',
+                backgroundColor: isSameWarehouse({ warehouse_id: warehouseModalResolvedGarment.warehouse_id }, selectedWarehouseForModal) ? '#ecfdf5' : '#fef2f2',
+                border: `1.5px solid ${isSameWarehouse({ warehouse_id: warehouseModalResolvedGarment.warehouse_id }, selectedWarehouseForModal) ? '#a7f3d0' : '#fca5a5'}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '1rem',
+                flexWrap: 'wrap'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.92rem', fontWeight: '950', color: '#0f172a' }}>
+                      🏷️ Prenda Escaneada: <code style={{ backgroundColor: 'rgba(0,0,0,0.06)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{warehouseModalResolvedGarment.barcode}</code>
+                    </span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#4338ca' }}>
+                      ({warehouseModalResolvedGarment.reference_name || 'Sin Referencia'})
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.25rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <span>Color: <strong>{warehouseModalResolvedGarment.color_name || 'N/A'}</strong></span>
+                    <span>Talla: <strong>{warehouseModalResolvedGarment.size_code || 'N/A'}</strong></span>
+                    <span>Estado: <strong style={{ color: warehouseModalResolvedGarment.status === 'Vendido' ? '#dc2626' : '#059669' }}>{warehouseModalResolvedGarment.status || 'Aprobada'}</strong></span>
+                  </div>
+                </div>
+                <div>
+                  {isSameWarehouse({ warehouse_id: warehouseModalResolvedGarment.warehouse_id }, selectedWarehouseForModal) ? (
+                    <span style={{ backgroundColor: '#10b981', color: 'white', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                      ✅ Presente en esta Bodega
+                    </span>
+                  ) : (
+                    <span style={{ backgroundColor: '#ef4444', color: 'white', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                      ⚠️ Registrada en: {warehouseModalResolvedGarment.warehouses?.nombre_bodega || warehouseModalResolvedGarment.stores?.nombre || warehouseModalResolvedGarment.stores?.nombre_sucursal || 'Otra ubicación'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Content Table */}
             <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
               {(() => {
-                const whItems = stock.filter(s => isSameWarehouse(s, selectedWarehouseForModal) && (
-                  !warehouseModalSearch.trim() ||
-                  (s.products?.nombre_producto || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
-                  (s.products?.codigo_referencia || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
-                  (s.colors?.nombre_color || '').toLowerCase().includes(warehouseModalSearch.toLowerCase()) ||
-                  (s.sizes?.codigo_talla || '').toLowerCase().includes(warehouseModalSearch.toLowerCase())
-                ));
+                const whItems = stock.filter(s => {
+                  if (!isSameWarehouse(s, selectedWarehouseForModal)) return false;
+
+                  if (warehouseModalResolvedGarment) {
+                    const g = warehouseModalResolvedGarment;
+                    const gRef = (g.reference_name || '').toLowerCase().trim();
+                    const pRef = (s.products?.codigo_referencia || '').toLowerCase().trim();
+                    const pName = (s.products?.nombre_producto || '').toLowerCase().trim();
+                    
+                    const matchesRef = gRef ? (pRef === gRef || pName === gRef || pRef.includes(gRef) || gRef.includes(pRef) || pName.includes(gRef) || gRef.includes(pName)) : true;
+                    
+                    const gColor = (g.color_name || '').toLowerCase().trim();
+                    const sColor = (s.colors?.nombre_color || '').toLowerCase().trim();
+                    const matchesColor = g.color_id ? s.color_id === g.color_id : (gColor ? (sColor === gColor || sColor.includes(gColor) || gColor.includes(sColor)) : true);
+
+                    const gSize = (g.size_code || '').toLowerCase().trim();
+                    const sSize = (s.sizes?.codigo_talla || '').toLowerCase().trim();
+                    const matchesSize = g.size_id ? s.size_id === g.size_id : (gSize ? sSize === gSize : true);
+
+                    return matchesRef && matchesColor && matchesSize;
+                  }
+
+                  if (!warehouseModalSearch.trim()) return true;
+
+                  const search = warehouseModalSearch.toLowerCase().trim();
+                  return (
+                    (s.products?.nombre_producto || '').toLowerCase().includes(search) ||
+                    (s.products?.codigo_referencia || '').toLowerCase().includes(search) ||
+                    (s.colors?.nombre_color || '').toLowerCase().includes(search) ||
+                    (s.sizes?.codigo_talla || '').toLowerCase().includes(search)
+                  );
+                });
 
                 const pageSize = 20;
                 const totalPages = Math.ceil(whItems.length / pageSize) || 1;
@@ -5064,7 +5189,11 @@ export default function FinishedGoodsInventory() {
                   return (
                     <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                       <Package size={40} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                      <p style={{ margin: 0, fontWeight: '800', color: '#475569' }}>No se encontraron prendas físicas en esta bodega.</p>
+                      <p style={{ margin: 0, fontWeight: '800', color: '#475569' }}>
+                        {warehouseModalResolvedGarment 
+                          ? `La prenda escaneada (${warehouseModalResolvedGarment.barcode}) no tiene existencias registradas en ${selectedWarehouseForModal.nombre_bodega}.`
+                          : 'No se encontraron prendas físicas con los criterios de búsqueda en esta bodega.'}
+                      </p>
                     </div>
                   );
                 }
@@ -5085,6 +5214,7 @@ export default function FinishedGoodsInventory() {
                             <th style={{ padding: '0.65rem 1rem' }}>Color</th>
                             <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Talla</th>
                             <th style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>Cantidad Disponible</th>
+                            <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Prendas Físicas</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5106,6 +5236,60 @@ export default function FinishedGoodsInventory() {
                               </td>
                               <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '0.95rem', color: '#059669' }}>
                                 {item.cantidad_disponible} uds
+                              </td>
+                              <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setSelectedStockItemForDetail(item);
+                                    setShowUnitDetailModal(true);
+                                    setLoadingUnits(true);
+                                    try {
+                                      let query = supabase
+                                        .from('individual_garments')
+                                        .select('*')
+                                        .eq('warehouse_id', item.warehouse_id)
+                                        .order('created_at', { ascending: false });
+
+                                      if (item.product_id) {
+                                        query = query.or(`product_id.eq.${item.product_id},reference_name.eq.${item.products?.codigo_referencia || ''},reference_name.eq.${item.products?.nombre_producto || ''}`);
+                                      }
+
+                                      const { data: gData, error: gErr } = await query;
+                                      if (gErr) throw gErr;
+
+                                      let filtered = gData || [];
+                                      if (item.colors?.nombre_color) {
+                                        filtered = filtered.filter((g: any) => !g.color_name || g.color_name.toLowerCase() === item.colors.nombre_color.toLowerCase());
+                                      }
+                                      if (item.sizes?.codigo_talla) {
+                                        filtered = filtered.filter((g: any) => !g.size_code || g.size_code.toLowerCase() === item.sizes.codigo_talla.toLowerCase());
+                                      }
+
+                                      setUnitGarments(filtered);
+                                    } catch (err: any) {
+                                      console.error('Error fetching unit garments:', err);
+                                      setUnitGarments([]);
+                                    } finally {
+                                      setLoadingUnits(false);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '0.25rem 0.65rem',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '800',
+                                    backgroundColor: '#f1f5f9',
+                                    color: '#334155',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem'
+                                  }}
+                                >
+                                  <Eye size={12} /> Ver Códigos
+                                </button>
                               </td>
                             </tr>
                           ))}
