@@ -515,11 +515,15 @@ export default function FinishedGoodsInventory() {
     setLocatorLoading(true);
     setLocatorSearched(true);
     try {
-      const isBarcode = /^\d+$/.test(locatorSearch.trim()) && locatorSearch.trim().length >= 8;
+      const isBarcode = /^\d+$/.test(locatorSearch.trim()) && locatorSearch.trim().length >= 6;
       
       let query = supabase
         .from('individual_garments')
-        .select('*')
+        .select(`
+          *,
+          warehouses (id, nombre_bodega),
+          stores (id, nombre, nombre_sucursal)
+        `)
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -2689,53 +2693,94 @@ export default function FinishedGoodsInventory() {
                   <h3 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0, color: '#0f172a' }}>Resultados ({locatorResults.length})</h3>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {locatorResults.map(g => (
-                    <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '900', color: '#80082E' }}>{g.reference_name || 'Sin Ref'}</h4>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>Talla: {g.size_code || 'N/A'}</span>
-                            <span style={{ color: '#cbd5e1' }}>•</span>
-                            <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>Color: {g.color_name || 'N/A'}</span>
+                  {locatorResults.map(g => {
+                    const matchedProduct = products.find(p => {
+                      const pRef = (p.codigo_referencia || '').toLowerCase().trim();
+                      const pName = (p.nombre_producto || p.name || '').toLowerCase().trim();
+                      const gRef = (g.reference_name || '').toLowerCase().trim();
+                      if (!gRef) return false;
+                      return pRef === gRef || pName === gRef || gRef.includes(pRef) || pName.includes(gRef) || gRef.includes(pName);
+                    });
+
+                    const matchedCategory = categories.find(c => c.id === matchedProduct?.category_id);
+                    const categoryName = matchedProduct?.categories?.categoria || matchedCategory?.categoria || matchedProduct?.categoria || 'Sin Categoría';
+                    const refCode = matchedProduct?.codigo_referencia || '—';
+                    const prodName = matchedProduct?.nombre_producto || g.reference_name || 'Sin Referencia';
+
+                    return (
+                      <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', padding: '1.25rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                              <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '950', color: '#80082E' }}>{prodName}</h4>
+                              <span style={{ backgroundColor: '#e0e7ff', color: '#3730a3', fontSize: '0.72rem', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #c7d2fe' }}>
+                                Ref: {refCode}
+                              </span>
+                              <span style={{ backgroundColor: '#f3e8ff', color: '#6b21a8', fontSize: '0.72rem', fontWeight: '900', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #e9d5ff' }}>
+                                📁 {categoryName}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.35rem' }}>
+                              <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#334155' }}>Talla: <strong>{g.size_code || 'N/A'}</strong></span>
+                              <span style={{ color: '#cbd5e1' }}>•</span>
+                              <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#334155' }}>Color: <strong>{g.color_name || 'N/A'}</strong></span>
+                              {g.historical_doc && (
+                                <>
+                                  <span style={{ color: '#cbd5e1' }}>•</span>
+                                  <span style={{ fontSize: '0.74rem', color: '#64748b' }}>Doc: {g.historical_doc}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: '900', backgroundColor: g.status === 'Vendido' ? '#fef2f2' : '#f0fdf4', color: g.status === 'Vendido' ? '#dc2626' : '#16a34a', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+                              {g.status || 'Disponible'}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                              Ingresó: {new Date(g.created_at).toLocaleDateString()}
+                            </span>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: '900', backgroundColor: g.status === 'Vendido' ? '#fef2f2' : '#f0fdf4', color: g.status === 'Vendido' ? '#dc2626' : '#16a34a', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
-                            {g.status || 'Desconocido'}
-                          </span>
-                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
-                            Ingresó: {new Date(g.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ borderTop: '1px dashed #cbd5e1', margin: '0.5rem 0' }}></div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.8rem' }}>
-                        <div>
-                          <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
-                          <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }}>
-                            <Package size={12} style={{ color: '#80082E' }} />
-                            Bodega: {warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || 'N/A'}
-                          </strong>
-                          {g.store_id && (
-                            <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }}>
-                              <Package size={12} style={{ color: '#0ea5e9' }} />
-                              Local: {stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
+                        <div style={{ borderTop: '1px dashed #cbd5e1', margin: '0.25rem 0' }}></div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', fontSize: '0.8rem' }}>
+                          <div>
+                            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
+                            <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                              <Package size={14} style={{ color: '#80082E' }} />
+                              Bodega: {g.warehouses?.nombre_bodega || warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || (g.warehouse_id ? 'Bodega Asignada' : 'Sin Bodega')}
                             </strong>
-                          )}
-                          {!g.warehouse_id && !g.store_id && (
-                            <strong style={{ color: '#94a3b8', display: 'block', marginTop: '0.2rem' }}>En Tránsito / Fábrica</strong>
-                          )}
-                        </div>
-                        <div>
-                          <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>ID Único / Código Barras</span>
-                          <span style={{ fontFamily: 'monospace', fontWeight: '800', color: '#475569', backgroundColor: '#e2e8f0', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
-                            {g.barcode || g.id.slice(0,8)}
-                          </span>
+                            {g.store_id && (
+                              <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                                <Package size={14} style={{ color: '#0ea5e9' }} />
+                                Local / Tienda: {g.stores?.nombre || g.stores?.nombre_sucursal || stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
+                              </strong>
+                            )}
+                            {!g.warehouse_id && !g.store_id && (
+                              <strong style={{ color: '#94a3b8', display: 'block', marginTop: '0.2rem' }}>En Tránsito / Fábrica</strong>
+                            )}
+                          </div>
+                          <div>
+                            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Código de Barras / ID Único</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: '900', color: '#0f172a', backgroundColor: '#e2e8f0', padding: '0.2rem 0.5rem', borderRadius: '5px', fontSize: '0.85rem', display: 'inline-block', marginTop: '0.2rem' }}>
+                              {g.barcode || g.id.slice(0, 10)}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Categoría / Línea</span>
+                            <span style={{ fontWeight: '800', color: '#475569', display: 'block', marginTop: '0.2rem' }}>
+                              {categoryName}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Código Referencia (SKU)</span>
+                            <span style={{ fontWeight: '800', color: '#4338ca', display: 'block', marginTop: '0.2rem' }}>
+                              {refCode}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -5240,40 +5285,7 @@ export default function FinishedGoodsInventory() {
                               <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
                                 <button
                                   type="button"
-                                  onClick={async () => {
-                                    setSelectedStockItemForDetail(item);
-                                    setShowUnitDetailModal(true);
-                                    setLoadingUnits(true);
-                                    try {
-                                      let query = supabase
-                                        .from('individual_garments')
-                                        .select('*')
-                                        .eq('warehouse_id', item.warehouse_id)
-                                        .order('created_at', { ascending: false });
-
-                                      if (item.product_id) {
-                                        query = query.or(`product_id.eq.${item.product_id},reference_name.eq.${item.products?.codigo_referencia || ''},reference_name.eq.${item.products?.nombre_producto || ''}`);
-                                      }
-
-                                      const { data: gData, error: gErr } = await query;
-                                      if (gErr) throw gErr;
-
-                                      let filtered = gData || [];
-                                      if (item.colors?.nombre_color) {
-                                        filtered = filtered.filter((g: any) => !g.color_name || g.color_name.toLowerCase() === item.colors.nombre_color.toLowerCase());
-                                      }
-                                      if (item.sizes?.codigo_talla) {
-                                        filtered = filtered.filter((g: any) => !g.size_code || g.size_code.toLowerCase() === item.sizes.codigo_talla.toLowerCase());
-                                      }
-
-                                      setUnitGarments(filtered);
-                                    } catch (err: any) {
-                                      console.error('Error fetching unit garments:', err);
-                                      setUnitGarments([]);
-                                    } finally {
-                                      setLoadingUnits(false);
-                                    }
-                                  }}
+                                  onClick={() => handleOpenUnitDetails(item)}
                                   style={{
                                     padding: '0.25rem 0.65rem',
                                     fontSize: '0.72rem',
