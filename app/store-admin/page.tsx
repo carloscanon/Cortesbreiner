@@ -772,7 +772,19 @@ export default function StoreAdminPage() {
             } catch (lErr) {}
           } else {
             errorCount++;
-            const errMsg = resData.error || resData.details?.message || resData.message || (typeof resData.data === 'string' ? resData.data : (JSON.stringify(resData.data || resData)));
+            let errMsg = 'Error 400 de SIIGO';
+            if (resData.details?.message) errMsg = resData.details.message;
+            else if (resData.error) errMsg = typeof resData.error === 'string' ? resData.error : JSON.stringify(resData.error);
+            else if (resData.message) errMsg = resData.message;
+            else if (resData.data) errMsg = typeof resData.data === 'string' ? resData.data : JSON.stringify(resData.data);
+
+            // Extract nested SIIGO validation errors array if available
+            if (resData.details?.Errors && Array.isArray(resData.details.Errors)) {
+              errMsg += ' — ' + resData.details.Errors.map((e: any) => `${e.Code || ''}: ${e.Message || e.Detail || ''}`).join(' | ');
+            } else if (resData.data?.Errors && Array.isArray(resData.data.Errors)) {
+              errMsg += ' — ' + resData.data.Errors.map((e: any) => `${e.Code || ''}: ${e.Message || e.Detail || ''}`).join(' | ');
+            }
+
             errorsList.push(`Ticket #${sale.consecutive}: ${errMsg}`);
             
             // Mark sync status as failed with error details in observations
@@ -780,7 +792,7 @@ export default function StoreAdminPage() {
               .from('pos_sales')
               .update({ 
                 sincronizado_erp: false,
-                observaciones: `Error Facturación SIIGO: ${String(errMsg).substring(0, 150)}`
+                observaciones: `Error SIIGO: ${errMsg.substring(0, 200)}`
               })
               .eq('id', sale.id);
 
@@ -792,7 +804,7 @@ export default function StoreAdminPage() {
                 status: 'error',
                 request_body: invoicePayload,
                 response_body: resData,
-                error_message: String(errMsg)
+                error_message: errMsg
               }]);
             } catch (lErr) {}
           }
@@ -3941,14 +3953,12 @@ export default function StoreAdminPage() {
                       </div>
                     )}
 
-                    {(profile as any)?.isSuperUser || (profile as any)?.role_id === 'superadmin' ? (
-                      <details style={{ fontSize: '0.72rem', backgroundColor: 'rgba(0,0,0,0.04)', padding: '0.5rem', borderRadius: '6px' }}>
-                        <summary style={{ cursor: 'pointer', fontWeight: '800', color: '#334155' }}>Ver Payload & Respuesta Raw (SuperAdmin)</summary>
-                        <pre style={{ margin: '0.5rem 0 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.68rem', maxHeight: '150px', overflowY: 'auto' }}>
-                          {JSON.stringify({ request: log.request_body, response: log.response_body }, null, 2)}
-                        </pre>
-                      </details>
-                    ) : null}
+                    <details open style={{ fontSize: '0.72rem', backgroundColor: 'rgba(0,0,0,0.04)', padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: '850', color: '#0f172a' }}>🔍 Inspeccionar Payload Enviado & Respuesta SIIGO (JSON)</summary>
+                      <pre style={{ margin: '0.5rem 0 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.7rem', maxHeight: '180px', overflowY: 'auto', color: log.status === 'success' ? '#166534' : '#b91c1c' }}>
+                        {JSON.stringify({ request: log.request_body, response: log.response_body }, null, 2)}
+                      </pre>
+                    </details>
                   </div>
                 ))
               )}
