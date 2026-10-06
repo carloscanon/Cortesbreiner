@@ -7,7 +7,7 @@ import {
   BarChart3, RefreshCw, Layers, CheckCircle2, XCircle, AlertTriangle,
   FolderOpen, Calendar, DollarSign, Tag, Clock, ArrowRight, UserCheck,
   Loader2, X, Activity, ShoppingBag, CreditCard, ChevronRight, Users,
-  ListPlus, DollarSign as MoneyIcon
+  ListPlus, DollarSign as MoneyIcon, Search, Shirt, Package, ShoppingCart
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -105,6 +105,11 @@ export default function StoreAdminPage() {
   const [shifts, setShifts] = useState<any[]>([]);
   const [priceLists, setPriceLists] = useState<any[]>([]);
   const [priceListItems, setPriceListItems] = useState<any[]>([]);
+
+  // Inventory Monitoring States
+  const [invSearchQuery, setInvSearchQuery] = useState('');
+  const [invStoreFilter, setInvStoreFilter] = useState('all');
+  const [invPage, setInvPage] = useState(0);
 
   // Selected list for editing pricing items
   const [selectedPriceListPricing, setSelectedPriceListPricing] = useState<any>(null);
@@ -304,11 +309,18 @@ export default function StoreAdminPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: st } = await supabase.from('stores').select('*, warehouses(nombre_bodega)').order('codigo');
+      const { data: st } = await supabase.from('stores').select('*, warehouses:bodega_asociada_id(id, nombre_bodega)').order('codigo');
       const { data: reg } = await supabase.from('pos_registers').select('*, stores(nombre)').order('codigo_caja');
       const { data: ses } = await supabase.from('pos_cash_sessions').select('*, pos_registers(*, stores(*))').order('fecha_apertura', { ascending: false });
       const { data: promo } = await supabase.from('pos_promotions').select('*').order('created_at', { ascending: false });
-      const { data: inv } = await supabase.from('store_inventory').select('*, stores(nombre), products(nombre_producto, codigo_referencia), colors(nombre_color), sizes(codigo_talla)');
+      
+      // Load real stock from finished_goods_stock joined with warehouses, products, colors, sizes
+      const { data: fgInv } = await supabase
+        .from('finished_goods_stock')
+        .select('*, warehouses(id, nombre_bodega), products(id, nombre_producto, codigo_referencia, imagen_url), colors(id, nombre_color, codigo_color), sizes(id, nombre_talla, codigo_talla)')
+        .gt('cantidad_disponible', 0)
+        .order('created_at', { ascending: false });
+      
       const { data: wh } = await supabase.from('warehouses').select('*').eq('estado', 'activo');
       const { data: prod } = await supabase.from('products').select('*').order('nombre_producto');
       const { data: col } = await supabase.from('colors').select('*');
@@ -355,7 +367,7 @@ export default function StoreAdminPage() {
       setRegisters(reg || []);
       setSessions(ses || []);
       setPromotions(promo || []);
-      setStoreInventory(inv || []);
+      setStoreInventory(fgInv || []);
       setWarehouses(wh || []);
       setProducts(prod || []);
       setColors(col || []);
@@ -1568,38 +1580,253 @@ export default function StoreAdminPage() {
           )}
 
           {/* INVENTORY MONITORING TAB */}
-          {activeTab === 'inventory_monitoring' && (
-            <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                      <th style={{ padding: '1rem' }}>Sucursal / Tienda</th>
-                      <th style={{ padding: '1rem' }}>Referencia</th>
-                      <th style={{ padding: '1rem' }}>Producto</th>
-                      <th style={{ padding: '1rem' }}>Color</th>
-                      <th style={{ padding: '1rem' }}>Talla</th>
-                      <th style={{ padding: '1rem', textAlign: 'right' }}>Stock Disponible</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {storeInventory.map((item) => (
-                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '1rem', fontWeight: '750' }}>{item.stores?.nombre}</td>
-                        <td style={{ padding: '1rem', fontWeight: '800', color: 'var(--primary)' }}>{item.products?.codigo_referencia}</td>
-                        <td style={{ padding: '1rem' }}>{item.products?.nombre_producto}</td>
-                        <td style={{ padding: '1rem' }}>{item.colors?.nombre_color || '—'}</td>
-                        <td style={{ padding: '1rem', fontWeight: '700' }}>{item.sizes?.codigo_talla || '—'}</td>
-                        <td style={{ padding: '1rem', textAlign: 'right', fontWeight: '850', color: item.cantidad_disponible <= 5 ? '#dc2626' : 'var(--text)' }}>
-                          {item.cantidad_disponible} uds
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {activeTab === 'inventory_monitoring' && (() => {
+            const sQuery = invSearchQuery.trim().toLowerCase();
+            const filteredInv = storeInventory.filter((item) => {
+              // Store filter
+              if (invStoreFilter !== 'all') {
+                const matchedStore = stores.find(st => st.id === invStoreFilter);
+                if (matchedStore) {
+                  if (item.warehouse_id !== matchedStore.bodega_asociada_id) return false;
+                } else if (item.warehouse_id !== invStoreFilter) {
+                  return false;
+                }
+              }
+
+              // Search query filter
+              if (sQuery) {
+                const pName = (item.products?.nombre_producto || '').toLowerCase();
+                const pRef = (item.products?.codigo_referencia || '').toLowerCase();
+                const cName = (item.colors?.nombre_color || '').toLowerCase();
+                const cCode = (item.colors?.codigo_color || '').toLowerCase();
+                const sCode = (item.sizes?.codigo_talla || '').toLowerCase();
+                const sName = (item.sizes?.nombre_talla || '').toLowerCase();
+                const whName = (item.warehouses?.nombre_bodega || '').toLowerCase();
+                const matches = pName.includes(sQuery) || pRef.includes(sQuery) || cName.includes(sQuery) || cCode.includes(sQuery) || sCode.includes(sQuery) || sName.includes(sQuery) || whName.includes(sQuery);
+                if (!matches) return false;
+              }
+
+              return true;
+            });
+
+            const totalUnits = filteredInv.reduce((sum, item) => sum + (Number(item.cantidad_disponible) || 0), 0);
+            const distinctProducts = new Set(filteredInv.map(item => item.product_id)).size;
+            const lowStockCount = filteredInv.filter(item => Number(item.cantidad_disponible) <= 5).length;
+            const pageSize = 20;
+            const totalPages = Math.ceil(filteredInv.length / pageSize);
+            const paginatedInv = filteredInv.slice(invPage * pageSize, (invPage + 1) * pageSize);
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                
+                {/* KPI Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                  <div className="card" style={{ padding: '1.25rem', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unidades Disponibles</span>
+                    <span style={{ display: 'block', fontSize: '1.6rem', fontWeight: '950', color: '#14532d', marginTop: '0.25rem' }}>
+                      {totalUnits.toLocaleString('es-CO')} <span style={{ fontSize: '0.9rem', fontWeight: '700' }}>uds</span>
+                    </span>
+                  </div>
+
+                  <div className="card" style={{ padding: '1.25rem', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '14px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Referencias con Stock</span>
+                    <span style={{ display: 'block', fontSize: '1.6rem', fontWeight: '950', color: '#0c4a6e', marginTop: '0.25rem' }}>
+                      {distinctProducts} <span style={{ fontSize: '0.9rem', fontWeight: '700' }}>productos</span>
+                    </span>
+                  </div>
+
+                  <div className="card" style={{ padding: '1.25rem', backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '14px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Variantes con Bajo Stock (≤ 5)</span>
+                    <span style={{ display: 'block', fontSize: '1.6rem', fontWeight: '950', color: '#9a3412', marginTop: '0.25rem' }}>
+                      {lowStockCount} <span style={{ fontSize: '0.9rem', fontWeight: '700' }}>variantes</span>
+                    </span>
+                  </div>
+
+                  <div className="card" style={{ padding: '1.25rem', backgroundColor: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: '14px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#7e22ce', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Registros SKU</span>
+                    <span style={{ display: 'block', fontSize: '1.6rem', fontWeight: '950', color: '#581c87', marginTop: '0.25rem' }}>
+                      {filteredInv.length} <span style={{ fontSize: '0.9rem', fontWeight: '700' }}>ítems</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter and Search Controls */}
+                <div className="card" style={{ padding: '1.25rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: '280px' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <Search size={16} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        placeholder="Buscar por referencia, nombre, color o talla..."
+                        value={invSearchQuery}
+                        onChange={(e) => { setInvSearchQuery(e.target.value); setInvPage(0); }}
+                        style={{
+                          width: '100%',
+                          padding: '0.65rem 1rem 0.65rem 2.4rem',
+                          borderRadius: '10px',
+                          border: '1.5px solid var(--border)',
+                          fontSize: '0.85rem',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#64748b' }}>Tienda / Bodega:</label>
+                    <select
+                      value={invStoreFilter}
+                      onChange={(e) => { setInvStoreFilter(e.target.value); setInvPage(0); }}
+                      style={{
+                        padding: '0.65rem 1rem',
+                        borderRadius: '10px',
+                        border: '1.5px solid var(--border)',
+                        fontSize: '0.85rem',
+                        fontWeight: '700',
+                        backgroundColor: '#ffffff',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="all">Todas las tiendas ({stores.length})</option>
+                      {stores.map(st => (
+                        <option key={st.id} value={st.id}>
+                          {st.nombre} {st.warehouses?.nombre_bodega ? `(${st.warehouses.nombre_bodega})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Stock Table */}
+                <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
+                          <th style={{ padding: '1rem' }}>Sucursal / Bodega</th>
+                          <th style={{ padding: '1rem' }}>Producto</th>
+                          <th style={{ padding: '1rem' }}>Referencia</th>
+                          <th style={{ padding: '1rem' }}>Color</th>
+                          <th style={{ padding: '1rem' }}>Talla</th>
+                          <th style={{ padding: '1rem', textAlign: 'right' }}>Stock Disponible</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedInv.map((item) => {
+                          const matchedStore = stores.find(st => st.bodega_asociada_id === item.warehouse_id);
+                          const storeLabel = matchedStore?.nombre || item.warehouses?.nombre_bodega || 'Bodega';
+                          const isLow = Number(item.cantidad_disponible) <= 5;
+
+                          return (
+                            <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}>
+                              <td style={{ padding: '1rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                  <span style={{ fontWeight: '850', color: '#0f172a' }}>{storeLabel}</span>
+                                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{item.warehouses?.nombre_bodega || 'Bodega'}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '1rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                  {item.products?.imagen_url ? (
+                                    <img src={item.products.imagen_url} alt="" style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #e2e8f0' }} />
+                                  ) : (
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                                      <Shirt size={18} />
+                                    </div>
+                                  )}
+                                  <span style={{ fontWeight: '800', color: '#0f172a' }}>{item.products?.nombre_producto || 'Sin nombre'}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '1rem', fontWeight: '900', color: 'var(--primary)' }}>
+                                {item.products?.codigo_referencia || '—'}
+                              </td>
+                              <td style={{ padding: '1rem' }}>
+                                <span style={{
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#334155',
+                                  padding: '0.2rem 0.6rem',
+                                  borderRadius: '6px',
+                                  fontWeight: '750',
+                                  fontSize: '0.78rem'
+                                }}>
+                                  {item.colors?.nombre_color || '—'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '1rem' }}>
+                                <span style={{
+                                  backgroundColor: '#f8fafc',
+                                  border: '1px solid #e2e8f0',
+                                  color: '#0f172a',
+                                  padding: '0.2rem 0.5rem',
+                                  borderRadius: '6px',
+                                  fontWeight: '800',
+                                  fontSize: '0.8rem'
+                                }}>
+                                  {item.sizes?.codigo_talla || item.sizes?.nombre_talla || '—'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '1rem', textAlign: 'right' }}>
+                                <span style={{
+                                  backgroundColor: isLow ? '#fef2f2' : '#ecfdf5',
+                                  color: isLow ? '#dc2626' : '#059669',
+                                  border: `1px solid ${isLow ? '#fecaca' : '#a7f3d0'}`,
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '8px',
+                                  fontWeight: '900',
+                                  fontSize: '0.88rem'
+                                }}>
+                                  {item.cantidad_disponible} uds
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {paginatedInv.length === 0 && (
+                          <tr>
+                            <td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                              <Package size={36} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                              <p style={{ margin: 0, fontWeight: '700' }}>No se encontraron prendas en el inventario con los filtros seleccionados.</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '700' }}>
+                        Mostrando {invPage * pageSize + 1} - {Math.min((invPage + 1) * pageSize, filteredInv.length)} de {filteredInv.length} registros
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setInvPage(p => Math.max(0, p - 1))}
+                          disabled={invPage === 0}
+                          className="btn"
+                          style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: '750', backgroundColor: invPage === 0 ? '#e2e8f0' : '#ffffff', cursor: invPage === 0 ? 'not-allowed' : 'pointer' }}
+                        >
+                          Anterior
+                        </button>
+                        <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontSize: '0.8rem', fontWeight: '800', color: '#334155' }}>
+                          Página {invPage + 1} de {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setInvPage(p => p + 1)}
+                          disabled={invPage + 1 >= totalPages}
+                          className="btn"
+                          style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: '750', backgroundColor: invPage + 1 >= totalPages ? '#e2e8f0' : '#ffffff', cursor: invPage + 1 >= totalPages ? 'not-allowed' : 'pointer' }}
+                        >
+                          Siguiente
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* SALES BILLING AND MASSIVE ERP INVOICING TAB */}
           {activeTab === 'sales_billing' && (

@@ -1,0 +1,3060 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { applyTheme } from '@/components/ThemeProvider';
+import MastersPage from '../masters/page';
+import { 
+  Settings as SettingsIcon, 
+  Users, 
+  ShieldCheck, 
+  Bell,
+  Database,
+  Plus,
+  Trash2,
+  Edit2,
+  Building2,
+  Save,
+  Loader2,
+  CheckCircle2,
+  Image as ImageIcon,
+  Maximize,
+  Upload,
+  X,
+  Mail,
+  Lock,
+  AlertTriangle,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  User as UserIcon,
+  Palette,
+  Moon,
+  Sun,
+  Factory,
+  QrCode,
+  Printer
+} from 'lucide-react';
+
+export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState('roles');
+  const { refreshConfig, profile } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isDark, setIsDark] = useState(false);
+
+  // Sync dark mode state from DOM on mount
+  useEffect(() => {
+    setIsDark(document.documentElement.getAttribute('data-theme') === 'dark');
+  }, []);
+
+  const handleDarkModeToggle = async () => {
+    const next = !isDark;
+    setIsDark(next);
+    applyTheme(next);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update_param', name: 'dark_mode', value: String(next) })
+    });
+    await refreshConfig();
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`Â¿Estás seguro de que deseas eliminar al usuario "${userName}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Error al eliminar usuario.');
+      await fetchData();
+      setMessage('Usuario eliminado correctamente.');
+      setTimeout(() => setMessage(''), 5000);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  // Data states
+  const [roles, setRoles] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [permissions, setPermissions] = useState<any[]>([]);
+  const [companyParams, setCompanyParams] = useState<any[]>([]);
+  const [workshopsList, setWorkshopsList] = useState<any[]>([]);
+
+  // Modal states
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [editingRole, setEditingRole] = useState<any>(null);
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Sticker Configuration State
+  const [stickerConfig, setStickerConfig] = useState({
+    monochromeMode: false,
+    headerText: 'CORTES BREINER',
+    headerFontSize: 11,
+    refFontSize: 14,
+    refFontWeight: '900',
+    barcodeHeight: 55,
+    barcodeLineWidth: 2,
+    barcodeFontSize: 13,
+    barcodeType: 'code128', // 'code128' | 'code39' | 'ean13' | 'vector'
+    fontFamily: 'system-ui', // 'system-ui' | 'libre-barcode-39' | 'libre-barcode-128' | 'monospace'
+    alignment: 'center', // 'flex-start' | 'center' | 'flex-end'
+    orientation: 'portrait', // 'portrait' | 'landscape'
+    columnsPerRow: 3, // 1 | 2 | 3 | 4
+    stickerWidthMm: 50, // mm
+    stickerHeightMm: 80, // mm
+    gapMm: 2, // mm separador entre etiquetas
+    sizeFontSize: 18,
+    sizeBgColor: '#0f172a'
+  });
+
+  // Relación de Despacho a Confección Configuration State
+  const [printSubTab, setPrintSubTab] = useState<'quality' | 'historical_labels' | 'sewing_despatch'>('quality');
+  const [sewingDespatchConfig, setSewingDespatchConfig] = useState({
+    monochromeMode: false,
+    companyTitle: 'CORTES BREINER S.A.S.',
+    titleFontSize: 15,
+    titleColor: '#80082E',
+    subtitleText: 'RELACIÓN DE DESPACHO A CONFECCIÓN',
+    subtitleFontSize: 12,
+    subtitleColor: '#1e293b',
+    headerBgColor: '#f8fafc',
+    bodyFontSize: 12,
+    bodyTextColor: '#0f172a',
+    itemTypeFontSize: 14,
+    itemQtyFontSize: 16,
+    itemSpacing: 8,
+    borderWidth: 1.5,
+    borderColor: '#0f172a',
+    showCutNumber: true,
+    showWorkshop: true,
+    showReference: true,
+    showColor: true,
+    showTotalUnits: true,
+    showDeliveryDate: true,
+    showOperatorSig: true,
+    showNotes: true,
+    customField1Label: 'Lote / Trazabilidad',
+    customField1Value: 'LOT-2026-X9',
+    showCustomField1: true,
+    customField2Label: 'Inspector Responsable',
+    customField2Value: 'Carlos Cañon',
+    showCustomField2: true
+  });
+
+  // Avatar upload states
+  const [createAvatarFile, setCreateAvatarFile] = useState<File | null>(null);
+  const [createAvatarPreview, setCreateAvatarPreview] = useState<string | null>(null);
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchData();
+  }, [activeTab]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      if (activeTab === 'roles') {
+        const { data: rolesData } = await supabase.from('roles').select('*').order('name', { ascending: true });
+        let { data: permsData } = await supabase.from('permissions').select('*');
+
+        // Lista COMPLETA de todos los módulos del sistema — se sincroniza automáticamente con la BD
+        const expectedModules = [
+          { module: 'dashboard',          name: 'Dashboard',                    description: 'Vista principal de indicadores clave' },
+          { module: 'orders',             name: 'Órdenes',                      description: 'Gestión de órdenes de producción' },
+          { module: 'cutting',            name: 'Mesa de Corte / Proceso Corte',description: 'Gestión de tendidos, cortes y trazos' },
+          { module: 'sewing',             name: 'Confección',                   description: 'Envío, recepción y gestión de órdenes a talleres' },
+          { module: 'quality',            name: 'Calidad',                      description: 'Control de calidad e inspección de prendas' },
+          { module: 'payments',           name: 'Pagos Talleres',               description: 'Liquidación y comprobantes de pago a talleres satélite' },
+          { module: 'inventory',          name: 'Inventario General',           description: 'Control de stock de telas, rollos e insumos' },
+          { module: 'inventory_finished', name: 'Inventario P. Terminado',      description: 'Inventario de prendas confeccionadas aprobadas en calidad' },
+          { module: 'workshops',          name: 'Talleres Satélite',            description: 'Gestión de talleres, tarifas y costos especiales' },
+          { module: 'masters',            name: 'Maestros',                     description: 'Configuración de telas, colores, tallas y categorías' },
+          { module: 'costs',              name: 'Costos',                       description: 'Módulo de costeo y análisis de márgenes de producción' },
+          { module: 'tracking',           name: 'Seguimiento',                  description: 'Trazabilidad y estado de envíos a talleres' },
+          { module: 'analytics',          name: 'Analítica',                    description: 'Reportes y análisis de datos de producción' },
+          { module: 'financial',          name: 'Módulo Financiero',            description: 'Gestión financiera, contable y de facturación' },
+          { module: 'siigo',              name: 'Integración Siigo',            description: 'Facturación electrónica e integración con Siigo' },
+          { module: 'pos',                name: 'Punto de Venta (POS)',         description: 'Terminal de facturación táctil offline/online' },
+          { module: 'store_admin',        name: 'Administración de Tiendas',    description: 'Gestión de sucursales, cajas y promociones' },
+          { module: 'settings',           name: 'Ajustes',                      description: 'Configuración general del sistema' },
+          { module: 'super_admin',        name: 'Super Admin',                  description: 'Acceso completo de administración del sistema' },
+          { module: 'help',               name: 'Ayuda',                        description: 'Documentación y soporte' },
+        ];
+
+        // Upsert completo: inserta nuevos y actualiza nombre/descripción de existentes
+        const { data: upserted } = await supabase
+          .from('permissions')
+          .upsert(expectedModules, { onConflict: 'module' })
+          .select('*');
+        if (upserted) permsData = upserted;
+
+        // Ordenar los permisos por nombre
+        permsData?.sort((a, b) => a.name.localeCompare(b.name));
+
+        
+        // Fetch role permissions for all roles
+        const { data: rolePerms } = await supabase.from('role_permissions').select('*');
+        
+        const rolesWithPerms = rolesData?.map(role => ({
+          ...role,
+          permissions: rolePerms?.filter(rp => rp.role_id === role.id).map(rp => rp.permission_id) || []
+        })) || [];
+
+        setRoles(rolesWithPerms);
+        setPermissions(permsData || []);
+      } else if (activeTab === 'users') {
+        let userLoaded = false;
+        try {
+          const res = await fetch('/api/users/list');
+          if (res.ok) {
+            const result = await res.json();
+            setUsers(result.users || []);
+            userLoaded = true;
+          }
+        } catch (e) {
+          console.warn("Failed to fetch users list via API, falling back to direct profiles query:", e);
+        }
+
+        if (!userLoaded) {
+          const { data: profiles } = await supabase.from('profiles').select('*, roles(id, name), workshops(id, nombre_taller)');
+          setUsers(profiles || []);
+        }
+        const { data: rolesData } = await supabase.from('roles').select('*');
+        setRoles(rolesData || []);
+        const { data: wData } = await supabase.from('workshops').select('id, nombre_taller').eq('activo', true).order('nombre_taller', { ascending: true });
+        setWorkshopsList(wData || []);
+      } else if (activeTab === 'company' || activeTab === 'parametrization' || activeTab === 'print_profiles') {
+        const { data } = await supabase.from('company_params').select('*');
+        if (data && data.length > 0) {
+          setCompanyParams(data);
+          const printConf = data.find((p: any) => p.name === 'print_sticker_config');
+          if (printConf && printConf.value) {
+            try {
+              setStickerConfig(prev => ({ ...prev, ...JSON.parse(printConf.value) }));
+            } catch (e) {}
+          }
+          const despatchConf = data.find((p: any) => p.name === 'sewing_despatch_config');
+          if (despatchConf && despatchConf.value) {
+            try {
+              setSewingDespatchConfig(prev => ({ ...prev, ...JSON.parse(despatchConf.value) }));
+            } catch (e) {}
+          }
+        } else {
+          // Initialize defaults if empty
+          const defaults = [
+            { name: 'logo_url', value: '', description: 'URL del logo' },
+            { name: 'logo_width', value: '150', description: 'Ancho del logo (px)' },
+            { name: 'mobile_app_image_url', value: '', description: 'Imagen App Móvil' },
+            { name: 'min_wage', value: '1300000', description: 'Salario Mínimo' },
+            { name: 'iva_percent', value: '19', description: 'IVA (%)' },
+            { name: 'max_marcaciones', value: '7', description: 'Máximo número de marcación' },
+            { name: 'admin_revert_obs', value: 'false', description: 'Permitir al administrador reversar avances de tendido' },
+            { name: 'pos_page_size', value: '15', description: 'Tamaño de paginación de listas (POS/ERP)' },
+            { name: 'workshop_avatar_size', value: 'normal', description: 'Escala del avatar de talleres/satélites' }
+          ];
+          setCompanyParams(defaults);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching settings data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditRole = (role: any) => {
+    setEditingRole(role);
+    setSelectedPermissions(role.permissions || []);
+    setShowRoleModal(true);
+  };
+
+  const handleTogglePermission = (id: string) => {
+    setSelectedPermissions(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handleSaveRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const formData = new FormData(e.target as HTMLFormElement);
+    const roleData = {
+      name: formData.get('name'),
+      description: formData.get('description'),
+    };
+
+    try {
+      let roleId = editingRole?.id;
+
+      if (editingRole) {
+        const { error } = await supabase.from('roles').update(roleData).eq('id', editingRole.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('roles').insert([roleData]).select();
+        if (error) throw error;
+        roleId = data[0].id;
+      }
+
+      // Update role permissions
+      // 1. Delete existing
+      await supabase.from('role_permissions').delete().eq('role_id', roleId);
+      
+      // 2. Insert new ones
+      if (selectedPermissions.length > 0) {
+        const newPerms = selectedPermissions.map(pId => ({
+          role_id: roleId,
+          permission_id: pId
+        }));
+        const { error: permError } = await supabase.from('role_permissions').insert(newPerms);
+        if (permError) throw permError;
+      }
+
+      // Esperar que los datos se recarguen ANTES de cerrar el modal
+      // para que al reabrirlo los permisos ya estén actualizados
+      await fetchData();
+      // Refresca la navegación/sidebar para reflejar los nuevos módulos del rol
+      await refreshConfig();
+
+      setShowRoleModal(false);
+      setEditingRole(null);
+      setSelectedPermissions([]);
+      setMessage('Rol y permisos actualizados correctamente.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRole = async (id: string) => {
+    if (!confirm('Â¿Seguro que deseas eliminar este rol? Se perderán todos sus permisos asignados.')) return;
+    try {
+      const { error } = await supabase.from('roles').delete().eq('id', id);
+      if (error) throw error;
+      fetchData();
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const formData = new FormData(e.target as HTMLFormElement);
+    
+    // Colectar checkboxes de edición
+    const editCheckboxes = document.getElementsByName('edit_workshop_ids_check');
+    const selectedEditWorkshopIds: string[] = [];
+    editCheckboxes.forEach((cb: any) => {
+      if (cb.checked) selectedEditWorkshopIds.push(cb.value);
+    });
+    const workshopVal = selectedEditWorkshopIds.join(',');
+
+    const full_name = formData.get('full_name') as string;
+    const role_id = formData.get('role_id') || null;
+    const newPassword = formData.get('new_password') as string;
+
+    try {
+      if (editingUser) {
+        let avatarBase64 = null;
+        let avatarName = null;
+
+        if (editAvatarFile) {
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const result = reader.result as string;
+              resolve(result.split(',')[1]);
+            };
+            reader.onerror = reject;
+          });
+          reader.readAsDataURL(editAvatarFile);
+          avatarBase64 = await base64Promise;
+          avatarName = editAvatarFile.name;
+        }
+
+        const res = await fetch('/api/users/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: editingUser.id,
+            full_name,
+            role_id,
+            workshop_id: workshopVal && workshopVal !== '' ? workshopVal : null,
+            newPassword,
+            avatarBase64,
+            avatarName
+          })
+        });
+
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Error al actualizar el usuario');
+      }
+      setShowUserModal(false);
+      setEditingUser(null);
+      setEditAvatarFile(null);
+      setEditAvatarPreview(null);
+      fetchData();
+      setMessage('Usuario y accesos actualizados.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const formData = new FormData(e.target as HTMLFormElement);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const full_name = formData.get('full_name') as string;
+    const role_id = formData.get('role_id') as string;
+
+    // Colectar checkboxes de creación
+    const createCheckboxes = document.getElementsByName('workshop_ids_check');
+    const selectedCreateWorkshopIds: string[] = [];
+    createCheckboxes.forEach((cb: any) => {
+      if (cb.checked) selectedCreateWorkshopIds.push(cb.value);
+    });
+    const workshop_id_val = selectedCreateWorkshopIds.join(',');
+
+    const cleanRoleId = role_id && role_id !== '' ? role_id : null;
+    const cleanWorkshopId = workshop_id_val && workshop_id_val !== '' ? workshop_id_val : null;
+
+    if (password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
+      setSaving(false);
+      return;
+    }
+
+    try {
+      let avatarBase64 = null;
+      let avatarName = null;
+
+      if (createAvatarFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]);
+          };
+          reader.onerror = reject;
+        });
+        reader.readAsDataURL(createAvatarFile);
+        avatarBase64 = await base64Promise;
+        avatarName = createAvatarFile.name;
+      }
+
+      const res = await fetch('/api/users/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          full_name,
+          role_id: cleanRoleId,
+          workshop_id: cleanWorkshopId,
+          avatarBase64,
+          avatarName
+        })
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || 'Error al crear el usuario.');
+      }
+
+      setShowCreateUserModal(false);
+      setCreateAvatarFile(null);
+      setCreateAvatarPreview(null);
+      await fetchData();
+      setMessage('Usuario registrado exitosamente.');
+      setTimeout(() => setMessage(''), 5000);
+    } catch (err: any) {
+      alert('Error en registro: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSaving(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `logo-${Date.now()}.${fileExt}`;
+
+      // Convertir archivo a Base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = (error) => reject(error);
+      });
+      reader.readAsDataURL(file);
+      const fileBase64 = await base64Promise;
+      
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'logo_url', fileBase64, fileName })
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al guardar el logo');
+
+      fetchData();
+      setMessage('Logo actualizado.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateParam = async (name: string, value: string) => {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, value })
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al guardar ajuste');
+
+      await refreshConfig();
+      setMessage('Ajuste guardado.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setMessage('Error al guardar ajuste.');
+      setTimeout(() => setMessage(''), 3000);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1>Configuración del Sistema</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Administra roles, accesos y usuarios.</p>
+        </div>
+        {message && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#16a34a', fontWeight: '500', backgroundColor: '#f0fdf4', padding: '0.5rem 1rem', borderRadius: '999px', border: '1px solid #bbf7d0' }}>
+            <CheckCircle2 size={18} /> {message}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '1.5rem' }}>
+        {/* Navigation */}
+        <div className="card" style={{ width: '280px', height: 'fit-content', padding: '1rem' }}>
+          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {[
+              { id: 'roles', label: 'Roles & Accesos', icon: ShieldCheck },
+              { id: 'users', label: 'Usuarios', icon: Users },
+              { id: 'print_profiles', label: 'Configuración de Impresión', icon: QrCode },
+              { id: 'company', label: 'Identidad Empresa', icon: Building2 },
+              { id: 'masters', label: 'Tablas Maestras', icon: Database },
+              { id: 'parametrization', label: 'Parametrización', icon: SettingsIcon },
+              { id: 'notifications', label: 'Notificaciones', icon: Bell },
+              { id: 'database', label: 'Base de Datos', icon: Database },
+            ].map((item) => (
+              <li key={item.id}>
+                <button 
+                  onClick={() => setActiveTab(item.id)}
+                  className="btn"
+                  style={{ 
+                    width: '100%', 
+                    justifyContent: 'flex-start',
+                    backgroundColor: activeTab === item.id ? 'var(--primary-lighter)' : 'transparent',
+                    color: activeTab === item.id ? 'var(--primary)' : 'var(--text)',
+                    padding: '0.75rem 1rem'
+                  }}
+                >
+                  <item.icon size={18} />
+                  {item.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Content */}
+        <div className="card" style={{ flex: 1, minHeight: '500px' }}>
+          {loading ? (
+            <div style={{ padding: '5rem', display: 'flex', justifyContent: 'center' }}><Loader2 className="animate-spin" size={32} /></div>
+          ) : (
+            <>
+              {activeTab === 'roles' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                    <h3>Definición de Roles</h3>
+                    <button className="btn btn-primary" onClick={() => { setEditingRole(null); setSelectedPermissions([]); setShowRoleModal(true); }}>
+                      <Plus size={18} /> Crear Nuevo Rol
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                    {roles.map((role) => (
+                      <div key={role.id} style={{ padding: '1.5rem', border: '1px solid var(--border)', borderRadius: '16px', backgroundColor: 'white' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                          <h4 style={{ margin: 0 }}>{role.name}</h4>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button className="btn-icon" onClick={() => handleEditRole(role)}><Edit2 size={16} /></button>
+                            <button className="btn-icon" onClick={() => handleDeleteRole(role.id)}><Trash2 size={16} color="#ef4444" /></button>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.5rem', minHeight: '3em' }}>{role.description}</p>
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                          <p style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>Accesos a Módulos:</p>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                            {permissions.map(perm => {
+                              const hasAccess = role.permissions?.includes(perm.id);
+                              return (
+                                <div key={perm.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: hasAccess ? 'var(--text)' : 'var(--text-muted)', opacity: hasAccess ? 1 : 0.6 }}>
+                                  {hasAccess ? <CheckCircle2 size={14} color="#10b981" /> : <X size={14} color="#ef4444" />}
+                                  {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'users' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                    <h3>Gestión de Usuarios</h3>
+                    <button className="btn btn-primary" onClick={() => setShowCreateUserModal(true)}><Plus size={18} /> Nuevo Usuario</button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {users.map((u) => (
+                      <div key={u.id} style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'var(--primary-lighter)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                            {u.avatar_url ? (
+                              <img src={u.avatar_url} alt={u.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <Users size={20} color="var(--primary)" />
+                            )}
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: '700' }}>{u.full_name}</p>
+                            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
+                              <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{u.roles?.name || 'Invitado'}</span>
+                              {u.workshop_id && u.workshop_id !== '' && (() => {
+                                const wIds = u.workshop_id.split(',').map((id: string) => id.trim());
+                                const wNames = wIds.map((id: string) => {
+                                  const match = workshopsList.find(w => String(w.id) === id);
+                                  return match ? match.nombre_taller : null;
+                                }).filter(Boolean);
+                                if (wNames.length > 0) {
+                                  return (
+                                    <span style={{ fontSize: '0.7rem', backgroundColor: '#f3e8ff', color: '#7e22ce', padding: '2px 8px', borderRadius: '999px', fontWeight: '850' }}>
+                                      ðŸ­ {wNames.join(', ')}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <button
+                            className="btn-icon"
+                            onClick={() => { setEditingUser(u); setShowUserModal(true); }}
+                            title="Editar usuario"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.id, u.full_name || u.email)}
+                            title="Eliminar usuario"
+                            style={{
+                              width: '34px', height: '34px',
+                              borderRadius: '8px',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: 'transparent',
+                              border: '1px solid #fca5a5',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fee2e2'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'print_profiles' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Printer size={20} color="var(--primary)" /> Configuración de Impresión de Etiquetas
+                      </h3>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0 0' }}>
+                        Parametriza el diseño visual, tamaños de fuente y barras para etiquetas unitarias (Calidad / Confección)
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setSaving(true);
+                        try {
+                          await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              action: 'update_param',
+                              name: 'print_sticker_config',
+                              value: JSON.stringify(stickerConfig)
+                            })
+                          });
+                          await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              action: 'update_param',
+                              name: 'sewing_despatch_config',
+                              value: JSON.stringify(sewingDespatchConfig)
+                            })
+                          });
+                          setMessage('Configuración de plantillas de impresión guardada exitosamente.');
+                          setTimeout(() => setMessage(''), 4000);
+                        } catch (e: any) {
+                          alert('Error al guardar: ' + e.message);
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      className="btn btn-primary"
+                      disabled={saving}
+                      style={{ gap: '0.5rem', fontWeight: 800 }}
+                    >
+                      <Save size={16} /> {saving ? 'Guardando...' : 'Guardar Ajustes de Etiquetas'}
+                    </button>
+                  </div>
+
+                  {/* Selector de Sub-pestañas de Plantillas de Impresión */}
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPrintSubTab('quality')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'quality' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'quality' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      🏷️ Etiquetas Unitarias (Calidad)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrintSubTab('historical_labels')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'historical_labels' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'historical_labels' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      🏷️ Etiquetas Inventario Histórico
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrintSubTab('sewing_despatch')}
+                      style={{
+                        padding: '0.6rem 1.25rem',
+                        borderRadius: '8px',
+                        fontWeight: 800,
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        border: 'none',
+                        backgroundColor: printSubTab === 'sewing_despatch' ? 'var(--primary)' : '#f1f5f9',
+                        color: printSubTab === 'sewing_despatch' ? 'white' : '#64748b',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      📄 Relación de Despacho a Confección
+                    </button>
+                  </div>
+
+                  {message && (
+                    <div style={{ padding: '0.75rem 1rem', borderRadius: '8px', backgroundColor: '#dcfce7', color: '#166534', fontSize: '0.8rem', fontWeight: 700, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <CheckCircle2 size={16} /> {message}
+                    </div>
+                  )}
+
+                  {printSubTab === 'quality' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: stickerConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: stickerConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!stickerConfig.monochromeMode}
+                            onChange={e => setStickerConfig({ ...stickerConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: stickerConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Fuerza a que todos los textos, encabezados, bordes y badges se impriman únicamente en negro puro y blanco. Ideal para impresoras térmicas directo o de cinta Zebra.
+                        </p>
+                      </div>
+
+                      {/* 1. Encabezado / Marca */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Texto del Encabezado (Marca)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Texto del Encabezado</label>
+                            <input
+                              type="text"
+                              value={stickerConfig.headerText}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Encabezado (px)</label>
+                            <input
+                              type="range" min="8" max="22" value={stickerConfig.headerFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.headerFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Referencia & Color */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Referencia y Color</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Referencia (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={stickerConfig.refFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.refFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Grosor Referencia</label>
+                            <select
+                              value={stickerConfig.refFontWeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontWeight: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="600">600 (Semi-Bold)</option>
+                              <option value="800">800 (Bold)</option>
+                              <option value="950">950 (Black Extra)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Código de Barras (Notoriedad, Fuente & Alineación) */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Código de Barras (Notoriedad, Fuente & Alineación)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tipo de Código</label>
+                            <select
+                              value={stickerConfig.barcodeType}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="code128">Code 128 (Ultra Nítido - Vector)</option>
+                              <option value="code39">Code 39 Standard (Vector)</option>
+                              <option value="font39">Fuente Libre Barcode 39</option>
+                              <option value="font128">Fuente Libre Barcode 128</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alineación del Código</label>
+                            <select
+                              value={stickerConfig.alignment}
+                              onChange={e => setStickerConfig({ ...stickerConfig, alignment: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="flex-start">⬅️ Izquierda</option>
+                              <option value="center">↔️ Centrado</option>
+                              <option value="flex-end">➡️ Derecha</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Orientación de la Etiqueta</label>
+                            <select
+                              value={stickerConfig.orientation}
+                              onChange={e => setStickerConfig({ ...stickerConfig, orientation: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="portrait">📱 Vertical (Portrait)</option>
+                              <option value="landscape">🖥️ Horizontal (Landscape)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Columnas / Etiquetas por Fila (Ancho Rollo)</label>
+                            <select
+                              value={stickerConfig.columnsPerRow || 3}
+                              onChange={e => setStickerConfig({ ...stickerConfig, columnsPerRow: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            >
+                              <option value="1">1 Columna (Rollo de 1 sticker de ancho - Zebra estándar)</option>
+                              <option value="2">2 Columnas (Rollo doble de 2 stickers de ancho)</option>
+                              <option value="3">3 Columnas (Rollo triple de 3 stickers de ancho / Hoja A4)</option>
+                              <option value="4">4 Columnas (Rollo de 4 stickers de ancho)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto de Barras (px)</label>
+                            <input
+                              type="range" min="25" max="140" value={stickerConfig.barcodeHeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeHeight: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeHeight}px</span>
+                          </div>
+
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Numérico Barcode (px)</label>
+                            <input
+                              type="range" min="10" max="22" value={stickerConfig.barcodeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Dimensiones del Sticker (Mm) */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Dimensiones Físicas del Sticker (Milímetros)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Ancho (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerWidthMm || 50}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerWidthMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerWidthMm || 50} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerHeightMm || 80}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerHeightMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerHeightMm || 80} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Separador entre etiquetas (mm)</label>
+                            <input
+                              type="number" min="0" max="40"
+                              value={stickerConfig.gapMm ?? 2}
+                              onChange={e => setStickerConfig({ ...stickerConfig, gapMm: Math.max(0, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.gapMm ?? 2} mm</span>
+                          </div>
+                        </div>
+                        <p style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '0.5rem', margin: '0.6rem 0 0' }}>
+                          📌 Ancho total de página impresa = Ancho × Columnas + Separador × (Columnas−1) = <strong>{((stickerConfig.stickerWidthMm || 50) * (stickerConfig.columnsPerRow || 3)) + ((stickerConfig.gapMm ?? 2) * ((stickerConfig.columnsPerRow || 3) - 1))}mm</strong>
+                        </p>
+                      </div>
+
+                      {/* 5. Talla / Badge */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>5. Badge de Talla</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Talla (px)</label>
+                            <input
+                              type="range" min="12" max="28" value={stickerConfig.sizeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.sizeFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color Fondo Talla</label>
+                            <input
+                              type="color" value={stickerConfig.sizeBgColor}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeBgColor: e.target.value })}
+                              style={{ width: '100%', height: '36px', borderRadius: '6px', border: '1px solid var(--border)', cursor: 'pointer' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Previsualización en Tiempo Real */}
+                    <div style={{ backgroundColor: '#f1f5f9', border: '1px solid var(--border)', borderRadius: '16px', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        👁 Previsualización de Etiqueta Impresa
+                      </h4>
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', marginBottom: '1rem' }}>
+                        Medidas configuradas: {stickerConfig.stickerWidthMm || 50}mm × {stickerConfig.stickerHeightMm || 80}mm
+                      </p>
+
+                      <div style={{
+                        width: `${Math.min(280, Math.max(140, (stickerConfig.stickerWidthMm || 50) * 3.5))}px`,
+                        height: `${Math.min(380, Math.max(160, (stickerConfig.stickerHeightMm || 80) * 3.5))}px`,
+                        backgroundColor: 'white',
+                        border: '2px solid #0f172a',
+                        borderRadius: '8px',
+                        padding: '0.85rem 0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+                        fontFamily: 'system-ui, sans-serif'
+                      }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', borderBottom: '1.5px solid #000000', paddingBottom: '0.4rem' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={stickerConfig.monochromeMode ? "#000000" : "#80082E"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="6" cy="6" r="3"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                            <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                            <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+                          </svg>
+                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: stickerConfig.monochromeMode ? '#000000' : '#80082E', letterSpacing: '0.05em' }}>
+                            {stickerConfig.headerText}
+                          </span>
+                        </div>
+
+                        {/* Reference */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.6rem 0' }}>
+                          <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', textAlign: 'center', lineHeight: 1.2 }}>
+                            POLO CLASSIC 100% ALGODÓN
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: stickerConfig.monochromeMode ? '#000000' : '#64748b', fontWeight: '700' }}>NEGRO INTENSO</span>
+
+                          {/* Configurable 1D Vector / Font Barcode Container */}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: stickerConfig.alignment || 'center', justifyContent: 'center', margin: '0.2rem 0', width: '100%' }}>
+                            {(stickerConfig.barcodeType === 'font39' || stickerConfig.barcodeType === 'font128') ? (
+                              <span style={{
+                                fontFamily: stickerConfig.barcodeType === 'font128' ? "'Libre Barcode 128 Text', cursive, monospace" : "'Libre Barcode 39 Text', cursive, monospace",
+                                fontSize: `${stickerConfig.barcodeHeight || 48}px`,
+                                color: '#000000',
+                                lineHeight: 0.95,
+                                whiteSpace: 'nowrap',
+                                WebkitPrintColorAdjust: 'exact',
+                                printColorAdjust: 'exact'
+                              }}>
+                                *05610002*
+                              </span>
+                            ) : (
+                              <svg
+                                viewBox="0 0 160 50"
+                                style={{
+                                  width: '95%',
+                                  height: `${stickerConfig.barcodeHeight || 55}px`,
+                                  shapeRendering: 'crispEdges'
+                                }}
+                              >
+                                <rect x="0" y="0" width="160" height="50" fill="#ffffff" />
+                                {(() => {
+                                  const code = '05610002';
+                                  const bars: React.ReactNode[] = [];
+                                  let currentX = 10;
+                                  bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 5;
+                                  bars.push(<rect key="start-2" x={currentX} y="2" width="1.5" height="38" fill="#000000" />); currentX += 3.5;
+
+                                  for (let i = 0; i < code.length; i++) {
+                                    const digit = parseInt(code[i], 10) || (i + 1);
+                                    const w1 = (digit % 3 === 0) ? 3 : 1.5;
+                                    const gap = ((digit % 2 === 0) ? 2.5 : 1.5);
+                                    const w2 = ((digit + 1) % 3 === 0) ? 3.5 : 2;
+
+                                    bars.push(<rect key={`b1-${i}`} x={currentX} y="2" width={w1} height="38" fill="#000000" />);
+                                    currentX += w1 + gap;
+                                    bars.push(<rect key={`b2-${i}`} x={currentX} y="2" width={w2} height="38" fill="#000000" />);
+                                    currentX += w2 + 2;
+                                  }
+
+                                  bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
+                                  bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
+                                  return bars;
+                                })()}
+                              </svg>
+                            )}
+                            <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                              00420001
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Size Badge */}
+                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #000000', paddingTop: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.monochromeMode ? '#000000' : (stickerConfig.sizeBgColor || '#0f172a'), color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                            M
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '280px' }}>
+                        💡 Cambia los deslizadores de la izquierda para ver cómo se ajusta el código de barras y textos en tiempo real.
+                      </p>
+                    </div>
+                  </div>
+                  ) : printSubTab === 'historical_labels' ? (
+                  /* ──── Pestaña: Etiquetas de Inventario Histórico ──── */
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Banner Explicativo */}
+                      <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '1rem 1.25rem', color: '#166534' }}>
+                        <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.9rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          📦 Parametrización de Etiquetas de Inventario Histórico
+                        </h4>
+                        <p style={{ margin: 0, fontSize: '0.78rem', lineHeight: '1.4' }}>
+                          Configura las dimensiones, tipografía, tamaño de código de barras y textos de las etiquetas que se generan automáticamente al realizar cargas históricas en el módulo de Inventario.
+                        </p>
+                      </div>
+
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: stickerConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: stickerConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!stickerConfig.monochromeMode}
+                            onChange={e => setStickerConfig({ ...stickerConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: stickerConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Imprime las etiquetas de inventario histórico en negro puro y blanco, optimizado para impresoras monocolor y térmicas directo.
+                        </p>
+                      </div>
+
+                      {/* 1. Encabezado / Marca */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Texto del Encabezado (Marca)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Texto del Encabezado</label>
+                            <input
+                              type="text"
+                              value={stickerConfig.headerText}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Encabezado (px)</label>
+                            <input
+                              type="range" min="8" max="22" value={stickerConfig.headerFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, headerFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.headerFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Referencia & Color */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Referencia y Color</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Referencia (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={stickerConfig.refFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.refFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Grosor Referencia</label>
+                            <select
+                              value={stickerConfig.refFontWeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, refFontWeight: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            >
+                              <option value="400">Normal (400)</option>
+                              <option value="600">Semibold (600)</option>
+                              <option value="800">Bold (800)</option>
+                              <option value="900">Black (900)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Código de Barras */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Código de Barras (Barcode / QR)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Formato de Simbología</label>
+                            <select
+                              value={stickerConfig.barcodeType || 'code128'}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeType: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '700' }}
+                            >
+                              <option value="code128">CODE-128 (Estándar Industrial)</option>
+                              <option value="code39">CODE-39 (Alfanumérico)</option>
+                              <option value="qr">Código QR (Matricial 2D)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Altura Barcode (px)</label>
+                            <input
+                              type="range" min="25" max="140" value={stickerConfig.barcodeHeight}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeHeight: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeHeight}px</span>
+                          </div>
+
+                          <div style={{ gridColumn: 'span 2' }}>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Numérico Barcode (px)</label>
+                            <input
+                              type="range" min="10" max="22" value={stickerConfig.barcodeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, barcodeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.barcodeFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Dimensiones Físicas */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>4. Dimensiones Físicas del Sticker (Milímetros)</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Ancho (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerWidthMm || 50}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerWidthMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerWidthMm || 50} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Alto (mm)</label>
+                            <input
+                              type="number" min="10" max="300"
+                              value={stickerConfig.stickerHeightMm || 80}
+                              onChange={e => setStickerConfig({ ...stickerConfig, stickerHeightMm: Math.max(10, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.stickerHeightMm || 80} mm</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Separador entre etiquetas (mm)</label>
+                            <input
+                              type="number" min="0" max="20"
+                              value={stickerConfig.gapMm ?? 2}
+                              onChange={e => setStickerConfig({ ...stickerConfig, gapMm: Math.max(0, Number(e.target.value)) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.gapMm ?? 2} mm</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 5. Talla Badge & Columnas */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>5. Talla Badge & Columnas por Fila</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Columnas por Fila</label>
+                            <select
+                              value={stickerConfig.columnsPerRow}
+                              onChange={e => setStickerConfig({ ...stickerConfig, columnsPerRow: Number(e.target.value) })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: '800' }}
+                            >
+                              <option value="1">1 Columna (Rollo Térmico Zebra)</option>
+                              <option value="2">2 Columnas (Doble Fila)</option>
+                              <option value="3">3 Columnas (Estándar Hoja/Rollo)</option>
+                              <option value="4">4 Columnas (Micro-Etiquetas)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Talla (px)</label>
+                            <input
+                              type="range" min="10" max="32" value={stickerConfig.sizeFontSize}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{stickerConfig.sizeFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Fondo Badge Talla</label>
+                            <input
+                              type="color" value={stickerConfig.sizeBgColor}
+                              onChange={e => setStickerConfig({ ...stickerConfig, sizeBgColor: e.target.value })}
+                              style={{ width: '100%', height: '32px', borderRadius: '6px', border: '1px solid var(--border)', cursor: 'pointer', padding: '2px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vista Previa Simulación en Tiempo Real (Inventario Histórico) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        👁️ Simulación Etiqueta Histórica
+                      </h4>
+
+                      <div style={{
+                        width: '260px',
+                        backgroundColor: 'white',
+                        border: '2px solid #000000',
+                        borderRadius: '6px',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 12px 28px -6px rgba(0,0,0,0.15)',
+                        gap: '8px',
+                        fontFamily: stickerConfig.fontFamily || 'system-ui, sans-serif'
+                      }}>
+                        {/* Header */}
+                        <div style={{ textAlign: 'center', borderBottom: '1.5px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.headerFontSize}px`, fontWeight: 900, color: '#80082E', letterSpacing: '0.05em' }}>
+                            {stickerConfig.headerText || 'CORTES BREINER'}
+                          </span>
+                        </div>
+
+                        {/* Ref, Color & Barcode */}
+                        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#1e293b', lineHeight: 1.1 }}>
+                            POLO CLASSIC HISTÓRICO
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>
+                            AZUL OBSCURO (CARGA INICIAL)
+                          </span>
+
+                          <div style={{ margin: '0.4rem 0 0.1rem', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            {stickerConfig.barcodeType === 'qr' ? (
+                              <img
+                                src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=HIST-00420001"
+                                alt="QR Preview"
+                                style={{ width: `${(stickerConfig.barcodeHeight || 55) * 1.5}px`, height: `${(stickerConfig.barcodeHeight || 55) * 1.5}px` }}
+                              />
+                            ) : (
+                              <svg width="100%" height={stickerConfig.barcodeHeight || 55} viewBox="0 0 200 50" preserveAspectRatio="none">
+                                <rect x="0" y="0" width="200" height="50" fill="#ffffff" />
+                                {(() => {
+                                  const bars = [];
+                                  let currentX = 10;
+                                  bars.push(<rect key="start-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4;
+                                  bars.push(<rect key="start-2" x={currentX} y="2" width="2" height="38" fill="#000000" />); currentX += 5;
+                                  for (let i = 0; i < 22; i++) {
+                                    const w = (i % 3 === 0) ? 4 : (i % 2 === 0) ? 2 : 3;
+                                    const gap = (i % 4 === 0) ? 4 : 2;
+                                    bars.push(<rect key={`bar-${i}`} x={currentX} y="2" width={w} height="38" fill="#000000" />);
+                                    currentX += w + gap;
+                                  }
+                                  bars.push(<rect key="stop-1" x={currentX} y="2" width="3" height="38" fill="#000000" />); currentX += 4.5;
+                                  bars.push(<rect key="stop-2" x={currentX} y="2" width="2" height="38" fill="#000000" />);
+                                  return bars;
+                                })()}
+                              </svg>
+                            )}
+                            <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 13}px`, fontWeight: '950', color: '#000000', letterSpacing: '0.12em', marginTop: '0.1rem' }}>
+                              HIST-00420001
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Size Badge */}
+                        <div style={{ display: 'flex', justifyContent: 'center', borderTop: '1.5px solid #e2e8f0', paddingTop: '0.4rem' }}>
+                          <span style={{ fontSize: `${stickerConfig.sizeFontSize}px`, fontWeight: 950, backgroundColor: stickerConfig.sizeBgColor, color: 'white', padding: '0.15rem 0.85rem', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                            L
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '280px' }}>
+                        💡 Cambia los controles de la izquierda para parametrizar las etiquetas que se imprimen en el Inventario Histórico.
+                      </p>
+                    </div>
+                  </div>
+                  ) : (
+                  /* ──── Pestaña: Relación de Despacho a Confección ──── */
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: '1.5rem' }}>
+                    {/* Panel de Controles de Despacho a Confección */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* 0. Modo de Color / Monocromático */}
+                      <div style={{ backgroundColor: sewingDespatchConfig.monochromeMode ? '#0f172a' : '#f8fafc', color: sewingDespatchConfig.monochromeMode ? 'white' : 'var(--text)', border: '1.5px solid var(--border)', borderRadius: '12px', padding: '1.25rem', transition: 'all 0.3s' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 900, fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!sewingDespatchConfig.monochromeMode}
+                            onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, monochromeMode: e.target.checked })}
+                            style={{ width: '18px', height: '18px', accentColor: '#000000', cursor: 'pointer' }}
+                          />
+                          <span>⬛ Impresión 100% Solo Negro (Monocromático / Sin Color)</span>
+                        </label>
+                        <p style={{ margin: '0.4rem 0 0 2rem', fontSize: '0.75rem', color: sewingDespatchConfig.monochromeMode ? '#cbd5e1' : 'var(--text-muted)' }}>
+                          Fuerza el documento de relación de despacho a confección a ser totalmente en negro puro y blanco, sin fondos corporativos a color.
+                        </p>
+                      </div>
+
+                      {/* 1. Títulos y Encabezado */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>1. Encabezado & Títulos</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Título Empresa</label>
+                            <input
+                              type="text"
+                              value={sewingDespatchConfig.companyTitle}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, companyTitle: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Título (px)</label>
+                            <input
+                              type="range" min="11" max="24" value={sewingDespatchConfig.titleFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, titleFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.titleFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Subtítulo Documento</label>
+                            <input
+                              type="text"
+                              value={sewingDespatchConfig.subtitleText}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, subtitleText: e.target.value })}
+                              style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Subtítulo (px)</label>
+                            <input
+                              type="range" min="9" max="20" value={sewingDespatchConfig.subtitleFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, subtitleFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.subtitleFontSize}px</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Formato y Colores */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>2. Formato, Fuente y Colores</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Texto Cuerpo (px)</label>
+                            <input
+                              type="range" min="9" max="18" value={sewingDespatchConfig.bodyFontSize}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, bodyFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.bodyFontSize}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Tipo de Prenda (px)</label>
+                            <input
+                              type="range" min="10" max="26" value={sewingDespatchConfig.itemTypeFontSize || 14}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemTypeFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemTypeFontSize || 14}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Tamaño Cantidad Unidades (px)</label>
+                            <input
+                              type="range" min="12" max="32" value={sewingDespatchConfig.itemQtyFontSize || 16}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemQtyFontSize: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemQtyFontSize || 16}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Espaciado entre Filas (px)</label>
+                            <input
+                              type="range" min="4" max="20" value={sewingDespatchConfig.itemSpacing}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, itemSpacing: Number(e.target.value) })}
+                              style={{ width: '100%' }}
+                            />
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--primary)' }}>{sewingDespatchConfig.itemSpacing}px</span>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color de Título</label>
+                            <input
+                              type="color" value={sewingDespatchConfig.titleColor}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, titleColor: e.target.value })}
+                              style={{ width: '100%', height: '34px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '6px' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>Color de Fondo Encabezado</label>
+                            <input
+                              type="color" value={sewingDespatchConfig.headerBgColor}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, headerBgColor: e.target.value })}
+                              style={{ width: '100%', height: '34px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '6px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Selección y Modificación de Campos */}
+                      <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)' }}>3. Campos a Mostrar e Incluir</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showCutNumber} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCutNumber: e.target.checked })} /> Número de Corte / OP
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showWorkshop} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showWorkshop: e.target.checked })} /> Satélite / Taller Destino
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showReference} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showReference: e.target.checked })} /> Referencia de Prenda
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showColor} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showColor: e.target.checked })} /> Color de Tela
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showTotalUnits} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showTotalUnits: e.target.checked })} /> Total Unidades Despachadas
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showDeliveryDate} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showDeliveryDate: e.target.checked })} /> Fecha Estimada de Entrega
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showOperatorSig} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showOperatorSig: e.target.checked })} /> Firma de Recibido / Entregado
+                          </label>
+                          <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={sewingDespatchConfig.showNotes} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showNotes: e.target.checked })} /> Observaciones / Notas
+                          </label>
+                        </div>
+
+                        {/* Campos Personalizables Personalizados */}
+                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <h5 style={{ fontSize: '0.78rem', fontWeight: 800, margin: 0, color: 'var(--text)' }}>Campos Personalizados Adicionales:</h5>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.5fr', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                              type="text" placeholder="Nombre Campo 1" value={sewingDespatchConfig.customField1Label}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField1Label: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <input
+                              type="text" placeholder="Valor Muestra 1" value={sewingDespatchConfig.customField1Value}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField1Value: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <label style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <input type="checkbox" checked={sewingDespatchConfig.showCustomField1} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCustomField1: e.target.checked })} /> Ver
+                            </label>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.5fr', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                              type="text" placeholder="Nombre Campo 2" value={sewingDespatchConfig.customField2Label}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField2Label: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <input
+                              type="text" placeholder="Valor Muestra 2" value={sewingDespatchConfig.customField2Value}
+                              onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, customField2Value: e.target.value })}
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.75rem' }}
+                            />
+                            <label style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <input type="checkbox" checked={sewingDespatchConfig.showCustomField2} onChange={e => setSewingDespatchConfig({ ...sewingDespatchConfig, showCustomField2: e.target.checked })} /> Ver
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Simulación en Tiempo Real de la Etiqueta de Despacho */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, margin: '0 0 1rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        👁️ Simulación en Tiempo Real (Relación de Despacho)
+                      </h4>
+
+                      <div style={{
+                        width: '100%',
+                        maxWidth: '380px',
+                        backgroundColor: 'white',
+                        border: `${sewingDespatchConfig.borderWidth}px solid ${sewingDespatchConfig.borderColor}`,
+                        borderRadius: '10px',
+                        overflow: 'hidden',
+                        boxShadow: '0 12px 28px -6px rgba(0,0,0,0.12)',
+                        fontFamily: 'system-ui, sans-serif'
+                      }}>
+                        {/* Banner Encabezado */}
+                        <div style={{
+                          backgroundColor: sewingDespatchConfig.headerBgColor,
+                          padding: '0.85rem 1rem',
+                          borderBottom: `${sewingDespatchConfig.borderWidth}px solid ${sewingDespatchConfig.borderColor}`,
+                          textAlign: 'center'
+                        }}>
+                          <h3 style={{
+                            margin: 0,
+                            fontSize: `${sewingDespatchConfig.titleFontSize}px`,
+                            fontWeight: 900,
+                            color: sewingDespatchConfig.titleColor,
+                            letterSpacing: '0.04em'
+                          }}>
+                            {sewingDespatchConfig.companyTitle}
+                          </h3>
+                          <p style={{
+                            margin: '0.2rem 0 0',
+                            fontSize: `${sewingDespatchConfig.subtitleFontSize}px`,
+                            fontWeight: 800,
+                            color: sewingDespatchConfig.subtitleColor,
+                            letterSpacing: '0.02em'
+                          }}>
+                            {sewingDespatchConfig.subtitleText}
+                          </p>
+                        </div>
+
+                        {/* Contenido / Campos Simulados */}
+                        <div style={{
+                          padding: '1rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: `${sewingDespatchConfig.itemSpacing}px`,
+                          fontSize: `${sewingDespatchConfig.bodyFontSize}px`,
+                          color: sewingDespatchConfig.bodyTextColor
+                        }}>
+                          {sewingDespatchConfig.showCutNumber && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>N° Corte / OP:</span>
+                              <span style={{ fontWeight: 900, color: '#0f172a' }}>CORTE #1042</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showWorkshop && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Satélite Destino:</span>
+                              <span style={{ fontWeight: 800, color: '#80082E' }}>Confecciones Don Mario</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showReference && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Referencia:</span>
+                              <span style={{ fontWeight: 800 }}>POLO CLASSIC 100% ALGODÓN</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showColor && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Color:</span>
+                              <span style={{ fontWeight: 800, color: '#2563eb' }}>AZUL OBSCURO</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showTotalUnits && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#f1f5f9', padding: '0.4rem 0.6rem', borderRadius: '6px' }}>
+                              <span style={{ fontWeight: 900, color: '#0f172a' }}>Total Prenda Cortada:</span>
+                              <span style={{ fontWeight: 950, color: '#166534' }}>320 Unidades</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showDeliveryDate && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>Entrega Estimada:</span>
+                              <span style={{ fontWeight: 800 }}>25/Julio/2026</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showCustomField1 && sewingDespatchConfig.customField1Label && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>{sewingDespatchConfig.customField1Label}:</span>
+                              <span style={{ fontWeight: 800 }}>{sewingDespatchConfig.customField1Value}</span>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showCustomField2 && sewingDespatchConfig.customField2Label && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.3rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b' }}>{sewingDespatchConfig.customField2Label}:</span>
+                              <span style={{ fontWeight: 800 }}>{sewingDespatchConfig.customField2Value}</span>
+                            </div>
+                          )}
+
+                          <div style={{ marginTop: '0.45rem', borderTop: '2px dashed #0f172a', paddingTop: '0.45rem' }}>
+                            <span style={{ fontWeight: 800, color: '#475569', display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '0.3rem' }}>Detalle de Prendas Cortadas:</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.35rem 0.5rem', borderRadius: '6px', marginBottom: '0.25rem' }}>
+                              <span style={{ fontWeight: 800, fontSize: `${sewingDespatchConfig.itemTypeFontSize || 14}px`, color: '#0f172a' }}>• POLO MANGA CORTA (Camisetas)</span>
+                              <strong style={{ fontSize: `${sewingDespatchConfig.itemQtyFontSize || 16}px`, fontWeight: 950, color: '#166534' }}>240 uds</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.35rem 0.5rem', borderRadius: '6px' }}>
+                              <span style={{ fontWeight: 800, fontSize: `${sewingDespatchConfig.itemTypeFontSize || 14}px`, color: '#0f172a' }}>• JOGGER ALGODÓN (Pantalones)</span>
+                              <strong style={{ fontSize: `${sewingDespatchConfig.itemQtyFontSize || 16}px`, fontWeight: 950, color: '#166534' }}>80 uds</strong>
+                            </div>
+                          </div>
+
+                          {sewingDespatchConfig.showNotes && (
+                            <div style={{ marginTop: '0.2rem' }}>
+                              <span style={{ fontWeight: 700, color: '#64748b', display: 'block', fontSize: '0.7rem' }}>Observaciones:</span>
+                              <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', fontStyle: 'italic', color: '#475569' }}>
+                                Entregar tiquete de corte firmado. Incluye paquete de sesgo.
+                              </p>
+                            </div>
+                          )}
+
+                          {sewingDespatchConfig.showOperatorSig && (
+                            <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1.5px solid #cbd5e1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', textAlign: 'center' }}>
+                              <div>
+                                <div style={{ borderBottom: '1px solid #0f172a', height: '24px', marginBottom: '0.2rem' }} />
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b' }}>Entregado (Despacho)</span>
+                              </div>
+                              <div>
+                                <div style={{ borderBottom: '1px solid #0f172a', height: '24px', marginBottom: '0.2rem' }} />
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b' }}>Recibido (Taller Satélite)</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center', marginTop: '1.5rem', maxWidth: '320px' }}>
+                        💡 Activa o desactiva campos, ajusta colores y tamaños en la izquierda para personalizar la Relación de Despacho.
+                      </p>
+                    </div>
+                  </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'company' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3>Branding e Identidad</h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura la apariencia visual de tu plataforma.</p>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                    {/* Logo Config */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ImageIcon size={18} /> Logo Principal</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ 
+                          height: '120px', 
+                          border: '2px dashed var(--border)', 
+                          borderRadius: '12px', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          backgroundColor: 'white',
+                          overflow: 'hidden'
+                        }}>
+                          {companyParams.find(p => p.name === 'logo_url')?.value ? (
+                            <img src={companyParams.find(p => p.name === 'logo_url')?.value} alt="Logo" style={{ maxHeight: '100px' }} />
+                          ) : <ImageIcon size={40} color="var(--border)" />}
+                        </div>
+                        <input type="file" accept="image/*" id="logo-upload" hidden onChange={handleLogoUpload} />
+                        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('logo-upload')?.click()}>
+                          <Upload size={16} /> Cambiar Logo
+                        </button>
+                        <div style={{ marginTop: '0.5rem', padding: '1rem', backgroundColor: 'white', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <label style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text)' }}>Escalar Logo (Ancho)</label>
+                            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', backgroundColor: 'var(--primary-lighter)', padding: '2px 8px', borderRadius: '4px' }}>
+                              {companyParams.find(p => p.name === 'logo_width')?.value || '150'}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="50" 
+                            max="500" 
+                            step="5"
+                            style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                            value={companyParams.find(p => p.name === 'logo_width')?.value || '150'} 
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              setCompanyParams(prev => prev.map(p => p.name === 'logo_width' ? { ...p, value: newVal } : p));
+                            }}
+                            onMouseUp={(e: any) => handleUpdateParam('logo_width', e.target.value)}
+                            onTouchEnd={(e: any) => handleUpdateParam('logo_width', e.target.value)}
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem' }}>
+                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Pequeño</span>
+                            <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>Grande</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Configuración de Barra Superior y Sesión */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc', gridColumn: 'span 2' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><SettingsIcon size={18} /> Configuración de Barra Superior y Sesión</h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                        Configura qué iconos aparecen en la cabecera y el tamaño de visualización de la sesión del usuario (taller/ERP).
+                      </p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.5rem' }}>Iconos Visibles</label>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}>
+                              <input 
+                                type="checkbox"
+                                checked={companyParams.find(p => p.name === 'nav_show_mail')?.value !== 'false'}
+                                onChange={(e) => handleUpdateParam('nav_show_mail', String(e.target.checked))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              Mostrar Correo (Mensajes)
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}>
+                              <input 
+                                type="checkbox"
+                                checked={companyParams.find(p => p.name === 'nav_show_bell')?.value !== 'false'}
+                                onChange={(e) => handleUpdateParam('nav_show_bell', String(e.target.checked))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              Mostrar Campana (Notificaciones)
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}>
+                              <input 
+                                type="checkbox"
+                                checked={companyParams.find(p => p.name === 'nav_show_settings')?.value !== 'false'}
+                                onChange={(e) => handleUpdateParam('nav_show_settings', String(e.target.checked))}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              Mostrar Engranaje (Ajustes)
+                            </label>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.5rem' }}>Escala del Bloque de Sesión</label>
+                          <select
+                            value={companyParams.find(p => p.name === 'nav_avatar_size')?.value || 'normal'}
+                            onChange={(e) => handleUpdateParam('nav_avatar_size', e.target.value)}
+                            className="select"
+                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700' }}
+                          >
+                            <option value="normal">Normal (40px, circular)</option>
+                            <option value="large">Grande (55px, circular)</option>
+                            <option value="xlarge">Muy Grande (70px, circular)</option>
+                            <option value="xxlarge">Súper Grande (85px, circular)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.5rem' }}>Escala del Avatar de Talleres</label>
+                          <select
+                            value={companyParams.find(p => p.name === 'workshop_avatar_size')?.value || 'normal'}
+                            onChange={(e) => handleUpdateParam('workshop_avatar_size', e.target.value)}
+                            className="select"
+                            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '700' }}
+                          >
+                            <option value="small">Pequeño (32px)</option>
+                            <option value="normal">Mediano (46px)</option>
+                            <option value="large">Grande (64px)</option>
+                            <option value="xlarge">Muy Grande (80px)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mi Perfil (Editar Avatar y Datos Propios) */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc', gridColumn: 'span 2' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><UserIcon size={18} /> Mi Perfil y Datos Personales</h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                        Actualiza tu avatar personal, nombre de visualización y contraseña directamente desde aquí.
+                      </p>
+                      
+                      <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ 
+                            width: '100px', 
+                            height: '100px', 
+                            borderRadius: '50%', 
+                            overflow: 'hidden', 
+                            border: '3px solid var(--primary)', 
+                            boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
+                            backgroundColor: '#f1f5f9',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            {profile?.avatar_url ? (
+                              <img src={profile.avatar_url} alt="Mi Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <UserIcon size={40} color="#94a3b8" />
+                            )}
+                          </div>
+                          
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            id="my-profile-avatar-upload" 
+                            hidden 
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setSaving(true);
+                              try {
+                                const reader = new FileReader();
+                                const base64Promise = new Promise((resolve, reject) => {
+                                  reader.onload = () => resolve((reader.result as string)?.split(',')[1]);
+                                  reader.onerror = reject;
+                                });
+                                reader.readAsDataURL(file);
+                                const avatarBase64 = await base64Promise;
+                                
+                                const res = await fetch('/api/users/edit', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    userId: profile.id,
+                                    full_name: profile.full_name,
+                                    role_id: profile.role_id,
+                                    avatarBase64,
+                                    avatarName: file.name
+                                  })
+                                });
+                                if (!res.ok) throw new Error('Error al actualizar avatar');
+                                alert('Avatar actualizado correctamente. Recargando página...');
+                                window.location.reload();
+                              } catch(err: any) {
+                                alert(err.message);
+                              } finally { setSaving(false); }
+                            }}
+                          />
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem' }}
+                            onClick={() => document.getElementById('my-profile-avatar-upload')?.click()}
+                          >
+                            <Upload size={13} /> Subir Imagen
+                          </button>
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: '250px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Nombre Completo</label>
+                            <input 
+                              type="text" 
+                              className="input" 
+                              style={{ width: '100%' }}
+                              defaultValue={profile?.full_name || ''} 
+                              id="my-profile-fullname-input"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Nueva Contraseña (Dejar vacío para conservar)</label>
+                            <input 
+                              type="password" 
+                              className="input" 
+                              style={{ width: '100%' }}
+                              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" 
+                              id="my-profile-password-input"
+                            />
+                          </div>
+
+                          <button 
+                            className="btn btn-primary" 
+                            style={{ alignSelf: 'flex-start', padding: '0.5rem 1.25rem', marginTop: '0.5rem' }}
+                            onClick={async () => {
+                              const nameInput = document.getElementById('my-profile-fullname-input') as HTMLInputElement | null;
+                              const passInput = document.getElementById('my-profile-password-input') as HTMLInputElement | null;
+                              const full_name = nameInput ? nameInput.value : '';
+                              const newPassword = passInput ? passInput.value : '';
+                              
+                              if (!full_name) {
+                                alert('El nombre completo es requerido.');
+                                return;
+                              }
+                              
+                              setSaving(true);
+                              try {
+                                const res = await fetch('/api/users/edit', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    userId: profile.id,
+                                    full_name,
+                                    role_id: profile.role_id,
+                                    newPassword: newPassword || null
+                                  })
+                                });
+                                if (!res.ok) throw new Error('Error al actualizar perfil');
+                                alert('Perfil actualizado correctamente. Recargando página...');
+                                window.location.reload();
+                              } catch(err: any) {
+                                alert(err.message);
+                              } finally { setSaving(false); }
+                            }}
+                          >
+                            Guardar Perfil
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mobile App Image Config */}
+                    <div className="card" style={{ padding: '1.5rem', backgroundColor: '#f8fafc' }}>
+                      <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Maximize size={18} /> Imagen App Móvil (Sidebar)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ 
+                          height: '120px', 
+                          border: '2px dashed var(--border)', 
+                          borderRadius: '12px', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          backgroundColor: 'white',
+                          overflow: 'hidden'
+                        }}>
+                          {companyParams.find(p => p.name === 'mobile_app_image_url')?.value ? (
+                            <img src={companyParams.find(p => p.name === 'mobile_app_image_url')?.value} alt="App Image" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                          ) : <ImageIcon size={40} color="var(--border)" />}
+                        </div>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          id="mobile-app-upload" 
+                          hidden 
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setSaving(true);
+                            try {
+                              const fileExt = file.name.split('.').pop();
+                              const fileName = `mobile-app-${Date.now()}.${fileExt}`;
+                              
+                              // Convertir archivo a Base64
+                              const reader = new FileReader();
+                              const base64Promise = new Promise<string>((resolve, reject) => {
+                                reader.onload = () => {
+                                  const result = reader.result as string;
+                                  const base64Data = result.split(',')[1];
+                                  resolve(base64Data);
+                                };
+                                reader.onerror = (error) => reject(error);
+                              });
+                              reader.readAsDataURL(file);
+                              const fileBase64 = await base64Promise;
+                              
+                              const res = await fetch('/api/settings', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name: 'mobile_app_image_url', fileBase64, fileName })
+                              });
+                              const resData = await res.json();
+                              if (!res.ok) throw new Error(resData.error || 'Error al guardar la imagen de la app');
+
+                              await refreshConfig();
+                              fetchData();
+                            } catch (err: any) { alert(err.message); } finally { setSaving(false); }
+                          }} 
+                        />
+                        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('mobile-app-upload')?.click()}>
+                          <Upload size={16} /> Cambiar Imagen App
+                        </button>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Esta imagen se mostrará en la tarjeta de promoción de la app móvil en el menú lateral.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* â”€â”€ Personalización de Título de Inicio de Sesión (Login) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Building2 size={18} /> Título de Login (Identidad de Empresa)
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Personaliza el texto, color, tipografía, tamaño e ícono que aparece en la pantalla de inicio de sesión abajo del logo principal.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Texto del Título</label>
+                        <input 
+                          type="text" 
+                          className="input"
+                          style={{ width: '100%' }}
+                          value={companyParams.find(p => p.name === 'login_title_text')?.value || 'Breiner ERP'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_text');
+                              if (exists) return prev.map(p => p.name === 'login_title_text' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_text', value: val }];
+                            });
+                          }}
+                          onBlur={e => handleUpdateParam('login_title_text', e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Color del Texto</label>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <input 
+                            type="color" 
+                            style={{ width: '40px', height: '40px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', padding: 0 }}
+                            value={companyParams.find(p => p.name === 'login_title_color')?.value || '#ffffff'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'login_title_color');
+                                if (exists) return prev.map(p => p.name === 'login_title_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'login_title_color', value: val }];
+                              });
+                              if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current);
+                              colorDebounceRef.current = setTimeout(() => {
+                                handleUpdateParam('login_title_color', val);
+                              }, 500);
+                            }}
+                          />
+                          <input 
+                            type="text" 
+                            className="input" 
+                            style={{ flex: 1, textTransform: 'uppercase', fontFamily: 'monospace', fontSize: '0.85rem' }} 
+                            value={companyParams.find(p => p.name === 'login_title_color')?.value || '#ffffff'}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'login_title_color');
+                                if (exists) return prev.map(p => p.name === 'login_title_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'login_title_color', value: val }];
+                              });
+                            }}
+                            onBlur={e => handleUpdateParam('login_title_color', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tipo de Letra</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_font')?.value || 'Outfit'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_font');
+                              if (exists) return prev.map(p => p.name === 'login_title_font' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_font', value: val }];
+                            });
+                            handleUpdateParam('login_title_font', val);
+                          }}
+                        >
+                          <option value="Outfit">Outfit (Moderna)</option>
+                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Roboto">Roboto (Limpia)</option>
+                          <option value="Montserrat">Montserrat (Elegante)</option>
+                          <option value="Playfair Display">Playfair Display (Serif Elegante)</option>
+                          <option value="Merriweather">Merriweather (Serif Lectura)</option>
+                          <option value="Lora">Lora (Serif Suave)</option>
+                          <option value="Caveat">Caveat (Manuscrita)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Grosor (Negrilla)</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_weight')?.value || '900'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_weight');
+                              if (exists) return prev.map(p => p.name === 'login_title_weight' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_weight', value: val }];
+                            });
+                            handleUpdateParam('login_title_weight', val);
+                          }}
+                        >
+                          <option value="900">Negrilla (Extra Bold - 900)</option>
+                          <option value="700">Negrita (Bold - 700)</option>
+                          <option value="500">Medio (Medium - 500)</option>
+                          <option value="400">Normal (Regular - 400)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_size')?.value || '1.75rem'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_size');
+                              if (exists) return prev.map(p => p.name === 'login_title_size' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_size', value: val }];
+                            });
+                            handleUpdateParam('login_title_size', val);
+                          }}
+                        >
+                          <option value="1.25rem">Pequeño (1.25rem)</option>
+                          <option value="1.5rem">Mediano (1.5rem)</option>
+                          <option value="1.75rem">Estándar (1.75rem)</option>
+                          <option value="2.25rem">Grande (2.25rem)</option>
+                          <option value="3rem">Gigante (3rem)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Ãcono del Título</label>
+                        <select
+                          className="select"
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white' }}
+                          value={companyParams.find(p => p.name === 'login_title_icon')?.value || 'Scissors'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_title_icon');
+                              if (exists) return prev.map(p => p.name === 'login_title_icon' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'login_title_icon', value: val }];
+                            });
+                            handleUpdateParam('login_title_icon', val);
+                          }}
+                        >
+                          <option value="None">Ninguno</option>
+                          <option value="Scissors">Tijeras (Scissors)</option>
+                          <option value="Layers">Capas (Layers)</option>
+                          <option value="Package">Caja (Package)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Toggle: mostrar/ocultar mensaje de bienvenida */}
+                    <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div>
+                        <p style={{ fontWeight: '700', fontSize: '0.8rem', margin: 0 }}>Mostrar mensaje de bienvenida</p>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                          Muestra u oculta el texto descriptivo debajo del título en la pantalla de inicio de sesión.
+                        </p>
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                          {companyParams.find(p => p.name === 'login_show_message')?.value === 'false' ? 'Oculto' : 'Visible'}
+                        </span>
+                        <div
+                          onClick={() => {
+                            const currentVal = companyParams.find(p => p.name === 'login_show_message')?.value;
+                            const newVal = currentVal === 'false' ? 'true' : 'false';
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'login_show_message');
+                              if (exists) return prev.map(p => p.name === 'login_show_message' ? { ...p, value: newVal } : p);
+                              return [...prev, { name: 'login_show_message', value: newVal }];
+                            });
+                            handleUpdateParam('login_show_message', newVal);
+                          }}
+                          style={{
+                            width: '44px', height: '24px', borderRadius: '999px', cursor: 'pointer',
+                            backgroundColor: companyParams.find(p => p.name === 'login_show_message')?.value === 'false'
+                              ? '#cbd5e1' : 'var(--primary)',
+                            position: 'relative', transition: 'background-color 0.25s ease',
+                            flexShrink: 0
+                          }}
+                        >
+                          <div style={{
+                            position: 'absolute', top: '3px',
+                            left: companyParams.find(p => p.name === 'login_show_message')?.value === 'false' ? '3px' : '23px',
+                            width: '18px', height: '18px', borderRadius: '50%',
+                            backgroundColor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                            transition: 'left 0.25s ease'
+                          }} />
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* â”€â”€ Color de Tema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Color Principal del Sistema
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Define el color primario que se aplica en toda la plataforma: botones, barras laterales, íconos y acentos.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      {/* Color Picker */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{
+                          width: '80px', height: '80px', borderRadius: '16px',
+                          backgroundColor: companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433',
+                          boxShadow: '0 4px 15px rgba(0,0,0,0.15)',
+                          border: '3px solid white',
+                          outline: '2px solid var(--border)',
+                          position: 'relative', overflow: 'hidden', cursor: 'pointer'
+                        }}>
+                          <input
+                            id="themeColorInput"
+                            type="color"
+                            value={companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'theme_primary_color');
+                                if (exists) return prev.map(p => p.name === 'theme_primary_color' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'theme_primary_color', value: val, description: 'Color primario del tema' }];
+                              });
+                              // Apply instantly for live preview
+                              document.documentElement.style.setProperty('--primary', val);
+                              // Debounce save to DB (500ms after user stops picking)
+                              if (colorDebounceRef.current) clearTimeout(colorDebounceRef.current);
+                              colorDebounceRef.current = setTimeout(() => {
+                                handleUpdateParam('theme_primary_color', val);
+                              }, 500);
+                            }}
+                            style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }}
+                          />
+                        </div>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {(companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433').toUpperCase()}
+                        </span>
+                      </div>
+
+                      {/* Palette presets */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Paletas Rápidas</span>
+                        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          {[
+                            { color: '#104433', label: 'Verde Selva' },
+                            { color: '#1e3a5f', label: 'Azul Marino' },
+                            { color: '#4f46e5', label: 'Índigo' },
+                            { color: '#7c3aed', label: 'Violeta' },
+                            { color: '#b91c1c', label: 'Rojo' },
+                            { color: '#b45309', label: 'Ámbar' },
+                            { color: '#0e7490', label: 'Cian' },
+                            { color: '#0f172a', label: 'Negro Slate' },
+                          ].map(({ color, label }) => (
+                            <button
+                              key={color}
+                              title={label}
+                              onClick={() => {
+                                setCompanyParams(prev => {
+                                  const exists = prev.some(p => p.name === 'theme_primary_color');
+                                  if (exists) return prev.map(p => p.name === 'theme_primary_color' ? { ...p, value: color } : p);
+                                  return [...prev, { name: 'theme_primary_color', value: color, description: 'Color primario del tema' }];
+                                });
+                                document.documentElement.style.setProperty('--primary', color);
+                                handleUpdateParam('theme_primary_color', color);
+                              }}
+                              style={{
+                                width: '36px', height: '36px', borderRadius: '10px',
+                                backgroundColor: color,
+                                border: (companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433') === color
+                                  ? '3px solid white' : '3px solid transparent',
+                                outline: (companyParams.find(p => p.name === 'theme_primary_color')?.value || '#104433') === color
+                                  ? `2px solid ${color}` : '2px solid transparent',
+                                cursor: 'pointer',
+                                transition: 'transform 0.15s ease',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.15)')}
+                              onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                            />
+                          ))}
+                        </div>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Haz clic en un color o usa el selector para personalizar. El cambio se aplica en tiempo real.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* â”€â”€ Tipografía y Dimensiones (ERP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', marginTop: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Tipografía y Visualización ERP
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Define la tipografía predeterminada y tamaño de los textos de la plataforma.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Familia Tipográfica</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_font_family')?.value || 'Outfit'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_font_family');
+                              if (exists) return prev.map(p => p.name === 'theme_font_family' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_font_family', value: val, description: 'Tipografía del sistema' }];
+                            });
+                            document.documentElement.style.setProperty('--font-family', val);
+                            handleUpdateParam('theme_font_family', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="Outfit">Outfit (Moderna)</option>
+                          <option value="Inter">Inter (Clásica)</option>
+                          <option value="Roboto">Roboto (Limpia)</option>
+                          <option value="Montserrat">Montserrat (Elegante)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Tamaño de Letra Base</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_font_size')?.value || '14px'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_font_size');
+                              if (exists) return prev.map(p => p.name === 'theme_font_size' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_font_size', value: val, description: 'Tamaño de letra' }];
+                            });
+                            document.documentElement.style.setProperty('--font-size', val);
+                            handleUpdateParam('theme_font_size', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="12px">Pequeño (12px)</option>
+                          <option value="13px">Mediano-Pequeño (13px)</option>
+                          <option value="14px">Estándar (14px)</option>
+                          <option value="15px">Grande (15px)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* â”€â”€ Ventanas Modales y Bordes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)', marginTop: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Palette size={18} /> Estilos de Modales y Bordes
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Personaliza los redondeos de tarjetas y la intensidad del desenfoque (blur) de fondo en ventanas flotantes.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Redondeo de Bordes (Cards & Modales)</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_modal_radius')?.value || '12px'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_modal_radius');
+                              if (exists) return prev.map(p => p.name === 'theme_modal_radius' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_modal_radius', value: val, description: 'Bordes redondeados' }];
+                            });
+                            document.documentElement.style.setProperty('--radius', val);
+                            handleUpdateParam('theme_modal_radius', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="0px">Sin Redondeo (Recto)</option>
+                          <option value="6px">Suave (6px)</option>
+                          <option value="12px">Estándar (12px)</option>
+                          <option value="16px">Boutique (16px)</option>
+                          <option value="24px">Muy Redondeado (24px)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '0.35rem' }}>Desenfoque de Fondo (Modals Backdrop Blur)</label>
+                        <select
+                          value={companyParams.find(p => p.name === 'theme_modal_blur')?.value || 'blur(6px)'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => {
+                              const exists = prev.some(p => p.name === 'theme_modal_blur');
+                              if (exists) return prev.map(p => p.name === 'theme_modal_blur' ? { ...p, value: val } : p);
+                              return [...prev, { name: 'theme_modal_blur', value: val, description: 'Desenfoque de modales' }];
+                            });
+                            document.documentElement.style.setProperty('--modal-blur', val);
+                            handleUpdateParam('theme_modal_blur', val);
+                          }}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        >
+                          <option value="none">Sin Desenfoque (Sin blur)</option>
+                          <option value="blur(4px)">Suave (blur 4px)</option>
+                          <option value="blur(8px)">Medio (blur 8px)</option>
+                          <option value="blur(16px)">Intenso (blur 16px)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'masters' && (
+                <div style={{ margin: '-1.5rem', padding: '1rem', backgroundColor: 'white', borderRadius: '16px' }}>
+                  <MastersPage isEmbed={true} />
+                </div>
+              )}
+
+              {activeTab === 'parametrization' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3>Variables Globales</h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configura los valores base para cálculos de costos.</p>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>Salario Mínimo Legal</label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>$</span>
+                        <input 
+                          type="number" 
+                          className="input" 
+                          style={{ width: '100%', paddingLeft: '2rem' }} 
+                          value={companyParams.find(p => p.name === 'min_wage')?.value || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => prev.map(p => p.name === 'min_wage' ? { ...p, value: val } : p));
+                          }}
+                          onBlur={(e) => handleUpdateParam('min_wage', e.target.value)}
+                        />
+                      </div>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Utilizado para el cálculo de carga prestacional y MOD.</p>
+                    </div>
+
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '700', marginBottom: '0.75rem' }}>IVA (%)</label>
+                      <div style={{ position: 'relative' }}>
+                        <input 
+                          type="number" 
+                          className="input" 
+                          style={{ width: '100%', paddingRight: '2rem' }} 
+                          value={companyParams.find(p => p.name === 'iva_percent')?.value || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCompanyParams(prev => prev.map(p => p.name === 'iva_percent' ? { ...p, value: val } : p));
+                          }}
+                          onBlur={(e) => handleUpdateParam('iva_percent', e.target.value)}
+                        />
+                        <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: 'var(--text-muted)' }}>%</span>
+                      </div>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Porcentaje de IVA aplicado a materias primas y servicios.</p>
+                    </div>
+
+                    <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)' }}>
+                       <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ”¢ Máximo de Marcaciones</label>
+                       <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla hasta qué número de marcación estarán disponibles en la orden de corte (Marc. 0 â€¦ N).</p>
+                       <div style={{ position: 'relative' }}>
+                         <input 
+                           type="number" 
+                           min="1"
+                           max="50"
+                           className="input" 
+                           style={{ width: '100%', fontWeight: '800', fontSize: '1.1rem', color: '#4338ca', border: '2px solid #a5b4fc' }} 
+                           value={companyParams.find(p => p.name === 'max_marcaciones')?.value || '7'}
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             setCompanyParams(prev => {
+                               const exists = prev.some(p => p.name === 'max_marcaciones');
+                               if (exists) return prev.map(p => p.name === 'max_marcaciones' ? { ...p, value: val } : p);
+                               return [...prev, { name: 'max_marcaciones', value: val, description: 'Máximo número de marcación' }];
+                             });
+                           }}
+                           onBlur={(e) => handleUpdateParam('max_marcaciones', e.target.value)}
+                         />
+                       </div>
+                       <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Ej: Si colocas <strong>12</strong>, en la orden aparecerán las marcaciones del 0 al 12.</p>
+                     </div>
+
+                      <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ”„ Reversar Avance en Tendido (Admin)</label>
+                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Controla si un administrador puede deshacer/reversar un avance de tendido reportado.</p>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <select 
+                            className="select" 
+                            style={{ width: '100%', fontWeight: '800', fontSize: '0.9rem', color: '#4338ca', border: '2px solid #a5b4fc', padding: '0.5rem', borderRadius: '8px', backgroundColor: 'white' }} 
+                            value={companyParams.find(p => p.name === 'admin_revert_obs')?.value || 'false'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'admin_revert_obs');
+                                if (exists) return prev.map(p => p.name === 'admin_revert_obs' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'admin_revert_obs', value: val, description: 'Permitir al administrador reversar avances de tendido' }];
+                              });
+                              handleUpdateParam('admin_revert_obs', val);
+                            }}
+                          >
+                            <option value="false">Desactivado (No permitir)</option>
+                            <option value="true">Activado (Permitir reversar)</option>
+                          </select>
+                        </div>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Si se activa, los administradores tendrán la opción en el historial de notas.</p>
+                      </div>
+
+                      <div className="card" style={{ padding: '1.5rem', border: '2px solid #a5b4fc', borderRadius: '12px', background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: '800', marginBottom: '0.5rem', color: '#4338ca' }}>ðŸ“„ Registros por Página (Listados)</label>
+                          <p style={{ fontSize: '0.72rem', color: '#6366f1', marginBottom: '0.75rem', fontWeight: '600' }}>Define cuántos registros mostrar por tanda en las tablas del POS y ERP.</p>
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <input 
+                            type="number"
+                            min="5"
+                            max="100"
+                            className="input"
+                            style={{ width: '100%', fontWeight: '800', fontSize: '1.1rem', color: '#4338ca', border: '2px solid #a5b4fc' }}
+                            value={companyParams.find(p => p.name === 'pos_page_size')?.value || '15'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCompanyParams(prev => {
+                                const exists = prev.some(p => p.name === 'pos_page_size');
+                                if (exists) return prev.map(p => p.name === 'pos_page_size' ? { ...p, value: val } : p);
+                                return [...prev, { name: 'pos_page_size', value: val, description: 'Tamaño de paginación de listas (POS/ERP)' }];
+                              });
+                            }}
+                            onBlur={(e) => handleUpdateParam('pos_page_size', e.target.value)}
+                          />
+                        </div>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Por defecto: <strong>15</strong> registros. Evita cargar listados innecesariamente largos.</p>
+                      </div>
+                    </div>
+
+                  {/* Dark Mode Toggle */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3>Apariencia</h3>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Personaliza la interfaz visual del sistema.</p>
+                    </div>
+                    <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <div style={{
+                            width: '48px', height: '48px', borderRadius: '12px',
+                            background: isDark ? 'linear-gradient(135deg, #1e293b, #0f172a)' : 'linear-gradient(135deg, #f8fafc, #e2e8f0)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: '2px solid var(--border)', transition: 'all 0.3s ease'
+                          }}>
+                            {isDark
+                              ? <Moon size={22} style={{ color: '#94a3b8' }} />
+                              : <Sun size={22} style={{ color: '#f59e0b' }} />}
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: '700', fontSize: '0.9375rem', margin: 0 }}>
+                              {isDark ? 'Modo Oscuro' : 'Modo Claro'}
+                            </p>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, marginTop: '0.2rem' }}>
+                              {isDark ? 'Interfaz con fondo oscuro, ideal para ambientes con poca luz.' : 'Interfaz con fondo claro, ideal para ambientes iluminados.'}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Toggle switch */}
+                        <button
+                          type="button"
+                          onClick={handleDarkModeToggle}
+                          aria-label="Toggle dark mode"
+                          style={{
+                            position: 'relative',
+                            width: '60px', height: '32px',
+                            borderRadius: '999px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: isDark
+                              ? 'linear-gradient(135deg, #34d399, #059669)'
+                              : 'linear-gradient(135deg, #cbd5e1, #94a3b8)',
+                            transition: 'background 0.3s ease',
+                            flexShrink: 0,
+                            boxShadow: isDark ? '0 0 12px rgba(52,211,153,0.4)' : 'none'
+                          }}
+                        >
+                          <span style={{
+                            position: 'absolute',
+                            top: '4px',
+                            left: isDark ? '32px' : '4px',
+                            width: '24px', height: '24px',
+                            borderRadius: '50%',
+                            background: 'white',
+                            boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                            transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}>
+                            {isDark
+                              ? <Moon size={12} style={{ color: '#6366f1' }} />
+                              : <Sun size={12} style={{ color: '#f59e0b' }} />}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Role & Permissions Modal */}
+      {showRoleModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '2rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
+              <h2 style={{ margin: 0 }}>{editingRole ? 'Editar Rol' : 'Nuevo Rol'}</h2>
+              <button className="btn-icon" onClick={() => setShowRoleModal(false)}><X size={28} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveRole}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Información Básica</h4>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.5rem' }}>Nombre del Rol</label>
+                    <input name="name" defaultValue={editingRole?.name} required className="input" style={{ width: '100%' }} placeholder="Ej: Jefe de Producción" />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '700', marginBottom: '0.5rem' }}>Descripción</label>
+                    <textarea name="description" defaultValue={editingRole?.description} className="input" style={{ width: '100%', minHeight: '120px' }} placeholder="Â¿Qué responsabilidades tiene este rol?" />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Accesos al Menú</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    {permissions.map(perm => (
+                      <label key={perm.id} style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '0.75rem', 
+                        padding: '0.75rem', 
+                        borderRadius: '10px',
+                        border: '1px solid var(--border)',
+                        cursor: 'pointer',
+                        backgroundColor: selectedPermissions.includes(perm.id) ? 'var(--primary-lighter)' : 'white',
+                        transition: 'all 0.2s'
+                      }}>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedPermissions.includes(perm.id)} 
+                          onChange={() => handleTogglePermission(perm.id)}
+                          style={{ width: '18px', height: '18px', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: '0.8125rem', fontWeight: selectedPermissions.includes(perm.id) ? '700' : '500' }}>
+                          {perm.name.replace('Acceso a ', '').replace('Gestión de ', '')}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', borderTop: '1px solid var(--border)', paddingTop: '2rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem' }} onClick={() => setShowRoleModal(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '1rem', justifyContent: 'center' }} disabled={saving}>
+                  {saving ? <Loader2 className="animate-spin" /> : 'Guardar Configuración'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Other Modals (Same as before) */}
+      {showCreateUserModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="card" style={{ width: '90%', maxWidth: '480px', padding: '0', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <UserIcon size={22} /> Nuevo Usuario
+                </h2>
+                <p style={{ fontSize: '0.8rem', opacity: 0.9, margin: '0.25rem 0 0 0' }}>Crea accesos y asigna roles al personal.</p>
+              </div>
+              <button onClick={() => setShowCreateUserModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '50%', padding: '0.5rem', display: 'flex' }}><X size={20} /></button>
+            </div>
+            
+            <form onSubmit={handleCreateUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>FOTO DE PERFIL (AVATAR)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '12px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
+                    {createAvatarPreview ? (
+                      <img src={createAvatarPreview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <UserIcon size={24} color="#94a3b8" />
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="create-avatar-upload"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setCreateAvatarFile(file);
+                        setCreateAvatarPreview(URL.createObjectURL(file));
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={() => document.getElementById('create-avatar-upload')?.click()}>
+                    Seleccionar Foto
+                  </button>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
+                <div style={{ position: 'relative' }}>
+                  <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="full_name" required placeholder="Ej. Ana Pérez" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO (EMAIL)</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="email" type="email" required placeholder="correo@empresa.com" style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CONTRASEÑA SECRETA</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input 
+                    name="password" 
+                    type={showPassword ? 'text' : 'password'} 
+                    required 
+                    placeholder="Mínimo 6 caracteres" 
+                    minLength={6}
+                    style={{ width: '100%', padding: '0.875rem 3rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>ROL DEL SISTEMA</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <select name="role_id" required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                    <option value="">Seleccione el nivel de acceso...</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {workshopsList.length > 0 && (
+                <div className="input-group">
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLERES ASOCIADOS <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', backgroundColor: 'white' }}>
+                    {workshopsList.map(w => {
+                      return (
+                        <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600' }}>
+                          <input
+                            type="checkbox"
+                            value={w.id}
+                            name="workshop_ids_check"
+                            style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
+                          />
+                          ðŸ­ {w.nombre_taller}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <input type="hidden" name="workshop_id" id="create_workshop_ids_hidden" />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setShowCreateUserModal(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontWeight: '800', borderRadius: '10px', backgroundColor: '#7c3aed', border: 'none' }} disabled={saving}>
+                  {saving ? <><Loader2 className="animate-spin" size={18} style={{ marginRight: '0.5rem' }} /> Registrando...</> : 'Confirmar Registro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showUserModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="card" style={{ width: '90%', maxWidth: '480px', padding: '0', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #475569 0%, #334155 100%)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '950', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Edit2 size={22} /> Editar Perfil
+                </h2>
+                <p style={{ fontSize: '0.8rem', opacity: 0.9, margin: '0.25rem 0 0 0' }}>Actualiza los permisos y datos del personal.</p>
+              </div>
+              <button onClick={() => setShowUserModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '50%', padding: '0.5rem', display: 'flex' }}><X size={20} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveUser} style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>FOTO DE PERFIL (AVATAR)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '12px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1.5px solid #e2e8f0' }}>
+                    {editAvatarPreview || editingUser?.avatar_url ? (
+                      <img src={editAvatarPreview || editingUser?.avatar_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <UserIcon size={24} color="#94a3b8" />
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="edit-avatar-upload"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setEditAvatarFile(file);
+                        setEditAvatarPreview(URL.createObjectURL(file));
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }} onClick={() => document.getElementById('edit-avatar-upload')?.click()}>
+                    Cambiar Foto
+                  </button>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>CORREO ELECTRÓNICO</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="email" value={editingUser?.email || ''} readOnly style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500', backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }} />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NOMBRE COMPLETO</label>
+                <div style={{ position: 'relative' }}>
+                  <UserIcon size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input name="full_name" defaultValue={editingUser?.full_name} required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>ROL DEL SISTEMA</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <select name="role_id" defaultValue={editingUser?.role_id} required style={{ width: '100%', padding: '0.875rem 1rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '600', backgroundColor: 'white' }}>
+                    <option value="">Seleccione el nivel de acceso...</option>
+                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {workshopsList.length > 0 && (
+                <div className="input-group">
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>TALLERES ASOCIADOS <span style={{ color: '#94a3b8', fontWeight: '600' }}>(REQUERIDO PARA ROL TALLER)</span></label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem 1rem', backgroundColor: 'white' }}>
+                    {workshopsList.map(w => {
+                      const userWorkshopIds = (editingUser?.workshop_id || '').split(',').map((id: string) => id.trim());
+                      const isChecked = userWorkshopIds.includes(String(w.id));
+                      return (
+                        <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600' }}>
+                          <input
+                            type="checkbox"
+                            value={w.id}
+                            name="edit_workshop_ids_check"
+                            defaultChecked={isChecked}
+                            style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
+                          />
+                          ðŸ­ {w.nombre_taller}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <input type="hidden" name="workshop_id" id="edit_workshop_ids_hidden" />
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.4rem' }}>Puedes seleccionar más de un taller satélite para que este usuario los gestione de forma consolidada.</p>
+                </div>
+              )}
+
+              <div className="input-group">
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem' }}>NUEVA CONTRASEÑA (OPCIONAL)</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input 
+                    name="new_password" 
+                    type={showPassword ? 'text' : 'password'} 
+                    placeholder="Dejar en blanco para mantener actual" 
+                    minLength={6}
+                    style={{ width: '100%', padding: '0.875rem 3rem 0.875rem 3rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.875rem', fontWeight: '500' }} 
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem' }}>Escribe aquí solo si deseas cambiar la contraseña de este usuario.</p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, padding: '1rem', fontWeight: '700', borderRadius: '10px' }} onClick={() => setShowUserModal(false)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2, padding: '1rem', fontWeight: '800', borderRadius: '10px', backgroundColor: '#334155', border: 'none' }} disabled={saving}>
+                  {saving ? <><Loader2 className="animate-spin" size={18} style={{ marginRight: '0.5rem' }} /> Actualizando...</> : 'Actualizar Perfil'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

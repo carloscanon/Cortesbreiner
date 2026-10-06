@@ -309,8 +309,7 @@ export default function POSPage() {
         const { data: inv } = await supabase
           .from('finished_goods_stock')
           .select('*, products(*), sizes(*), colors(*)')
-          .eq('warehouse_id', selectedStore.bodega_asociada_id)
-          .is('location_id', null);
+          .eq('warehouse_id', selectedStore.bodega_asociada_id);
         setInventoryList(inv || []);
       } else {
         const { data: inv } = await supabase
@@ -1577,21 +1576,36 @@ export default function POSPage() {
   };
 
   const handleAddToCart = (product: any) => {
-    const inStockItems = inventoryList.filter(inv => inv.product_id === product.id && Number(inv.cantidad_disponible) > 0);
+    const inStockItems = inventoryList.filter(inv => 
+      (inv.product_id === product.id || (inv.products?.nombre_producto && inv.products.nombre_producto.trim().toLowerCase() === product.nombre_producto?.trim().toLowerCase())) &&
+      Number(inv.cantidad_disponible) > 0
+    );
     
     // 1. If scanned barcode, try to match EXACT variant
-    if (scannedGarment && (product.codigo_referencia === scannedGarment.reference_name || product.nombre_producto === scannedGarment.reference_name)) {
-      const matchedColor = colors.find(c => c.nombre_color?.toLowerCase() === scannedGarment.color_name?.toLowerCase());
-      const matchedSize = sizes.find(s => s.codigo_talla?.toLowerCase() === scannedGarment.size_code?.toLowerCase());
-      
-      const invMatch = inStockItems.find(inv => 
-         inv.color_id === (matchedColor?.id || null) && 
-         inv.size_id === (matchedSize?.id || null)
-      );
+    if (scannedGarment && (
+      product.codigo_referencia === scannedGarment.reference_name || 
+      product.nombre_producto?.trim().toLowerCase() === scannedGarment.reference_name?.trim().toLowerCase() ||
+      product.id === scannedGarment.sewing_orders?.product_id
+    )) {
+      const gColor = (scannedGarment.color_name || '').trim().toLowerCase();
+      const gSize = (scannedGarment.size_code || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+
+      const invMatch = inStockItems.find(inv => {
+        const cName = (inv.colors?.nombre_color || '').trim().toLowerCase();
+        const cCode = (inv.colors?.codigo_color || '').trim().toLowerCase();
+        const sName = (inv.sizes?.nombre_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+        const sCode = (inv.sizes?.codigo_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+
+        const colorMatches = !gColor || cName === gColor || (cCode && gColor.includes(cCode)) || gColor.startsWith(cName.substring(0, 5)) || cName.startsWith(gColor.substring(0, 5));
+        const sizeMatches = !gSize || sCode === gSize || sName === gSize || (gSize === 'lxl' && (sCode === 'lxl' || sName.includes('lx') || sCode.includes('lxl'))) || (gSize === 'sm' && (sCode === 'sm' || sName.includes('sm')));
+
+        return colorMatches && sizeMatches;
+      });
       
       if (invMatch) {
          doAddToCart(product, invMatch.color_id, invMatch.size_id);
          setSearchQuery(''); // Limpiar busqueda
+         setScannedGarment(null);
          return;
       }
     }
@@ -1728,27 +1742,46 @@ export default function POSPage() {
           let stockQuery = supabase.from('finished_goods_stock').select('*')
             .eq('warehouse_id', selectedStore.bodega_asociada_id)
             .eq('product_id', cartItem.product_id)
-            .eq('size_id', cartItem.size_id)
-            .is('location_id', null);
+            .eq('size_id', cartItem.size_id);
           if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
           else stockQuery = stockQuery.is('color_id', null);
-          const { data: localStock } = await stockQuery;
+          let { data: localStock } = await stockQuery;
+
+          // Fallback if product_id is mapped under a synonymous product name row in finished_goods_stock
+          if (!localStock || localStock.length === 0) {
+            const matchingInv = inventoryList.find(inv => 
+              inv.size_id === cartItem.size_id && 
+              ((!cartItem.color_id && !inv.color_id) || inv.color_id === cartItem.color_id) &&
+              (inv.products?.nombre_producto?.trim().toLowerCase() === cartItem.nombre?.trim().toLowerCase())
+            );
+            if (matchingInv) {
+              const { data: altStock } = await supabase.from('finished_goods_stock')
+                .select('*')
+                .eq('id', matchingInv.id);
+              if (altStock && altStock.length > 0) {
+                localStock = altStock;
+              }
+            }
+          }
 
           const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
-          if (localStock?.[0]) {
+          const targetStockId = localStock?.[0]?.id;
+          const targetProductId = localStock?.[0]?.product_id || cartItem.product_id;
+
+          if (targetStockId) {
             await supabase
               .from('finished_goods_stock')
               .update({ cantidad_disponible: currentQty - cartItem.cantidad })
-              .eq('id', localStock[0].id);
+              .eq('id', targetStockId);
           }
 
           await supabase.from('finished_goods_kardex').insert({
             warehouse_dest_id: selectedStore.bodega_asociada_id,
-            product_id: cartItem.product_id,
+            product_id: targetProductId,
             color_id: cartItem.color_id,
             size_id: cartItem.size_id,
             tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta POS',
-            cantidad: Math.abs(cartItem.cantidad), // kardex normally tracks absolute quantity with movement type, or sometimes positive/negative. Let's stick to positive for selling if they do negative in handleCheckout. Wait, the store kardex did `cartItem.cantidad`. Let's do `cartItem.cantidad`. Actually finished_goods_kardex usually does positive. Wait, we don't know the exact format. Let's keep `cartItem.cantidad`.
+            cantidad: Math.abs(cartItem.cantidad),
             saldo_anterior: currentQty,
             saldo_nuevo: currentQty - cartItem.cantidad,
             documento_origen: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
@@ -1882,19 +1915,36 @@ export default function POSPage() {
   const ivaAmount = Math.round(totalCartPrice - (totalCartPrice / 1.19));
 
   useEffect(() => {
-    if (searchQuery.trim().length >= 8 && /^\d+$/.test(searchQuery.trim())) {
+    const term = searchQuery.trim();
+    if (term.length >= 4) {
       const lookupBarcode = async () => {
-        const { data } = await supabase
-          .from('individual_garments')
-          .select('reference_name, color_name, size_code, sewing_orders(product_id)')
-          .eq('barcode', searchQuery.trim())
-          .limit(1)
-          .single();
-        if (data) {
-          const resolvedIdOrRef = (data as any).sewing_orders?.product_id || data.reference_name;
-          setResolvedBarcodeRef(resolvedIdOrRef);
-          setScannedGarment(data);
-        } else {
+        try {
+          let { data } = await supabase
+            .from('individual_garments')
+            .select('barcode, reference_name, color_name, size_code, warehouse_id, sewing_orders(product_id)')
+            .eq('barcode', term)
+            .limit(1)
+            .maybeSingle();
+
+          if (!data && term.length >= 5) {
+            const { data: partial } = await supabase
+              .from('individual_garments')
+              .select('barcode, reference_name, color_name, size_code, warehouse_id, sewing_orders(product_id)')
+              .ilike('barcode', `%${term}%`)
+              .limit(1)
+              .maybeSingle();
+            data = partial;
+          }
+
+          if (data) {
+            setResolvedBarcodeRef(data.reference_name || (data as any).sewing_orders?.product_id || null);
+            setScannedGarment(data);
+          } else {
+            setResolvedBarcodeRef(null);
+            setScannedGarment(null);
+          }
+        } catch (e) {
+          console.error('Error looking up garment tag/barcode:', e);
           setResolvedBarcodeRef(null);
           setScannedGarment(null);
         }
@@ -1907,19 +1957,42 @@ export default function POSPage() {
   }, [searchQuery]);
 
   const filteredProducts = products.filter(p => {
-    // Check if the product has > 0 inventory in the current store
-    const hasInventory = inventoryList.some(inv => inv.product_id === p.id && Number(inv.cantidad_disponible) > 0);
+    // Check if the product has > 0 inventory in the current store (by product ID or matching product name)
+    const hasInventory = inventoryList.some(inv => 
+      (inv.product_id === p.id || (inv.products?.nombre_producto && inv.products.nombre_producto.trim().toLowerCase() === p.nombre_producto?.trim().toLowerCase())) && 
+      Number(inv.cantidad_disponible) > 0
+    );
     
     if (!hasInventory) return false;
 
-    return p.nombre_producto?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.codigo_referencia?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.categories?.categoria?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (resolvedBarcodeRef && (
-        p.id === resolvedBarcodeRef ||
-        p.codigo_referencia?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) || 
-        p.nombre_producto?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase())
-      ));
+    const sq = searchQuery.trim().toLowerCase();
+    if (!sq) return true;
+
+    const matchesName = p.nombre_producto?.toLowerCase().includes(sq);
+    const matchesCode = p.codigo_referencia?.toLowerCase().includes(sq);
+    const matchesCategory = p.categories?.categoria?.toLowerCase().includes(sq);
+    
+    let matchesGarment = false;
+    if (scannedGarment) {
+      const gRef = (scannedGarment.reference_name || '').toLowerCase();
+      const pName = (p.nombre_producto || '').toLowerCase();
+      const pCode = (p.codigo_referencia || '').toLowerCase();
+      const orderProdId = scannedGarment.sewing_orders?.product_id;
+
+      matchesGarment = (
+        (orderProdId && p.id === orderProdId) ||
+        (gRef && (pName === gRef || pCode === gRef || pName.includes(gRef) || gRef.includes(pName)))
+      );
+    }
+
+    const matchesResolved = resolvedBarcodeRef && (
+      p.id === resolvedBarcodeRef ||
+      p.codigo_referencia?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) || 
+      p.nombre_producto?.toLowerCase().includes(resolvedBarcodeRef.toLowerCase()) ||
+      resolvedBarcodeRef.toLowerCase().includes(p.nombre_producto?.toLowerCase())
+    );
+
+    return matchesName || matchesCode || matchesCategory || matchesGarment || matchesResolved;
   });
 
   return (
@@ -2303,9 +2376,17 @@ export default function POSPage() {
               <Search size={16} style={{ position: 'absolute', left: '1.15rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input
                 type="text"
-                placeholder="Buscar prenda por código, nombre o referencia..."
+                placeholder="Buscar por etiqueta, código de barras, nombre o referencia..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredProducts.length > 0) {
+                      handleAddToCart(filteredProducts[0]);
+                    }
+                  }
+                }}
                 style={{
                   width: '100%',
                   height: `${customSearchHeight}px`,
@@ -2327,6 +2408,57 @@ export default function POSPage() {
                 Ctrl+K
               </span>
               <QrCode size={16} style={{ position: 'absolute', right: '1.15rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', cursor: 'pointer' }} />
+
+              {/* Tag / Barcode live detected popup */}
+              {scannedGarment && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  left: 0,
+                  right: 0,
+                  zIndex: 1000,
+                  backgroundColor: '#ffffff',
+                  border: '1.5px solid #10b981',
+                  borderRadius: '14px',
+                  padding: '0.75rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.14)',
+                  animation: 'fadeIn 0.2s ease-out'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ backgroundColor: '#ecfdf5', color: '#059669', padding: '0.25rem 0.65rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      🏷️ Etiqueta #{scannedGarment.barcode}
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#0f172a' }}>{scannedGarment.reference_name}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Color: <strong style={{ color: '#0f172a' }}>{scannedGarment.color_name}</strong> | Talla: <strong style={{ color: '#0f172a' }}>{scannedGarment.size_code}</strong></span>
+                    </div>
+                  </div>
+                  {filteredProducts.length > 0 && (
+                    <button
+                      onClick={() => handleAddToCart(filteredProducts[0])}
+                      style={{
+                        backgroundColor: '#10b981',
+                        color: 'white',
+                        border: 'none',
+                        padding: '0.45rem 1rem',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        fontWeight: '850',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                      }}
+                    >
+                      <ShoppingCart size={14} /> Agregar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* User status widgets */}
@@ -2665,10 +2797,10 @@ export default function POSPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                       <input
                         type="text"
-                        placeholder="Buscar producto..."
+                        placeholder="Buscar por referencia, nombre, color o talla..."
                         value={invSearch}
-                        onChange={e => setInvSearch(e.target.value)}
-                        style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none', width: '300px' }}
+                        onChange={e => { setInvSearch(e.target.value); setInventoryPage(0); }}
+                        style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none', width: '360px' }}
                       />
                       <div style={{ display: 'flex', gap: '1rem' }}>
                         <div style={{ background: '#f8fafc', padding: '0.5rem 1.5rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
@@ -2698,7 +2830,17 @@ export default function POSPage() {
                       </thead>
                       <tbody>
                         {(() => {
-                          const filteredInv = inventoryList.filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()));
+                          const sQuery = invSearch.trim().toLowerCase();
+                          const filteredInv = inventoryList.filter(inv => {
+                            if (!sQuery) return true;
+                            const pName = (inv.products?.nombre_producto || '').toLowerCase();
+                            const pRef = (inv.products?.codigo_referencia || '').toLowerCase();
+                            const cName = (inv.colors?.nombre_color || '').toLowerCase();
+                            const cCode = (inv.colors?.codigo_color || '').toLowerCase();
+                            const sCode = (inv.sizes?.codigo_talla || '').toLowerCase();
+                            const sName = (inv.sizes?.nombre_talla || '').toLowerCase();
+                            return pName.includes(sQuery) || pRef.includes(sQuery) || cName.includes(sQuery) || cCode.includes(sQuery) || sCode.includes(sQuery) || sName.includes(sQuery);
+                          });
                           return (
                             <>
                               {filteredInv.slice(inventoryPage * 10, (inventoryPage + 1) * 10).map((inv, idx) => (
@@ -2721,7 +2863,7 @@ export default function POSPage() {
                                 </tr>
                               ))}
                               {filteredInv.length === 0 && (
-                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay inventario registrado para esta tienda.</td></tr>
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No se encontraron productos en el inventario de esta tienda.</td></tr>
                               )}
                             </>
                           );
@@ -2730,7 +2872,17 @@ export default function POSPage() {
                     </table>
 
                     {(() => {
-                      const filteredInv = inventoryList.filter(inv => !invSearch || (inv.products?.nombre_producto || '').toLowerCase().includes(invSearch.toLowerCase()));
+                      const sQuery = invSearch.trim().toLowerCase();
+                      const filteredInv = inventoryList.filter(inv => {
+                        if (!sQuery) return true;
+                        const pName = (inv.products?.nombre_producto || '').toLowerCase();
+                        const pRef = (inv.products?.codigo_referencia || '').toLowerCase();
+                        const cName = (inv.colors?.nombre_color || '').toLowerCase();
+                        const cCode = (inv.colors?.codigo_color || '').toLowerCase();
+                        const sCode = (inv.sizes?.codigo_talla || '').toLowerCase();
+                        const sName = (inv.sizes?.nombre_talla || '').toLowerCase();
+                        return pName.includes(sQuery) || pRef.includes(sQuery) || cName.includes(sQuery) || cCode.includes(sQuery) || sCode.includes(sQuery) || sName.includes(sQuery);
+                      });
                       if (filteredInv.length > 10) {
                         return (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
