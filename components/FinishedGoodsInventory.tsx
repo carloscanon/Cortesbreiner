@@ -523,7 +523,7 @@ export default function FinishedGoodsInventory() {
           *,
           warehouses (id, nombre_bodega),
           stores (id, nombre, codigo),
-          sewing_orders (id, product_id, order_number)
+          sewing_orders (id, product_id, confeccion_code)
         `)
         .order('created_at', { ascending: false })
         .limit(200);
