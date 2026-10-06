@@ -336,16 +336,10 @@ export default function POSPage() {
     try {
       if (!selectedStore) return;
       if (selectedStore.bodega_asociada_id) {
-        const { data: inv } = await supabase
-          .from('finished_goods_stock')
-          .select('*, products(*), sizes(*), colors(*)')
-          .eq('warehouse_id', selectedStore.bodega_asociada_id);
+        const inv = await fetchAllPages(supabase.from('finished_goods_stock').select('*, products(*), sizes(*), colors(*)').eq('warehouse_id', selectedStore.bodega_asociada_id));
         setInventoryList(inv || []);
       } else {
-        const { data: inv } = await supabase
-          .from('store_inventory')
-          .select('*, products(*), sizes(*), colors(*)')
-          .eq('store_id', selectedStore.id);
+        const inv = await fetchAllPages(supabase.from('store_inventory').select('*, products(*), sizes(*), colors(*)').eq('store_id', selectedStore.id));
         setInventoryList(inv || []);
       }
 
@@ -354,11 +348,7 @@ export default function POSPage() {
       if (selectedStore.bodega_asociada_id) {
         garmentFilter += `,warehouse_id.eq.${selectedStore.bodega_asociada_id}`;
       }
-      const { data: garments } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .or(garmentFilter)
-        .order('created_at', { ascending: false });
+      const garments = await fetchAllPages(supabase.from('individual_garments').select('*').or(garmentFilter).order('created_at', { ascending: false }));
       setIndividualGarments(garments || []);
     } catch (e) {
       console.error(e);
