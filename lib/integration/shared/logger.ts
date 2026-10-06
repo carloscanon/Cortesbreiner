@@ -23,30 +23,32 @@ export class IntegrationLogger {
   /**
    * Logs an API request/response interaction into the database
    */
-  static async logRequest(params: LogParams): Promise<void> {
-    try {
-      console.log(`[Integration Log] ${params.method} ${params.endpoint} - Status: ${params.statusCode || 'N/A'}`);
-      
-      const { error } = await supabaseAdmin.from('erp_logs').insert([
-        {
-          erp_name: params.erpName,
-          endpoint: params.endpoint,
-          method: params.method,
-          status_code: params.statusCode,
-          response_time_ms: params.responseTimeMs,
-          request_payload: params.requestPayload ? JSON.parse(JSON.stringify(params.requestPayload)) : null,
-          response_payload: params.responsePayload ? JSON.parse(JSON.stringify(params.responsePayload)) : null,
-          headers: params.headers ? JSON.parse(JSON.stringify(params.headers)) : null,
-          exception: params.exception
+  static logRequest(params: LogParams): void {
+    (async () => {
+      try {
+        console.log(`[Integration Log] ${params.method} ${params.endpoint} - Status: ${params.statusCode || 'N/A'}`);
+        
+        const { error } = await supabaseAdmin.from('erp_logs').insert([
+          {
+            erp_name: params.erpName,
+            endpoint: params.endpoint,
+            method: params.method,
+            status_code: params.statusCode,
+            response_time_ms: params.responseTimeMs,
+            request_payload: params.requestPayload ? JSON.parse(JSON.stringify(params.requestPayload)) : null,
+            response_payload: params.responsePayload ? JSON.parse(JSON.stringify(params.responsePayload)) : null,
+            headers: params.headers ? JSON.parse(JSON.stringify(params.headers)) : null,
+            exception: params.exception
+          }
+        ]);
+
+        if (error) {
+          console.error('Error guardando erp_log:', error);
         }
-      ]);
-      
-      if (error) {
-        console.error('Error guardando erp_log:', error);
+      } catch (e) {
+        console.error('Fallo crítico al registrar erp_log:', e);
       }
-    } catch (e) {
-      console.error('Fallo crítico al registrar erp_log:', e);
-    }
+    })();
   }
 
   /**

@@ -125,6 +125,14 @@ export default function StoreAdminPage() {
   // Sales billing console & Credit Notes
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
   const [invoicingMass, setInvoicingMass] = useState(false);
+  const [massInvoicingProgress, setMassInvoicingProgress] = useState<{
+    current: number;
+    total: number;
+    currentTicket: string;
+    status: string;
+    successCount: number;
+    errorCount: number;
+  } | null>(null);
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [showStoreInvModal, setShowStoreInvModal] = useState(false);
 
@@ -638,8 +646,27 @@ export default function StoreAdminPage() {
 
     try {
       const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
-      
+      setMassInvoicingProgress({
+        current: 0,
+        total: salesToInvoice.length,
+        currentTicket: '',
+        status: 'Iniciando conexión con SIIGO...',
+        successCount: 0,
+        errorCount: 0
+      });
+
+      let index = 0;
       for (const sale of salesToInvoice) {
+        index++;
+        setMassInvoicingProgress({
+          current: index,
+          total: salesToInvoice.length,
+          currentTicket: `#${sale.consecutive}`,
+          status: `Facturando ticket #${sale.consecutive} (${sale.client_name || 'Cliente'})...`,
+          successCount,
+          errorCount
+        });
+
         try {
           // Prepare SIIGO Invoice Payload according to official SIIGO API schema
           const invoicePayload = {
@@ -732,6 +759,15 @@ export default function StoreAdminPage() {
           errorCount++;
           errorsList.push(`Ticket #${sale.consecutive}: ${itemErr.message || String(itemErr)}`);
         }
+
+        setMassInvoicingProgress({
+          current: index,
+          total: salesToInvoice.length,
+          currentTicket: `#${sale.consecutive}`,
+          status: `Procesado ticket #${sale.consecutive}`,
+          successCount,
+          errorCount
+        });
       }
       
       let summaryMsg = `📊 Resumen de Facturación SIIGO:\n\n✅ Exitosas: ${successCount}\n❌ Fallidas: ${errorCount}`;
@@ -745,6 +781,7 @@ export default function StoreAdminPage() {
       alert("Error al facturar masivamente: " + err.message);
     } finally {
       setInvoicingMass(false);
+      setMassInvoicingProgress(null);
     }
   };
 
@@ -2143,6 +2180,50 @@ export default function StoreAdminPage() {
                 </div>
 
               </div>
+
+              {/* LIVE REAL-TIME INVOICING PROGRESS FEED */}
+              {massInvoicingProgress && (
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: '16px',
+                  backgroundColor: '#0f172a',
+                  color: 'white',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Loader2 size={18} className="animate-spin" color="#38bdf8" />
+                      <span style={{ fontWeight: '850', fontSize: '0.9rem', color: '#f8fafc' }}>
+                        Facturando en Vivo con SIIGO: Ticket {massInvoicingProgress.currentTicket} ({massInvoicingProgress.current} de {massInvoicingProgress.total})
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                      Progreso: {Math.round((massInvoicingProgress.current / massInvoicingProgress.total) * 100)}%
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div style={{ width: '100%', height: '8px', backgroundColor: '#334155', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${(massInvoicingProgress.current / massInvoicingProgress.total) * 100}%`,
+                      backgroundColor: '#38bdf8',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                    <span style={{ color: '#cbd5e1' }}>{massInvoicingProgress.status}</span>
+                    <div style={{ display: 'flex', gap: '1rem', fontWeight: '800' }}>
+                      <span style={{ color: '#4ade80' }}>✅ Exitosas: {massInvoicingProgress.successCount}</span>
+                      <span style={{ color: '#f87171' }}>❌ Con Error: {massInvoicingProgress.errorCount}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Buscador de Facturación */}
               <div style={{ display: 'flex', marginBottom: '1rem' }}>

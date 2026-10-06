@@ -157,8 +157,8 @@ export class SiigoClient {
           responseData = await response.text();
         }
 
-        // Registrar Log
-        await IntegrationLogger.logRequest({
+        // Registrar Log (Background / Non-blocking)
+        IntegrationLogger.logRequest({
           erpName: 'SIIGO',
           endpoint: url,
           method,
