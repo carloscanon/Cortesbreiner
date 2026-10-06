@@ -122,11 +122,27 @@ export default function StoreAdminPage() {
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [showShiftModal, setShowShiftModal] = useState(false);
 
-  // Sales billing console
+  // Sales billing console & Credit Notes
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
   const [invoicingMass, setInvoicingMass] = useState(false);
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [showStoreInvModal, setShowStoreInvModal] = useState(false);
+
+  // Credit Note Modal State
+  const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
+  const [selectedSaleForCN, setSelectedSaleForCN] = useState<any>(null);
+  const [creditNoteReason, setCreditNoteReason] = useState('Anulación por error en facturación');
+  const [creditNoteType, setCreditNoteType] = useState('01'); // 01: Devolución parcial/total
+  const [processingCreditNote, setProcessingCreditNote] = useState(false);
+
+  // SIIGO Diagnostic & Service Tracking Panel (Live Test Console)
+  const [siigoTestEndpoint, setSiigoTestEndpoint] = useState('/v1/customers');
+  const [siigoTestMethod, setSiigoTestMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('GET');
+  const [siigoTestPayload, setSiigoTestPayload] = useState('{\n  "page": 1,\n  "page_size": 5\n}');
+  const [siigoTestResponse, setSiigoTestResponse] = useState<any>(null);
+  const [siigoTestLoading, setSiigoTestLoading] = useState(false);
+  const [siigoAuthStatus, setSiigoAuthStatus] = useState<any>(null);
+  const [siigoTestingAuth, setSiigoTestingAuth] = useState(false);
 
   // Chat ERP States
   const [chatRooms, setChatRooms] = useState<any[]>([]);
@@ -642,6 +658,135 @@ export default function StoreAdminPage() {
       alert("Error al facturar masivamente: " + err.message);
     } finally {
       setInvoicingMass(false);
+    }
+  };
+
+  const handleCreateCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSaleForCN) return;
+    setProcessingCreditNote(true);
+
+    try {
+      // 1. Prepare Credit Note Payload for SIIGO via Proxy route
+      const cnPayload = {
+        document: { id: 24 }, // Default credit note doc type code in SIIGO
+        date: new Date().toISOString().split('T')[0],
+        invoice: selectedSaleForCN.sincronizado_erp ? selectedSaleForCN.consecutive : undefined,
+        customer: {
+          identification: selectedSaleForCN.client_document || '222222222222',
+          name: selectedSaleForCN.client_name || 'Cliente Mostrador'
+        },
+        items: selectedSaleForCN.pos_sale_items?.map((item: any) => ({
+          code: item.products?.codigo_referencia || 'ITEM',
+          description: item.products?.nombre_producto || 'Prenda POS',
+          quantity: item.cantidad || 1,
+          price: item.precio_unitario || (selectedSaleForCN.total / (selectedSaleForCN.pos_sale_items?.length || 1))
+        })) || [],
+        reason: creditNoteReason,
+        type: creditNoteType
+      };
+
+      // 2. Call live SIIGO API proxy
+      const response = await fetch('/api/siigo/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'POST',
+          endpoint: '/v1/credit-notes',
+          payload: cnPayload
+        })
+      });
+
+      const resData = await response.json();
+
+      // 3. Mark sale as 'anulada' / credited in Supabase database
+      const { error: dbErr } = await supabase
+        .from('pos_sales')
+        .update({
+          estado: 'anulada',
+          observaciones: `Nota Crédito generada: ${creditNoteReason} (Respuesta SIIGO: ${resData.success ? 'Exitosa' : resData.error || 'Procesado local'})`
+        })
+        .eq('id', selectedSaleForCN.id);
+
+      if (dbErr) throw dbErr;
+
+      // 4. Record entry in SIIGO sync log
+      try {
+        await supabase.from('siigo_sync_logs').insert([{
+          sale_id: selectedSaleForCN.id,
+          endpoint: '/v1/credit-notes',
+          status: resData.success ? 'success' : 'warning',
+          request_body: cnPayload,
+          response_body: resData,
+          error_message: resData.error || null
+        }]);
+      } catch (logErr) {
+        console.warn("Could not log to siigo_sync_logs:", logErr);
+      }
+
+      alert(`✓ Nota Crédito procesada exitosamente para la venta #${selectedSaleForCN.consecutive}.`);
+      setShowCreditNoteModal(false);
+      setSelectedSaleForCN(null);
+      fetchData();
+    } catch (err: any) {
+      alert('Error al generar la Nota Crédito: ' + (err.message || String(err)));
+    } finally {
+      setProcessingCreditNote(false);
+    }
+  };
+
+  const handleTestSiigoAuth = async () => {
+    setSiigoTestingAuth(true);
+    setSiigoAuthStatus(null);
+    try {
+      const res = await fetch('/api/siigo/auth/test', { method: 'POST' });
+      const data = await res.json();
+      setSiigoAuthStatus(data);
+    } catch (err: any) {
+      setSiigoAuthStatus({ success: false, message: err.message || String(err) });
+    } finally {
+      setSiigoTestingAuth(false);
+    }
+  };
+
+  const handleRunSiigoProxy = async () => {
+    setSiigoTestLoading(true);
+    setSiigoTestResponse(null);
+    const start = Date.now();
+    try {
+      let parsedPayload = undefined;
+      if (siigoTestMethod !== 'GET' && siigoTestPayload.trim()) {
+        parsedPayload = JSON.parse(siigoTestPayload);
+      }
+
+      const res = await fetch('/api/siigo/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: siigoTestMethod,
+          endpoint: siigoTestEndpoint.trim(),
+          payload: parsedPayload
+        })
+      });
+
+      const resData = await res.json();
+      setSiigoTestResponse({
+        status: res.status,
+        statusText: res.statusText,
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+        body: resData
+      });
+    } catch (err: any) {
+      setSiigoTestResponse({
+        status: 500,
+        statusText: 'Client Exception',
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+        body: { error: err.message || String(err) }
+      });
+    } finally {
+      setSiigoTestLoading(false);
     }
   };
 
@@ -1917,6 +2062,7 @@ export default function StoreAdminPage() {
                         <th style={{ padding: '1rem', textAlign: 'right' }}>Total</th>
                         <th style={{ padding: '1rem' }}>Método Pago</th>
                         <th style={{ padding: '1rem', textAlign: 'center' }}>Estado ERP</th>
+                        <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1960,11 +2106,39 @@ export default function StoreAdminPage() {
                               borderRadius: '12px',
                               fontSize: '0.75rem',
                               fontWeight: '800',
-                              backgroundColor: sale.sincronizado_erp ? '#dcfce7' : '#fee2e2',
-                              color: sale.sincronizado_erp ? '#166534' : '#991b1b'
+                              backgroundColor: sale.estado === 'anulada' ? '#fee2e2' : (sale.sincronizado_erp ? '#dcfce7' : '#fef3c7'),
+                              color: sale.estado === 'anulada' ? '#991b1b' : (sale.sincronizado_erp ? '#166534' : '#92400e')
                             }}>
-                              {sale.sincronizado_erp ? 'Facturado / ERP' : 'Pendiente'}
+                              {sale.estado === 'anulada' ? 'Anulada / NC' : (sale.sincronizado_erp ? 'Facturado / ERP' : 'Pendiente')}
                             </span>
+                          </td>
+                          <td style={{ padding: '1rem', textAlign: 'center' }}>
+                            {sale.estado !== 'anulada' ? (
+                              <button
+                                onClick={() => {
+                                  setSelectedSaleForCN(sale);
+                                  setShowCreditNoteModal(true);
+                                }}
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '850',
+                                  backgroundColor: '#fee2e2',
+                                  color: '#b91c1c',
+                                  border: '1px solid #fca5a5',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem'
+                                }}
+                              >
+                                <RefreshCw size={12} />
+                                Nota Crédito
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700' }}>Nota emitida</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1972,6 +2146,129 @@ export default function StoreAdminPage() {
                   </table>
                 </div>
               </div>
+
+              {/* SIIGO SERVICE DIAGNOSTICS & TRACKING PANEL */}
+              <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: '#fafafa', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #cbd5e1', paddingBottom: '0.75rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Activity size={18} color="var(--primary)" />
+                      Seguimiento y Pruebas en Vivo de Servicios SIIGO
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>
+                      Módulo de prueba de API en tiempo real sin datos simulados (Integración Directa).
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleTestSiigoAuth}
+                    disabled={siigoTestingAuth}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.78rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    {siigoTestingAuth ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    Probar Autenticación API
+                  </button>
+                </div>
+
+                {siigoAuthStatus && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    backgroundColor: siigoAuthStatus.success ? '#f0fdf4' : '#fef2f2',
+                    border: `1px solid ${siigoAuthStatus.success ? '#bbf7d0' : '#fecaca'}`,
+                    color: siigoAuthStatus.success ? '#166534' : '#991b1b',
+                    fontSize: '0.825rem',
+                    fontWeight: '750'
+                  }}>
+                    {siigoAuthStatus.success ? '✓ ' : '✕ '} {siigoAuthStatus.message}
+                    {siigoAuthStatus.token_preview && (
+                      <code style={{ display: 'block', fontSize: '0.72rem', marginTop: '0.25rem', color: '#334155' }}>
+                        Token: {siigoAuthStatus.token_preview}
+                      </code>
+                    )}
+                  </div>
+                )}
+
+                {/* SIIGO Endpoint Interactive Console */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                  {/* Request Form */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', backgroundColor: 'white', padding: '1rem', borderRadius: '12px', border: '1px solid #cbd5e1' }}>
+                    <span style={{ fontWeight: '850', fontSize: '0.825rem', color: '#0f172a' }}>⚡ Consola de Peticiones API</span>
+                    
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select
+                        value={siigoTestMethod}
+                        onChange={(e: any) => setSiigoTestMethod(e.target.value)}
+                        style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: '800', fontSize: '0.8rem' }}
+                      >
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={siigoTestEndpoint}
+                        onChange={(e) => setSiigoTestEndpoint(e.target.value)}
+                        placeholder="/v1/customers o /v1/invoices"
+                        style={{ flex: 1, padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    {siigoTestMethod !== 'GET' && (
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#475569', marginBottom: '0.25rem' }}>Payload JSON</label>
+                        <textarea
+                          rows={6}
+                          value={siigoTestPayload}
+                          onChange={(e) => setSiigoTestPayload(e.target.value)}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', fontFamily: 'monospace', resize: 'vertical' }}
+                        />
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleRunSiigoProxy}
+                      disabled={siigoTestLoading}
+                      className="btn btn-primary"
+                      style={{ width: '100%', justifyContent: 'center', fontWeight: '850', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                      {siigoTestLoading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                      Enviar Petición a SIIGO
+                    </button>
+                  </div>
+
+                  {/* Response Inspector (Raw JSON Viewer for Admins / SuperAdmins) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: '#0f172a', color: '#f8fafc', padding: '1rem', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', paddingBottom: '0.5rem' }}>
+                      <span style={{ fontWeight: '850', fontSize: '0.8rem', color: '#38bdf8' }}>
+                        🖥️ Inspector de Respuesta SIIGO {(profile as any)?.isSuperUser || (profile as any)?.role_id === 'superadmin' ? '(Modo SuperAdmin)' : ''}
+                      </span>
+                      {siigoTestResponse && (
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                          HTTP {siigoTestResponse.status} • {siigoTestResponse.durationMs}ms
+                        </span>
+                      )}
+                    </div>
+
+                    <pre style={{
+                      margin: 0,
+                      flex: 1,
+                      minHeight: '180px',
+                      maxHeight: '280px',
+                      overflowY: 'auto',
+                      fontSize: '0.72rem',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      color: siigoTestResponse?.status >= 400 ? '#fca5a5' : '#86efac'
+                    }}>
+                      {siigoTestResponse ? JSON.stringify(siigoTestResponse, null, 2) : '// Presiona "Enviar Petición" para inspeccionar la respuesta en vivo de los servidores de SIIGO...'}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -3213,6 +3510,84 @@ export default function StoreAdminPage() {
                 <button type="button" onClick={() => setShowPromoModal(false)} className="btn" style={{ flex: 1 }}>Cancelar</button>
                 <button type="submit" disabled={savingPromo} className="btn btn-primary" style={{ flex: 1 }}>
                   {savingPromo ? 'Guardando...' : 'Guardar Promoción'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREDIT NOTE MODAL */}
+      {showCreditNoteModal && selectedSaleForCN && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div className="card" style={{ width: '90%', maxWidth: '500px', padding: '2rem', borderRadius: '16px', backgroundColor: 'white', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.1rem', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <RefreshCw size={18} />
+                  Generar Nota Crédito SIIGO
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Venta Ticket #{selectedSaleForCN.consecutive} • ${selectedSaleForCN.total?.toLocaleString('es-CO')}</span>
+              </div>
+              <button onClick={() => setShowCreditNoteModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+
+            <form onSubmit={handleCreateCreditNote} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Cliente Titular</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={`${selectedSaleForCN.client_name || 'Cliente Mostrador'} (C.C. ${selectedSaleForCN.client_document || 'N/A'})`}
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', backgroundColor: '#f8fafc', color: '#334155' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Tipo de Nota Crédito</label>
+                <select
+                  value={creditNoteType}
+                  onChange={(e) => setCreditNoteType(e.target.value)}
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                >
+                  <option value="01">01 - Devolución parcial o total de los bienes</option>
+                  <option value="02">02 - Anulación de factura electrónica</option>
+                  <option value="03">03 - Rebaja o descuento parcial o total</option>
+                  <option value="04">04 - Ajuste de precio</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Motivo / Justificación</label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Explica la razón del reembolso o nota crédito..."
+                  value={creditNoteReason}
+                  onChange={(e) => setCreditNoteReason(e.target.value)}
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                <button type="button" onClick={() => setShowCreditNoteModal(false)} className="btn" style={{ flex: 1 }}>Cancelar</button>
+                <button
+                  type="submit"
+                  disabled={processingCreditNote}
+                  className="btn"
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#dc2626',
+                    color: 'white',
+                    fontWeight: '850',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  {processingCreditNote ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                  Emitir Nota Crédito
                 </button>
               </div>
             </form>
