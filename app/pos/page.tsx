@@ -2749,8 +2749,8 @@ export default function POSPage() {
                     width: '250px'
                   }}
                 >
-                  <option value="">Seleccionar Sucursal...</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  {!userAssignedStoreId && <option value="">Seleccionar Sucursal...</option>}
+                  {stores.filter(s => !userAssignedStoreId || s.id === userAssignedStoreId).map(s => <option key={s.id} value={s.id}>{userAssignedStoreId ? `🔒 ${s.nombre} (Asignada)` : s.nombre}</option>)}
                 </select>
               </div>
 
@@ -2772,8 +2772,8 @@ export default function POSPage() {
                     width: '200px'
                   }}
                 >
-                  <option value="">Seleccionar Caja...</option>
-                  {registers.map(r => <option key={r.id} value={r.id}>{r.codigo_caja}</option>)}
+                  {!userAssignedRegisterId && <option value="">Seleccionar Caja...</option>}
+                  {registers.filter(r => !userAssignedRegisterId || r.id === userAssignedRegisterId || r.codigo_caja === userAssignedRegisterId).map(r => <option key={r.id} value={r.id}>{userAssignedRegisterId ? `🔒 ${r.codigo_caja} (Asignada)` : r.codigo_caja}</option>)}
                 </select>
               </div>
 
