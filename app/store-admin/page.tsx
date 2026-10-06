@@ -654,9 +654,10 @@ export default function StoreAdminPage() {
     });
 
     try {
-      // 1. Obtain active document type ID from SIIGO (/document-types?type=FV)
+      // 1. Obtain active document type ID, payment type ID, and seller ID from SIIGO
       let docTypeId = 2430; // default fallback
       let paymentId = 5636;  // default fallback
+      let sellerId: number | null = null;
 
       try {
         const docRes = await fetch('/api/siigo/proxy', {
@@ -680,8 +681,19 @@ export default function StoreAdminPage() {
         if (Array.isArray(payTypes) && payTypes.length > 0 && payTypes[0].id) {
           paymentId = payTypes[0].id;
         }
+
+        const userRes = await fetch('/api/siigo/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method: 'GET', endpoint: '/users' })
+        });
+        const userJson = await userRes.json();
+        const usersList = userJson.data?.results || userJson.results || userJson.data || userJson;
+        if (Array.isArray(usersList) && usersList.length > 0 && usersList[0].id) {
+          sellerId = usersList[0].id;
+        }
       } catch (e) {
-        console.warn("Could not dynamically resolve doc/payment types, using fallbacks:", e);
+        console.warn("Could not dynamically resolve doc/payment/seller types, using fallbacks:", e);
       }
 
       const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
@@ -728,6 +740,7 @@ export default function StoreAdminPage() {
               quantity: 1,
               price: Number(sale.total) || 0
             }],
+            seller: sellerId ? sellerId : 1,
             payments: [{
               id: paymentId,
               value: Number(sale.total) || 0
