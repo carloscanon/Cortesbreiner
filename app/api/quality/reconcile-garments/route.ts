@@ -112,7 +112,8 @@ export async function POST(req: Request) {
             color_name: row.colorName,
             size_code: sizeCode,
             status: targetStatus,
-            defect_checklist: {}
+            defect_checklist: {},
+            warehouse_id: 'a7de052c-cff0-46a4-989d-ed6eaab21a0e' // Bodega Transito
           });
         } else if (g) {
           // No hay target: DELETE

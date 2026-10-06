@@ -63,6 +63,32 @@ const DynamicIcon = ({ name, size, ...props }: { name: string; size: number; [ke
 };
 
 export default function POSPage() {
+  const fetchAllPages = async (queryBuilder: any) => {
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await queryBuilder.range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error) {
+        console.error('Error in fetchAllPages:', error);
+        break;
+      }
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
+  };
+
   const router = useRouter();
   const [activeTheme, setActiveTheme] = useState<any>(null);
   const { user, profile, config, loading: authLoading, signOut } = useAuth();
@@ -115,6 +141,7 @@ export default function POSPage() {
   const [activeMenuId, setActiveMenuId] = useState('pos');
   const [salesPage, setSalesPage] = useState(0);
   const [inventoryPage, setInventoryPage] = useState(0);
+  const [posProductsPage, setPosProductsPage] = useState(0);
   const [shiftsPage, setShiftsPage] = useState(0);
   const [reportDateRange, setReportDateRange] = useState('today');
   
@@ -1015,7 +1042,7 @@ export default function POSPage() {
     setLoading(true);
     try {
       const { data: st } = await supabase.from('stores').select('*').eq('estado', 'activo');
-      const { data: prod } = await supabase.from('products').select('*, categories(*)').eq('estado', 'activo');
+      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)').eq('estado', 'activo'));
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: promo } = await supabase.from('pos_promotions').select('*').eq('activo', true);

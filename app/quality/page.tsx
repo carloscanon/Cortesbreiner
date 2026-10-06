@@ -452,9 +452,9 @@ export default function QualityPage() {
   };
 
   const handleToggleDisableOrder = async (inspection: any) => {
-    const isCurrentlyDisabled = inspection.status === 'Inhabilitado';
+    const isCurrentlyDisabled = inspection.status === 'Rechazado';
     const actionText = isCurrentlyDisabled ? 'habilitar nuevamente' : 'inhabilitar';
-    const newStatus = isCurrentlyDisabled ? 'Pendiente' : 'Inhabilitado';
+    const newStatus = isCurrentlyDisabled ? 'Pendiente' : 'Rechazado';
 
     if (!window.confirm(`¿Está seguro de que desea ${actionText} la orden ${inspection.sewing_orders?.confeccion_code || 'seleccionada'}?`)) return;
 
@@ -462,7 +462,10 @@ export default function QualityPage() {
       setLoading(true);
       const { error } = await supabase
         .from('quality_inspections')
-        .update({ status: newStatus })
+        .update({ 
+          status: newStatus,
+          notes: isCurrentlyDisabled ? (inspection.notes || '').replace('[INHABILITADO] ', '') : `[INHABILITADO] ${inspection.notes || ''}`
+        })
         .eq('id', inspection.id);
 
       if (error) throw error;
@@ -998,7 +1001,7 @@ export default function QualityPage() {
       workshop_name: selectedSewingOrder?.workshops?.nombre_taller || selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
       items_inspected: totalInspected, items_approved: finalApproved, items_rejected: finalRejected,
       lavanderia: lavVal, saldos: salVal, costuras: cosVal, incompleto: incVal,
-      status: isClosing ? (form.status === 'Pendiente' ? 'Aprobado' : form.status) : (form.status || 'En Proceso'),
+      status: isClosing ? (['Aprobado', 'Rechazado', 'Pendiente'].includes(form.status) ? form.status : 'Aprobado') : (['Aprobado', 'Rechazado', 'Pendiente'].includes(form.status) ? form.status : 'Pendiente'),
       notes: formattedNotes,
       valor_prenda: valPrenda,
       descuento_defectos: descDefectos,
@@ -1115,7 +1118,7 @@ export default function QualityPage() {
           await revertQualityApprovalFromInventory(inspectionId);
           await supabase.from('quality_inspections').update({
             current_stage: 1,
-            status: 'En Proceso',
+            status: 'Pendiente',
             closed_at: null,
             pago_status: 'Pendiente de aprobación financiera'
           }).eq('id', inspectionId);
@@ -1128,7 +1131,7 @@ export default function QualityPage() {
           await revertQualityApprovalFromInventory(inspectionId);
           await supabase.from('quality_inspections').update({
             current_stage: 2,
-            status: 'Reproceso',
+            status: 'Pendiente',
             closed_at: null,
             pago_status: 'Pendiente de aprobación financiera'
           }).eq('id', inspectionId);
@@ -1141,7 +1144,7 @@ export default function QualityPage() {
           await revertQualityApprovalFromInventory(inspectionId);
           await supabase.from('quality_inspections').update({
             current_stage: 3,
-            status: 'Empacado',
+            status: 'Pendiente',
             closed_at: null,
             pago_status: 'Pendiente de aprobación financiera'
           }).eq('id', inspectionId);
@@ -1154,7 +1157,7 @@ export default function QualityPage() {
           await revertQualityApprovalFromInventory(inspectionId);
           await supabase.from('quality_inspections').update({
             current_stage: 4,
-            status: 'En Proceso',
+            status: 'Pendiente',
             closed_at: null,
             pago_status: 'Pendiente de aprobación financiera'
           }).eq('id', inspectionId);
@@ -1167,7 +1170,7 @@ export default function QualityPage() {
         
         if (inspectionId) {
           await supabase.from('quality_inspections').update({
-            status: 'En Taller',
+            status: 'Rechazado',
             current_stage: 2,
             closed_at: null,
             pago_status: 'Pendiente de aprobación financiera'
@@ -2508,7 +2511,7 @@ export default function QualityPage() {
 
             {(() => {
               const rejectionsList = inspections.filter((i: any) => 
-                i.status === 'En Taller' || 
+                (i.status === 'Rechazado' || i.current_stage === 2) || 
                 i.status === 'Reproceso' || 
                 i.items_rejected > 0 || 
                 (Number(i.costuras) || 0) > 0 || 
@@ -2537,7 +2540,7 @@ export default function QualityPage() {
               });
 
               const totalLotes = filteredRejections.length;
-              const enTaller = filteredRejections.filter(i => i.status === 'En Taller').length;
+              const enTaller = filteredRejections.filter(i => (i.status === 'Rechazado' || i.current_stage === 2)).length;
               const solucionados = filteredRejections.filter(i => i.status === 'Aprobado' || i.status === 'Empacado').length;
               const solucionPct = totalLotes > 0 ? Math.round((solucionados / totalLotes) * 100) : 0;
 
@@ -2600,8 +2603,8 @@ export default function QualityPage() {
                               <td style={{ padding: '1rem 0.85rem', color: '#b91c1c', fontSize: '0.72rem', fontWeight: '800' }}>{defectStr}</td>
                               <td style={{ padding: '1rem 0.85rem' }}>
                                 <span style={{ 
-                                  backgroundColor: i.status === 'En Taller' ? '#fee2e2' : i.status === 'Reproceso' ? '#fef3c7' : '#f1f5f9',
-                                  color: i.status === 'En Taller' ? '#991b1b' : i.status === 'Reproceso' ? '#92400e' : '#475569',
+                                  backgroundColor: (i.status === 'Rechazado' || i.current_stage === 2) ? '#fee2e2' : i.status === 'Reproceso' ? '#fef3c7' : '#f1f5f9',
+                                  color: (i.status === 'Rechazado' || i.current_stage === 2) ? '#991b1b' : i.status === 'Reproceso' ? '#92400e' : '#475569',
                                   padding: '0.3rem 0.6rem', borderRadius: '6px', fontWeight: '800', fontSize: '0.65rem', textTransform: 'uppercase'
                                 }}>
                                   {i.status}
@@ -2616,12 +2619,12 @@ export default function QualityPage() {
                                   Ver Lote
                                 </button>
 
-                                {i.status === 'En Taller' && (
+                                {(i.status === 'Rechazado' || i.current_stage === 2) && (
                                   <button
                                     onClick={async () => {
                                       if (window.confirm(`¿Confirmas que el taller devolvió el lote ${orderRef} con los arreglos?`)) {
                                         try {
-                                          await supabase.from('quality_inspections').update({ status: 'En Proceso', current_stage: 1 }).eq('id', i.id);
+                                          await supabase.from('quality_inspections').update({ status: 'Pendiente', current_stage: 1 }).eq('id', i.id);
                                           if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'En Calidad' }).eq('id', i.sewing_order_id);
                                           alert(`✅ Lote ${orderRef} recibido y retornado a Etapa 1.`);
                                           fetchInspections();
@@ -2634,13 +2637,13 @@ export default function QualityPage() {
                                   </button>
                                 )}
 
-                                {i.status !== 'En Taller' && (
+                                {(i.status !== 'Rechazado' && i.current_stage !== 2) && (
                                   <button
                                     onClick={async () => {
                                       if (window.confirm(`¿Enviar el lote ${orderRef} devuelta al Taller de Confección?`)) {
                                         try {
                                           await revertQualityApprovalFromInventory(i.id);
-                                          await supabase.from('quality_inspections').update({ status: 'En Taller', current_stage: 2 }).eq('id', i.id);
+                                          await supabase.from('quality_inspections').update({ status: 'Rechazado', current_stage: 2 }).eq('id', i.id);
                                           if (i.sewing_order_id) await supabase.from('sewing_orders').update({ status: 'Reproceso Taller' }).eq('id', i.sewing_order_id);
                                           alert(`✅ Lote ${orderRef} enviado a Taller.`);
                                           fetchInspections();

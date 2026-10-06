@@ -522,7 +522,8 @@ export default function FinishedGoodsInventory() {
         .select(`
           *,
           warehouses (id, nombre_bodega),
-          stores (id, nombre, nombre_sucursal)
+          stores (id, nombre, codigo),
+          sewing_orders (id, product_id, order_number)
         `)
         .order('created_at', { ascending: false })
         .limit(200);
@@ -591,7 +592,7 @@ export default function FinishedGoodsInventory() {
             .select(`
               *,
               warehouses (id, nombre_bodega),
-              stores (id, nombre, nombre_sucursal)
+              stores (id, nombre, codigo)
             `)
             .eq('barcode', term)
             .limit(1)
@@ -605,7 +606,7 @@ export default function FinishedGoodsInventory() {
               .select(`
                 *,
                 warehouses (id, nombre_bodega),
-                stores (id, nombre, nombre_sucursal)
+                stores (id, nombre, codigo)
               `)
               .ilike('barcode', `%${term}%`)
               .limit(1)
@@ -2694,12 +2695,12 @@ export default function FinishedGoodsInventory() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {locatorResults.map(g => {
-                    const matchedProduct = products.find(p => {
+                    const matchedProduct = (g.sewing_orders?.product_id ? products.find(p => p.id === g.sewing_orders.product_id) : null) || products.find(p => {
                       const pRef = (p.codigo_referencia || '').toLowerCase().trim();
                       const pName = (p.nombre_producto || p.name || '').toLowerCase().trim();
                       const gRef = (g.reference_name || '').toLowerCase().trim();
                       if (!gRef) return false;
-                      return pRef === gRef || pName === gRef || gRef.includes(pRef) || pName.includes(gRef) || gRef.includes(pName);
+                      return pRef === gRef || pName === gRef || gRef === pRef || gRef === pName || (pRef.length >= 3 && gRef.includes(pRef)) || (pName.length >= 3 && gRef.includes(pName));
                     });
 
                     const matchedCategory = categories.find(c => c.id === matchedProduct?.category_id);
@@ -2752,7 +2753,7 @@ export default function FinishedGoodsInventory() {
                             {g.store_id && (
                               <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
                                 <Package size={14} style={{ color: '#0ea5e9' }} />
-                                Local / Tienda: {g.stores?.nombre || g.stores?.nombre_sucursal || stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
+                                Local / Tienda: {g.stores?.nombre || stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
                               </strong>
                             )}
                             {!g.warehouse_id && !g.store_id && (
@@ -5183,7 +5184,7 @@ export default function FinishedGoodsInventory() {
                     </span>
                   ) : (
                     <span style={{ backgroundColor: '#ef4444', color: 'white', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '900', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                      ⚠️ Registrada en: {warehouseModalResolvedGarment.warehouses?.nombre_bodega || warehouseModalResolvedGarment.stores?.nombre || warehouseModalResolvedGarment.stores?.nombre_sucursal || 'Otra ubicación'}
+                      ⚠️ Registrada en: {warehouseModalResolvedGarment.warehouses?.nombre_bodega || warehouseModalResolvedGarment.stores?.nombre || 'Otra ubicación'}
                     </span>
                   )}
                 </div>
