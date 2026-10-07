@@ -78,8 +78,9 @@ export default function AuditManagerDashboard({
           .select('id, codigo_referencia, categoria, category_id, categories(categoria)');
 
         const prodMap = new Map<string, string>();
-        prods?.forEach(p => {
-          const catName = (Array.isArray(p.categories) ? p.categories[0]?.categoria : p.categories?.categoria) || p.categoria || 'Sin Categoría';
+        prods?.forEach((p: any) => {
+          const catObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
+          const catName = catObj?.categoria || p.categoria || 'Sin Categoría';
           if (p.id) prodMap.set(p.id, catName);
           if (p.codigo_referencia) prodMap.set(p.codigo_referencia.trim().toUpperCase(), catName);
         });
@@ -104,11 +105,12 @@ export default function AuditManagerDashboard({
         const { data: stockItems } = await stockQuery;
 
         if (stockItems && stockItems.length > 0) {
-          stockItems.forEach(st => {
+          stockItems.forEach((st: any) => {
             const qty = Number(st.cantidad_disponible || 0);
             if (qty <= 0) return;
             const prod = Array.isArray(st.products) ? st.products[0] : st.products;
-            const cat = (Array.isArray(prod?.categories) ? prod?.categories[0]?.categoria : prod?.categories?.categoria) || prod?.categoria || 'Sin Categoría';
+            const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
+            const cat = catObj?.categoria || prod?.categoria || 'Sin Categoría';
             const key = cat.toLowerCase().trim();
             // Add if not already exclusively loaded by individual garments
             if (!garments || garments.length === 0) {
