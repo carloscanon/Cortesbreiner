@@ -144,13 +144,21 @@ function isSameWarehouse(item: any, w: any) {
   
   if (nameA && nameB && (nameA === nameB || nameA.includes(nameB) || nameB.includes(nameA))) return true;
   
-  // 3. Palabras clave principales
-  const keywords = ['principal', '101', 'lavanderia', 'saldos', 'incompletos', 'transito', 'local 1', 'local 2', 'confeccion'];
+  // 3. Coincidencias de número de bodega (ej: Bodega 2, Bodega 102, Confección)
+  if (
+    (nameA.includes('bodega 2') || nameA.includes('102') || nameA.includes('confeccion')) &&
+    (nameB.includes('bodega 2') || nameB.includes('102') || nameB.includes('confeccion'))
+  ) {
+    return true;
+  }
+  
+  // 4. Palabras clave principales
+  const keywords = ['principal', '101', 'lavanderia', 'saldos', 'incompletos', 'transito', 'local 1', 'local 2', 'confeccion', 'bodega 2', '102'];
   for (const kw of keywords) {
     if (nameA.includes(kw) && nameB.includes(kw)) return true;
   }
 
-  // 4. Fallback: Si el ítem no tiene warehouse especificado pero la bodega es 'Principal', incluirlo por omisión
+  // 5. Fallback: Si el ítem no tiene warehouse especificado pero la bodega es 'Principal', incluirlo por omisión
   if (!itemWhId && !nameA && (nameB.includes('principal') || nameB.includes('101'))) return true;
 
   return false;
