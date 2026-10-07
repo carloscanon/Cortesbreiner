@@ -2397,6 +2397,7 @@ export default function FinishedGoodsInventory() {
         ) : (
           <AuditManagerDashboard
             warehouses={warehouses}
+            categories={categories}
             user={user}
             profile={profile}
             onOpenScanner={(session) => setActiveAuditScannerSession(session)}

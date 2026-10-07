@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck, BarChart3, AlertTriangle, CheckCircle2, TrendingUp, TrendingDown,
-  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2
+  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2, CheckSquare
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface AuditManagerDashboardProps {
   warehouses: any[];
+  categories?: any[];
   user: any;
   profile: any;
   isAdmin?: boolean;
@@ -15,6 +17,7 @@ interface AuditManagerDashboardProps {
 
 export default function AuditManagerDashboard({
   warehouses,
+  categories = [],
   user,
   profile,
   isAdmin = false,
@@ -32,7 +35,20 @@ export default function AuditManagerDashboard({
   const [newLocationId, setNewLocationId] = useState('');
   const [newAuditType, setNewAuditType] = useState('Completo');
   const [newNotes, setNewNotes] = useState('');
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [categoriesList, setCategoriesList] = useState<any[]>(categories || []);
   const [isCreating, setIsCreating] = useState(false);
+
+  // Fetch categories from DB if not passed via props
+  useEffect(() => {
+    if (categories && categories.length > 0) {
+      setCategoriesList(categories);
+    } else {
+      supabase.from('categories').select('*').then(res => {
+        if (res.data) setCategoriesList(res.data);
+      });
+    }
+  }, [categories]);
 
   // Check if current user is superadmin
   const isSuperAdminUser = isAdmin || profile?.role === 'super_admin' || profile?.role === 'admin' || user?.email?.includes('admin');
@@ -85,10 +101,20 @@ export default function AuditManagerDashboard({
     e.preventDefault();
     if (!newLocationId) return alert('Selecciona la tienda o bodega a auditar.');
 
+    if ((newAuditType === 'Parcial' || newAuditType === 'Por Categoria') && selectedCategoryIds.length === 0) {
+      return alert('Por favor selecciona al menos una categoría para la auditoría parcial.');
+    }
+
     setIsCreating(true);
     try {
       const whObj = warehouses.find(w => w.id === newLocationId);
       const locationName = whObj?.nombre_bodega || whObj?.name || 'Ubicación Desconocida';
+
+      const payloadNotes = newNotes || (
+        selectedCategoryIds.length > 0
+          ? `Auditoría Parcial por Categoría(s): ${selectedCategoryIds.join(', ')}`
+          : `Auditoría ${newAuditType} en ${locationName}`
+      );
 
       const res = await fetch('/api/inventory/audit/sessions', {
         method: 'POST',
@@ -97,8 +123,9 @@ export default function AuditManagerDashboard({
           locationId: newLocationId,
           locationName,
           auditType: newAuditType,
+          categories: selectedCategoryIds,
           userEmail: user?.email || 'Sistema',
-          notes: newNotes
+          notes: payloadNotes
         })
       });
 
@@ -109,6 +136,7 @@ export default function AuditManagerDashboard({
       setShowCreateModal(false);
       setNewLocationId('');
       setNewNotes('');
+      setSelectedCategoryIds([]);
       await fetchAuditSessions();
       onOpenScanner(data.session);
     } catch (err: any) {
@@ -442,13 +470,71 @@ export default function AuditManagerDashboard({
                   style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700' }}
                 >
                   <option value="Completo">Inventario Completo (100%)</option>
-                  <option value="Parcial">Inventario Parcial</option>
+                  <option value="Parcial">Inventario Parcial (por Categoría)</option>
                   <option value="Por Categoria">Por Categoría</option>
                   <option value="Por Referencia">Por Referencia</option>
                   <option value="Muestreo">Muestreo Aleatorio</option>
                   <option value="Ciclico">Auditoría Cíclica</option>
                 </select>
               </div>
+
+              {/* SELECCIONADOR DE CATEGORÍAS PARA AUDITORÍA PARCIAL */}
+              {(newAuditType === 'Parcial' || newAuditType === 'Por Categoria') && (
+                <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a' }}>
+                      📁 Seleccionar Categoría(s) a Auditar *
+                    </label>
+                    <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: '800', backgroundColor: '#e0e7ff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                      {selectedCategoryIds.length} seleccionada(s)
+                    </span>
+                  </div>
+
+                  <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.3rem' }}>
+                    {categoriesList.length === 0 ? (
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cargando categorías de la base de datos...</span>
+                    ) : (
+                      categoriesList.map((cat: any) => {
+                        const catName = cat.categoria || cat.name || cat;
+                        const isSelected = selectedCategoryIds.includes(catName);
+                        return (
+                          <label
+                            key={cat.id || catName}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              fontSize: '0.8rem',
+                              fontWeight: '700',
+                              color: isSelected ? '#3730a3' : '#334155',
+                              cursor: 'pointer',
+                              padding: '0.4rem 0.65rem',
+                              borderRadius: '8px',
+                              backgroundColor: isSelected ? '#e0e7ff' : 'white',
+                              border: `1px solid ${isSelected ? '#818cf8' : '#cbd5e1'}`,
+                              transition: 'all 0.15s'
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setSelectedCategoryIds([...selectedCategoryIds, catName]);
+                                } else {
+                                  setSelectedCategoryIds(selectedCategoryIds.filter(c => c !== catName));
+                                }
+                              }}
+                              style={{ accentColor: '#6366f1', width: '15px', height: '15px', cursor: 'pointer' }}
+                            />
+                            <span>📁 {catName}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', color: '#334155', marginBottom: '0.3rem' }}>

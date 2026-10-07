@@ -102,6 +102,7 @@ export async function POST(req: Request) {
       locationId,
       locationName,
       auditType = 'Completo',
+      categories = [],
       samplePercentage = 100,
       userEmail,
       notes
@@ -110,6 +111,11 @@ export async function POST(req: Request) {
     if (!locationId || !locationName) {
       return NextResponse.json({ error: 'Debe especificar la ubicación a auditar.' }, { status: 400 });
     }
+
+    // Normalize target categories for partial audit by category
+    const targetCategories: string[] = Array.isArray(categories) && categories.length > 0
+      ? categories.map((c: any) => (typeof c === 'string' ? c : c.categoria || c.name || '').trim().toLowerCase())
+      : [];
 
     // 1. Create audit_sessions entry
     const { data: session, error: sessErr } = await supabase
@@ -121,7 +127,7 @@ export async function POST(req: Request) {
         sample_percentage: samplePercentage,
         status: 'En Progreso',
         created_by: userEmail || 'Sistema',
-        notes: notes || `Auditoría 1-a-1 por Código de Barras en ${locationName}`
+        notes: notes || `Auditoría ${auditType} en ${locationName}`
       })
       .select()
       .single();
@@ -151,7 +157,7 @@ export async function POST(req: Request) {
 
     if (garments && garments.length > 0) {
       // Fetch product prices map for unit cost/price resolution
-      const { data: prods } = await supabase.from('products').select('id, codigo_referencia, nombre_producto, precio, costo');
+      const { data: prods } = await supabase.from('products').select('id, codigo_referencia, nombre_producto, precio, costo, categoria, category_id, categories(categoria)');
       const prodMap = new Map<string, any>();
       prods?.forEach(p => {
         if (p.id) prodMap.set(p.id, p);
@@ -161,9 +167,20 @@ export async function POST(req: Request) {
       garments.forEach(g => {
         if (!g.barcode) return;
         const bCode = g.barcode.trim();
-        registeredBarcodes.add(bCode);
 
         const prod = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toUpperCase());
+        const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
+        const categoryName = (catObj?.categoria || prod?.categoria || 'Prendas Individuales').trim();
+
+        // If partial audit by category is active, filter out garments outside selected categories
+        if (targetCategories.length > 0) {
+          const catLower = categoryName.toLowerCase();
+          const matchesCategory = targetCategories.some(tc => catLower.includes(tc) || tc.includes(catLower));
+          if (!matchesCategory) return;
+        }
+
+        registeredBarcodes.add(bCode);
+
         const productName = g.reference_name || prod?.nombre_producto || 'Prenda Indiv.';
         const unitCost = Number(prod?.costo || prod?.precio * 0.5 || 0);
         const unitPrice = Number(prod?.precio || 0);
@@ -174,7 +191,7 @@ export async function POST(req: Request) {
           sku_code: bCode,
           barcode: bCode,
           product_name: productName,
-          category_name: prod?.categoria || 'Prendas Individuales',
+          category_name: categoryName,
           color_name: g.color_name || '—',
           size_code: g.size_code || 'ST',
           expected_qty: 1, // 1-to-1 matching per barcode sticker!
@@ -217,10 +234,18 @@ export async function POST(req: Request) {
         const color = Array.isArray(st.colors) ? st.colors[0] : st.colors;
         const size = Array.isArray(st.sizes) ? st.sizes[0] : st.sizes;
 
+        const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
+        const categoryName = (catObj?.categoria || prod?.categoria || 'Sin Categoría').trim();
+
+        // If partial audit by category is active, filter out stock outside selected categories
+        if (targetCategories.length > 0) {
+          const catLower = categoryName.toLowerCase();
+          const matchesCategory = targetCategories.some(tc => catLower.includes(tc) || tc.includes(catLower));
+          if (!matchesCategory) return;
+        }
+
         const productRef = prod?.codigo_referencia || 'SIN-REF';
         const productName = prod?.nombre_producto || productRef;
-        const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
-        const categoryName = catObj?.categoria || prod?.categoria || 'Sin Categoría';
         const colorName = color?.nombre_color || '—';
         const sizeCode = size?.codigo_talla || 'ST';
 
