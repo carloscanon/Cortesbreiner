@@ -786,6 +786,12 @@ export default function StoreAdminPage() {
               price: Number(sale.total) || 0
             }],
             seller: sellerId ? sellerId : 1,
+            stamp: {
+              send: true // Envío obligatorio de Factura Electrónica a la DIAN (Obtención de CUFE)
+            },
+            mail: {
+              send: true // Envío automático por correo electrónico al cliente
+            },
             payments: [{
               id: paymentId,
               value: Number(sale.total) || 0,
