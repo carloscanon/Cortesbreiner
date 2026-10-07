@@ -125,6 +125,8 @@ export default function StoreAdminPage() {
   // Sales billing console & Credit Notes
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
   const [invoicingMass, setInvoicingMass] = useState(false);
+  const [availableDocTypes, setAvailableDocTypes] = useState<any[]>([]);
+  const [selectedDocTypeId, setSelectedDocTypeId] = useState<string>('auto');
   const [massInvoicingProgress, setMassInvoicingProgress] = useState<{
     current: number;
     total: number;
@@ -250,6 +252,23 @@ export default function StoreAdminPage() {
       setAdminChatInput(text);
     } finally {
       setSendingAdminMsg(false);
+    }
+  };
+
+  const fetchSiigoDocTypes = async () => {
+    try {
+      const res = await fetch('/api/siigo/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'GET', endpoint: '/document-types?type=FV' })
+      });
+      const json = await res.json();
+      const list = json.data || json;
+      if (Array.isArray(list)) {
+        setAvailableDocTypes(list);
+      }
+    } catch (e) {
+      console.warn("Could not fetch SIIGO document types:", e);
     }
   };
 
@@ -430,6 +449,9 @@ export default function StoreAdminPage() {
       
       // Fetch ERP Alerts List
       await fetchErpAlertsList();
+
+      // Fetch SIIGO Document Types for Document Selector
+      fetchSiigoDocTypes();
 
     } catch (err) {
       console.error('Error fetching admin data:', err);
@@ -660,20 +682,24 @@ export default function StoreAdminPage() {
       let sellerId: number | null = null;
 
       try {
-        const docRes = await fetch('/api/siigo/proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'GET', endpoint: '/document-types?type=FV' })
-        });
-        const docJson = await docRes.json();
-        const docTypes = docJson.data || docJson;
-        if (Array.isArray(docTypes) && docTypes.length > 0) {
-          // Explicitly search for a document type that is FV (Factura de Venta)
-          const fvType = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
-          if (fvType && fvType.id) {
-            docTypeId = fvType.id;
-          } else if (docTypes[0].id) {
-            docTypeId = docTypes[0].id;
+        if (selectedDocTypeId !== 'auto') {
+          docTypeId = Number(selectedDocTypeId);
+        } else {
+          const docRes = await fetch('/api/siigo/proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ method: 'GET', endpoint: '/document-types?type=FV' })
+          });
+          const docJson = await docRes.json();
+          const docTypes = docJson.data || docJson;
+          if (Array.isArray(docTypes) && docTypes.length > 0) {
+            // Explicitly search for a document type that is FV (Factura de Venta)
+            const fvType = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
+            if (fvType && fvType.id) {
+              docTypeId = fvType.id;
+            } else if (docTypes[0].id) {
+              docTypeId = docTypes[0].id;
+            }
           }
         }
 
@@ -2227,14 +2253,40 @@ export default function StoreAdminPage() {
                   </span>
                 </div>
 
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: '850', color: '#475569', textTransform: 'uppercase' }}>Tipo de Comprobante SIIGO</label>
+                    <select
+                      value={selectedDocTypeId}
+                      onChange={(e) => setSelectedDocTypeId(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1.5px solid #cbd5e1',
+                        fontSize: '0.78rem',
+                        fontWeight: '750',
+                        backgroundColor: '#ffffff',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="auto">⚡ Detección Automática (Factura FV)</option>
+                      {availableDocTypes.map((dt: any) => (
+                        <option key={dt.id} value={dt.id}>
+                          {dt.code || dt.id} - {dt.name} ({dt.type || 'FV'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <button
                     onClick={handleMassInvoicing}
                     disabled={selectedSales.length === 0 || invoicingMass}
                     className="btn btn-primary"
                     style={{
                       width: '100%',
-                      padding: '1rem',
+                      padding: '0.75rem',
                       fontWeight: '850',
                       display: 'flex',
                       alignItems: 'center',
