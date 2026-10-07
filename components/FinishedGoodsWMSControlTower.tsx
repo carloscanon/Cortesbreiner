@@ -52,6 +52,8 @@ export interface WarehouseItem {
   responsable?: string;
   capacidad_total?: number;
   estado?: string;
+  tipo?: string;
+  name?: string;
 }
 
 export interface StockItem {
@@ -184,6 +186,8 @@ export default function FinishedGoodsWMSControlTower() {
   const [totalGarmentsCount, setTotalGarmentsCount] = useState<number>(0);
   const [totalHistGarmentsCount, setTotalHistGarmentsCount] = useState<number>(0);
   const [warehouseGarmentsMap, setWarehouseGarmentsMap] = useState<Record<string, number>>({});
+  const [transitUnits, setTransitUnits] = useState<number>(0);
+  const [pendingTransfers, setPendingTransfers] = useState<any[]>([]);
 
   // ── FILTROS GLOBAL ──
   const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState<string>('all');
@@ -259,7 +263,29 @@ export default function FinishedGoodsWMSControlTower() {
         }
       };
 
-      const [whRes, stockData, gCountRes, hCountRes, catData, prodData, colData, szData, kardexRes, obsData, garmentsGroupedRes] = await Promise.all([
+      const fetchTransfers = async () => {
+        try {
+          const { data } = await supabase
+            .from('finished_goods_transfers')
+            .select(`
+              id, consecutive, estado, warehouse_orig_id, warehouse_dest_id, created_at, observaciones,
+              finished_goods_transfer_items (
+                id, cantidad, product_id, color_id, size_id,
+                products (codigo_referencia, nombre_producto)
+              ),
+              warehouse_orig:warehouse_orig_id (nombre_bodega),
+              warehouse_dest:warehouse_dest_id (nombre_bodega)
+            `)
+            .in('estado', ['Pendiente', 'En Tránsito', 'en_transito', 'pendiente'])
+            .order('created_at', { ascending: false });
+          return data || [];
+        } catch (e) {
+          console.error('Error fetching transfers:', e);
+          return [];
+        }
+      };
+
+      const [whRes, stockData, gCountRes, hCountRes, catData, prodData, colData, szData, kardexRes, obsData, pendingTxData] = await Promise.all([
         supabase.from('warehouses').select('*').order('nombre_bodega', { ascending: true }),
         fetchAllPages(
           supabase.from('finished_goods_stock').select(`
@@ -284,17 +310,11 @@ export default function FinishedGoodsWMSControlTower() {
           warehouse_dest:warehouse_dest_id (nombre_bodega)
         `).order('created_at', { ascending: false }).limit(500),
         fetchObs(),
-        supabase.from('individual_garments').select('warehouse_id, store_id')
+        fetchTransfers()
       ]);
 
       const whData = whRes.data;
-      const realWhs: WarehouseItem[] = (whData && whData.length > 0) ? whData : [
-        { id: 'wh-101', nombre_bodega: 'Bodega 101 Principal', ciudad: 'Bogotá D.C.', responsable: 'Carlos Cañón', capacidad_total: 10000, estado: 'activo' },
-        { id: 'wh-102', nombre_bodega: 'Bodega 102 Confección', ciudad: 'Medellín', responsable: 'Marta Pérez', capacidad_total: 6000, estado: 'activo' },
-        { id: 'wh-103', nombre_bodega: 'Bodega 103 Distribución', ciudad: 'Cali', responsable: 'Jorge Gómez', capacidad_total: 8000, estado: 'activo' },
-        { id: 'wh-104', nombre_bodega: 'Bodega Lavandería (Fábrica)', ciudad: 'Bogotá D.C.', responsable: 'Ana Rincón', capacidad_total: 4000, estado: 'activo' },
-        { id: 'wh-105', nombre_bodega: 'Bodega Saldos & Outlet', ciudad: 'Bogotá D.C.', responsable: 'Diana Ruiz', capacidad_total: 3000, estado: 'activo' }
-      ];
+      const realWhs: WarehouseItem[] = (whData && whData.length > 0) ? whData : [];
       setWarehouses(realWhs);
 
       setTotalGarmentsCount(gCountRes.count || 0);
@@ -305,19 +325,24 @@ export default function FinishedGoodsWMSControlTower() {
       setColors((colData as any)?.data || colData || []);
       setSizes((szData as any)?.data || szData || []);
 
-      // Cross-map individual garments to warehouses for accurate totalizing
-      const garmentCountsByWh: Record<string, number> = {};
-      (garmentsGroupedRes.data || []).forEach((g: any) => {
-        if (g.warehouse_id) {
-          garmentCountsByWh[g.warehouse_id] = (garmentCountsByWh[g.warehouse_id] || 0) + 1;
-        }
+      // Calculate exact real pending transit units from database
+      let realTransitCount = 0;
+      (pendingTxData || []).forEach((tx: any) => {
+        (tx.finished_goods_transfer_items || []).forEach((item: any) => {
+          realTransitCount += Number(item.cantidad || 0);
+        });
       });
+      setTransitUnits(realTransitCount);
+      setPendingTransfers(pendingTxData || []);
+
+      // Cross-map individual garments to warehouses for accurate totalizing from database stock
+      const stockCountsByWh: Record<string, number> = {};
       (stockData || []).forEach((s: any) => {
-        if (s.warehouse_id && !garmentCountsByWh[s.warehouse_id]) {
-          garmentCountsByWh[s.warehouse_id] = (garmentCountsByWh[s.warehouse_id] || 0) + Number(s.cantidad_disponible || 0);
+        if (s.warehouse_id) {
+          stockCountsByWh[s.warehouse_id] = (stockCountsByWh[s.warehouse_id] || 0) + Number(s.cantidad_disponible || 0);
         }
       });
-      setWarehouseGarmentsMap(garmentCountsByWh);
+      setWarehouseGarmentsMap(stockCountsByWh);
 
       setStock(stockData || []);
       setKardex((kardexRes as any)?.data || kardexRes || []);
@@ -405,6 +430,62 @@ export default function FinishedGoodsWMSControlTower() {
       activeWarehousesCount: warehouses.length
     };
   }, [filteredStock, warehouses]);
+
+  // Composición Operativa Dinámica 100% calculada desde BD
+  const compositionMetrics = useMemo(() => {
+    // 1. Disponible Comercial (Bodegas comerciales excepto tránsito, lavandería, saldos, incompletos)
+    const availableCommercial = warehouses
+      .filter(w => {
+        const n = (w.nombre_bodega || '').toLowerCase();
+        return !n.includes('transito') && !n.includes('tránsito') && !n.includes('lavanderia') && !n.includes('saldos') && !n.includes('incompletos');
+      })
+      .reduce((sum, w) => sum + (warehouseGarmentsMap[w.id] || 0), 0);
+
+    // 2. Reservado en Pedidos
+    const reservedUnits = stock.reduce((sum, i) => sum + Number(i.cantidad_reservada || 0), 0);
+
+    // 3. En Tránsito Inter-Bodega (Real de transferencias pendientes)
+    const inTransitUnits = transitUnits;
+
+    // 4. Bloqueado / Calidad / Fábrica (Lavandería + Saldos + Incompletos)
+    const blockedUnits = warehouses
+      .filter(w => {
+        const n = (w.nombre_bodega || '').toLowerCase();
+        return n.includes('lavanderia') || n.includes('saldos') || n.includes('incompletos');
+      })
+      .reduce((sum, w) => sum + (warehouseGarmentsMap[w.id] || 0), 0);
+
+    const total = Math.max(1, availableCommercial + reservedUnits + inTransitUnits + blockedUnits);
+
+    const pctDisp = Math.round((availableCommercial / total) * 100);
+    const pctRes = Math.round((reservedUnits / total) * 100);
+    const pctTrans = (inTransitUnits > 0 && Math.round((inTransitUnits / total) * 100) === 0)
+      ? Number(((inTransitUnits / total) * 100).toFixed(1))
+      : Math.round((inTransitUnits / total) * 100);
+    const pctBlock = Math.max(0, 100 - pctDisp - pctRes - Math.round(Number(pctTrans)));
+
+    // Gradient stops
+    const s1 = pctDisp;
+    const s2 = s1 + pctRes;
+    const s3 = Math.min(100, s2 + Math.max(1, Math.round(Number(pctTrans))));
+
+    const gradient = (inTransitUnits === 0 && reservedUnits === 0 && blockedUnits === 0)
+      ? '#10b981'
+      : `conic-gradient(#10b981 0% ${s1}%, #f59e0b ${s1}% ${s2}%, #8b5cf6 ${s2}% ${s3}%, #ef4444 ${s3}% 100%)`;
+
+    return {
+      availableCommercial,
+      reservedUnits,
+      inTransitUnits,
+      blockedUnits,
+      total,
+      pctDisp,
+      pctRes,
+      pctTrans,
+      pctBlock,
+      gradient
+    };
+  }, [warehouses, warehouseGarmentsMap, stock, transitUnits]);
 
   // Contenido Específico de una Bodega Seleccionada
   const selectedWarehouseStock = useMemo(() => {
@@ -1059,10 +1140,8 @@ export default function FinishedGoodsWMSControlTower() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {warehouses.map(w => {
-                  const whStock = stock.filter(s => isSameWarehouse(s, w));
-                  const stockUnits = whStock.reduce((acc, i) => acc + (i.cantidad_disponible || 0), 0);
-                  const mappedGarments = warehouseGarmentsMap[w.id] || 0;
-                  const whUnits = Math.max(stockUnits, mappedGarments);
+                  const isTransitWh = (w.nombre_bodega || '').toLowerCase().includes('transito') || (w.nombre_bodega || '').toLowerCase().includes('tránsito') || w.tipo === 'Transito';
+                  const whUnits = isTransitWh ? transitUnits : (warehouseGarmentsMap[w.id] || 0);
                   const cap = w.capacidad_total || 10000;
                   const pct = Math.min(100, Math.round((whUnits / cap) * 100));
                   const statusColor = pct > 85 ? '#ef4444' : pct > 65 ? '#f59e0b' : '#10b981';
@@ -1070,7 +1149,7 @@ export default function FinishedGoodsWMSControlTower() {
                   return (
                     <div key={w.id}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 800, marginBottom: '0.3rem' }}>
-                        <span>{w.nombre_bodega} ({w.ciudad})</span>
+                        <span>{w.nombre_bodega} ({w.ciudad || 'Colombia'})</span>
                         <span>{whUnits.toLocaleString('es-CO')} / {cap.toLocaleString('es-CO')} uds ({pct}%)</span>
                       </div>
                       <div style={{ width: '100%', height: '8px', backgroundColor: darkMode ? '#334155' : '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
@@ -1096,10 +1175,10 @@ export default function FinishedGoodsWMSControlTower() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {[
-                    { label: '🟢 Disponible Comercial', pct: '78%', qty: Math.round(kpis.totalUnits * 0.78), color: '#10b981' },
-                    { label: '🟡 Reservado Pedidos', pct: '12%', qty: Math.round(kpis.totalUnits * 0.12), color: '#f59e0b' },
-                    { label: '🟣 En Tránsito Inter-Bodega', pct: '6%', qty: Math.round(kpis.totalUnits * 0.06), color: '#8b5cf6' },
-                    { label: '🔴 Bloqueado / Calidad', pct: '4%', qty: Math.round(kpis.totalUnits * 0.04), color: '#ef4444' }
+                    { label: '🟢 Disponible Comercial', pct: `${compositionMetrics.pctDisp}%`, qty: compositionMetrics.availableCommercial, color: '#10b981' },
+                    { label: '🟡 Reservado Pedidos', pct: `${compositionMetrics.pctRes}%`, qty: compositionMetrics.reservedUnits, color: '#f59e0b' },
+                    { label: '🟣 En Tránsito Inter-Bodega', pct: `${compositionMetrics.pctTrans}%`, qty: compositionMetrics.inTransitUnits, color: '#8b5cf6' },
+                    { label: '🔴 Bloqueado / Calidad', pct: `${compositionMetrics.pctBlock}%`, qty: compositionMetrics.blockedUnits, color: '#ef4444' }
                   ].map(c => (
                     <div key={c.label} style={{ fontSize: '0.78rem' }}>
                       <div style={{ fontWeight: 800, color: textPrimary }}>{c.label}</div>
@@ -1113,7 +1192,7 @@ export default function FinishedGoodsWMSControlTower() {
                     width: '130px',
                     height: '130px',
                     borderRadius: '50%',
-                    background: 'conic-gradient(#10b981 0% 78%, #f59e0b 78% 90%, #8b5cf6 90% 96%, #ef4444 96% 100%)',
+                    background: compositionMetrics.gradient,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1341,10 +1420,10 @@ export default function FinishedGoodsWMSControlTower() {
           {/* Tarjetas de Bodegas para Inspección */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
             {warehouses.map(w => {
+              const isTransitWh = (w.nombre_bodega || '').toLowerCase().includes('transito') || (w.nombre_bodega || '').toLowerCase().includes('tránsito') || w.tipo === 'Transito';
               const whStock = stock.filter(s => isSameWarehouse(s, w));
-              const stockUnits = whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0), 0);
-              const mappedGarments = warehouseGarmentsMap[w.id] || 0;
-              const whUnits = Math.max(stockUnits, mappedGarments);
+              const stockUnits = warehouseGarmentsMap[w.id] || whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0), 0);
+              const whUnits = isTransitWh ? transitUnits : stockUnits;
               const whValue = whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0) * (i.products?.precio || 45000), 0);
               const cap = w.capacidad_total || 10000;
               const pct = Math.min(100, Math.round((whUnits / cap) * 100));
@@ -1768,8 +1847,17 @@ export default function FinishedGoodsWMSControlTower() {
             {/* Modal Sub-Header & Search */}
             <div style={{ padding: '1rem 1.5rem', backgroundColor: darkMode ? '#0f172a' : '#f8fafc', borderBottom: `1px solid ${borderColor}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem' }}>
-                <span>Total Ítems: <strong>{selectedWarehouseStock.length}</strong></span>
-                <span>Unidades Totales: <strong>{selectedWarehouseStock.reduce((acc, i) => acc + (i.cantidad_disponible || 0), 0).toLocaleString('es-CO')} uds</strong></span>
+                {((selectedWarehouseDetail.nombre_bodega || '').toLowerCase().includes('transito') || (selectedWarehouseDetail.nombre_bodega || '').toLowerCase().includes('tránsito') || selectedWarehouseDetail.tipo === 'Transito') ? (
+                  <>
+                    <span>Traslados en Curso: <strong>{pendingTransfers.length}</strong></span>
+                    <span>Prendas en Tránsito: <strong style={{ color: '#8b5cf6' }}>{transitUnits.toLocaleString('es-CO')} uds</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <span>Total Ítems: <strong>{selectedWarehouseStock.length}</strong></span>
+                    <span>Unidades Totales: <strong>{selectedWarehouseStock.reduce((acc, i) => acc + (i.cantidad_disponible || 0), 0).toLocaleString('es-CO')} uds</strong></span>
+                  </>
+                )}
               </div>
               <input
                 type="text"
@@ -1789,7 +1877,52 @@ export default function FinishedGoodsWMSControlTower() {
 
             {/* Modal Body: Tabla de Contenido Físico Exacto de la Bodega */}
             <div style={{ overflowY: 'auto', padding: '1rem 1.5rem', flex: 1 }}>
-              {selectedWarehouseStock.length === 0 ? (
+              {((selectedWarehouseDetail.nombre_bodega || '').toLowerCase().includes('transito') || (selectedWarehouseDetail.nombre_bodega || '').toLowerCase().includes('tránsito') || selectedWarehouseDetail.tipo === 'Transito') ? (
+                <div>
+                  <h4 style={{ fontSize: '0.88rem', fontWeight: 900, color: textPrimary, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🚚 Traslados Activos Despachados en Tránsito ({transitUnits} unidades)
+                  </h4>
+                  {pendingTransfers.length === 0 ? (
+                    <p style={{ textAlign: 'center', color: textMuted, padding: '2rem 0' }}>
+                      No hay traslados pendientes en tránsito hacia esta bodega.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {pendingTransfers.map((tx: any) => {
+                        const totalTxItems = (tx.finished_goods_transfer_items || []).reduce((acc: number, it: any) => acc + Number(it.cantidad || 0), 0);
+                        return (
+                          <div key={tx.id} style={{ border: `1px solid ${borderColor}`, borderRadius: '12px', padding: '0.85rem', backgroundColor: darkMode ? '#1e293b' : '#ffffff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                              <span style={{ fontWeight: 950, color: '#2563eb' }}>Traslado #{tx.consecutive || tx.id.slice(0, 6)}</span>
+                              <span style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900 }}>
+                                ⏳ {tx.estado} ({totalTxItems} uds)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: textMuted, marginBottom: '0.4rem' }}>
+                              De: <strong>{tx.warehouse_orig?.nombre_bodega || 'Bodega Principal'}</strong> ➔ A: <strong>{tx.warehouse_dest?.nombre_bodega || 'Bodega Transito'}</strong>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: textMuted }}>
+                              Despachado: {new Date(tx.created_at).toLocaleString('es-CO')}
+                            </div>
+                            {tx.finished_goods_transfer_items && tx.finished_goods_transfer_items.length > 0 && (
+                              <div style={{ marginTop: '0.5rem', borderTop: `1px dashed ${borderColor}`, paddingTop: '0.4rem' }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: 800, color: textPrimary, marginBottom: '0.2rem' }}>Prendas en este traslado:</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                  {tx.finished_goods_transfer_items.map((it: any) => (
+                                    <span key={it.id} style={{ backgroundColor: darkMode ? '#334155' : '#f1f5f9', padding: '0.15rem 0.45rem', borderRadius: '4px', fontSize: '0.7rem' }}>
+                                      {it.products?.codigo_referencia || 'Ref'}: <strong>{it.cantidad} uds</strong>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : selectedWarehouseStock.length === 0 ? (
                 <p style={{ textAlign: 'center', color: textMuted, padding: '3rem 0' }}>
                   No hay productos registrados en esta bodega.
                 </p>
