@@ -762,16 +762,27 @@ export default function StoreAdminPage() {
           const firstName = nameParts[0] || 'Cliente';
           const lastName = nameParts.slice(1).join(' ') || 'Mostrador';
 
-          // Prepare SIIGO Invoice Payload strictly aligned with official SIIGO API v1 documentation
+          // Prepare SIIGO Invoice Payload strictly aligned with exact provided cURL specification
           const invoicePayload = {
-            document: { id: docTypeId },
+            document: {
+              id: docTypeId
+            },
             date: new Date().toISOString().split('T')[0],
             customer: {
               person_type: 'Person',
-              id_type: '13', // Cédula de Ciudadanía
+              id_type: '13',
               identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '222222222222',
               branch_office: 0,
               name: [firstName, lastName],
+              commercial_name: rawName,
+              active: true,
+              vat_responsible: false,
+              fiscal_responsibilities: [
+                {
+                  code: 'R-99-PN',
+                  name: 'Not responsible'
+                }
+              ],
               address: {
                 address: 'Calle 10 # 43',
                 city: {
@@ -782,17 +793,20 @@ export default function StoreAdminPage() {
               },
               phones: [
                 {
-                  number: '3006003344'
+                  indicative: '57',
+                  number: sale.client_phone && sale.client_phone.length >= 7 ? sale.client_phone.trim() : '3006003345'
                 }
               ],
               contacts: [
                 {
                   first_name: firstName,
                   last_name: lastName,
-                  email: 'factura@tienda.com'
+                  email: sale.client_email && sale.client_email.includes('@') ? sale.client_email.trim() : 'factura@tienda.com'
                 }
               ]
             },
+            seller: sellerId ? sellerId : 1,
+            observations: `Factura Venta POS Ticket #${sale.consecutive}`,
             items: sale.pos_sale_items?.length > 0 ? sale.pos_sale_items.map((item: any) => ({
               code: item.products?.codigo_referencia || 'PROD',
               description: item.products?.nombre_producto || 'Prenda POS',
@@ -804,12 +818,19 @@ export default function StoreAdminPage() {
               quantity: 1,
               price: Number(sale.total) || 0
             }],
-            seller: sellerId ? sellerId : 1,
-            payments: [{
-              id: paymentId,
-              value: Number(sale.total) || 0,
-              due_date: new Date().toISOString().split('T')[0]
-            }]
+            payments: [
+              {
+                id: paymentId,
+                value: Number(sale.total) || 0,
+                due_date: new Date().toISOString().split('T')[0]
+              }
+            ],
+            stamp: {
+              send: true
+            },
+            mail: {
+              send: true
+            }
           };
 
           // Execute real request through proxy
