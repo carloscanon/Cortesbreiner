@@ -175,6 +175,7 @@ export default function FinishedGoodsWMSControlTower() {
   const [sizes, setSizes] = useState<any[]>([]);
   const [totalGarmentsCount, setTotalGarmentsCount] = useState<number>(0);
   const [totalHistGarmentsCount, setTotalHistGarmentsCount] = useState<number>(0);
+  const [warehouseGarmentsMap, setWarehouseGarmentsMap] = useState<Record<string, number>>({});
 
   // ── FILTROS GLOBAL ──
   const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState<string>('all');
@@ -250,7 +251,7 @@ export default function FinishedGoodsWMSControlTower() {
         }
       };
 
-      const [whRes, stockData, gCountRes, hCountRes, catData, prodData, colData, szData, kardexRes, obsData] = await Promise.all([
+      const [whRes, stockData, gCountRes, hCountRes, catData, prodData, colData, szData, kardexRes, obsData, garmentsGroupedRes] = await Promise.all([
         supabase.from('warehouses').select('*').order('nombre_bodega', { ascending: true }),
         fetchAllPages(
           supabase.from('finished_goods_stock').select(`
@@ -274,7 +275,8 @@ export default function FinishedGoodsWMSControlTower() {
           sizes (codigo_talla),
           warehouse_dest:warehouse_dest_id (nombre_bodega)
         `).order('created_at', { ascending: false }).limit(500),
-        fetchObs()
+        fetchObs(),
+        supabase.from('individual_garments').select('warehouse_id, store_id')
       ]);
 
       const whData = whRes.data;
@@ -294,6 +296,20 @@ export default function FinishedGoodsWMSControlTower() {
       setProducts(prodData || []);
       setColors((colData as any)?.data || colData || []);
       setSizes((szData as any)?.data || szData || []);
+
+      // Cross-map individual garments to warehouses for accurate totalizing
+      const garmentCountsByWh: Record<string, number> = {};
+      (garmentsGroupedRes.data || []).forEach((g: any) => {
+        if (g.warehouse_id) {
+          garmentCountsByWh[g.warehouse_id] = (garmentCountsByWh[g.warehouse_id] || 0) + 1;
+        }
+      });
+      (stockData || []).forEach((s: any) => {
+        if (s.warehouse_id && !garmentCountsByWh[s.warehouse_id]) {
+          garmentCountsByWh[s.warehouse_id] = (garmentCountsByWh[s.warehouse_id] || 0) + Number(s.cantidad_disponible || 0);
+        }
+      });
+      setWarehouseGarmentsMap(garmentCountsByWh);
 
       setStock(stockData || []);
       setKardex((kardexRes as any)?.data || kardexRes || []);
@@ -1036,7 +1052,9 @@ export default function FinishedGoodsWMSControlTower() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {warehouses.map(w => {
                   const whStock = stock.filter(s => isSameWarehouse(s, w));
-                  const whUnits = whStock.reduce((acc, i) => acc + (i.cantidad_disponible || 0), 0);
+                  const stockUnits = whStock.reduce((acc, i) => acc + (i.cantidad_disponible || 0), 0);
+                  const mappedGarments = warehouseGarmentsMap[w.id] || 0;
+                  const whUnits = Math.max(stockUnits, mappedGarments);
                   const cap = w.capacidad_total || 10000;
                   const pct = Math.min(100, Math.round((whUnits / cap) * 100));
                   const statusColor = pct > 85 ? '#ef4444' : pct > 65 ? '#f59e0b' : '#10b981';
@@ -1316,7 +1334,9 @@ export default function FinishedGoodsWMSControlTower() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
             {warehouses.map(w => {
               const whStock = stock.filter(s => isSameWarehouse(s, w));
-              const whUnits = whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0), 0);
+              const stockUnits = whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0), 0);
+              const mappedGarments = warehouseGarmentsMap[w.id] || 0;
+              const whUnits = Math.max(stockUnits, mappedGarments);
               const whValue = whStock.reduce((sum, i) => sum + (i.cantidad_disponible || 0) * (i.products?.precio || 45000), 0);
               const cap = w.capacidad_total || 10000;
               const pct = Math.min(100, Math.round((whUnits / cap) * 100));
