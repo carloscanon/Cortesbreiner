@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   Package, Search, Plus, MoveHorizontal, X, Loader2,
   TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle,
   MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode,
-  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3, RotateCcw
+  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3, RotateCcw, Layers3, Building2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
@@ -96,7 +96,7 @@ function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: 
   );
 }
 
-type TabType = 'dashboard' | 'general_inventory' | 'audit_control' | 'consolidated_stock' | 'stock' | 'item_locator' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
+type TabType = 'dashboard' | 'general_inventory' | 'audit_control' | 'consolidated_stock' | 'stock' | 'item_locator' | 'reference_locator' | 'kardex' | 'transfers' | 'locations' | 'initial_load' | 'historical_inventory';
 
 function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
@@ -516,6 +516,109 @@ export default function FinishedGoodsInventory() {
   const [locatorResults, setLocatorResults] = useState<any[]>([]);
   const [locatorLoading, setLocatorLoading] = useState(false);
   const [locatorSearched, setLocatorSearched] = useState(false);
+
+  // Localizador de Referencias por Categoría & Bodega State
+  const [refLocatorCategory, setRefLocatorCategory] = useState<string>('');
+  const [refLocatorSearch, setRefLocatorSearch] = useState<string>('');
+  const [refLocatorWarehouse, setRefLocatorWarehouse] = useState<string>('');
+  const [refLocatorExpandedKey, setRefLocatorExpandedKey] = useState<string | null>(null);
+
+  // Memo para Localizador de Referencias por Categoría y Bodega
+  const referenceLocatorData = useMemo(() => {
+    const refMap: Record<string, {
+      refCode: string;
+      productName: string;
+      categoryName: string;
+      price: number;
+      totalUnits: number;
+      byWarehouse: Record<string, number>;
+      variants: Array<{
+        colorName: string;
+        sizeCode: string;
+        warehouseName: string;
+        warehouseId: string;
+        qty: number;
+      }>;
+    }> = {};
+
+    (stock || []).forEach(st => {
+      const prod = st.products;
+      const refCode = (prod?.codigo_referencia || 'SIN-REF').toUpperCase().trim();
+      const prodName = prod?.nombre_producto || refCode;
+      const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+      const price = prod?.precio || 0;
+      const qty = Number(st.cantidad_disponible || 0);
+
+      // Filtro por Categoría
+      if (refLocatorCategory && refLocatorCategory !== 'all') {
+        if (catName.toLowerCase() !== refLocatorCategory.toLowerCase()) return;
+      }
+
+      // Filtro por Bodega
+      const whId = st.warehouse_id || st.warehouses?.id;
+      if (refLocatorWarehouse && refLocatorWarehouse !== 'all') {
+        if (whId !== refLocatorWarehouse) return;
+      }
+
+      // Filtro de búsqueda (código de referencia, nombre producto, color, talla)
+      if (refLocatorSearch.trim()) {
+        const q = refLocatorSearch.trim().toLowerCase();
+        const colorStr = (st.colors?.nombre_color || '').toLowerCase();
+        const sizeStr = (st.sizes?.codigo_talla || '').toLowerCase();
+        const matches = refCode.toLowerCase().includes(q) ||
+          prodName.toLowerCase().includes(q) ||
+          catName.toLowerCase().includes(q) ||
+          colorStr.includes(q) ||
+          sizeStr.includes(q);
+        if (!matches) return;
+      }
+
+      const refKey = `${refCode}___${prodName}`;
+
+      if (!refMap[refKey]) {
+        refMap[refKey] = {
+          refCode,
+          productName: prodName,
+          categoryName: catName,
+          price,
+          totalUnits: 0,
+          byWarehouse: {},
+          variants: []
+        };
+      }
+
+      refMap[refKey].totalUnits += qty;
+      if (whId) {
+        refMap[refKey].byWarehouse[whId] = (refMap[refKey].byWarehouse[whId] || 0) + qty;
+      }
+
+      refMap[refKey].variants.push({
+        colorName: st.colors?.nombre_color || '—',
+        sizeCode: st.sizes?.codigo_talla || 'ST',
+        warehouseName: st.warehouses?.nombre_bodega || 'Bodega Asignada',
+        warehouseId: whId,
+        qty
+      });
+    });
+
+    const refList = Object.values(refMap);
+
+    const categoryWarehouseTotals: Record<string, number> = {};
+    let categoryTotalGarments = 0;
+
+    refList.forEach(r => {
+      categoryTotalGarments += r.totalUnits;
+      Object.entries(r.byWarehouse).forEach(([wId, q]) => {
+        categoryWarehouseTotals[wId] = (categoryWarehouseTotals[wId] || 0) + q;
+      });
+    });
+
+    return {
+      refList,
+      categoryWarehouseTotals,
+      categoryTotalGarments
+    };
+  }, [stock, refLocatorCategory, refLocatorWarehouse, refLocatorSearch]);
 
   const executeLocatorSearch = async (e?: any) => {
     if (e) e.preventDefault();
@@ -2234,7 +2337,8 @@ export default function FinishedGoodsInventory() {
           { id: 'general_inventory', label: 'Inventario General', badge: null },
           { id: 'consolidated_stock', label: 'Stock Único', badge: null },
           { id: 'stock', label: 'Existencias por SKU', badge: null },
-          { id: 'item_locator', label: 'Localizador de Prenda', badge: 'Nuevo' },
+          { id: 'item_locator', label: 'Localizador de Prenda', badge: null },
+          { id: 'reference_locator', label: 'Localizador por Categorías', badge: 'Nuevo' },
           { id: 'kardex', label: 'Kardex Historial', badge: null },
           { id: 'transfers', label: 'En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length}` : null },
           { id: 'historical_inventory', label: 'Inventario Histórico', badge: null }
@@ -2791,6 +2895,254 @@ export default function FinishedGoodsInventory() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* LOCALIZADOR DE REFERENCIAS POR CATEGORÍA Y BODEGA */}
+      {activeTab === 'reference_locator' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {/* Tarjeta de Encabezado y Filtros */}
+          <div className="card" style={{ padding: '1.5rem 1.75rem', borderRadius: '18px', backgroundColor: 'white', border: '1px solid var(--border)', boxShadow: '0 4px 14px rgba(0,0,0,0.03)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: '#fff0f3', color: '#80082E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Layers3 size={22} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>
+                      Localizador de Referencias por Categoría & Bodega
+                    </h2>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.15rem 0 0' }}>
+                      Filtra por categoría o busca referencias para consultar cuántas prendas físicas hay disponibles en cada bodega.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {(refLocatorCategory || refLocatorWarehouse || refLocatorSearch) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRefLocatorCategory('');
+                    setRefLocatorWarehouse('');
+                    setRefLocatorSearch('');
+                  }}
+                  style={{ padding: '0.45rem 0.9rem', borderRadius: '10px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', color: '#475569', fontSize: '0.78rem', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                >
+                  <RotateCcw size={14} /> Limpiar Filtros
+                </button>
+              )}
+            </div>
+
+            {/* Fila de Filtros Avanzados */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', alignItems: 'center' }}>
+              {/* Buscador */}
+              <div style={{ position: 'relative' }}>
+                <Search size={16} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  placeholder="Buscar por referencia, nombre o color..."
+                  value={refLocatorSearch}
+                  onChange={e => setRefLocatorSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem 0.65rem 2.4rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
+                />
+              </div>
+
+              {/* Selector de Categoría */}
+              <div>
+                <select
+                  value={refLocatorCategory}
+                  onChange={e => setRefLocatorCategory(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '800', backgroundColor: 'white' }}
+                >
+                  <option value="">📁 Todas las Categorías ({categories.length})</option>
+                  {categories.map((cat: any) => (
+                    <option key={cat.id} value={cat.categoria}>📁 {cat.categoria}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selector de Bodega */}
+              <div>
+                <select
+                  value={refLocatorWarehouse}
+                  onChange={e => setRefLocatorWarehouse(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '800', backgroundColor: 'white' }}
+                >
+                  <option value="">🏛️ Todas las Bodegas ({warehouses.length})</option>
+                  {warehouses.map((w: any) => (
+                    <option key={w.id} value={w.id}>🏛️ {w.nombre_bodega}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Banner Resumen KPI por Bodega para la Categoría */}
+          <div className="card" style={{ padding: '1.25rem 1.5rem', borderRadius: '18px', backgroundColor: '#f8fafc', border: '1.5px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '950', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Building2 size={18} style={{ color: '#80082E' }} />
+                Disponibilidad de Prendas por Bodega {refLocatorCategory ? `para Categoría "${refLocatorCategory}"` : 'General'}
+              </h3>
+              <span style={{ fontSize: '0.82rem', fontWeight: '950', backgroundColor: '#80082E', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '8px' }}>
+                Total: {referenceLocatorData.categoryTotalGarments.toLocaleString('es-CO')} prendas
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+              {warehouses.map((w: any) => {
+                const qty = referenceLocatorData.categoryWarehouseTotals[w.id] || 0;
+                const hasStock = qty > 0;
+                return (
+                  <div
+                    key={w.id}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: '12px',
+                      backgroundColor: hasStock ? 'white' : '#f1f5f9',
+                      border: `1.5px solid ${hasStock ? '#cbd5e1' : '#e2e8f0'}`,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      boxShadow: hasStock ? '0 2px 6px rgba(0,0,0,0.03)' : 'none'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '0.72rem', fontWeight: '800', color: hasStock ? '#80082E' : '#64748b', display: 'block' }}>{w.nombre_bodega}</span>
+                      <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{w.ciudad || 'Colombia'}</span>
+                    </div>
+                    <span style={{ fontSize: '0.95rem', fontWeight: '950', color: hasStock ? '#10b981' : '#94a3b8' }}>
+                      {qty.toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tabla de Referencias Encontradas */}
+          <div className="card" style={{ padding: 0, borderRadius: '18px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+            <div style={{ padding: '1rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>
+                Referencias Encontradas ({referenceLocatorData.refList.length})
+              </h3>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                Desglose en matriz por cada bodega de la empresa
+              </span>
+            </div>
+
+            {referenceLocatorData.refList.length === 0 ? (
+              <div style={{ padding: '4rem 1rem', textAlign: 'center', color: '#64748b' }}>
+                <Package size={40} style={{ color: '#cbd5e1', marginBottom: '0.5rem' }} />
+                <p style={{ fontWeight: '800', margin: 0, fontSize: '0.95rem' }}>No se encontraron referencias con los filtros seleccionados.</p>
+                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>Intenta cambiar la categoría o el término de búsqueda.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>Referencia</th>
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>Producto & Categoría</th>
+                      {warehouses.map((w: any) => (
+                        <th key={w.id} style={{ padding: '0.85rem 0.85rem', fontWeight: '900', color: '#475569', fontSize: '0.72rem', textTransform: 'uppercase', textAlign: 'center' }}>
+                          {w.nombre_bodega.replace('Bodega ', '')}
+                        </th>
+                      ))}
+                      <th style={{ padding: '0.85rem 1.25rem', fontWeight: '900', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>Total Prendas</th>
+                      <th style={{ padding: '0.85rem 1rem', fontWeight: '900', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'center' }}>Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {referenceLocatorData.refList.map(ref => {
+                      const isExpanded = refLocatorExpandedKey === ref.refCode;
+                      return (
+                        <Fragment key={ref.refCode}>
+                          <tr style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: isExpanded ? '#fff1f2' : 'transparent', transition: 'background 0.15s' }}>
+                            <td style={{ padding: '0.85rem 1.25rem', fontWeight: '950', color: '#80082E', fontSize: '0.9rem' }}>
+                              {ref.refCode}
+                            </td>
+                            <td style={{ padding: '0.85rem 1.25rem' }}>
+                              <div style={{ fontWeight: '900', color: '#0f172a' }}>{ref.productName}</div>
+                              <span style={{ fontSize: '0.7rem', fontWeight: '800', backgroundColor: '#f3e8ff', color: '#6b21a8', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #e9d5ff', display: 'inline-block', marginTop: '0.2rem' }}>
+                                📁 {ref.categoryName}
+                              </span>
+                            </td>
+
+                            {/* Columnas por cada Bodega */}
+                            {warehouses.map((w: any) => {
+                              const qty = ref.byWarehouse[w.id] || 0;
+                              return (
+                                <td key={w.id} style={{ padding: '0.85rem', textAlign: 'center' }}>
+                                  {qty > 0 ? (
+                                    <span style={{ fontWeight: '950', color: '#059669', backgroundColor: '#d1fae5', padding: '0.25rem 0.6rem', borderRadius: '8px', fontSize: '0.82rem' }}>
+                                      {qty}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>0</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+
+                            <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right', fontWeight: '950', fontSize: '1rem', color: '#80082E' }}>
+                              {ref.totalUnits.toLocaleString('es-CO')}
+                            </td>
+
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => setRefLocatorExpandedKey(isExpanded ? null : ref.refCode)}
+                                style={{
+                                  padding: '0.4rem 0.75rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '800',
+                                  borderRadius: '8px',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: isExpanded ? '#80082E' : 'white',
+                                  color: isExpanded ? 'white' : '#334155',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {isExpanded ? 'Ocultar' : 'Ver Tallas/Colores'}
+                              </button>
+                            </td>
+                          </tr>
+
+                          {/* Sub-tabla Desglose Talla y Color */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={warehouses.length + 4} style={{ padding: '1rem 1.5rem', backgroundColor: '#fff8f8', borderBottom: '2px solid #fecdd3' }}>
+                                <div style={{ fontWeight: '900', fontSize: '0.82rem', color: '#80082E', marginBottom: '0.6rem' }}>
+                                  🔍 Desglose por Talla, Color y Bodega para {ref.refCode} - {ref.productName}:
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.65rem' }}>
+                                  {ref.variants.map((v, idx) => (
+                                    <div key={idx} style={{ backgroundColor: 'white', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #fecdd3', fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <div>
+                                        <span style={{ fontWeight: '800', color: '#334155' }}>Talla {v.sizeCode}</span> • <span style={{ color: '#64748b' }}>{v.colorName}</span>
+                                        <span style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block' }}>{v.warehouseName}</span>
+                                      </div>
+                                      <span style={{ fontWeight: '950', color: '#80082E', backgroundColor: '#fff1f2', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                                        {v.qty} uds
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
