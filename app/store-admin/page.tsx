@@ -160,6 +160,15 @@ export default function StoreAdminPage() {
   const [siigoAuthStatus, setSiigoAuthStatus] = useState<any>(null);
   const [siigoTestingAuth, setSiigoTestingAuth] = useState(false);
 
+  // SuperAdmin Debug JSON & DocTypes Library Modal States
+  const [showDebugPayloadModal, setShowDebugPayloadModal] = useState(false);
+  const [debugPayloadSale, setDebugPayloadSale] = useState<any>(null);
+  const [debugPayloadContent, setDebugPayloadContent] = useState<any>(null);
+
+  const [showDocTypesLibraryModal, setShowDocTypesLibraryModal] = useState(false);
+  const [docTypesLibraryList, setDocTypesLibraryList] = useState<any[]>([]);
+  const [docTypesLibraryLoading, setDocTypesLibraryLoading] = useState(false);
+
   // Chat ERP States
   const [chatRooms, setChatRooms] = useState<any[]>([]);
   const [activeRoom, setActiveRoom] = useState<any>(null);
@@ -2259,7 +2268,28 @@ export default function StoreAdminPage() {
 
                 <div className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', justifyContent: 'center' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <label style={{ fontSize: '0.7rem', fontWeight: '850', color: '#475569', textTransform: 'uppercase' }}>Tipo de Comprobante SIIGO</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.7rem', fontWeight: '850', color: '#475569', textTransform: 'uppercase' }}>Tipo de Comprobante SIIGO</label>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setShowDocTypesLibraryModal(true);
+                          setDocTypesLibraryLoading(true);
+                          try {
+                            const res = await fetch('/api/siigo/proxy?endpoint=/document-types');
+                            const json = await res.json();
+                            setDocTypesLibraryList(json.data || json || []);
+                          } catch (e) {
+                            console.error(e);
+                          } finally {
+                            setDocTypesLibraryLoading(false);
+                          }
+                        }}
+                        style={{ border: 'none', backgroundColor: 'transparent', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: '850', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                      >
+                        📚 Ver Documentación / Biblioteca
+                      </button>
+                    </div>
                     <select
                       value={selectedDocTypeId}
                       onChange={(e) => setSelectedDocTypeId(e.target.value)}
@@ -2466,6 +2496,43 @@ export default function StoreAdminPage() {
                               >
                                 <Activity size={12} />
                                 Seguimiento
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  setDebugPayloadSale(sale);
+                                  setShowDebugPayloadModal(true);
+                                  try {
+                                    const { data } = await supabase
+                                      .from('siigo_sync_logs')
+                                      .select('*')
+                                      .eq('sale_id', sale.id)
+                                      .order('created_at', { ascending: false })
+                                      .limit(1);
+                                    if (data && data.length > 0) {
+                                      setDebugPayloadContent({ request: data[0].request_body, response: data[0].response_body });
+                                    } else {
+                                      setDebugPayloadContent(null);
+                                    }
+                                  } catch (e) {
+                                    setDebugPayloadContent(null);
+                                  }
+                                }}
+                                title="Inspeccionar Payload JSON (Modo SuperAdmin Debug)"
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '850',
+                                  backgroundColor: '#0f172a',
+                                  color: '#38bdf8',
+                                  border: '1px solid #334155',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem'
+                                }}
+                              >
+                                🔍 JSON Debug
                               </button>
                               {sale.estado !== 'anulada' ? (
                                 <button
@@ -4043,6 +4110,161 @@ export default function StoreAdminPage() {
             <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowTrackingModal(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.825rem' }}>
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPERADMIN DEBUG JSON MODAL */}
+      {showDebugPayloadModal && debugPayloadSale && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, backdropFilter: 'blur(5px)' }}>
+          <div className="card" style={{ width: '90%', maxWidth: '850px', padding: '1.75rem', borderRadius: '16px', backgroundColor: '#0f172a', color: '#f8fafc', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #334155' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.1rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Activity size={20} />
+                  [SuperAdmin Debug] Payload & Respuesta SIIGO — Ticket #{debugPayloadSale.consecutive}
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Sucursal: {debugPayloadSale.stores?.nombre || 'General'} • Total: ${debugPayloadSale.total?.toLocaleString('es-CO')}
+                </span>
+              </div>
+              <button onClick={() => setShowDebugPayloadModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#94a3b8' }}><X size={22} /></button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              {/* Left Column: Request Payload */}
+              <div style={{ backgroundColor: '#1e293b', padding: '1rem', borderRadius: '12px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontWeight: '850', fontSize: '0.8rem', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  📤 Payload HTTP POST (/v1/invoices)
+                </span>
+                <pre style={{ margin: 0, fontSize: '0.72rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#86efac', maxHeight: '380px', overflowY: 'auto' }}>
+                  {JSON.stringify(debugPayloadContent?.request || {
+                    document: { id: "FV-10 (Auto/Selected)" },
+                    date: new Date().toISOString().split('T')[0],
+                    customer: {
+                      person_type: 'Person',
+                      id_type: '13',
+                      identification: debugPayloadSale.client_document || '222222222222',
+                      name: [(debugPayloadSale.client_name || 'Cliente Mostrador').split(' ')[0], (debugPayloadSale.client_name || 'Cliente Mostrador').split(' ').slice(1).join(' ') || 'Mostrador']
+                    },
+                    items: debugPayloadSale.pos_sale_items?.map((item: any) => ({
+                      code: item.products?.codigo_referencia || 'PROD',
+                      description: item.products?.nombre_producto || 'Prenda POS',
+                      quantity: Number(item.cantidad) || 1,
+                      price: Number(item.precio_unitario) || 0
+                    })),
+                    seller: 1,
+                    payments: [{ id: 2430, value: debugPayloadSale.total, due_date: new Date().toISOString().split('T')[0] }]
+                  }, null, 2)}
+                </pre>
+              </div>
+
+              {/* Right Column: Server Response */}
+              <div style={{ backgroundColor: '#1e293b', padding: '1rem', borderRadius: '12px', border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontWeight: '850', fontSize: '0.8rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  📥 Respuesta del Servidor SIIGO API
+                </span>
+                <pre style={{ margin: 0, fontSize: '0.72rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: debugPayloadContent?.response?.status >= 400 || debugPayloadSale.sincronizado_erp === false ? '#fca5a5' : '#6ee7b7', maxHeight: '380px', overflowY: 'auto' }}>
+                  {JSON.stringify(debugPayloadContent?.response || {
+                    sincronizado_erp: debugPayloadSale.sincronizado_erp,
+                    observaciones: debugPayloadSale.observaciones || 'Sin registros de respuesta previa'
+                  }, null, 2)}
+                </pre>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDebugPayloadModal(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.825rem' }}>
+                Cerrar Visor Debug
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPERADMIN DOCUMENT TYPES LIBRARY MODAL */}
+      {showDocTypesLibraryModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, backdropFilter: 'blur(5px)' }}>
+          <div className="card" style={{ width: '90%', maxWidth: '900px', padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', color: '#0f172a', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FolderOpen size={20} color="var(--primary)" />
+                  Biblioteca de Tipos de Comprobante SIIGO (Documentación de la Cuenta)
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Catálogo oficial devuelto por GET /v1/document-types para la parametrización de comprobantes de ingreso y facturación
+                </span>
+              </div>
+              <button onClick={() => setShowDocTypesLibraryModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={22} /></button>
+            </div>
+
+            {docTypesLibraryLoading ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <Loader2 size={28} className="animate-spin" style={{ margin: '0 auto 0.75rem' }} />
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>Consultando comprobantes habilitados en la cuenta de SIIGO API...</p>
+              </div>
+            ) : docTypesLibraryList.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                No se pudieron obtener los tipos de comprobante de la cuenta. Verifica las credenciales de API.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ fontSize: '0.8rem', color: '#475569', backgroundColor: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <strong>Resumen de Comprobantes Registrados ({docTypesLibraryList.length}):</strong>
+                </div>
+
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1', textAlign: 'left' }}>
+                        <th style={{ padding: '0.65rem 0.85rem' }}>ID</th>
+                        <th style={{ padding: '0.65rem 0.85rem' }}>Código</th>
+                        <th style={{ padding: '0.65rem 0.85rem' }}>Nombre / Descripción</th>
+                        <th style={{ padding: '0.65rem 0.85rem' }}>Tipo (`type`)</th>
+                        <th style={{ padding: '0.65rem 0.85rem' }}>Consecutivo</th>
+                        <th style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>Num. Auto</th>
+                        <th style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>Centro Costo</th>
+                        <th style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {docTypesLibraryList.map((dt: any) => (
+                        <tr key={dt.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: dt.code === 'FV-10' || dt.type === 'FV' ? '#f0fdf4' : 'transparent' }}>
+                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: '850', fontFamily: 'monospace' }}>{dt.id}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: '850', color: dt.code === 'FV-10' ? '#166534' : '#0f172a' }}>
+                            {dt.code} {dt.code === 'FV-10' && '⭐'}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <span style={{ display: 'block', fontWeight: '750' }}>{dt.name}</span>
+                            {dt.description && <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>{dt.description}</span>}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <span style={{ padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: dt.type === 'FV' ? '#dcfce7' : (dt.type === 'RC' ? '#fef3c7' : '#f1f5f9'), color: dt.type === 'FV' ? '#166534' : (dt.type === 'RC' ? '#92400e' : '#475569') }}>
+                              {dt.type} ({dt.type === 'FV' ? 'Factura Venta' : (dt.type === 'RC' ? 'Recibo / Ingreso' : dt.type)})
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', fontFamily: 'monospace', fontWeight: '750' }}>{dt.consecutive || '—'}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>{dt.automatic_number ? 'SI' : 'NO'}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>{dt.cost_center ? 'SI' : 'NO'}</td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                            <span style={{ padding: '0.15rem 0.45rem', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '800', backgroundColor: dt.active !== false ? '#dcfce7' : '#fee2e2', color: dt.active !== false ? '#15803d' : '#b91c1c' }}>
+                              {dt.active !== false ? 'Activo' : 'Inactivo'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDocTypesLibraryModal(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.825rem' }}>
+                Cerrar Biblioteca
               </button>
             </div>
           </div>
