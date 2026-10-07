@@ -175,9 +175,10 @@ export default function AuditGunScannerView({
   };
 
   // Metrics
-  const totalExpected = sessionDetails?.total_expected_qty || 0;
+  const calculatedExpectedFromItems = (items || []).reduce((sum, item) => sum + Number(item.expected_qty || 0), 0);
+  const totalExpected = sessionDetails?.total_expected_qty > 0 ? sessionDetails.total_expected_qty : calculatedExpectedFromItems;
   const totalCounted = sessionDetails?.total_counted_qty || 0;
-  const totalMissing = sessionDetails?.total_missing_qty || 0;
+  const totalMissing = sessionDetails?.total_missing_qty > 0 ? sessionDetails.total_missing_qty : Math.max(0, totalExpected - totalCounted);
   const totalSurplus = sessionDetails?.total_surplus_qty || 0;
   const financialImpact = Number(sessionDetails?.financial_impact || 0);
   const progressPct = totalExpected > 0 ? Math.min(100, Math.round((totalCounted / totalExpected) * 100)) : 100;

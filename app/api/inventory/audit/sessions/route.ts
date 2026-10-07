@@ -144,41 +144,23 @@ export async function POST(req: Request) {
     // 2. Query 1-to-1 individual barcode garments (`individual_garments`)
     let garments: any[] = [];
     
-    // Check if locationId is a specific warehouse ID
-    if (locationId !== 'all') {
-      const { data: gData } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .eq('warehouse_id', locationId)
-        .neq('status', 'vendido')
-        .order('created_at', { ascending: false });
+    const { data: gAll } = await supabase
+      .from('individual_garments')
+      .select('*, warehouses(id, nombre_bodega)')
+      .neq('status', 'vendido')
+      .order('created_at', { ascending: false });
 
-      if (gData && gData.length > 0) {
-        garments = gData;
+    if (gAll && gAll.length > 0) {
+      if (locationId !== 'all') {
+        const targetName = locationName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        garments = gAll.filter((g: any) => {
+          if (g.warehouse_id === locationId || (g.warehouses && g.warehouses.id === locationId)) return true;
+          const whName = (g.warehouses?.nombre_bodega || g.warehouse_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+          return whName && (whName.includes(targetName) || targetName.includes(whName));
+        });
       } else {
-        // Fallback: search garments by warehouse name or all garments assigned to location
-        const { data: gAll } = await supabase
-          .from('individual_garments')
-          .select('*')
-          .neq('status', 'vendido')
-          .order('created_at', { ascending: false });
-
-        if (gAll && gAll.length > 0) {
-          const targetName = locationName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-          garments = gAll.filter((g: any) => {
-            if (g.warehouse_id === locationId) return true;
-            const gWhName = (g.warehouse_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-            return gWhName && (gWhName.includes(targetName) || targetName.includes(gWhName));
-          });
-        }
+        garments = gAll;
       }
-    } else {
-      const { data: gData } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .neq('status', 'vendido')
-        .order('created_at', { ascending: false });
-      garments = gData || [];
     }
 
     const registeredBarcodes = new Set<string>();
