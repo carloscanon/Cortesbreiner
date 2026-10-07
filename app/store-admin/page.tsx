@@ -762,7 +762,7 @@ export default function StoreAdminPage() {
           const firstName = nameParts[0] || 'Cliente';
           const lastName = nameParts.slice(1).join(' ') || 'Mostrador';
 
-          // Prepare SIIGO Invoice Payload according to official SIIGO API v1 specification
+          // Prepare SIIGO Invoice Payload strictly aligned with official SIIGO API v1 documentation
           const invoicePayload = {
             document: { id: docTypeId },
             date: new Date().toISOString().split('T')[0],
@@ -770,9 +770,28 @@ export default function StoreAdminPage() {
               person_type: 'Person',
               id_type: '13', // Cédula de Ciudadanía
               identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '222222222222',
+              branch_office: 0,
               name: [firstName, lastName],
-              commercial_name: rawName,
-              vat_responsible: false
+              address: {
+                address: 'Calle 10 # 43',
+                city: {
+                  country_code: 'Co',
+                  state_code: '11',
+                  city_code: '11001'
+                }
+              },
+              phones: [
+                {
+                  number: '3006003344'
+                }
+              ],
+              contacts: [
+                {
+                  first_name: firstName,
+                  last_name: lastName,
+                  email: 'factura@tienda.com'
+                }
+              ]
             },
             items: sale.pos_sale_items?.length > 0 ? sale.pos_sale_items.map((item: any) => ({
               code: item.products?.codigo_referencia || 'PROD',
@@ -786,12 +805,6 @@ export default function StoreAdminPage() {
               price: Number(sale.total) || 0
             }],
             seller: sellerId ? sellerId : 1,
-            // Solo enviar stamp y mail si el tipo de documento no arroja error de configuración
-            ...(selectedDocTypeId === 'auto' || availableDocTypes.find(d => String(d.id) === String(docTypeId))?.type === 'FV' ? {
-              stamp: {
-                send: true
-              }
-            } : {}),
             payments: [{
               id: paymentId,
               value: Number(sale.total) || 0,
