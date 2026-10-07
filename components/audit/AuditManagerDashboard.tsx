@@ -593,7 +593,7 @@ export default function AuditManagerDashboard({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              justify: 'space-between',
+                              justifyContent: 'space-between',
                               fontSize: '0.8rem',
                               fontWeight: '700',
                               color: isSelected ? '#3730a3' : '#334155',
