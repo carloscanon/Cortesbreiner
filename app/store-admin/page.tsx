@@ -693,10 +693,14 @@ export default function StoreAdminPage() {
           const docJson = await docRes.json();
           const docTypes = docJson.data || docJson;
           if (Array.isArray(docTypes) && docTypes.length > 0) {
-            // Explicitly search for a document type that is FV (Factura de Venta)
-            const fvType = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
-            if (fvType && fvType.id) {
-              docTypeId = fvType.id;
+            // Prioritize document type with code 'FV-10' or name 'FV-10'
+            const fv10Type = docTypes.find((d: any) => d.code === 'FV-10' || (d.name && d.name.includes('FV-10')) || (d.code && d.code.includes('FV-10')));
+            const genericFv = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
+            
+            if (fv10Type && fv10Type.id) {
+              docTypeId = fv10Type.id;
+            } else if (genericFv && genericFv.id) {
+              docTypeId = genericFv.id;
             } else if (docTypes[0].id) {
               docTypeId = docTypes[0].id;
             }
