@@ -786,12 +786,12 @@ export default function StoreAdminPage() {
               price: Number(sale.total) || 0
             }],
             seller: sellerId ? sellerId : 1,
-            stamp: {
-              send: true // Envío obligatorio de Factura Electrónica a la DIAN (Obtención de CUFE)
-            },
-            mail: {
-              send: true // Envío automático por correo electrónico al cliente
-            },
+            // Solo enviar stamp y mail si el tipo de documento no arroja error de configuración
+            ...(selectedDocTypeId === 'auto' || availableDocTypes.find(d => String(d.id) === String(docTypeId))?.type === 'FV' ? {
+              stamp: {
+                send: true
+              }
+            } : {}),
             payments: [{
               id: paymentId,
               value: Number(sale.total) || 0,
