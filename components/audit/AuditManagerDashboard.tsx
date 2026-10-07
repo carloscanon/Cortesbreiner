@@ -39,6 +39,8 @@ export default function AuditManagerDashboard({
   const [categoriesList, setCategoriesList] = useState<any[]>(categories || []);
   const [isCreating, setIsCreating] = useState(false);
 
+  const [categoriesStockCounts, setCategoriesStockCounts] = useState<Record<string, number>>({});
+
   // Fetch categories from DB if not passed via props
   useEffect(() => {
     if (categories && categories.length > 0) {
@@ -49,6 +51,80 @@ export default function AuditManagerDashboard({
       });
     }
   }, [categories]);
+
+  // Compute category stock totals dynamically for selected location when modal opens
+  useEffect(() => {
+    if (!showCreateModal) return;
+
+    const fetchCategoryCounts = async () => {
+      try {
+        let countMap: Record<string, number> = {};
+
+        // 1. Fetch individual garments count by category
+        let garmentsQuery = supabase
+          .from('individual_garments')
+          .select('reference_name, product_id')
+          .neq('status', 'vendido');
+
+        if (newLocationId && newLocationId !== 'all') {
+          garmentsQuery = garmentsQuery.eq('warehouse_id', newLocationId);
+        }
+
+        const { data: garments } = await garmentsQuery;
+
+        // Fetch products to map categories
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, codigo_referencia, categoria, category_id, categories(categoria)');
+
+        const prodMap = new Map<string, string>();
+        prods?.forEach(p => {
+          const catName = (Array.isArray(p.categories) ? p.categories[0]?.categoria : p.categories?.categoria) || p.categoria || 'Sin Categoría';
+          if (p.id) prodMap.set(p.id, catName);
+          if (p.codigo_referencia) prodMap.set(p.codigo_referencia.trim().toUpperCase(), catName);
+        });
+
+        if (garments && garments.length > 0) {
+          garments.forEach(g => {
+            const cat = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toUpperCase()) || 'Sin Categoría';
+            const key = cat.toLowerCase().trim();
+            countMap[key] = (countMap[key] || 0) + 1;
+          });
+        }
+
+        // 2. Fetch stock count from finished_goods_stock if not in garments
+        let stockQuery = supabase
+          .from('finished_goods_stock')
+          .select('cantidad_disponible, products(categoria, category_id, categories(categoria))');
+
+        if (newLocationId && newLocationId !== 'all') {
+          stockQuery = stockQuery.eq('warehouse_id', newLocationId);
+        }
+
+        const { data: stockItems } = await stockQuery;
+
+        if (stockItems && stockItems.length > 0) {
+          stockItems.forEach(st => {
+            const qty = Number(st.cantidad_disponible || 0);
+            if (qty <= 0) return;
+            const prod = Array.isArray(st.products) ? st.products[0] : st.products;
+            const cat = (Array.isArray(prod?.categories) ? prod?.categories[0]?.categoria : prod?.categories?.categoria) || prod?.categoria || 'Sin Categoría';
+            const key = cat.toLowerCase().trim();
+            // Add if not already exclusively loaded by individual garments
+            if (!garments || garments.length === 0) {
+              countMap[key] = (countMap[key] || 0) + qty;
+            }
+          });
+        }
+
+        setCategoriesStockCounts(countMap);
+      } catch (err) {
+        console.error('Error fetching category counts:', err);
+      }
+    };
+
+    fetchCategoryCounts();
+  }, [showCreateModal, newLocationId]);
 
   // Check if current user is superadmin
   const isSuperAdminUser = isAdmin || profile?.role === 'super_admin' || profile?.role === 'admin' || user?.email?.includes('admin');
@@ -490,7 +566,7 @@ export default function AuditManagerDashboard({
                     </span>
                   </div>
 
-                  <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.3rem' }}>
+                  <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.3rem' }}>
                     {categoriesList.length === 0 ? (
                       <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cargando categorías de la base de datos...</span>
                     ) : (
@@ -504,6 +580,10 @@ export default function AuditManagerDashboard({
                           else if (typeof cat.cod_categoria === 'string') catName = cat.cod_categoria;
                           else if (cat.id) catName = String(cat.id);
                         }
+
+                        // Calculate total products in category for selected warehouse
+                        const totalUnitsInCat = (categoriesStockCounts && categoriesStockCounts[catName.toLowerCase()]) || 0;
+
                         const isSelected = selectedCategoryIds.includes(catName);
                         return (
                           <label
@@ -511,7 +591,7 @@ export default function AuditManagerDashboard({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '0.5rem',
+                              justify: 'space-between',
                               fontSize: '0.8rem',
                               fontWeight: '700',
                               color: isSelected ? '#3730a3' : '#334155',
@@ -523,19 +603,31 @@ export default function AuditManagerDashboard({
                               transition: 'all 0.15s'
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={e => {
-                                if (e.target.checked) {
-                                  setSelectedCategoryIds([...selectedCategoryIds, catName]);
-                                } else {
-                                  setSelectedCategoryIds(selectedCategoryIds.filter(c => c !== catName));
-                                }
-                              }}
-                              style={{ accentColor: '#6366f1', width: '15px', height: '15px', cursor: 'pointer' }}
-                            />
-                            <span>📁 {catName}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={e => {
+                                  if (e.target.checked) {
+                                    setSelectedCategoryIds([...selectedCategoryIds, catName]);
+                                  } else {
+                                    setSelectedCategoryIds(selectedCategoryIds.filter(c => c !== catName));
+                                  }
+                                }}
+                                style={{ accentColor: '#6366f1', width: '15px', height: '15px', cursor: 'pointer' }}
+                              />
+                              <span>📁 {catName}</span>
+                            </div>
+                            <span style={{
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '6px',
+                              backgroundColor: isSelected ? '#4f46e5' : '#f1f5f9',
+                              color: isSelected ? 'white' : '#64748b'
+                            }}>
+                              {totalUnitsInCat.toLocaleString()} Uds
+                            </span>
                           </label>
                         );
                       })
