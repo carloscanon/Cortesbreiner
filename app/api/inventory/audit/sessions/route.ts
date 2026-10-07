@@ -142,16 +142,44 @@ export async function POST(req: Request) {
     let totalExpectedQty = 0;
 
     // 2. Query 1-to-1 individual barcode garments (`individual_garments`)
-    let garmentQuery = supabase
-      .from('individual_garments')
-      .select('*')
-      .neq('status', 'vendido');
-
+    let garments: any[] = [];
+    
+    // Check if locationId is a specific warehouse ID
     if (locationId !== 'all') {
-      garmentQuery = garmentQuery.eq('warehouse_id', locationId);
-    }
+      const { data: gData } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('warehouse_id', locationId)
+        .neq('status', 'vendido')
+        .order('created_at', { ascending: false });
 
-    const { data: garments } = await garmentQuery.order('created_at', { ascending: false });
+      if (gData && gData.length > 0) {
+        garments = gData;
+      } else {
+        // Fallback: search garments by warehouse name or all garments assigned to location
+        const { data: gAll } = await supabase
+          .from('individual_garments')
+          .select('*')
+          .neq('status', 'vendido')
+          .order('created_at', { ascending: false });
+
+        if (gAll && gAll.length > 0) {
+          const targetName = locationName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+          garments = gAll.filter((g: any) => {
+            if (g.warehouse_id === locationId) return true;
+            const gWhName = (g.warehouse_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+            return gWhName && (gWhName.includes(targetName) || targetName.includes(gWhName));
+          });
+        }
+      }
+    } else {
+      const { data: gData } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .neq('status', 'vendido')
+        .order('created_at', { ascending: false });
+      garments = gData || [];
+    }
 
     const registeredBarcodes = new Set<string>();
 
@@ -216,21 +244,54 @@ export async function POST(req: Request) {
     }
 
     // 3. Supplement from `finished_goods_stock` for non-barcoded SKU aggregations in the selected warehouse
-    let stockQuery = supabase
-      .from('finished_goods_stock')
-      .select(`
-        id, product_id, color_id, size_id, warehouse_id, cantidad_disponible,
-        products (id, nombre_producto, codigo_referencia, precio, costo, categoria, category_id, categories(categoria)),
-        colors (id, nombre_color),
-        sizes (id, codigo_talla),
-        warehouses (id, nombre_bodega)
-      `);
-
+    let expectedStock: any[] = [];
+    
     if (locationId !== 'all') {
-      stockQuery = stockQuery.eq('warehouse_id', locationId);
-    }
+      const { data: stData } = await supabase
+        .from('finished_goods_stock')
+        .select(`
+          id, product_id, color_id, size_id, warehouse_id, cantidad_disponible,
+          products (id, nombre_producto, codigo_referencia, precio, costo, categoria, category_id, categories(categoria)),
+          colors (id, nombre_color),
+          sizes (id, codigo_talla),
+          warehouses (id, nombre_bodega)
+        `)
+        .eq('warehouse_id', locationId);
 
-    const { data: expectedStock } = await stockQuery;
+      if (stData && stData.length > 0) {
+        expectedStock = stData;
+      } else {
+        // Fallback: search by warehouse name matching
+        const { data: stAll } = await supabase
+          .from('finished_goods_stock')
+          .select(`
+            id, product_id, color_id, size_id, warehouse_id, cantidad_disponible,
+            products (id, nombre_producto, codigo_referencia, precio, costo, categoria, category_id, categories(categoria)),
+            colors (id, nombre_color),
+            sizes (id, codigo_talla),
+            warehouses (id, nombre_bodega)
+          `);
+
+        if (stAll && stAll.length > 0) {
+          const targetName = locationName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+          expectedStock = stAll.filter((st: any) => {
+            const whName = (st.warehouses?.nombre_bodega || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+            return st.warehouse_id === locationId || (whName && (whName.includes(targetName) || targetName.includes(whName)));
+          });
+        }
+      }
+    } else {
+      const { data: stData } = await supabase
+        .from('finished_goods_stock')
+        .select(`
+          id, product_id, color_id, size_id, warehouse_id, cantidad_disponible,
+          products (id, nombre_producto, codigo_referencia, precio, costo, categoria, category_id, categories(categoria)),
+          colors (id, nombre_color),
+          sizes (id, codigo_talla),
+          warehouses (id, nombre_bodega)
+        `);
+      expectedStock = stData || [];
+    }
 
     if (expectedStock && expectedStock.length > 0) {
       expectedStock.forEach(st => {
