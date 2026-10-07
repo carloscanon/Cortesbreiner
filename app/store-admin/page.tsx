@@ -667,8 +667,14 @@ export default function StoreAdminPage() {
         });
         const docJson = await docRes.json();
         const docTypes = docJson.data || docJson;
-        if (Array.isArray(docTypes) && docTypes.length > 0 && docTypes[0].id) {
-          docTypeId = docTypes[0].id;
+        if (Array.isArray(docTypes) && docTypes.length > 0) {
+          // Explicitly search for a document type that is FV (Factura de Venta)
+          const fvType = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
+          if (fvType && fvType.id) {
+            docTypeId = fvType.id;
+          } else if (docTypes[0].id) {
+            docTypeId = docTypes[0].id;
+          }
         }
 
         const payRes = await fetch('/api/siigo/proxy', {
