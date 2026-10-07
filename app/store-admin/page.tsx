@@ -762,29 +762,20 @@ export default function StoreAdminPage() {
           const firstName = nameParts[0] || 'Cliente';
           const lastName = nameParts.slice(1).join(' ') || 'Mostrador';
 
-          // Prepare SIIGO Invoice Payload strictly aligned with exact provided cURL specification
+          // Prepare SIIGO Invoice Payload strictly aligned with exact provided SIIGO documentation
           const invoicePayload = {
             document: {
-              id: docTypeId
+              id: Number(docTypeId)
             },
             date: new Date().toISOString().split('T')[0],
             customer: {
               person_type: 'Person',
               id_type: '13',
-              identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '222222222222',
+              identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '209048401',
               branch_office: 0,
               name: [firstName, lastName],
-              commercial_name: rawName,
-              active: true,
-              vat_responsible: false,
-              fiscal_responsibilities: [
-                {
-                  code: 'R-99-PN',
-                  name: 'Not responsible'
-                }
-              ],
               address: {
-                address: 'Calle 10 # 43',
+                address: 'Cra. 18 #79A - 42',
                 city: {
                   country_code: 'Co',
                   state_code: '11',
@@ -793,44 +784,37 @@ export default function StoreAdminPage() {
               },
               phones: [
                 {
-                  indicative: '57',
-                  number: sale.client_phone && sale.client_phone.length >= 7 ? sale.client_phone.trim() : '3006003345'
+                  number: sale.client_phone && sale.client_phone.length >= 7 ? sale.client_phone.trim() : '3006003344'
                 }
               ],
               contacts: [
                 {
                   first_name: firstName,
                   last_name: lastName,
-                  email: sale.client_email && sale.client_email.includes('@') ? sale.client_email.trim() : 'factura@tienda.com'
+                  email: sale.client_email && sale.client_email.includes('@') ? sale.client_email.trim() : 'manuel.camacho@contacto.com'
                 }
               ]
             },
-            seller: sellerId ? sellerId : 1,
+            seller: Number(sellerId ? sellerId : 1),
             observations: `Factura Venta POS Ticket #${sale.consecutive}`,
             items: sale.pos_sale_items?.length > 0 ? sale.pos_sale_items.map((item: any) => ({
-              code: item.products?.codigo_referencia || 'PROD',
-              description: item.products?.nombre_producto || 'Prenda POS',
+              code: String(item.products?.codigo_referencia || '1'),
+              description: String(item.products?.nombre_producto || 'Prenda POS'),
               quantity: Number(item.cantidad) || 1,
               price: Number(item.precio_unitario) || Number(item.precio) || 0
             })) : [{
-              code: 'VENTA',
+              code: '1',
               description: `Venta Ticket #${sale.consecutive}`,
               quantity: 1,
               price: Number(sale.total) || 0
             }],
             payments: [
               {
-                id: paymentId,
+                id: Number(paymentId),
                 value: Number(sale.total) || 0,
                 due_date: new Date().toISOString().split('T')[0]
               }
-            ],
-            stamp: {
-              send: true
-            },
-            mail: {
-              send: true
-            }
+            ]
           };
 
           // Execute real request through proxy
