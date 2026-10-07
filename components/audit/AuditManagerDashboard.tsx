@@ -495,11 +495,19 @@ export default function AuditManagerDashboard({
                       <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cargando categorías de la base de datos...</span>
                     ) : (
                       categoriesList.map((cat: any) => {
-                        const catName = cat.categoria || cat.name || cat;
+                        let catName = 'Categoría';
+                        if (typeof cat === 'string') {
+                          catName = cat;
+                        } else if (cat && typeof cat === 'object') {
+                          if (typeof cat.categoria === 'string') catName = cat.categoria;
+                          else if (typeof cat.name === 'string') catName = cat.name;
+                          else if (typeof cat.cod_categoria === 'string') catName = cat.cod_categoria;
+                          else if (cat.id) catName = String(cat.id);
+                        }
                         const isSelected = selectedCategoryIds.includes(catName);
                         return (
                           <label
-                            key={cat.id || catName}
+                            key={typeof cat === 'object' && cat?.id ? cat.id : catName}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
