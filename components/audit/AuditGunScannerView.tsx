@@ -206,10 +206,23 @@ export default function AuditGunScannerView({
             </button>
             <div>
               <span style={{ fontSize: '0.7rem', fontWeight: '900', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                MODO PISTOLA LECTORA / CONTEO EN VIVO
+                MODO PISTOLA LECTORA / CONTEO EN VIVO ({sessionDetails?.audit_type || 'Completo'})
               </span>
-              <h2 style={{ fontSize: '1.35rem', fontWeight: '950', margin: 0 }}>
-                AUDITORÍA #{sessionDetails?.consecutive} — {sessionDetails?.location_name}
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '950', margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <span>AUDITORÍA #{sessionDetails?.consecutive} — {sessionDetails?.location_name}</span>
+                {sessionDetails?.notes && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    backgroundColor: 'rgba(129, 140, 248, 0.25)',
+                    color: '#c7d2fe',
+                    padding: '0.2rem 0.65rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(129, 140, 248, 0.4)'
+                  }}>
+                    📁 {sessionDetails.notes}
+                  </span>
+                )}
               </h2>
             </div>
           </div>

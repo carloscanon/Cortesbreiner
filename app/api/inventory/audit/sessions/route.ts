@@ -175,7 +175,15 @@ export async function POST(req: Request) {
         // If partial audit by category is active, filter out garments outside selected categories
         if (targetCategories.length > 0) {
           const catLower = categoryName.toLowerCase();
-          const matchesCategory = targetCategories.some(tc => catLower.includes(tc) || tc.includes(catLower));
+          const refLower = (g.reference_name || '').toLowerCase();
+          const prodNameLower = (prod?.nombre_producto || '').toLowerCase();
+
+          const matchesCategory = targetCategories.some(tc => {
+            const cleanTc = tc.trim().toLowerCase();
+            if (!cleanTc) return false;
+            return catLower.includes(cleanTc) || cleanTc.includes(catLower) ||
+                   refLower.includes(cleanTc) || prodNameLower.includes(cleanTc);
+          });
           if (!matchesCategory) return;
         }
 
@@ -240,7 +248,15 @@ export async function POST(req: Request) {
         // If partial audit by category is active, filter out stock outside selected categories
         if (targetCategories.length > 0) {
           const catLower = categoryName.toLowerCase();
-          const matchesCategory = targetCategories.some(tc => catLower.includes(tc) || tc.includes(catLower));
+          const refLower = (prod?.codigo_referencia || '').toLowerCase();
+          const prodLower = (prod?.nombre_producto || '').toLowerCase();
+
+          const matchesCategory = targetCategories.some(tc => {
+            const cleanTc = tc.trim().toLowerCase();
+            if (!cleanTc) return false;
+            return catLower.includes(cleanTc) || cleanTc.includes(catLower) ||
+                   refLower.includes(cleanTc) || prodLower.includes(cleanTc);
+          });
           if (!matchesCategory) return;
         }
 
