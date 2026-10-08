@@ -965,6 +965,122 @@ export default function FinishedGoodsInventory() {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // Exportar Plano Único de Inventario por Bodega (Excel / CSV)
+  const [showExportWarehouseModal, setShowExportWarehouseModal] = useState(false);
+  const [selectedExportWarehouseId, setSelectedExportWarehouseId] = useState('');
+  const [exportingWarehouseFlat, setExportingWarehouseFlat] = useState(false);
+
+  const handleExportWarehouseFlatReport = async () => {
+    if (!selectedExportWarehouseId) {
+      alert('Por favor selecciona una bodega para exportar el plano.');
+      return;
+    }
+
+    setExportingWarehouseFlat(true);
+    try {
+      const targetWh = warehouses.find(w => w.id === selectedExportWarehouseId);
+      const whName = targetWh?.nombre_bodega || 'Bodega';
+
+      // 1. Consultar existencias de stock de la bodega seleccionada
+      const whStock = stock.filter(s => isSameWarehouse(s, targetWh));
+
+      // 2. Consultar prendas individuales con stickers/código de barras asignadas a esta bodega
+      const { data: individualGarments } = await supabase
+        .from('individual_garments')
+        .select('*')
+        .eq('warehouse_id', selectedExportWarehouseId)
+        .neq('status', 'vendido');
+
+      const BOM = '\uFEFF';
+      const headers = [
+        'ID Prenda / Sticker',
+        'Código de Barras',
+        'Bodega',
+        'Código Referencia',
+        'Nombre Producto',
+        'Categoría',
+        'Color',
+        'Talla',
+        'Cantidad Disponible',
+        'Estado Prenda',
+        'Fecha Registro'
+      ];
+
+      const rows: string[] = [];
+
+      // Mapear prendas individuales si existen
+      if (individualGarments && individualGarments.length > 0) {
+        individualGarments.forEach((g: any) => {
+          const prod = products.find(p => p.id === g.product_id || p.codigo_referencia === g.reference_name);
+          const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+          const refCode = g.reference_name || prod?.codigo_referencia || 'SIN-REF';
+          const prodName = prod?.nombre_producto || refCode;
+
+          rows.push([
+            g.id || '',
+            g.barcode || '',
+            whName,
+            refCode,
+            prodName,
+            catName,
+            g.color_name || '—',
+            g.size_code || 'ST',
+            1, // Prenda individual = 1 Ud
+            g.status || 'Disponible',
+            g.created_at ? new Date(g.created_at).toLocaleString('es-CO') : ''
+          ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
+        });
+      } else {
+        // Fallback: Mapear desde stock consolidado por SKU de esa bodega
+        whStock.forEach((st: any) => {
+          const prod = st.products;
+          const refCode = prod?.codigo_referencia || 'SIN-REF';
+          const prodName = prod?.nombre_producto || refCode;
+          const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+
+          rows.push([
+            `SKU-${st.id?.slice(0, 8)}`,
+            refCode,
+            whName,
+            refCode,
+            prodName,
+            catName,
+            st.colors?.nombre_color || '—',
+            st.sizes?.codigo_talla || 'ST',
+            st.cantidad_disponible || 0,
+            'Consolidado',
+            st.created_at ? new Date(st.created_at).toLocaleString('es-CO') : ''
+          ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
+        });
+      }
+
+      if (rows.length === 0) {
+        alert(`La bodega "${whName}" actualmente no cuenta con prendas ni existencias registradas.`);
+        setExportingWarehouseFlat(false);
+        return;
+      }
+
+      const csvContent = BOM + [headers.join(';'), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cleanWhName = whName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      a.download = `plano_inventario_${cleanWhName}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setShowExportWarehouseModal(false);
+      setSelectedExportWarehouseId('');
+    } catch (err: any) {
+      console.error('Error al exportar plano de bodega:', err);
+      alert('Error al generar plano: ' + err.message);
+    } finally {
+      setExportingWarehouseFlat(false);
+    }
+  };
+
   const [stickerConfig, setStickerConfig] = useState({
     monochromeMode: false,
     headerText: 'CORTES BREINER',
@@ -2330,6 +2446,21 @@ export default function FinishedGoodsInventory() {
             }}
           >
             <RefreshCw size={16} /> ↩️ Revertir a Calidad (SuperAdmin)
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowExportWarehouseModal(true)}
+            style={{
+              border: '1.5px solid #10b981',
+              backgroundColor: '#ecfdf5',
+              color: '#047857',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <Download size={16} /> 📊 Descargar Plano por Bodega
           </button>
           <button className="btn btn-primary" onClick={() => setShowAdjustmentModal(true)}>
             <Plus size={18} /> Ajustar Inventario
@@ -6276,6 +6407,102 @@ export default function FinishedGoodsInventory() {
               >
                 Cerrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Exportar Plano por Bodega */}
+      {showExportWarehouseModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: 'white', borderRadius: '20px', width: '100%', maxWidth: '480px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden', border: '1px solid #e2e8f0'
+          }}>
+            <div style={{
+              padding: '1.25rem 1.5rem', backgroundColor: '#0f172a', color: 'white',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <FileSpreadsheet size={22} style={{ color: '#10b981' }} />
+                <div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0 }}>Descargar Plano Excel por Bodega</h3>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Reporte de etiquetas, referencias, colores y tallas</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportWarehouseModal(false)}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.2rem' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>
+                  Selecciona la Bodega o Tienda:
+                </label>
+                <select
+                  value={selectedExportWarehouseId}
+                  onChange={e => setSelectedExportWarehouseId(e.target.value)}
+                  style={{
+                    width: '100%', padding: '0.75rem', borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700', backgroundColor: 'white'
+                  }}
+                >
+                  <option value="">-- Seleccionar Bodega --</option>
+                  {warehouses.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_bodega} ({w.tipo || 'Almacenamiento'})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{
+                backgroundColor: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '12px',
+                border: '1px solid #e2e8f0', fontSize: '0.78rem', color: '#64748b'
+              }}>
+                ℹ️ <strong>El archivo generado (.CSV / Excel) incluirá:</strong>
+                <ul style={{ margin: '0.3rem 0 0 1.2rem', padding: 0 }}>
+                  <li>ID de Prenda y Código de Barras Único (Sticker)</li>
+                  <li>Nombre de la Bodega seleccionada</li>
+                  <li>Código de Referencia y Nombre de Producto</li>
+                  <li>Categoría de la prenda</li>
+                  <li>Color y Talla asignados</li>
+                  <li>Cantidad total disponible y fecha de registro</li>
+                </ul>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowExportWarehouseModal(false)}
+                  style={{
+                    padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1.5px solid #cbd5e1',
+                    backgroundColor: 'white', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedExportWarehouseId || exportingWarehouseFlat}
+                  onClick={handleExportWarehouseFlatReport}
+                  style={{
+                    padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none',
+                    backgroundColor: '#10b981', color: 'white', fontWeight: '950', fontSize: '0.85rem',
+                    cursor: selectedExportWarehouseId && !exportingWarehouseFlat ? 'pointer' : 'not-allowed',
+                    opacity: selectedExportWarehouseId && !exportingWarehouseFlat ? 1 : 0.6,
+                    display: 'flex', alignItems: 'center', gap: '0.5rem'
+                  }}
+                >
+                  <Download size={16} /> {exportingWarehouseFlat ? 'Generando...' : 'Descargar Plano (.CSV)'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
