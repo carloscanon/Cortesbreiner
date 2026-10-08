@@ -985,12 +985,15 @@ export default function FinishedGoodsInventory() {
       // 1. Consultar existencias de stock de la bodega seleccionada
       const whStock = stock.filter(s => isSameWarehouse(s, targetWh));
 
-      // 2. Consultar prendas individuales con stickers/código de barras asignadas a esta bodega
-      const { data: individualGarments } = await supabase
-        .from('individual_garments')
-        .select('*')
-        .eq('warehouse_id', selectedExportWarehouseId)
-        .neq('status', 'vendido');
+      // 2. Consultar prendas individuales con stickers/código de barras asignadas a esta bodega (paginado sin límite de 1000 hasta 100,000+)
+      const individualGarments = await fetchAllPages(
+        supabase
+          .from('individual_garments')
+          .select('*')
+          .eq('warehouse_id', selectedExportWarehouseId)
+          .neq('status', 'vendido'),
+        100000
+      );
 
       const BOM = '\uFEFF';
       const headers = [
