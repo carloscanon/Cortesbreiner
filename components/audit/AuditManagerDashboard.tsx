@@ -246,6 +246,28 @@ export default function AuditManagerDashboard({
     return Object.values(map).sort((a, b) => b.loss - a.loss);
   }, [sessions]);
 
+  const [consistencyData, setConsistencyData] = useState<any>(null);
+  const [loadingConsistency, setLoadingConsistency] = useState(false);
+
+  const fetchConsistencyData = async () => {
+    setLoadingConsistency(true);
+    try {
+      const res = await fetch('/api/inventory/consistency-check');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setConsistencyData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching inventory consistency data:', err);
+    } finally {
+      setLoadingConsistency(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConsistencyData();
+  }, []);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       
@@ -269,14 +291,74 @@ export default function AuditManagerDashboard({
           </div>
         </div>
 
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="btn btn-primary"
-          style={{ padding: '0.75rem 1.5rem', fontWeight: '950', borderRadius: '12px', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-        >
-          <Plus size={18} /> Nueva Sesión de Auditoría
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button
+            onClick={fetchConsistencyData}
+            className="btn btn-secondary"
+            style={{ padding: '0.75rem 1rem', fontWeight: '850', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155' }}
+          >
+            <RefreshCw size={16} className={loadingConsistency ? 'animate-spin' : ''} /> Diagnóstico
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn btn-primary"
+            style={{ padding: '0.75rem 1.5rem', fontWeight: '950', borderRadius: '12px', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <Plus size={18} /> Nueva Sesión de Auditoría
+          </button>
+        </div>
       </div>
+
+      {/* Indicador Semáforo de Consistencia de Inventario (Puntos 4, 9, 10 y 11) */}
+      {consistencyData && (
+        <div className="card" style={{
+          padding: '1.25rem 1.5rem', borderRadius: '16px', border: `2px solid ${
+            consistencyData.globalStatus === 'CONSISTENTE' ? '#10b981' :
+            consistencyData.globalStatus === 'CON_DIFERENCIAS' ? '#f59e0b' : '#ef4444'
+          }`,
+          backgroundColor: consistencyData.globalStatus === 'CONSISTENTE' ? '#f0fdf4' :
+            consistencyData.globalStatus === 'CON_DIFERENCIAS' ? '#fffbeb' : '#fef2f2',
+          display: 'flex', flexDirection: 'column', gap: '0.75rem'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>
+                {consistencyData.globalStatus === 'CONSISTENTE' ? '🟢' :
+                 consistencyData.globalStatus === 'CON_DIFERENCIAS' ? '🟡' : '🔴'}
+              </span>
+              <div>
+                <span style={{ fontSize: '0.7rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase' }}>
+                  ESTADO GLOBAL DE CONSISTENCIA DE INVENTARIO
+                </span>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '950', margin: 0, color: '#0f172a' }}>
+                  {consistencyData.globalStatus === 'CONSISTENTE' ? 'INVENTARIO CONSISTENTE' :
+                   consistencyData.globalStatus === 'CON_DIFERENCIAS' ? 'INVENTARIO CON TRASLADOS EN TRÁNSITO' : 'INCONSISTENCIA DETECTADA'}
+                </h3>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', display: 'block' }}>TRASLADOS PENDIENTES</span>
+                <strong style={{ fontSize: '1rem', fontWeight: '900', color: '#0f172a' }}>
+                  {consistencyData.totalPendingTransfers} ({consistencyData.totalPendingTransferUnits} Uds en Tránsito)
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {consistencyData.issuesList && consistencyData.issuesList.length > 0 && (
+            <div style={{ backgroundColor: 'rgba(255,255,255,0.7)', padding: '0.65rem 0.85rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '700', color: '#334155' }}>
+              <strong style={{ color: '#0f172a' }}>Detalle de Reglas y Alertas:</strong>
+              <ul style={{ margin: '0.3rem 0 0 1.2rem', padding: 0 }}>
+                {consistencyData.issuesList.map((issue: string, idx: number) => (
+                  <li key={idx}>{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* KPI Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
