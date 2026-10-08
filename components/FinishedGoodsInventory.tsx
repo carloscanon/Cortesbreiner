@@ -1901,11 +1901,11 @@ export default function FinishedGoodsInventory() {
             .eq('id', origStock[0].id);
         }
 
-        // If specific individual barcode stickers were scanned, update their warehouse location
+        // If specific individual barcode stickers were scanned, set status as en_transito during transit
         if (item.barcodes && item.barcodes.length > 0) {
           await supabase
             .from('individual_garments')
-            .update({ warehouse_id: transferForm.warehouse_dest_id })
+            .update({ status: 'en_transito' })
             .in('barcode', item.barcodes);
         }
 
@@ -1982,6 +1982,17 @@ export default function FinishedGoodsInventory() {
               size_id: item.size_id,
               cantidad_disponible: Number(item.cantidad)
             });
+        }
+
+        // When transfer is confirmed and accepted, update individual garment barcodes to destination warehouse
+        if (item.barcodes && item.barcodes.length > 0) {
+          await supabase
+            .from('individual_garments')
+            .update({
+              warehouse_id: tx.warehouse_dest_id,
+              status: 'Aprobada'
+            })
+            .in('barcode', item.barcodes);
         }
 
         // Check if there is a store linked to this destination warehouse, and sync it to the POS store_inventory
@@ -2498,7 +2509,10 @@ export default function FinishedGoodsInventory() {
             <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>Distribución Física por Bodega</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {warehouses.map(w => {
+                {warehouses.filter(w => {
+                  const wName = (w.nombre_bodega || '').toLowerCase();
+                  return !wName.includes('transito') && !wName.includes('confeccion');
+                }).map(w => {
                   const whStock = stock.filter(s => isSameWarehouse(s, w));
                   const qty = whStock.reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0);
                   const value = whStock.reduce((sum, item) => sum + (item.cantidad_disponible * (item.products?.precio || 0)), 0);
