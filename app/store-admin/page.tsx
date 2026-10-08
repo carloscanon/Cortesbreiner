@@ -13,6 +13,113 @@ import { useAuth } from '@/hooks/useAuth';
 
 type TabType = 'dashboard' | 'stores' | 'registers' | 'sessions' | 'promotions' | 'inventory_monitoring' | 'shifts' | 'price_lists' | 'sales_billing' | 'ux_manager' | 'chat_erp';
 
+export function getPremiumReferenceCategory(p: any): string {
+  if (!p) return 'General';
+  const name = (p.nombre_producto || '').trim();
+  const cat = (p.categories?.categoria || p.categoria || '').trim();
+  
+  let cleanName = name.replace(/^(no\s*usar|doble\s*no\s*ingresar)\s+/i, '').trim();
+  
+  if (cleanName.toLowerCase().includes('premium')) {
+    return cleanName;
+  }
+  if (cat && cat.toLowerCase().includes('premium')) {
+    return cat;
+  }
+  if (cleanName) {
+    return cleanName;
+  }
+  if (cat) {
+    return cat;
+  }
+  return p.codigo_referencia ? `Ref: ${p.codigo_referencia}` : 'General';
+}
+
+export function getAllPremiumCategories(productList: any[]): string[] {
+  const set = new Set<string>();
+  productList.forEach(p => {
+    const cat = getPremiumReferenceCategory(p);
+    if (cat && cat !== 'General' && cat.toLowerCase().includes('premium')) {
+      set.add(cat);
+    }
+  });
+  return Array.from(set).sort();
+}
+
+export function parsePriceListRules(pl: any) {
+  let cantidad_minima = 1;
+  let aplica_todas_categorias = true;
+  let categorias_permitidas: string[] = [];
+  let userDesc = pl?.descripcion || '';
+
+  if (userDesc) {
+    // 1. Check for Base64 format: [REGLAS_B64:...]
+    const b64Match = userDesc.match(/\[REGLAS_B64:([A-Za-z0-9+/=]+)\]/);
+    if (b64Match && b64Match[1]) {
+      try {
+        const decoded = typeof atob === 'function' ? atob(b64Match[1]) : Buffer.from(b64Match[1], 'base64').toString('utf-8');
+        const parsed = JSON.parse(decoded);
+        if (parsed.cantidad_minima !== undefined && parsed.cantidad_minima !== null) {
+          cantidad_minima = Math.max(1, Number(parsed.cantidad_minima) || 1);
+        }
+        if (parsed.aplica_todas_categorias !== undefined) {
+          aplica_todas_categorias = Boolean(parsed.aplica_todas_categorias);
+        }
+        if (Array.isArray(parsed.categorias_permitidas)) {
+          categorias_permitidas = parsed.categorias_permitidas;
+        }
+      } catch (e) {
+        console.warn('Error parsing Base64 rules in store admin:', e);
+      }
+    } else {
+      // 2. Fallback to legacy [REGLAS:{...}] format
+      const idx = userDesc.indexOf('[REGLAS:');
+      if (idx !== -1) {
+        const rawJsonPart = userDesc.substring(idx + 8);
+        const lastBracket = rawJsonPart.lastIndexOf(']');
+        const jsonStr = lastBracket !== -1 ? rawJsonPart.substring(0, lastBracket) : rawJsonPart;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.cantidad_minima !== undefined && parsed.cantidad_minima !== null) {
+            cantidad_minima = Math.max(1, Number(parsed.cantidad_minima) || 1);
+          }
+          if (parsed.aplica_todas_categorias !== undefined) {
+            aplica_todas_categorias = Boolean(parsed.aplica_todas_categorias);
+          }
+          if (Array.isArray(parsed.categorias_permitidas)) {
+            categorias_permitidas = parsed.categorias_permitidas;
+          }
+        } catch (e) {
+          console.warn('Error parsing legacy rules JSON:', e);
+        }
+      }
+    }
+  }
+
+  if (pl?.cantidad_minima !== undefined && pl?.cantidad_minima !== null && !isNaN(Number(pl.cantidad_minima))) {
+    cantidad_minima = Math.max(1, Number(pl.cantidad_minima));
+  }
+  if (pl?.aplica_todas_categorias !== undefined && pl?.aplica_todas_categorias !== null) {
+    aplica_todas_categorias = Boolean(pl.aplica_todas_categorias);
+  }
+  if (Array.isArray(pl?.categorias_permitidas)) {
+    categorias_permitidas = pl.categorias_permitidas;
+  }
+
+  userDesc = userDesc
+    .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
+    .replace(/\[REGLAS:[\s\S]*$/g, '')
+    .replace(/\s*\}\]\}\]\s*/g, '')
+    .trim();
+
+  return {
+    cantidad_minima,
+    aplica_todas_categorias,
+    categorias_permitidas,
+    userDesc
+  };
+}
+
 export default function StoreAdminPage() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -114,6 +221,11 @@ export default function StoreAdminPage() {
   // Selected list for editing pricing items
   const [selectedPriceListPricing, setSelectedPriceListPricing] = useState<any>(null);
   const [pricingInputs, setPricingInputs] = useState<{ [key: string]: string }>({});
+  const [pricingSearch, setPricingSearch] = useState('');
+  const [pricingCategoryFilter, setPricingCategoryFilter] = useState('all');
+  const [pricingViewMode, setPricingViewMode] = useState<'products' | 'categories'>('products');
+  const [modalScopeTab, setModalScopeTab] = useState<'categories' | 'products'>('categories');
+  const [modalScopeSearch, setModalScopeSearch] = useState('');
 
   // Modals & Saving
   const [loading, setLoading] = useState(true);
@@ -350,7 +462,17 @@ export default function StoreAdminPage() {
   const [registerForm, setRegisterForm] = useState({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
   const [promoForm, setPromoForm] = useState({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
   const [shiftForm, setShiftForm] = useState({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-  const [priceListForm, setPriceListForm] = useState({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
+  const [priceListForm, setPriceListForm] = useState({
+    id: '',
+    nombre: '',
+    descripcion: '',
+    activo: true,
+    tipo_descuento_global: 'porcentaje',
+    valor_descuento_global: '',
+    cantidad_minima: '1',
+    aplica_todas_categorias: true,
+    categorias_permitidas: [] as string[]
+  });
   const [storeInvForm, setStoreInvForm] = useState({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
 
   const [savingStore, setSavingStore] = useState(false);
@@ -380,7 +502,7 @@ export default function StoreAdminPage() {
         .order('created_at', { ascending: false });
       
       const { data: wh } = await supabase.from('warehouses').select('*').eq('estado', 'activo');
-      const { data: prod } = await supabase.from('products').select('*').order('nombre_producto');
+      const { data: prod } = await supabase.from('products').select('*, categories(*)').order('nombre_producto');
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: sales } = await supabase.from('pos_sales').select('*, stores(nombre), pos_payments(*), pos_sale_items(*, products(*), colors(*), sizes(*))').order('created_at', { ascending: false });
@@ -645,22 +767,44 @@ export default function StoreAdminPage() {
     e.preventDefault();
     setSavingPriceList(true);
     try {
-      const payload = {
-        nombre: priceListForm.nombre,
-        descripcion: priceListForm.descripcion,
+      const minQty = Math.max(1, Number(priceListForm.cantidad_minima) || 1);
+      const rulesData = {
+        cantidad_minima: minQty,
+        aplica_todas_categorias: priceListForm.aplica_todas_categorias !== false,
+        categorias_permitidas: priceListForm.categorias_permitidas || []
+      };
+
+      const cleanedDesc = (priceListForm.descripcion || '')
+        .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
+        .replace(/\[REGLAS:[\s\S]*$/g, '')
+        .replace(/\s*\}\]\}\]\s*/g, '')
+        .trim();
+
+      const b64Rules = typeof btoa === 'function'
+        ? btoa(unescape(encodeURIComponent(JSON.stringify(rulesData))))
+        : Buffer.from(JSON.stringify(rulesData)).toString('base64');
+
+      const finalDesc = `${cleanedDesc}${cleanedDesc ? ' ' : ''}[REGLAS_B64:${b64Rules}]`;
+
+      const payload: any = {
+        nombre: priceListForm.nombre.trim(),
+        descripcion: finalDesc,
         activo: priceListForm.activo,
         tipo_descuento_global: priceListForm.tipo_descuento_global,
         valor_descuento_global: priceListForm.valor_descuento_global === '' ? null : Number(priceListForm.valor_descuento_global)
       };
 
       if (priceListForm.id) {
-        await supabase.from('pos_price_lists').update(payload).eq('id', priceListForm.id);
+        const { error } = await supabase.from('pos_price_lists').update(payload).eq('id', priceListForm.id);
+        if (error) throw error;
       } else {
-        await supabase.from('pos_price_lists').insert([payload]);
+        const { error } = await supabase.from('pos_price_lists').insert([payload]);
+        if (error) throw error;
       }
       setShowPriceListModal(false);
-      setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
-      fetchData();
+      setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [] });
+      await fetchData();
+      alert('✓ Lista de precios y reglas de volumen guardadas exitosamente en la base de datos.');
     } catch (err: any) {
       alert("Error guardando lista de precios: " + err.message);
     } finally {
@@ -1136,10 +1280,10 @@ export default function StoreAdminPage() {
     }
   };
 
-  const handleUpdateCategoryDiscount = async (listId: string, category: string, type: string, valueStr: string) => {
+  const handleUpdateCategoryDiscount = async (listId: string, itemKey: string, type: string, valueStr: string) => {
     const val = Number(valueStr);
     try {
-      const existing = priceListItems.find(item => item.price_list_id === listId && item.categoria === category);
+      const existing = priceListItems.find(item => item.price_list_id === listId && item.categoria === itemKey);
       if (isNaN(val) || val <= 0) {
         if (existing) {
           await supabase.from('pos_price_list_items').delete().eq('id', existing.id);
@@ -1150,16 +1294,67 @@ export default function StoreAdminPage() {
         } else {
           await supabase.from('pos_price_list_items').insert([{
             price_list_id: listId,
-            categoria: category,
+            categoria: itemKey,
             tipo_descuento: type,
             valor_descuento: val
           }]);
         }
       }
-      alert("✓ Descuento de categoría actualizado.");
+      alert("✓ Regla de precio/descuento actualizada exitosamente.");
       fetchData();
     } catch (err: any) {
       alert("Error al actualizar descuento: " + err.message);
+    }
+  };
+
+  const handleBulkSaveCategoryDiscounts = async (listId: string, itemKeys: string[]) => {
+    try {
+      let savedCount = 0;
+      for (const key of itemKeys) {
+        const inputKeyType = `${listId}_${key}_type`;
+        const inputKeyVal = `${listId}_${key}_val`;
+        const existing = priceListItems.find(item => item.price_list_id === listId && item.categoria === key);
+        const currentType = pricingInputs[inputKeyType] || (existing ? existing.tipo_descuento : 'porcentaje');
+        const currentValStr = pricingInputs[inputKeyVal] !== undefined ? pricingInputs[inputKeyVal] : (existing ? String(existing.valor_descuento) : '');
+        const val = Number(currentValStr);
+
+        if (isNaN(val) || val <= 0) {
+          if (existing) {
+            await supabase.from('pos_price_list_items').delete().eq('id', existing.id);
+            savedCount++;
+          }
+        } else {
+          if (existing) {
+            await supabase.from('pos_price_list_items').update({ tipo_descuento: currentType, valor_descuento: val }).eq('id', existing.id);
+          } else {
+            await supabase.from('pos_price_list_items').insert([{
+              price_list_id: listId,
+              categoria: key,
+              tipo_descuento: currentType,
+              valor_descuento: val
+            }]);
+          }
+          savedCount++;
+        }
+      }
+      alert(`✓ Se guardaron ${savedCount} reglas de precios para esta lista.`);
+      fetchData();
+    } catch (err: any) {
+      alert("Error guardando reglas en bloque: " + err.message);
+    }
+  };
+
+  const handleDeletePriceList = async (id: string, name: string) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar la lista de precios "${name}"? Esta acción también eliminará sus reglas configuradas.`)) return;
+    try {
+      await supabase.from('pos_price_list_items').delete().eq('price_list_id', id);
+      const { error } = await supabase.from('pos_price_lists').delete().eq('id', id);
+      if (error) throw error;
+      alert(`✓ Lista de precios "${name}" eliminada.`);
+      if (selectedPriceListPricing?.id === id) setSelectedPriceListPricing(null);
+      fetchData();
+    } catch (err: any) {
+      alert("Error al eliminar lista de precios: " + err.message);
     }
   };
 
@@ -1347,7 +1542,7 @@ export default function StoreAdminPage() {
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
               else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'valor', valor_descuento_global: '' });
+              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [] });
               else if (activeTab === 'inventory_monitoring') setStoreInvForm({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
               
               if (activeTab === 'stores') setShowStoreModal(true);
@@ -1653,17 +1848,45 @@ export default function StoreAdminPage() {
               
               {/* Back button if in Pricing details view */}
               {selectedPriceListPricing && (
-                <div style={{ display: 'flex', justifyItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button
+                      onClick={() => setSelectedPriceListPricing(null)}
+                      className="btn"
+                      style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem' }}
+                    >
+                      ← Volver a Listas
+                    </button>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900' }}>
+                        Reglas y Precios por Categoría: <span style={{ color: 'var(--primary)' }}>{selectedPriceListPricing.nombre}</span>
+                      </h3>
+                      {(() => {
+                        const rules = parsePriceListRules(selectedPriceListPricing);
+                        return (
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
+                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', fontWeight: '800' }}>
+                              📦 Mínimo: {rules.cantidad_minima} prendas
+                            </span>
+                            <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', borderRadius: '6px', backgroundColor: rules.aplica_todas_categorias ? '#ecfdf5' : '#fef3c7', color: rules.aplica_todas_categorias ? '#065f46' : '#92400e', fontWeight: '800' }}>
+                              {rules.aplica_todas_categorias ? '🌐 Aplica a Todo el Catálogo' : `🎯 ${rules.categorias_permitidas.length} Categorías Habilitadas`}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
                   <button
-                    onClick={() => setSelectedPriceListPricing(null)}
-                    className="btn"
-                    style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem' }}
+                    onClick={() => {
+                      const cats = Array.from(new Set(products.map(p => p.categoria).filter(Boolean))) as string[];
+                      handleBulkSaveCategoryDiscounts(selectedPriceListPricing.id, cats);
+                    }}
+                    className="btn btn-primary"
+                    style={{ fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                   >
-                    ← Volver a Listas
+                    💾 Guardar Todas las Categorías
                   </button>
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900' }}>
-                    Configurando Precios Especiales para: <span style={{ color: 'var(--primary)' }}>{selectedPriceListPricing.nombre}</span>
-                  </h3>
                 </div>
               )}
 
@@ -1683,6 +1906,7 @@ export default function StoreAdminPage() {
                           <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
                             <th style={{ padding: '1rem' }}>Nombre de Lista</th>
                             <th style={{ padding: '1rem' }}>Descripción / Canal</th>
+                            <th style={{ padding: '1rem' }}>Reglas de Negocio</th>
                             <th style={{ padding: '1rem' }}>Precios Configurados</th>
                             <th style={{ padding: '1rem' }}>Estado</th>
                             <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
@@ -1691,51 +1915,120 @@ export default function StoreAdminPage() {
                         <tbody>
                           {priceLists.map((pl) => {
                             const customPricesCount = priceListItems.filter(item => item.price_list_id === pl.id).length;
+                            const rules = parsePriceListRules(pl);
+                            const hasGlobalDiscount = pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0;
+
                             return (
                               <tr key={pl.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '1rem', fontWeight: '800' }}>{pl.nombre}</td>
-                                <td style={{ padding: '1rem' }}>{pl.descripcion || '—'}</td>
-                                <td style={{ padding: '1rem', fontWeight: '700', color: 'var(--primary)' }}>{customPricesCount} prendas con precio especial</td>
+                                <td style={{ padding: '1rem', fontWeight: '800', color: '#0f172a' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <Tag size={16} style={{ color: 'var(--primary)' }} />
+                                    <span>{pl.nombre}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '1rem', color: '#475569' }}>{rules.userDesc || pl.descripcion || '—'}</td>
+                                <td style={{ padding: '1rem' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                      <span style={{
+                                        padding: '0.2rem 0.55rem',
+                                        borderRadius: '6px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: '800',
+                                        backgroundColor: '#eff6ff',
+                                        color: '#1d4ed8'
+                                      }}>
+                                        📦 Mín. {rules.cantidad_minima} prenda{rules.cantidad_minima > 1 ? 's' : ''}
+                                      </span>
+                                      
+                                      {hasGlobalDiscount ? (
+                                        <span style={{
+                                          padding: '0.2rem 0.55rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '800',
+                                          backgroundColor: '#ecfdf5',
+                                          color: '#065f46'
+                                        }}>
+                                          {pl.tipo_descuento_global === 'porcentaje' ? `${pl.valor_descuento_global}% Descuento Base` : `$${Number(pl.valor_descuento_global).toLocaleString('es-CO')} Descuento Base`}
+                                        </span>
+                                      ) : (
+                                        <span style={{
+                                          padding: '0.2rem 0.55rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '700',
+                                          backgroundColor: '#f1f5f9',
+                                          color: '#64748b'
+                                        }}>
+                                          Sin descuento global
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: rules.aplica_todas_categorias ? '#059669' : '#b45309', fontWeight: '750' }}>
+                                      {rules.aplica_todas_categorias ? '✓ Aplica a todo el catálogo' : `⚡ Solo ${rules.categorias_permitidas.length} categoría(s)`}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '1rem', fontWeight: '700', color: customPricesCount > 0 ? 'var(--primary)' : '#94a3b8' }}>
+                                  {customPricesCount > 0 ? `${customPricesCount} categoría(s) con precio/descuento especial` : 'Precio base general'}
+                                </td>
                                 <td style={{ padding: '1rem' }}>
                                   <span style={{
-                                    padding: '0.25rem 0.5rem',
+                                    padding: '0.25rem 0.6rem',
                                     borderRadius: '12px',
                                     fontSize: '0.75rem',
-                                    fontWeight: '700',
+                                    fontWeight: '800',
                                     backgroundColor: pl.activo ? '#dcfce7' : '#fee2e2',
                                     color: pl.activo ? '#166534' : '#991b1b'
                                   }}>{pl.activo ? 'Activa' : 'Inactiva'}</span>
                                 </td>
                                 <td style={{ padding: '1rem', textAlign: 'center' }}>
-                                  <button
-                                    onClick={() => setSelectedPriceListPricing(pl)}
-                                    style={{
-                                      padding: '0.4rem 0.85rem',
-                                      borderRadius: '8px',
-                                      backgroundColor: 'var(--primary)',
-                                      color: 'white',
-                                      border: 'none',
-                                      fontWeight: '800',
-                                      fontSize: '0.75rem',
-                                      cursor: 'pointer',
-                                      marginRight: '0.75rem'
-                                    }}
-                                  >
-                                    Asignar Precios Especiales
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setPriceListForm({
-                                        ...pl,
-                                        valor_descuento_global: pl.valor_descuento_global ?? '',
-                                        tipo_descuento_global: pl.tipo_descuento_global || 'valor'
-                                      });
-                                      setShowPriceListModal(true);
-                                    }}
-                                    style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#475569' }}
-                                  >
-                                    <Edit3 size={16} />
-                                  </button>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                    <button
+                                      onClick={() => setSelectedPriceListPricing(pl)}
+                                      style={{
+                                        padding: '0.4rem 0.85rem',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'var(--primary)',
+                                        color: 'white',
+                                        border: 'none',
+                                        fontWeight: '800',
+                                        fontSize: '0.75rem',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      Precios por Categoría
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const parsedRules = parsePriceListRules(pl);
+                                        setPriceListForm({
+                                          id: pl.id,
+                                          nombre: pl.nombre,
+                                          descripcion: parsedRules.userDesc,
+                                          activo: pl.activo !== false,
+                                          tipo_descuento_global: pl.tipo_descuento_global || 'porcentaje',
+                                          valor_descuento_global: pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined ? String(pl.valor_descuento_global) : '',
+                                          cantidad_minima: String(parsedRules.cantidad_minima || 1),
+                                          aplica_todas_categorias: parsedRules.aplica_todas_categorias !== false,
+                                          categorias_permitidas: parsedRules.categorias_permitidas || []
+                                        });
+                                        setShowPriceListModal(true);
+                                      }}
+                                      title="Editar lista y reglas"
+                                      style={{ padding: '0.4rem', border: '1px solid #cbd5e1', borderRadius: '6px', backgroundColor: '#f8fafc', cursor: 'pointer', color: '#475569' }}
+                                    >
+                                      <Edit3 size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeletePriceList(pl.id, pl.nombre)}
+                                      title="Eliminar lista de precios"
+                                      style={{ padding: '0.4rem', border: '1px solid #fee2e2', borderRadius: '6px', backgroundColor: '#fff5f5', cursor: 'pointer', color: '#dc2626' }}
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1748,91 +2041,447 @@ export default function StoreAdminPage() {
               ) : (
                 /* Edit pricing items per list view */
                 <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-                  <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc' }}>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                      Escribe el descuento para cada categoría en esta lista. Si se deja en blanco, la caja usará el <strong>Precio Base General</strong> por defecto.
-                    </p>
+                  
+                  {/* Top Filter and Mode Toolbar */}
+                  <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      <div>
+                        <h4 style={{ margin: 0, fontWeight: '900', color: '#0f172a' }}>Precios y Descuentos por Referencia, Producto & Categoría</h4>
+                        <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                          Parametriza <strong>Precios Fijos Especiales ($)</strong> o <strong>Descuentos (% o $)</strong> por prenda/referencia individual o por categoría general.
+                        </p>
+                      </div>
+
+                      {/* Mode Toggle Pills */}
+                      <div style={{ display: 'flex', gap: '0.4rem', backgroundColor: '#e2e8f0', padding: '0.25rem', borderRadius: '10px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setPricingViewMode('products')}
+                          style={{
+                            padding: '0.45rem 0.85rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: pricingViewMode === 'products' ? '#ffffff' : 'transparent',
+                            color: pricingViewMode === 'products' ? 'var(--primary)' : '#64748b',
+                            fontWeight: pricingViewMode === 'products' ? '900' : '700',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            boxShadow: pricingViewMode === 'products' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none'
+                          }}
+                        >
+                          📦 Por Referencia & Producto ({products.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPricingViewMode('categories')}
+                          style={{
+                            padding: '0.45rem 0.85rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: pricingViewMode === 'categories' ? '#ffffff' : 'transparent',
+                            color: pricingViewMode === 'categories' ? 'var(--primary)' : '#64748b',
+                            fontWeight: pricingViewMode === 'categories' ? '900' : '700',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            boxShadow: pricingViewMode === 'categories' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none'
+                          }}
+                        >
+                          🏷️ Categorías (Referencias Premium) ({getAllPremiumCategories(products).length})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Search & Category Filter bar */}
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+                        <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <input
+                          type="text"
+                          placeholder="Buscar por Referencia (ej: 0132), Producto o Categoría Premium..."
+                          value={pricingSearch}
+                          onChange={e => setPricingSearch(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '0.55rem 0.85rem 0.55rem 2.25rem',
+                            borderRadius: '8px',
+                            border: '1.5px solid #cbd5e1',
+                            fontSize: '0.82rem',
+                            outline: 'none',
+                            backgroundColor: 'white'
+                          }}
+                        />
+                      </div>
+
+                      <select
+                        value={pricingCategoryFilter}
+                        onChange={e => setPricingCategoryFilter(e.target.value)}
+                        style={{
+                          padding: '0.55rem 0.85rem',
+                          borderRadius: '8px',
+                          border: '1.5px solid #cbd5e1',
+                          fontSize: '0.82rem',
+                          fontWeight: '700',
+                          backgroundColor: 'white',
+                          color: '#334155'
+                        }}
+                      >
+                        <option value="all">Todas las Categorías Premium</option>
+                        {getAllPremiumCategories(products).map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pricingViewMode === 'products') {
+                            const prodKeys = products.map(p => p.id);
+                            handleBulkSaveCategoryDiscounts(selectedPriceListPricing.id, prodKeys);
+                          } else {
+                            const catKeys = getAllPremiumCategories(products);
+                            handleBulkSaveCategoryDiscounts(selectedPriceListPricing.id, catKeys);
+                          }
+                        }}
+                        className="btn btn-primary"
+                        style={{ padding: '0.55rem 1rem', fontSize: '0.8rem', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        💾 Guardar Todo
+                      </button>
+                    </div>
                   </div>
                   
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                          <th style={{ padding: '1rem' }}>Categoría</th>
-                          <th style={{ padding: '1rem' }}>Tipo de Descuento</th>
-                          <th style={{ padding: '1rem' }}>Valor a Descontar</th>
-                          <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.from(new Set(products.map(p => p.categoria).filter(Boolean))).map((catName) => {
-                          const cat = catName as string;
-                          const inputKeyType = `${selectedPriceListPricing.id}_${cat}_type`;
-                          const inputKeyVal = `${selectedPriceListPricing.id}_${cat}_val`;
-                          
-                          // Pre-fill existing value
-                          const existing = priceListItems.find(item => item.price_list_id === selectedPriceListPricing.id && item.categoria === cat);
-                          const currentType = pricingInputs[inputKeyType] || (existing ? existing.tipo_descuento : 'valor');
-                          const currentVal = pricingInputs[inputKeyVal] !== undefined ? pricingInputs[inputKeyVal] : (existing ? existing.valor_descuento : '');
-                          
-                          return (
-                            <tr key={cat} style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '1rem', fontWeight: '800', color: 'var(--primary)' }}>{cat}</td>
-                              <td style={{ padding: '1rem' }}>
-                                <select
-                                  value={currentType}
-                                  onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyType]: e.target.value })}
-                                  style={{
-                                    padding: '0.4rem 0.75rem',
+                  {/* === VIEW 1: POR REFERENCIA & PRODUCTO === */}
+                  {pricingViewMode === 'products' ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
+                            <th style={{ padding: '0.85rem 1rem' }}>Referencia</th>
+                            <th style={{ padding: '0.85rem 1rem' }}>Producto</th>
+                            <th style={{ padding: '0.85rem 1rem' }}>Categoría Premium</th>
+                            <th style={{ padding: '0.85rem 1rem' }}>Precio Base</th>
+                            <th style={{ padding: '0.85rem 1rem' }}>Modalidad</th>
+                            <th style={{ padding: '0.85rem 1rem' }}>Valor Regla</th>
+                            <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Precio Final</th>
+                            <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {products.filter(p => {
+                            const sq = pricingSearch.trim().toLowerCase();
+                            const prodCategory = getPremiumReferenceCategory(p);
+                            const matchSearch = !sq || 
+                              (p.codigo_referencia || '').toLowerCase().includes(sq) ||
+                              (p.nombre_producto || '').toLowerCase().includes(sq) ||
+                              prodCategory.toLowerCase().includes(sq);
+                            const matchCat = pricingCategoryFilter === 'all' || prodCategory === pricingCategoryFilter;
+                            return matchSearch && matchCat;
+                          }).map((p) => {
+                            const basePrice = Number(p.precio) || 35000;
+                            const prodCategory = getPremiumReferenceCategory(p);
+                            const inputKeyType = `${selectedPriceListPricing.id}_${p.id}_type`;
+                            const inputKeyVal = `${selectedPriceListPricing.id}_${p.id}_val`;
+                            
+                            // Check specific product rule or category fallback
+                            const existingProdRule = priceListItems.find(item => item.price_list_id === selectedPriceListPricing.id && (item.categoria === p.id || item.categoria === p.codigo_referencia));
+                            const existingCatRule = priceListItems.find(item => item.price_list_id === selectedPriceListPricing.id && (item.categoria === prodCategory || (p.nombre_producto && item.categoria && p.nombre_producto.toLowerCase().includes(item.categoria.toLowerCase()))));
+                            
+                            const currentType = pricingInputs[inputKeyType] || (existingProdRule ? existingProdRule.tipo_descuento : 'porcentaje');
+                            const currentValStr = pricingInputs[inputKeyVal] !== undefined 
+                              ? pricingInputs[inputKeyVal] 
+                              : (existingProdRule ? String(existingProdRule.valor_descuento) : '');
+
+                            // Dynamic estimated price
+                            let calculatedFinalPrice = basePrice;
+                            const valNum = Number(currentValStr);
+                            if (!isNaN(valNum) && valNum > 0) {
+                              if (currentType === 'precio_fijo') calculatedFinalPrice = valNum;
+                              else if (currentType === 'porcentaje') calculatedFinalPrice = Math.max(0, basePrice - (basePrice * (valNum / 100)));
+                              else calculatedFinalPrice = Math.max(0, basePrice - valNum);
+                            } else if (existingCatRule && existingCatRule.valor_descuento > 0) {
+                              if (existingCatRule.tipo_descuento === 'precio_fijo') calculatedFinalPrice = Number(existingCatRule.valor_descuento);
+                              else if (existingCatRule.tipo_descuento === 'porcentaje') calculatedFinalPrice = Math.max(0, basePrice - (basePrice * (Number(existingCatRule.valor_descuento) / 100)));
+                              else calculatedFinalPrice = Math.max(0, basePrice - Number(existingCatRule.valor_descuento));
+                            } else if (selectedPriceListPricing.valor_descuento_global > 0) {
+                              if (selectedPriceListPricing.tipo_descuento_global === 'porcentaje') calculatedFinalPrice = Math.max(0, basePrice - (basePrice * (Number(selectedPriceListPricing.valor_descuento_global) / 100)));
+                              else calculatedFinalPrice = Math.max(0, basePrice - Number(selectedPriceListPricing.valor_descuento_global));
+                            }
+
+                            return (
+                              <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <span style={{
+                                    padding: '0.25rem 0.5rem',
                                     borderRadius: '6px',
-                                    border: '1px solid var(--border)',
-                                    fontSize: '0.85rem',
-                                    width: '150px'
-                                  }}
-                                >
-                                  <option value="valor">Valor Fijo ($)</option>
-                                  <option value="porcentaje">Porcentaje (%)</option>
-                                </select>
-                              </td>
-                              <td style={{ padding: '1rem' }}>
-                                <input
-                                  type="number"
-                                  placeholder={currentType === 'porcentaje' ? 'Ej: 10' : 'Ej: 5000'}
-                                  value={currentVal}
-                                  onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyVal]: e.target.value })}
-                                  style={{
-                                    padding: '0.4rem 0.75rem',
+                                    backgroundColor: '#f1f5f9',
+                                    border: '1px solid #cbd5e1',
+                                    fontWeight: '900',
+                                    color: '#0f172a',
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.78rem'
+                                  }}>
+                                    {p.codigo_referencia || '—'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    {p.imagen_url ? (
+                                      <img src={p.imagen_url} alt={p.nombre_producto} style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
+                                    ) : (
+                                      <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Shirt size={16} style={{ color: '#94a3b8' }} />
+                                      </div>
+                                    )}
+                                    <span style={{ fontWeight: '800', color: '#1e293b' }}>{p.nombre_producto}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <span style={{
+                                    padding: '0.2rem 0.5rem',
+                                    borderRadius: '12px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '750',
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8'
+                                  }}>
+                                    {prodCategory}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#64748b', fontFamily: 'monospace' }}>
+                                  ${basePrice.toLocaleString('es-CO')}
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <select
+                                    value={currentType}
+                                    onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyType]: e.target.value })}
+                                    style={{
+                                      padding: '0.4rem 0.6rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--border)',
+                                      fontSize: '0.78rem',
+                                      fontWeight: '700',
+                                      width: '185px',
+                                      backgroundColor: 'white'
+                                    }}
+                                  >
+                                    <option value="porcentaje">Porcentaje de Descuento (%)</option>
+                                    <option value="valor">Monto Fijo a Descontar ($)</option>
+                                    <option value="precio_fijo">Precio Final Fijo Especial ($)</option>
+                                  </select>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <input
+                                      type="number"
+                                      placeholder={currentType === 'porcentaje' ? 'Ej: 15' : currentType === 'precio_fijo' ? 'Ej: 28000' : 'Ej: 5000'}
+                                      value={currentValStr}
+                                      onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyVal]: e.target.value })}
+                                      style={{
+                                        padding: '0.4rem 0.6rem',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--border)',
+                                        fontSize: '0.82rem',
+                                        width: '110px',
+                                        fontWeight: '800'
+                                      }}
+                                    />
+                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                                      {currentType === 'porcentaje' ? '%' : '$'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                                  <span style={{
+                                    padding: '0.25rem 0.6rem',
                                     borderRadius: '6px',
-                                    border: '1px solid var(--border)',
-                                    fontSize: '0.85rem',
-                                    width: '130px',
-                                    fontWeight: '700'
-                                  }}
-                                />
-                              </td>
-                              <td style={{ padding: '1rem', textAlign: 'center' }}>
-                                <button
-                                  onClick={() => handleUpdateCategoryDiscount(selectedPriceListPricing.id, cat, currentType, currentVal.toString())}
-                                  style={{
-                                    padding: '0.4rem 0.85rem',
-                                    borderRadius: '6px',
-                                    backgroundColor: '#10b981',
-                                    color: 'white',
-                                    border: 'none',
-                                    fontWeight: '800',
-                                    fontSize: '0.75rem',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  Guardar
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                    fontSize: '0.78rem',
+                                    fontWeight: '950',
+                                    fontFamily: 'monospace',
+                                    backgroundColor: calculatedFinalPrice !== basePrice ? '#ecfdf5' : '#f8fafc',
+                                    color: calculatedFinalPrice !== basePrice ? '#059669' : '#64748b',
+                                    border: `1px solid ${calculatedFinalPrice !== basePrice ? '#a7f3d0' : '#e2e8f0'}`
+                                  }}>
+                                    ${calculatedFinalPrice.toLocaleString('es-CO')}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                                    <button
+                                      onClick={() => handleUpdateCategoryDiscount(selectedPriceListPricing.id, p.id, currentType, currentValStr || '0')}
+                                      style={{
+                                        padding: '0.35rem 0.75rem',
+                                        borderRadius: '6px',
+                                        backgroundColor: '#10b981',
+                                        color: 'white',
+                                        border: 'none',
+                                        fontWeight: '850',
+                                        fontSize: '0.72rem',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      Guardar
+                                    </button>
+                                    {existingProdRule && (
+                                      <button
+                                        onClick={() => {
+                                          setPricingInputs({ ...pricingInputs, [inputKeyVal]: '' });
+                                          handleUpdateCategoryDiscount(selectedPriceListPricing.id, p.id, currentType, '0');
+                                        }}
+                                        style={{
+                                          padding: '0.35rem 0.55rem',
+                                          borderRadius: '6px',
+                                          backgroundColor: '#fee2e2',
+                                          color: '#dc2626',
+                                          border: 'none',
+                                          fontWeight: '800',
+                                          fontSize: '0.7rem',
+                                          cursor: 'pointer'
+                                        }}
+                                        title="Quitar regla individual para este producto"
+                                      >
+                                        Quitar
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    /* === VIEW 2: POR CATEGORÍA GENERAL === */
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
+                            <th style={{ padding: '1rem' }}>Categoría (Referencia Premium)</th>
+                            <th style={{ padding: '1rem' }}>Prendas Asociadas</th>
+                            <th style={{ padding: '1rem' }}>Modalidad de Precio / Descuento</th>
+                            <th style={{ padding: '1rem' }}>Valor a Aplicar</th>
+                            <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getAllPremiumCategories(products).filter(catName => {
+                            const sq = pricingSearch.trim().toLowerCase();
+                            return !sq || catName.toLowerCase().includes(sq);
+                          }).map((catName) => {
+                            const cat = catName;
+                            const inputKeyType = `${selectedPriceListPricing.id}_${cat}_type`;
+                            const inputKeyVal = `${selectedPriceListPricing.id}_${cat}_val`;
+                            const catProductsCount = products.filter(p => getPremiumReferenceCategory(p) === cat || (p.nombre_producto && p.nombre_producto.toLowerCase().includes(cat.toLowerCase()))).length;
+                            
+                            const existing = priceListItems.find(item => item.price_list_id === selectedPriceListPricing.id && item.categoria === cat);
+                            const currentType = pricingInputs[inputKeyType] || (existing ? existing.tipo_descuento : 'porcentaje');
+                            const currentVal = pricingInputs[inputKeyVal] !== undefined ? pricingInputs[inputKeyVal] : (existing ? existing.valor_descuento : '');
+                            
+                            return (
+                              <tr key={cat} style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '1rem', fontWeight: '850', color: 'var(--primary)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <Shirt size={16} style={{ opacity: 0.7 }} />
+                                    <span>{cat}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '1rem', color: '#64748b', fontWeight: '750' }}>
+                                  {catProductsCount} producto(s) en catálogo
+                                </td>
+                                <td style={{ padding: '1rem' }}>
+                                  <select
+                                    value={currentType}
+                                    onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyType]: e.target.value })}
+                                    style={{
+                                      padding: '0.45rem 0.75rem',
+                                      borderRadius: '8px',
+                                      border: '1.5px solid var(--border)',
+                                      fontSize: '0.85rem',
+                                      fontWeight: '700',
+                                      width: '210px',
+                                      backgroundColor: 'white'
+                                    }}
+                                  >
+                                    <option value="porcentaje">Porcentaje de Descuento (%)</option>
+                                    <option value="valor">Monto Fijo a Descontar ($)</option>
+                                    <option value="precio_fijo">Precio Final Fijo Especial ($)</option>
+                                  </select>
+                                </td>
+                                <td style={{ padding: '1rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <input
+                                      type="number"
+                                      placeholder={currentType === 'porcentaje' ? 'Ej: 15 (para 15% off)' : currentType === 'precio_fijo' ? 'Ej: 28000 (precio fijo)' : 'Ej: 5000'}
+                                      value={currentVal}
+                                      onChange={e => setPricingInputs({ ...pricingInputs, [inputKeyVal]: e.target.value })}
+                                      style={{
+                                        padding: '0.45rem 0.75rem',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid var(--border)',
+                                        fontSize: '0.85rem',
+                                        width: '160px',
+                                        fontWeight: '800'
+                                      }}
+                                    />
+                                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '750' }}>
+                                      {currentType === 'porcentaje' ? '%' : 'COP'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '1rem', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                                    <button
+                                      onClick={() => handleUpdateCategoryDiscount(selectedPriceListPricing.id, cat, currentType, currentVal ? currentVal.toString() : '0')}
+                                      style={{
+                                        padding: '0.45rem 0.95rem',
+                                        borderRadius: '8px',
+                                        backgroundColor: '#10b981',
+                                        color: 'white',
+                                        border: 'none',
+                                        fontWeight: '850',
+                                        fontSize: '0.78rem',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      Guardar
+                                    </button>
+                                    {existing && (
+                                      <button
+                                        onClick={() => {
+                                          setPricingInputs({ ...pricingInputs, [inputKeyVal]: '' });
+                                          handleUpdateCategoryDiscount(selectedPriceListPricing.id, cat, currentType, '0');
+                                        }}
+                                        style={{
+                                          padding: '0.45rem 0.65rem',
+                                          borderRadius: '8px',
+                                          backgroundColor: '#fee2e2',
+                                          color: '#dc2626',
+                                          border: 'none',
+                                          fontWeight: '800',
+                                          fontSize: '0.72rem',
+                                          cursor: 'pointer'
+                                        }}
+                                        title="Quitar regla para esta categoría"
+                                      >
+                                        Quitar
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                 </div>
               )}
 
@@ -3512,76 +4161,313 @@ export default function StoreAdminPage() {
 
       {/* PRICE LIST CREATION MODAL */}
       {showPriceListModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
-          <div className="card" style={{ width: '90%', maxWidth: '400px', padding: '2rem', borderRadius: '16px', backgroundColor: 'white' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontWeight: '900' }}>{priceListForm.id ? 'Editar Lista de Precios' : 'Nueva Lista de Precios'}</h3>
-              <button onClick={() => setShowPriceListModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer' }}><X size={20} /></button>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+          <div className="card" style={{ width: '92%', maxWidth: '520px', padding: '2rem', borderRadius: '20px', backgroundColor: 'white', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.2rem', color: '#0f172a' }}>{priceListForm.id ? 'Editar Lista de Precios y Reglas' : 'Nueva Lista de Precios y Reglas'}</h3>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>Parametriza reglas de volumen, descuentos y categorías para ventas en el POS.</p>
+              </div>
+              <button onClick={() => setShowPriceListModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
             </div>
             
             <form onSubmit={handleSavePriceList} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Nombre de la Lista</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', marginBottom: '0.4rem', color: '#334155' }}>Nombre de la Lista *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej: Lista Mayoristas"
+                  placeholder="Ej: Mayoristas x3, Clientes VIP, Distribuidores"
                   value={priceListForm.nombre}
                   onChange={e => setPriceListForm({ ...priceListForm, nombre: e.target.value })}
-                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.875rem', outline: 'none' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Descripción / Canal</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '800', marginBottom: '0.4rem', color: '#334155' }}>Descripción / Canal Comercial</label>
                 <textarea
-                  placeholder="Ej: Lista de precios especial para ventas al por mayor"
+                  placeholder="Ej: Aplica para compras de 3 o más prendas al por mayor..."
                   value={priceListForm.descripcion}
                   onChange={e => setPriceListForm({ ...priceListForm, descripcion: e.target.value })}
-                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem', minHeight: '60px', fontFamily: 'inherit' }}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1.5px solid var(--border)', fontSize: '0.85rem', minHeight: '55px', fontFamily: 'inherit', outline: 'none' }}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Tipo de Descuento (Global)</label>
-                  <select
-                    value={priceListForm.tipo_descuento_global}
-                    onChange={e => setPriceListForm({ ...priceListForm, tipo_descuento_global: e.target.value })}
-                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
-                  >
-                    <option value="valor">Valor Fijo ($)</option>
-                    <option value="porcentaje">Porcentaje (%)</option>
-                  </select>
+              {/* REGLA 1: CANTIDAD MÍNIMA DE PRENDAS */}
+              <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderRadius: '12px', border: '1.5px solid #bbf7d0', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '850', color: '#166534', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    📦 Regla de Volumen / Cantidad Mínima de Prendas
+                  </label>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Valor a Descontar (Global)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="number"
-                    placeholder={priceListForm.tipo_descuento_global === 'porcentaje' ? 'Ej: 10' : 'Ej: 5000'}
-                    value={priceListForm.valor_descuento_global}
-                    onChange={e => setPriceListForm({ ...priceListForm, valor_descuento_global: e.target.value })}
-                    style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                    min="1"
+                    required
+                    value={priceListForm.cantidad_minima}
+                    onChange={e => setPriceListForm({ ...priceListForm, cantidad_minima: e.target.value })}
+                    style={{ width: '100px', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1.5px solid #86efac', fontSize: '0.95rem', fontWeight: '900', textAlign: 'center', backgroundColor: 'white' }}
                   />
-                  <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem', marginBottom: 0 }}>Dejar vacío si no aplica a todo el inventario.</p>
+                  <span style={{ fontSize: '0.78rem', color: '#15803d', fontWeight: '700' }}>
+                    prendas mínimas en el carrito de compra para activar los descuentos
+                  </span>
                 </div>
+                <p style={{ fontSize: '0.7rem', color: '#166534', margin: '0.2rem 0 0', opacity: 0.9 }}>
+                  Si el carrito tiene menos de esta cantidad, el POS cobrará a precio normal y mostrará el aviso del faltante.
+                </p>
+              </div>
+
+              {/* REGLA 2: DESCUENTO GLOBAL BASE */}
+              <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: '850', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  🏷️ Descuento Base / Global para el Cliente
+                </label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '750', color: '#64748b', marginBottom: '0.25rem' }}>Tipo de Descuento</span>
+                    <select
+                      value={priceListForm.tipo_descuento_global}
+                      onChange={e => setPriceListForm({ ...priceListForm, tipo_descuento_global: e.target.value })}
+                      style={{ width: '100%', padding: '0.55rem 0.65rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', backgroundColor: 'white', fontWeight: '700' }}
+                    >
+                      <option value="porcentaje">Porcentaje (%)</option>
+                      <option value="valor">Monto Fijo ($)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '750', color: '#64748b', marginBottom: '0.25rem' }}>Valor a Descontar</span>
+                    <input
+                      type="number"
+                      placeholder={priceListForm.tipo_descuento_global === 'porcentaje' ? 'Ej: 15' : 'Ej: 5000'}
+                      value={priceListForm.valor_descuento_global}
+                      onChange={e => setPriceListForm({ ...priceListForm, valor_descuento_global: e.target.value })}
+                      style={{ width: '100%', padding: '0.55rem 0.65rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: '800' }}
+                    />
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.68rem', color: '#64748b', margin: 0 }}>
+                  Aplica a todos los productos del cliente salvo que tengan un precio específico en la tabla de categorías.
+                </p>
+              </div>
+
+              {/* REGLA 3: SELECCIÓN DE CATEGORÍAS */}
+              <div style={{ backgroundColor: '#fffbeb', padding: '1rem', borderRadius: '12px', border: '1.5px solid #fef3c7', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: '850', color: '#92400e', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  🎯 Alcance por Categorías de Productos
+                </label>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '750', color: '#78350f', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="cat_scope"
+                      checked={priceListForm.aplica_todas_categorias !== false}
+                      onChange={() => setPriceListForm({ ...priceListForm, aplica_todas_categorias: true })}
+                      style={{ accentColor: '#d97706' }}
+                    />
+                    Aplica a <strong>Todas las categorías</strong> del catálogo
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: '750', color: '#78350f', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="cat_scope"
+                      checked={priceListForm.aplica_todas_categorias === false}
+                      onChange={() => setPriceListForm({ ...priceListForm, aplica_todas_categorias: false })}
+                      style={{ accentColor: '#d97706' }}
+                    />
+                    Aplica únicamente a <strong>Categorías específicas</strong>
+                  </label>
+                </div>
+
+                {priceListForm.aplica_todas_categorias === false && (
+                  <div style={{ marginTop: '0.5rem', backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1.5px solid #fde68a', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                    {/* Sub-tabs for scope selector */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.4rem' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setModalScopeTab('categories')}
+                          style={{
+                            padding: '0.3rem 0.6rem',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: modalScopeTab === 'categories' ? '#d97706' : '#f1f5f9',
+                            color: modalScopeTab === 'categories' ? 'white' : '#64748b',
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          🏷️ Categorías ({getAllPremiumCategories(products).length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalScopeTab('products')}
+                          style={{
+                            padding: '0.3rem 0.6rem',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: modalScopeTab === 'products' ? '#d97706' : '#f1f5f9',
+                            color: modalScopeTab === 'products' ? 'white' : '#64748b',
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          📦 Referencia & Producto ({products.length})
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (modalScopeTab === 'categories') {
+                              const allCats = getAllPremiumCategories(products);
+                              setPriceListForm({ ...priceListForm, categorias_permitidas: Array.from(new Set([...(priceListForm.categorias_permitidas || []), ...allCats])) });
+                            } else {
+                              const allProdIds = products.map(p => p.id);
+                              setPriceListForm({ ...priceListForm, categorias_permitidas: Array.from(new Set([...(priceListForm.categorias_permitidas || []), ...allProdIds])) });
+                            }
+                          }}
+                          style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#f8fafc', cursor: 'pointer', fontWeight: '800' }}
+                        >
+                          Marcar Todas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPriceListForm({ ...priceListForm, categorias_permitidas: [] })}
+                          style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #fee2e2', color: '#dc2626', background: '#fff5f5', cursor: 'pointer', fontWeight: '800' }}
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick Search for Products tab */}
+                    {modalScopeTab === 'products' && (
+                      <input
+                        type="text"
+                        placeholder="Buscar por Referencia o Producto..."
+                        value={modalScopeSearch}
+                        onChange={e => setModalScopeSearch(e.target.value)}
+                        style={{ padding: '0.4rem 0.65rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', outline: 'none' }}
+                      />
+                    )}
+
+                    {/* Scope Items List */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', maxHeight: '160px', overflowY: 'auto', paddingRight: '0.2rem' }}>
+                      {modalScopeTab === 'categories' ? (
+                        getAllPremiumCategories(products).map((catName) => {
+                          const cat = catName;
+                          const isChecked = (priceListForm.categorias_permitidas || []).includes(cat);
+                          return (
+                            <label
+                              key={cat}
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '20px',
+                                border: isChecked ? '1.5px solid #d97706' : '1px solid #e2e8f0',
+                                backgroundColor: isChecked ? '#fef3c7' : '#f8fafc',
+                                color: isChecked ? '#92400e' : '#64748b',
+                                fontSize: '0.75rem',
+                                fontWeight: isChecked ? '850' : '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem'
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  const current = priceListForm.categorias_permitidas || [];
+                                  const updated = e.target.checked
+                                    ? [...current, cat]
+                                    : current.filter(c => c !== cat);
+                                  setPriceListForm({ ...priceListForm, categorias_permitidas: updated });
+                                }}
+                                style={{ display: 'none' }}
+                              />
+                              {isChecked ? '✓ ' : ''}{cat}
+                            </label>
+                          );
+                        })
+                      ) : (
+                        products.filter(p => {
+                          const sq = modalScopeSearch.trim().toLowerCase();
+                          const prodCat = getPremiumReferenceCategory(p);
+                          return !sq || 
+                            (p.codigo_referencia || '').toLowerCase().includes(sq) ||
+                            (p.nombre_producto || '').toLowerCase().includes(sq) ||
+                            prodCat.toLowerCase().includes(sq);
+                        }).map((p) => {
+                          const isChecked = (priceListForm.categorias_permitidas || []).includes(p.id) || (priceListForm.categorias_permitidas || []).includes(p.codigo_referencia);
+                          const prodCat = getPremiumReferenceCategory(p);
+                          return (
+                            <label
+                              key={p.id}
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '8px',
+                                border: isChecked ? '1.5px solid #d97706' : '1px solid #e2e8f0',
+                                backgroundColor: isChecked ? '#fef3c7' : '#f8fafc',
+                                color: isChecked ? '#92400e' : '#475569',
+                                fontSize: '0.72rem',
+                                fontWeight: isChecked ? '850' : '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem'
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  const current = priceListForm.categorias_permitidas || [];
+                                  const updated = e.target.checked
+                                    ? [...current, p.id]
+                                    : current.filter(c => c !== p.id && c !== p.codigo_referencia);
+                                  setPriceListForm({ ...priceListForm, categorias_permitidas: updated });
+                                }}
+                                style={{ display: 'none' }}
+                              />
+                              <span style={{ fontFamily: 'monospace', fontWeight: '900', color: isChecked ? '#b45309' : '#0f172a' }}>
+                                [{p.codigo_referencia || 'REF'}]
+                              </span>
+                              <span>{p.nombre_producto}</span>
+                              <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>({prodCat})</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '750' }}>
                   <input
                     type="checkbox"
                     checked={priceListForm.activo}
                     onChange={e => setPriceListForm({ ...priceListForm, activo: e.target.checked })}
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
                   />
-                  Lista Activa
+                  Lista de Precios Habilitada y Activa para el POS
                 </label>
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                <button type="button" onClick={() => setShowPriceListModal(false)} className="btn" style={{ flex: 1 }}>Cancelar</button>
-                <button type="submit" disabled={savingPriceList} className="btn btn-primary" style={{ flex: 1 }}>
-                  {savingPriceList ? 'Guardando...' : 'Guardar Lista'}
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button type="button" onClick={() => setShowPriceListModal(false)} className="btn" style={{ flex: 1, padding: '0.75rem' }}>Cancelar</button>
+                <button type="submit" disabled={savingPriceList} className="btn btn-primary" style={{ flex: 1, padding: '0.75rem', fontWeight: '850' }}>
+                  {savingPriceList ? 'Guardando...' : 'Guardar Lista y Reglas'}
                 </button>
               </div>
             </form>

@@ -169,9 +169,11 @@ export default function ConsolidatedStockSubmodule({
         };
       }
 
+      const isTransitWh = warehouseName.toLowerCase().includes('transito') || warehouseName.toLowerCase().includes('confeccion');
+
       map[groupKey].totalDisponible += Number(item.cantidad_disponible || 0);
       map[groupKey].totalReservado += Number(item.cantidad_reservada || 0);
-      map[groupKey].totalEnTransito += Number(item.cantidad_en_transito || 0);
+      map[groupKey].totalEnTransito += Number(item.cantidad_en_transito || (isTransitWh ? item.cantidad_disponible : 0) || 0);
       map[groupKey].recordsCount += 1;
       map[groupKey].items.push(item);
 
@@ -199,6 +201,10 @@ export default function ConsolidatedStockSubmodule({
         const selWh = selectedWarehouse.toLowerCase();
         const matchesAnyWh = Array.from(item.uniqueWarehousesSet).some(w => w.toLowerCase().includes(selWh));
         if (!matchesAnyWh) return false;
+      } else {
+        // By default when viewing all warehouses, exclude purely transit items so available stock is clean
+        const isPureTransit = Array.from(item.uniqueWarehousesSet).every(w => w.toLowerCase().includes('transito') || w.toLowerCase().includes('confeccion'));
+        if (isPureTransit && item.uniqueWarehousesSet.size > 0) return false;
       }
 
       // Category filter

@@ -102,6 +102,8 @@ export default function GeneralInventorySubmodule({
       categoria: string;
       product_id: string | null;
       totalStock: number;
+      availableStock: number;
+      transitStock: number;
       warehousesSet: Set<string>;
       linkedCodesSet: Set<string>;
       colorName: string;
@@ -114,6 +116,7 @@ export default function GeneralInventorySubmodule({
       const prodName = st.products?.nombre_producto || refCode || 'Sin Nombre';
       const catName = st.products?.categories?.categoria || st.products?.categoria || 'Sin Categoría';
       const whName = st.warehouses?.nombre_bodega || 'Bodega Principal';
+      const isTransit = whName.toLowerCase().includes('transito') || whName.toLowerCase().includes('confeccion');
       const colorName = st.colors?.nombre_color || '—';
       const sizeCode = st.sizes?.codigo_talla || 'ST';
 
@@ -128,6 +131,8 @@ export default function GeneralInventorySubmodule({
           categoria: catName,
           product_id: st.product_id || null,
           totalStock: 0,
+          availableStock: 0,
+          transitStock: 0,
           warehousesSet: new Set(),
           linkedCodesSet: new Set(),
           colorName,
@@ -135,7 +140,13 @@ export default function GeneralInventorySubmodule({
         };
       }
 
-      aggMap[aggKey].totalStock += Number(st.cantidad_disponible || 0);
+      const qty = Number(st.cantidad_disponible || 0);
+      aggMap[aggKey].totalStock += qty;
+      if (isTransit) {
+        aggMap[aggKey].transitStock += qty;
+      } else {
+        aggMap[aggKey].availableStock += qty;
+      }
       aggMap[aggKey].warehousesSet.add(whName);
       if (refCode && refCode !== masterCode) {
         aggMap[aggKey].linkedCodesSet.add(refCode);
@@ -156,6 +167,8 @@ export default function GeneralInventorySubmodule({
           categoria: p.categoria || p.categories?.categoria || 'Sin Categoría',
           product_id: p.id,
           totalStock: 0,
+          availableStock: 0,
+          transitStock: 0,
           warehousesSet: new Set(['Sin Stock']),
           linkedCodesSet: new Set(),
           colorName: '—',
@@ -205,7 +218,8 @@ export default function GeneralInventorySubmodule({
 
   // KPI Calculations
   const totalMasterProductsCount = consolidatedInventoryList.length;
-  const totalConsolidatedUnits = consolidatedInventoryList.reduce((sum, item) => sum + item.totalStock, 0);
+  const totalAvailableUnits = consolidatedInventoryList.reduce((sum, item) => sum + item.availableStock, 0);
+  const totalTransitUnits = consolidatedInventoryList.reduce((sum, item) => sum + item.transitStock, 0);
   const totalActiveHomologationsCount = (homologations || []).filter(h => h.status === 'Activo').length;
   const pendingHomologationsCount = useMemo(() => {
     // Products with potential duplicates
@@ -297,10 +311,10 @@ export default function GeneralInventorySubmodule({
       {/* KPI Indicators Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
         {[
-          { label: 'Total Productos Consolidados', value: `${totalMasterProductsCount} refs`, subText: 'Código Maestro', color: 'var(--primary)', icon: Package },
-          { label: 'Total Unidades Consolidadas', value: `${totalConsolidatedUnits.toLocaleString()} uds`, subText: 'Existencia unificada', color: '#10b981', icon: TrendingUp },
-          { label: 'Productos Homologated', value: `${totalActiveHomologationsCount} vínculos`, subText: 'Relaciones activas', color: '#6366f1', icon: GitMerge },
-          { label: 'Posibles Duplicados', value: `${pendingHomologationsCount} refs`, subText: 'Nombres similares', color: '#f59e0b', icon: AlertTriangle }
+          { label: 'Total Prendas Disponibles', value: `${totalAvailableUnits.toLocaleString()} uds`, subText: 'Bodegas y Puntos de Venta', color: 'var(--primary)', icon: Package },
+          { label: 'Prendas en Tránsito', value: `${totalTransitUnits.toLocaleString()} uds`, subText: 'Bodega Tránsito / Despachos', color: '#f59e0b', icon: TrendingUp },
+          { label: 'Productos Homologados', value: `${totalActiveHomologationsCount} vínculos`, subText: 'Relaciones activas', color: '#6366f1', icon: GitMerge },
+          { label: 'Referencias Maestras', value: `${totalMasterProductsCount} refs`, subText: 'Catálogo unificado', color: '#10b981', icon: CheckCircle2 }
         ].map((k, i) => (
           <div key={i} className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', border: '1px solid #e2e8f0', borderRadius: '14px', backgroundColor: 'white' }}>
             <div style={{ padding: '0.65rem', backgroundColor: `${k.color}14`, color: k.color, borderRadius: '10px', flexShrink: 0 }}>

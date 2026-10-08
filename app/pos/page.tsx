@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import POSTransferManager from '@/components/pos/POSTransferManager';
 
 const BodysuitIcon = ({ color }: { color: string }) => (
   <svg viewBox="0 0 100 130" style={{ width: '100%', height: '100%', maxHeight: '90px' }} xmlns="http://www.w3.org/2000/svg">
@@ -57,10 +58,155 @@ const getProductColor = (prod: any) => {
   return `hsl(${hue}, 70%, 60%)`;
 };
 
+export function getPremiumReferenceCategory(p: any): string {
+  if (!p) return 'General';
+  const name = (p.nombre_producto || '').trim();
+  const cat = (p.categories?.categoria || p.categoria || '').trim();
+  
+  let cleanName = name.replace(/^(no\s*usar|doble\s*no\s*ingresar)\s+/i, '').trim();
+  
+  if (cleanName.toLowerCase().includes('premium')) {
+    return cleanName;
+  }
+  if (cat && cat.toLowerCase().includes('premium')) {
+    return cat;
+  }
+  if (cleanName) {
+    return cleanName;
+  }
+  if (cat) {
+    return cat;
+  }
+  return p.codigo_referencia ? `Ref: ${p.codigo_referencia}` : 'General';
+}
+
+export function parsePriceListRules(pl: any) {
+  let cantidad_minima = 1;
+  let aplica_todas_categorias = true;
+  let categorias_permitidas: string[] = [];
+  let userDesc = pl?.descripcion || '';
+
+  if (userDesc) {
+    // 1. Check for Base64 format: [REGLAS_B64:...]
+    const b64Match = userDesc.match(/\[REGLAS_B64:([A-Za-z0-9+/=]+)\]/);
+    if (b64Match && b64Match[1]) {
+      try {
+        const decoded = typeof atob === 'function' ? atob(b64Match[1]) : Buffer.from(b64Match[1], 'base64').toString('utf-8');
+        const parsed = JSON.parse(decoded);
+        if (parsed.cantidad_minima !== undefined && parsed.cantidad_minima !== null) {
+          cantidad_minima = Math.max(1, Number(parsed.cantidad_minima) || 1);
+        }
+        if (parsed.aplica_todas_categorias !== undefined) {
+          aplica_todas_categorias = Boolean(parsed.aplica_todas_categorias);
+        }
+        if (Array.isArray(parsed.categorias_permitidas)) {
+          categorias_permitidas = parsed.categorias_permitidas;
+        }
+      } catch (e) {
+        console.warn('Error parsing Base64 rules in POS:', e);
+      }
+    } else {
+      // 2. Fallback to legacy [REGLAS:{...}] format
+      const idx = userDesc.indexOf('[REGLAS:');
+      if (idx !== -1) {
+        const rawJsonPart = userDesc.substring(idx + 8);
+        const lastBracket = rawJsonPart.lastIndexOf(']');
+        const jsonStr = lastBracket !== -1 ? rawJsonPart.substring(0, lastBracket) : rawJsonPart;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.cantidad_minima !== undefined && parsed.cantidad_minima !== null) {
+            cantidad_minima = Math.max(1, Number(parsed.cantidad_minima) || 1);
+          }
+          if (parsed.aplica_todas_categorias !== undefined) {
+            aplica_todas_categorias = Boolean(parsed.aplica_todas_categorias);
+          }
+          if (Array.isArray(parsed.categorias_permitidas)) {
+            categorias_permitidas = parsed.categorias_permitidas;
+          }
+        } catch (e) {
+          console.warn('Error parsing legacy rules JSON in POS:', e);
+        }
+      }
+    }
+  }
+
+  if (pl?.cantidad_minima !== undefined && pl?.cantidad_minima !== null && !isNaN(Number(pl.cantidad_minima))) {
+    cantidad_minima = Math.max(1, Number(pl.cantidad_minima));
+  }
+  if (pl?.aplica_todas_categorias !== undefined && pl?.aplica_todas_categorias !== null) {
+    aplica_todas_categorias = Boolean(pl.aplica_todas_categorias);
+  }
+  if (Array.isArray(pl?.categorias_permitidas)) {
+    categorias_permitidas = pl.categorias_permitidas;
+  }
+
+  userDesc = userDesc
+    .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
+    .replace(/\[REGLAS:[\s\S]*$/g, '')
+    .replace(/\s*\}\]\}\]\s*/g, '')
+    .trim();
+
+  return {
+    cantidad_minima,
+    aplica_todas_categorias,
+    categorias_permitidas,
+    userDesc
+  };
+}
+
 const DynamicIcon = ({ name, size, ...props }: { name: string; size: number; [key: string]: any }) => {
   const IconComponent = (Icons as any)[name] || Icons.HelpCircle;
   return <IconComponent size={size} {...props} />;
 };
+
+export interface POSTransferMethod {
+  id: string;
+  banco: string;
+  tipo_cuenta: string;
+  numero_cuenta: string;
+  titular: string;
+  identificacion: string;
+  qr_image_url?: string;
+  color: string;
+  instrucciones?: string;
+  activo: boolean;
+}
+
+const DEFAULT_TRANSFER_METHODS: POSTransferMethod[] = [
+  {
+    id: 'bancolombia-1',
+    banco: 'Bancolombia',
+    tipo_cuenta: 'Ahorros',
+    numero_cuenta: '123-456789-01',
+    titular: 'Confecciones Breiner SAS',
+    identificacion: 'NIT 901.456.789-1',
+    color: '#FDDA24',
+    instrucciones: 'Asegúrate de mostrar el comprobante emitido con la fecha de hoy.',
+    activo: true
+  },
+  {
+    id: 'nequi-1',
+    banco: 'Nequi',
+    tipo_cuenta: 'Celular / Billetera',
+    numero_cuenta: '310 890 1234',
+    titular: 'Confecciones Breiner SAS',
+    identificacion: 'NIT 901.456.789-1',
+    color: '#20002C',
+    instrucciones: 'Transferencia directa Nequi a Nequi sin costo.',
+    activo: true
+  },
+  {
+    id: 'daviplata-1',
+    banco: 'Daviplata',
+    tipo_cuenta: 'Celular / Billetera',
+    numero_cuenta: '310 890 1234',
+    titular: 'Confecciones Breiner SAS',
+    identificacion: 'NIT 901.456.789-1',
+    color: '#ED1C24',
+    instrucciones: 'Transferencia inmediata Daviplata.',
+    activo: true
+  }
+];
 
 export default function POSPage() {
   const fetchAllPages = async (queryBuilder: any) => {
@@ -126,6 +272,7 @@ export default function POSPage() {
   const [currentSessionSalesTotal, setCurrentSessionSalesTotal] = useState(0);
 
   const fetchSessionSalesTotal = async (sessionId: string) => {
+    if (!sessionId) return;
     try {
       const { data, error } = await supabase
         .from('pos_sales')
@@ -136,6 +283,23 @@ export default function POSPage() {
       setCurrentSessionSalesTotal(total);
     } catch (err) {
       console.error('Error fetching session sales total:', err);
+    }
+  };
+
+  const fetchSessionSalesDetails = async (sessionId: string) => {
+    if (!sessionId) return;
+    try {
+      const { data, error } = await supabase
+        .from('pos_sales')
+        .select('*, pos_payments(*), items:pos_sale_items(*, products(nombre_producto, codigo_referencia, imagen_url))')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setSessionSalesDetails(data || []);
+      const total = data?.reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0) || 0;
+      setCurrentSessionSalesTotal(total);
+    } catch (err) {
+      console.error('Error fetching session sales details:', err);
     }
   };
   const [activeMenuId, setActiveMenuId] = useState('pos');
@@ -265,9 +429,38 @@ export default function POSPage() {
   const [showUserProfileCard, setShowUserProfileCard] = useState(false);
   
   const [logoUploading, setLogoUploading] = useState(false);
-  const [uxTab, setUxTab] = useState<'colors' | 'typography' | 'catalog' | 'logo'>('colors');
+  const [uxTab, setUxTab] = useState<'colors' | 'typography' | 'catalog' | 'logo' | 'transfer'>('colors');
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeSaved, setThemeSaved] = useState(false);
+
+  // Transfer Methods State
+  const [transferMethods, setTransferMethods] = useState<POSTransferMethod[]>(DEFAULT_TRANSFER_METHODS);
+  const [selectedTransferMethodId, setSelectedTransferMethodId] = useState<string>('bancolombia-1');
+  const [transferReferenceCode, setTransferReferenceCode] = useState<string>('');
+  const [copiedAccount, setCopiedAccount] = useState<string | null>(null);
+  const [zoomQrModalUrl, setZoomQrModalUrl] = useState<string | null>(null);
+  const [showSessionTransactionsModal, setShowSessionTransactionsModal] = useState(false);
+  const [sessionSalesDetails, setSessionSalesDetails] = useState<any[]>([]);
+  const [transferUploading, setTransferUploading] = useState(false);
+
+  // UX Transfer Edit/Create Form State
+  const [newTransferBank, setNewTransferBank] = useState('');
+  const [newTransferType, setNewTransferType] = useState('Ahorros');
+  const [newTransferNumber, setNewTransferNumber] = useState('');
+  const [newTransferHolder, setNewTransferHolder] = useState('Confecciones Breiner SAS');
+  const [newTransferDoc, setNewTransferDoc] = useState('NIT 901.456.789-1');
+  const [newTransferColor, setNewTransferColor] = useState('#80082E');
+  const [newTransferInstructions, setNewTransferInstructions] = useState('');
+  const [newTransferQrUrl, setNewTransferQrUrl] = useState('');
+  const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+
+  const handleCopyAccount = (text: string, id: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedAccount(id);
+      setTimeout(() => setCopiedAccount(null), 2500);
+    }
+  };
 
   // Compute allowed modules for POS sidebar
   const currentUserAssignment = staffAssignments.find(a => a.userId === profile?.id);
@@ -277,11 +470,12 @@ export default function POSPage() {
                      profile?.roles?.name?.toLowerCase().includes('punto');
                      
   const allowedPOSModules = isPOSAdmin 
-    ? ['pos', 'clientes', 'ventas', 'reportes', 'promociones', 'ajustes'] 
-    : (currentUserPOSRole?.permissions || ['pos']);
+    ? ['pos', 'traslados', 'clientes', 'ventas', 'reportes', 'promociones', 'ajustes'] 
+    : (currentUserPOSRole?.permissions ? [...currentUserPOSRole.permissions, 'traslados'] : ['pos', 'traslados']);
 
   const mainItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingBag, module: 'pos' },
+    { id: 'traslados', label: '🚚📦 Traslados', icon: ArrowLeftRight, module: 'traslados' },
     { id: 'productos', label: 'Productos', icon: Shirt, module: 'pos' },
     { id: 'clientes', label: 'Clientes', icon: Users, module: 'clientes' },
     { id: 'ventas', label: 'Ventas', icon: Receipt, module: 'ventas' },
@@ -405,19 +599,21 @@ export default function POSPage() {
   const handleAcceptTransfer = async () => {
     if (!selectedTransfer || !selectedStore) return;
     try {
+      const destWhId = selectedTransfer.warehouse_dest_id || selectedStore.bodega_asociada_id || selectedStore.id;
+
       // 1. Update transfer status
       await supabase.from('finished_goods_transfers')
         .update({ estado: 'Recibido', observaciones: `Recibido por POS. Conciliadas ${scannedReconBarcodes.length} prendas.` })
         .eq('id', selectedTransfer.id);
         
-      // 2. Insert items into store_inventory (naive merge, in real scenario handle upsert)
+      // 2. Insert items into store_inventory
       const ops = (selectedTransfer.items || []).map(async (item: any) => {
          const { data: existing } = await supabase.from('store_inventory')
            .select('id, cantidad_disponible')
            .eq('store_id', selectedStore.id)
            .eq('product_id', item.product_id)
            .eq('size_id', item.size_id)
-           .eq('color_id', item.color_id || '00000000-0000-0000-0000-000000000000') // handle nulls if needed
+           .eq('color_id', item.color_id || '00000000-0000-0000-0000-000000000000')
            .limit(1);
            
          if (existing && existing.length > 0) {
@@ -433,15 +629,101 @@ export default function POSPage() {
          }
       });
       await Promise.all(ops);
+
+      // 3. Update finished_goods_stock in destination warehouse & write to finished_goods_kardex
+      if (destWhId) {
+        for (const item of (selectedTransfer.items || [])) {
+          let destQuery = supabase
+            .from('finished_goods_stock')
+            .select('*')
+            .eq('warehouse_id', destWhId)
+            .eq('product_id', item.product_id);
+
+          if (item.size_id) destQuery = destQuery.eq('size_id', item.size_id);
+          if (item.color_id) destQuery = destQuery.eq('color_id', item.color_id);
+
+          const { data: destStock } = await destQuery.limit(1);
+          const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible || 0) : 0;
+
+          if (destStock?.[0]) {
+            await supabase
+              .from('finished_goods_stock')
+              .update({ cantidad_disponible: currentDestQty + Number(item.cantidad) })
+              .eq('id', destStock[0].id);
+          } else {
+            await supabase
+              .from('finished_goods_stock')
+              .insert({
+                warehouse_id: destWhId,
+                product_id: item.product_id,
+                color_id: item.color_id || null,
+                size_id: item.size_id,
+                cantidad_disponible: Number(item.cantidad)
+              });
+          }
+
+          // Kardex entry
+          await supabase.from('finished_goods_kardex').insert({
+            product_id: item.product_id,
+            color_id: item.color_id || null,
+            size_id: item.size_id,
+            tipo_movimiento: 'Transferencia (Entrada)',
+            cantidad: Number(item.cantidad),
+            saldo_anterior: currentDestQty,
+            saldo_nuevo: currentDestQty + Number(item.cantidad),
+            warehouse_orig_id: selectedTransfer.warehouse_orig_id,
+            warehouse_dest_id: destWhId,
+            documento_origen: `Transferencia #${selectedTransfer.consecutive || selectedTransfer.id?.slice(0, 6)}`,
+            usuario: 'POS Store / Usuario',
+            observaciones: `Recepción confirmada en POS (${selectedStore.nombre_tienda || 'Tienda'})`
+          });
+        }
+      }
+
+      // 4. Update individual_garments location & status to destination warehouse
+      const allBarcodesToUpdate = new Set<string>([...scannedReconBarcodes]);
+      (selectedTransfer.items || []).forEach((it: any) => {
+        if (it.barcodes && Array.isArray(it.barcodes)) {
+          it.barcodes.forEach((b: string) => allBarcodesToUpdate.add(b));
+        }
+      });
+
+      if (allBarcodesToUpdate.size > 0 && destWhId) {
+        await supabase
+          .from('individual_garments')
+          .update({
+            warehouse_id: destWhId,
+            status: 'Aprobada'
+          })
+          .in('barcode', Array.from(allBarcodesToUpdate));
+      } else if (destWhId) {
+        for (const item of (selectedTransfer.items || [])) {
+          const { data: transitGarms } = await supabase
+            .from('individual_garments')
+            .select('id')
+            .eq('status', 'en_transito')
+            .limit(Number(item.cantidad));
+
+          if (transitGarms && transitGarms.length > 0) {
+            await supabase
+              .from('individual_garments')
+              .update({
+                warehouse_id: destWhId,
+                status: 'Aprobada'
+              })
+              .in('id', transitGarms.map(g => g.id));
+          }
+        }
+      }
       
-      alert('Traslado recibido y conciliado exitosamente.');
+      alert('✓ Traslado recibido, conciliado e ingresado al stock de la bodega exitosamente.');
       setSelectedTransfer(null);
       setScannedReconBarcodes([]);
       fetchPendingTransfers();
       fetchInlineInventory(); // refresh inventory
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Error recibiendo traslado.');
+      alert('Error recibiendo traslado: ' + (e?.message || 'Error desconocido'));
     }
   };
 
@@ -555,10 +837,15 @@ export default function POSPage() {
     } else {
       setStaffAssignments([]);
     }
+
+    // Load custom transfer methods
+    if (activeTheme?.styles?.transfer_methods && activeTheme.styles.transfer_methods.length > 0) {
+      setTransferMethods(activeTheme.styles.transfer_methods);
+    }
   }, [activeTheme]);
 
   // Create or Update Theme in DB
-  const saveCustomTheme = async (rolesOverride?: any[], assignmentsOverride?: any[]) => {
+  const saveCustomTheme = async (rolesOverride?: any[], assignmentsOverride?: any[], transferMethodsOverride?: any[]) => {
     setThemeSaving(true);
     try {
       // Step 1: Deactivate all other themes so POS Custom Theme wins
@@ -569,6 +856,7 @@ export default function POSPage() {
 
       const targetRoles = rolesOverride || staffRoles;
       const targetAssignments = assignmentsOverride || staffAssignments;
+      const targetTransferMethods = transferMethodsOverride || transferMethods;
 
       // Step 2: Upsert the custom theme with all current values
       const payload = {
@@ -636,6 +924,7 @@ export default function POSPage() {
             headerTextColor: customHeaderTextColor,
             headerTextPlacement: customHeaderTextPlacement
           },
+          transfer_methods: targetTransferMethods,
           pos_roles_config: targetRoles,
           pos_staff_assignments: targetAssignments
         }
@@ -690,6 +979,10 @@ export default function POSPage() {
   };
 
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Mixto'>('Efectivo');
+  const [mixedCashAmount, setMixedCashAmount] = useState<string>('');
+  const [mixedCardAmount, setMixedCardAmount] = useState<string>('');
+  const [mixedTransferAmount, setMixedTransferAmount] = useState<string>('');
+  const [showMixedTransfer, setShowMixedTransfer] = useState(false);
   const [cartNotes, setCartNotes] = useState('');
   const [observaciones, setObservaciones] = useState('');
 
@@ -1377,6 +1670,32 @@ export default function POSPage() {
       setRegisters(reg || []);
       
       if (reg && reg.length > 0) {
+        // Priority 1: Check if ANY register in this store has an active open session
+        const regIds = reg.map((r: any) => r.id);
+        const { data: openSessions } = await supabase
+          .from('pos_cash_sessions')
+          .select('*')
+          .in('register_id', regIds)
+          .eq('estado', 'abierta')
+          .order('fecha_apertura', { ascending: false });
+
+        if (openSessions && openSessions.length > 0) {
+          const activeSession = openSessions[0];
+          const matchedReg = reg.find(r => r.id === activeSession.register_id) || reg[0];
+          setSelectedRegister(matchedReg);
+          localStorage.setItem('pos_selected_register_id', matchedReg.id);
+          setCurrentSession(activeSession);
+          localStorage.setItem('pos_active_session_id', activeSession.id);
+          fetchSessionSalesTotal(activeSession.id);
+          fetchSessionSalesDetails(activeSession.id);
+          fetchCrmCustomers();
+          fetchInlineInventory();
+          fetchInlineSales();
+          setShowOpenSessionModal(false);
+          return;
+        }
+
+        // Priority 2: Fallback to preselected or first register
         let foundReg = preselectRegisterId ? reg.find(r => r.id === preselectRegisterId) : null;
         if (!foundReg) {
           foundReg = reg[0];
@@ -1384,6 +1703,9 @@ export default function POSPage() {
         }
         setSelectedRegister(foundReg);
         await checkActiveSession(foundReg.id);
+      } else {
+        setSelectedRegister(null);
+        setCurrentSession(null);
       }
     } catch (err) {
       console.error(err);
@@ -1397,17 +1719,22 @@ export default function POSPage() {
         .select('*')
         .eq('register_id', registerId)
         .eq('estado', 'abierta')
+        .order('fecha_apertura', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (session) {
         setCurrentSession(session);
+        localStorage.setItem('pos_active_session_id', session.id);
         fetchSessionSalesTotal(session.id);
+        fetchSessionSalesDetails(session.id);
         fetchCrmCustomers();
         fetchInlineInventory();
         fetchInlineSales();
+        setShowOpenSessionModal(false);
       } else {
         setCurrentSession(null);
-        // Do not force show the modal here to avoid blocking page reloads/settings adjustments
+        localStorage.removeItem('pos_active_session_id');
         setShowOpenSessionModal(false);
       }
     } catch (err) {
@@ -1459,7 +1786,7 @@ export default function POSPage() {
         .from('pos_cash_sessions')
         .insert([{
           register_id: targetRegister.id,
-          usuario_apertura: user?.email || 'Cajero',
+          usuario_apertura: profile?.full_name || user?.email || 'Cajero',
           monto_apertura: Number(openingCash),
           estado: 'abierta'
         }])
@@ -1470,7 +1797,9 @@ export default function POSPage() {
       await supabase.from('pos_registers').update({ estado: 'abierta' }).eq('id', targetRegister.id);
       
       setCurrentSession(newSession);
+      localStorage.setItem('pos_active_session_id', newSession.id);
       setCurrentSessionSalesTotal(0);
+      setSessionSalesDetails([]);
       setSessionError(null);
       setShowOpenSessionModal(false);
     } catch (err: any) {
@@ -1489,8 +1818,8 @@ export default function POSPage() {
         .eq('session_id', currentSession.id);
 
       const cashSalesTotal = sales?.reduce((sum, sale) => {
-        const cashPay = sale.pos_payments?.find((p: any) => p.metodo_pago === 'Efectivo');
-        return sum + (cashPay ? Number(cashPay.monto) : 0);
+        const cashPays = sale.pos_payments?.filter((p: any) => p.metodo_pago === 'Efectivo') || [];
+        return sum + cashPays.reduce((acc: number, p: any) => acc + (Number(p.monto) || 0), 0);
       }, 0) || 0;
 
       const expected = Number(currentSession.monto_apertura) + cashSalesTotal;
@@ -1508,12 +1837,17 @@ export default function POSPage() {
         })
         .eq('id', currentSession.id);
 
-      await supabase.from('pos_registers').update({ estado: 'cerrada' }).eq('id', selectedRegister.id);
+      if (selectedRegister?.id) {
+        await supabase.from('pos_registers').update({ estado: 'cerrada' }).eq('id', selectedRegister.id);
+      }
 
+      localStorage.removeItem('pos_active_session_id');
       setCurrentSession(null);
-      setSelectedRegister(null);
+      setSessionSalesDetails([]);
+      setCurrentSessionSalesTotal(0);
       setClosingCashReal('');
       setShowCloseSessionModal(false);
+      alert(`✅ Turno de caja cerrado exitosamente.\nEsperado en Efectivo: $${expected.toLocaleString('es-CO')}\nContado Real: $${real.toLocaleString('es-CO')}\nDiferencia: $${diff.toLocaleString('es-CO')}`);
     } catch (err: any) {
       alert('Error cerrando caja: ' + err.message);
     }
@@ -1586,11 +1920,21 @@ export default function POSPage() {
           });
         }
 
-        await supabase.from('pos_payments').insert({
-          sale_id: newSale.id,
-          metodo_pago: item.payment.metodo_pago,
-          monto: item.payment.monto
-        });
+        if (item.payments && Array.isArray(item.payments) && item.payments.length > 0) {
+          for (const p of item.payments) {
+            await supabase.from('pos_payments').insert({
+              sale_id: newSale.id,
+              metodo_pago: p.metodo_pago,
+              monto: p.monto
+            });
+          }
+        } else if (item.payment) {
+          await supabase.from('pos_payments').insert({
+            sale_id: newSale.id,
+            metodo_pago: item.payment.metodo_pago,
+            monto: item.payment.monto
+          });
+        }
 
       } catch (err) {
         console.error('Error in sync queue:', err);
@@ -1607,44 +1951,120 @@ export default function POSPage() {
     }
   };
 
-  const getProductPrice = (product: any, priceListId: string, customItems: any[]) => {
+  const getProductPrice = (product: any, priceListId: string, customItems: any[], totalCartQty: number = 1) => {
     let basePrice = product.precio || 35000;
-    if (priceListId) {
-      const pl = priceLists.find(l => l.id === priceListId);
-      const special = customItems.find(item => item.price_list_id === priceListId && item.categoria === product.categoria);
-      
-      if (special && special.valor_descuento !== null && special.valor_descuento !== undefined) {
-        if (special.tipo_descuento === 'porcentaje') {
-          return Math.max(0, basePrice - (basePrice * (Number(special.valor_descuento) / 100)));
-        } else {
-          return Math.max(0, basePrice - Number(special.valor_descuento));
-        }
-      } else if (pl && pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined) {
-        if (pl.tipo_descuento_global === 'porcentaje') {
-          return Math.max(0, basePrice - (basePrice * (Number(pl.valor_descuento_global) / 100)));
-        } else {
-          return Math.max(0, basePrice - Number(pl.valor_descuento_global));
-        }
+    if (!priceListId) return basePrice;
+
+    const pl = priceLists.find(l => l.id === priceListId);
+    if (!pl || !pl.activo) return basePrice;
+
+    const rules = parsePriceListRules(pl);
+    const minQty = rules.cantidad_minima || 1;
+
+    // Regla 1: Volumen mínimo de prendas
+    if (totalCartQty < minQty) {
+      return basePrice;
+    }
+
+    const prodCategory = getPremiumReferenceCategory(product);
+    const prodRef = product.codigo_referencia || '';
+    const prodId = product.id || '';
+    const prodName = (product.nombre_producto || '').toLowerCase();
+
+    // Regla 2: Filtro de Categorías / Referencias Permitidas
+    if (!rules.aplica_todas_categorias && rules.categorias_permitidas && rules.categorias_permitidas.length > 0) {
+      const isAllowed = rules.categorias_permitidas.some(allowed => {
+        const a = (allowed || '').toLowerCase();
+        return a === prodCategory.toLowerCase() ||
+               a === prodRef.toLowerCase() ||
+               a === prodId.toLowerCase() ||
+               a === `ref:${prodRef}`.toLowerCase() ||
+               a === `prod:${prodId}`.toLowerCase() ||
+               prodName.includes(a);
+      });
+      if (!isAllowed) {
+        return basePrice;
       }
     }
+
+    // Regla 3: Precios / Descuentos específicos por Producto o Referencia (Prioridad Máxima)
+    const specialProd = customItems.find(item => 
+      item.price_list_id === priceListId && 
+      (item.categoria === prodId || item.categoria === prodRef || item.categoria === `PROD:${prodId}` || item.categoria === `REF:${prodRef}`)
+    );
+
+    if (specialProd && specialProd.valor_descuento !== null && specialProd.valor_descuento !== undefined && Number(specialProd.valor_descuento) > 0) {
+      const discountVal = Number(specialProd.valor_descuento);
+      if (specialProd.tipo_descuento === 'precio_fijo') {
+        return Math.max(0, discountVal);
+      } else if (specialProd.tipo_descuento === 'porcentaje') {
+        return Math.max(0, basePrice - (basePrice * (discountVal / 100)));
+      } else {
+        return Math.max(0, basePrice - discountVal);
+      }
+    }
+
+    // Regla 4: Precios / Descuentos específicos por Categoría (Referencia Premium)
+    const specialCat = customItems.find(item => {
+      if (item.price_list_id !== priceListId) return false;
+      const catKey = (item.categoria || '').toLowerCase();
+      return catKey === prodCategory.toLowerCase() ||
+             prodName.includes(catKey) ||
+             (product.categories?.categoria && product.categories.categoria.toLowerCase() === catKey);
+    });
+
+    if (specialCat && specialCat.valor_descuento !== null && specialCat.valor_descuento !== undefined && Number(specialCat.valor_descuento) > 0) {
+      const discountVal = Number(specialCat.valor_descuento);
+      if (specialCat.tipo_descuento === 'precio_fijo') {
+        return Math.max(0, discountVal);
+      } else if (specialCat.tipo_descuento === 'porcentaje') {
+        return Math.max(0, basePrice - (basePrice * (discountVal / 100)));
+      } else {
+        return Math.max(0, basePrice - discountVal);
+      }
+    }
+
+    // Regla 5: Descuento global de la lista
+    if (pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0) {
+      const globalVal = Number(pl.valor_descuento_global);
+      if (pl.tipo_descuento_global === 'porcentaje') {
+        return Math.max(0, basePrice - (basePrice * (globalVal / 100)));
+      } else {
+        return Math.max(0, basePrice - globalVal);
+      }
+    }
+
     return basePrice;
   };
 
   useEffect(() => {
-    setCart(prevCart => prevCart.map(item => {
-      if (item.is_return) return item;
-      const productObj = products.find(p => p.id === item.product_id);
-      if (productObj) {
-        const newPrice = getProductPrice(productObj, selectedPriceListId, priceListItems);
-        return { ...item, precio: newPrice };
-      }
-      return item;
-    }));
-  }, [selectedPriceListId, products, priceListItems, priceLists]);
+    setCart(prevCart => {
+      const totalQty = prevCart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0);
+      let changed = false;
+      const updated = prevCart.map(item => {
+        if (item.is_return) return item;
+        const productObj = products.find(p => p.id === item.product_id);
+        if (productObj) {
+          const newPrice = getProductPrice(productObj, selectedPriceListId, priceListItems, totalQty);
+          if (newPrice !== item.precio) {
+            changed = true;
+            return { ...item, precio: newPrice };
+          }
+        }
+        return item;
+      });
+      return changed ? updated : prevCart;
+    });
+  }, [selectedPriceListId, products, priceListItems, priceLists, cart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0)]);
 
   const doAddToCart = (product: any, colorId: string | null, sizeId: string | null) => {
-    const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems);
     const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === sizeId && item.color_id === colorId && !item.is_return);
+    const simulatedCart = existingIndex > -1
+      ? cart.map((it, i) => i === existingIndex ? { ...it, cantidad: it.cantidad + 1 } : it)
+      : [...cart, { product_id: product.id, cantidad: 1 }];
+    const totalQty = simulatedCart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0);
+
+    const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems, totalQty);
 
     if (existingIndex > -1) {
       const newCart = [...cart];
@@ -1808,6 +2228,59 @@ export default function POSPage() {
     }
     const total = Math.max(0, subtotal - discountAmount);
 
+    const activeTransferObj = transferMethods.find(m => m.id === selectedTransferMethodId) || transferMethods.find(m => m.activo !== false);
+    let finalObs = cartNotes.trim();
+
+    // Build payment records array
+    const paymentsToInsert: { metodo_pago: string; monto: number }[] = [];
+
+    if (paymentMethod === 'Mixto') {
+      const numCash = Number(mixedCashAmount) || 0;
+      const numCard = Number(mixedCardAmount) || 0;
+      const numTransfer = Number(mixedTransferAmount) || 0;
+      const totalPaid = numCash + numCard + numTransfer;
+
+      if (totalPaid < total) {
+        return alert(`⚠️ En Pago Mixto, el total asignado ($${totalPaid.toLocaleString('es-CO')}) es menor al total a pagar ($${total.toLocaleString('es-CO')}). Faltan $${(total - totalPaid).toLocaleString('es-CO')}.`);
+      }
+
+      if (numCard + numTransfer > total) {
+        return alert(`⚠️ La suma de Tarjeta ($${numCard.toLocaleString('es-CO')}) y Transferencia ($${numTransfer.toLocaleString('es-CO')}) supera el total de la venta ($${total.toLocaleString('es-CO')}). Solo el efectivo admite excedente para vueltos.`);
+      }
+
+      const cashApplied = Math.max(0, total - numCard - numTransfer);
+      const change = Math.max(0, numCash - cashApplied);
+
+      const parts: string[] = [];
+      if (cashApplied > 0) {
+        paymentsToInsert.push({ metodo_pago: 'Efectivo', monto: cashApplied });
+        parts.push(`Efectivo: $${cashApplied.toLocaleString('es-CO')}${change > 0 ? ` (Entregado: $${numCash.toLocaleString('es-CO')}, Vueltos: $${change.toLocaleString('es-CO')})` : ''}`);
+      }
+      if (numCard > 0) {
+        paymentsToInsert.push({ metodo_pago: 'Tarjeta', monto: numCard });
+        parts.push(`Tarjeta: $${numCard.toLocaleString('es-CO')}`);
+      }
+      if (numTransfer > 0) {
+        const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
+        paymentsToInsert.push({ metodo_pago: transferLabel, monto: numTransfer });
+        parts.push(`${transferLabel}: $${numTransfer.toLocaleString('es-CO')}${transferReferenceCode ? ` [Ref: ${transferReferenceCode}]` : ''}`);
+      }
+
+      if (paymentsToInsert.length === 0) {
+        return alert('⚠️ Debes ingresar los montos correspondientes para el pago mixto.');
+      }
+
+      const mixedDetail = `[Pago Mixto: ${parts.join(' + ')}]`;
+      finalObs = finalObs ? `${finalObs} | ${mixedDetail}` : mixedDetail;
+    } else if (paymentMethod === 'Transferencia') {
+      const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
+      const refDetail = `[Transferencia: ${activeTransferObj ? `${activeTransferObj.banco} (${activeTransferObj.tipo_cuenta} #${activeTransferObj.numero_cuenta})` : 'Bancaria'}${transferReferenceCode ? ` - Ref/Aprob: ${transferReferenceCode}` : ''}]`;
+      finalObs = finalObs ? `${finalObs} | ${refDetail}` : refDetail;
+      paymentsToInsert.push({ metodo_pago: transferLabel, monto: total });
+    } else {
+      paymentsToInsert.push({ metodo_pago: paymentMethod, monto: total });
+    }
+
     const salePayload = {
       session_id: currentSession?.id || null,
       store_id: selectedStore?.id || null,
@@ -1818,11 +2291,11 @@ export default function POSPage() {
       descuento: discountAmount,
       impuestos: 0,
       total,
-      observaciones: cartNotes
+      observaciones: finalObs
     };
 
-    const paymentPayload = {
-      metodo_pago: paymentMethod,
+    const paymentPayload = paymentsToInsert[0] || {
+      metodo_pago: paymentMethod === 'Transferencia' && activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : paymentMethod,
       monto: total
     };
 
@@ -1830,6 +2303,7 @@ export default function POSPage() {
       const newQueueItem = {
         sale: salePayload,
         items: cart,
+        payments: paymentsToInsert,
         payment: paymentPayload,
         timestamp: new Date().toISOString()
       };
@@ -1840,6 +2314,10 @@ export default function POSPage() {
       alert('⚠️ Sin conexión. Venta guardada en la cola de sincronía del terminal.');
       setCart([]);
       setCartNotes('');
+      setTransferReferenceCode('');
+      setMixedCashAmount('');
+      setMixedCardAmount('');
+      setMixedTransferAmount('');
       return;
     }
 
@@ -1992,17 +2470,24 @@ export default function POSPage() {
         }
       }
 
-      await supabase.from('pos_payments').insert({
-        sale_id: newSale.id,
-        metodo_pago: paymentMethod,
-        monto: total
-      });
+      for (const p of paymentsToInsert) {
+        await supabase.from('pos_payments').insert({
+          sale_id: newSale.id,
+          metodo_pago: p.metodo_pago,
+          monto: p.monto
+        });
+      }
 
       alert(`✅ Transacción #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')} registrada exitosamente.`);
       setCart([]);
       setCartNotes('');
+      setTransferReferenceCode('');
+      setMixedCashAmount('');
+      setMixedCardAmount('');
+      setMixedTransferAmount('');
       if (currentSession) {
         fetchSessionSalesTotal(currentSession.id);
+        fetchSessionSalesDetails(currentSession.id);
       }
       fetchInlineInventory();
       fetchInlineSales();
@@ -2407,6 +2892,37 @@ export default function POSPage() {
                   </div>
                 ))}
               </div>
+
+              {currentSession && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchSessionSalesDetails(currentSession.id);
+                    setShowSessionTransactionsModal(true);
+                  }}
+                  style={{
+                    width: '100%',
+                    marginTop: '0.75rem',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    fontSize: '0.68rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem',
+                    transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                >
+                  📊 Transacciones ({sessionSalesDetails.length})
+                </button>
+              )}
             </div>
 
             {/* Open / Close session button */}
@@ -3214,7 +3730,24 @@ export default function POSPage() {
                     })()}
                   </>
                 ) : (
-                  <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ fontSize: '1.4rem' }}>🚚📦</span>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: '900', color: '#80082E' }}>Módulo Completo de Traslados entre Tiendas y Bodegas</div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Despacha y recibe mercancía con pistola de código de barras, comprobantes y conciliación de faltantes en tiempo real.</div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setActiveMenuId('traslados')} 
+                        style={{ backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', padding: '0.5rem 1rem', fontSize: '0.78rem', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        Abrir Módulo de Traslados →
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
                     {/* Lista de traslados */}
                     <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       <h3 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#475569', margin: 0, textTransform: 'uppercase' }}>Traslados Pendientes</h3>
@@ -3353,7 +3886,22 @@ export default function POSPage() {
                       </div>
                     )}
                   </div>
-                )}
+                </div>
+              )}
+            </div>
+          ) : activeMenuId === 'traslados' ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', backgroundColor: '#f8fafc' }}>
+                <POSTransferManager 
+                  currentStore={selectedStore} 
+                  user={user} 
+                  profile={profile} 
+                  onRefreshInventory={() => {
+                    fetchInlineInventory();
+                    fetchPendingTransfers();
+                  }}
+                  primaryColor={customPrimary}
+                  secondaryColor={customSecondary}
+                />
               </div>
             ) : activeMenuId === 'clientes' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
@@ -3661,7 +4209,7 @@ export default function POSPage() {
                     return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
                   }, 0);
                   const payTransferencia = filteredSales.reduce((s, v) => {
-                    const pays = v.pos_payments?.filter((p: any) => p.metodo_pago === 'Transferencia') || [];
+                    const pays = v.pos_payments?.filter((p: any) => p.metodo_pago?.toLowerCase().includes('transferencia')) || [];
                     return s + pays.reduce((sum: number, p: any) => sum + Number(p.monto || 0), 0);
                   }, 0);
                   const payMixto = filteredSales.reduce((s, v) => {
@@ -4458,7 +5006,8 @@ export default function POSPage() {
                     { id: 'colors', label: '🎨 Colores' },
                     { id: 'typography', label: '🔤 Tipografía' },
                     { id: 'catalog', label: '🖼️ Catálogo' },
-                    { id: 'logo', label: '🏢 Logo Empresa' }
+                    { id: 'logo', label: '🏢 Logo Empresa' },
+                    { id: 'transfer', label: '💳 Medios de Transferencia' }
                   ] as const).map(tab => (
                     <button key={tab.id} onClick={() => setUxTab(tab.id)} style={{
                       padding: '0.55rem 1.1rem',
@@ -5303,6 +5852,430 @@ export default function POSPage() {
                         )}
                       </div>
                     )}
+
+                    {/* === TRANSFER METHODS TAB === */}
+                    {uxTab === 'transfer' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        {/* Form Card */}
+                        <div style={{ background: 'white', borderRadius: '14px', padding: '1.25rem', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>
+                                {editingTransferId ? '✏️ Editar Medio de Transferencia' : '➕ Configurar Nueva Cuenta / QR'}
+                              </h3>
+                              <p style={{ margin: '0.2rem 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                                Parametriza las cuentas y códigos QR que se mostrarán debajo del botón Transferencia en el POS.
+                              </p>
+                            </div>
+                            {editingTransferId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTransferId(null);
+                                  setNewTransferBank('');
+                                  setNewTransferNumber('');
+                                  setNewTransferHolder('Confecciones Breiner SAS');
+                                  setNewTransferDoc('NIT 901.456.789-1');
+                                  setNewTransferColor('#80082E');
+                                  setNewTransferInstructions('');
+                                  setNewTransferQrUrl('');
+                                }}
+                                style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer', color: '#64748b' }}
+                              >
+                                Cancelar Edición
+                              </button>
+                            )}
+                          </div>
+
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!newTransferBank.trim() || !newTransferNumber.trim()) {
+                                alert('Por favor ingresa el nombre del banco y el número de cuenta.');
+                                return;
+                              }
+
+                              let updated: POSTransferMethod[];
+                              if (editingTransferId) {
+                                updated = transferMethods.map(m => m.id === editingTransferId ? {
+                                  ...m,
+                                  banco: newTransferBank.trim(),
+                                  tipo_cuenta: newTransferType,
+                                  numero_cuenta: newTransferNumber.trim(),
+                                  titular: newTransferHolder.trim(),
+                                  identificacion: newTransferDoc.trim(),
+                                  color: newTransferColor,
+                                  instrucciones: newTransferInstructions.trim(),
+                                  qr_image_url: newTransferQrUrl.trim()
+                                } : m);
+                              } else {
+                                const newId = 'tr-' + Date.now();
+                                const newMethod: POSTransferMethod = {
+                                  id: newId,
+                                  banco: newTransferBank.trim(),
+                                  tipo_cuenta: newTransferType,
+                                  numero_cuenta: newTransferNumber.trim(),
+                                  titular: newTransferHolder.trim(),
+                                  identificacion: newTransferDoc.trim(),
+                                  color: newTransferColor,
+                                  instrucciones: newTransferInstructions.trim(),
+                                  qr_image_url: newTransferQrUrl.trim(),
+                                  activo: true
+                                };
+                                updated = [...transferMethods, newMethod];
+                              }
+
+                              setTransferMethods(updated);
+                              await saveCustomTheme(staffRoles, staffAssignments, updated);
+                              
+                              // Reset form
+                              setEditingTransferId(null);
+                              setNewTransferBank('');
+                              setNewTransferNumber('');
+                              setNewTransferInstructions('');
+                              setNewTransferQrUrl('');
+                            }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+                          >
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '0.75rem' }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Banco o Billetera
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="Ej. Bancolombia, Nequi, Daviplata"
+                                  value={newTransferBank}
+                                  onChange={e => setNewTransferBank(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                                />
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Tipo de Cuenta
+                                </label>
+                                <select
+                                  value={newTransferType}
+                                  onChange={e => setNewTransferType(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', backgroundColor: 'white' }}
+                                >
+                                  <option value="Ahorros">Ahorros</option>
+                                  <option value="Corriente">Corriente</option>
+                                  <option value="Celular / Billetera">Celular / Billetera</option>
+                                  <option value="Llave / Transfiya">Llave / Transfiya</option>
+                                  <option value="QR Interbancario">QR Interbancario</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Color Distintivo
+                                </label>
+                                <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                  <input
+                                    type="color"
+                                    value={newTransferColor}
+                                    onChange={e => setNewTransferColor(e.target.value)}
+                                    style={{ width: '38px', height: '38px', padding: '2px', borderRadius: '6px', border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={newTransferColor}
+                                    onChange={e => setNewTransferColor(e.target.value)}
+                                    style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', fontFamily: 'monospace' }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Número de Cuenta o Teléfono
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="Ej. 123-456789-01 o 310..."
+                                  value={newTransferNumber}
+                                  onChange={e => setNewTransferNumber(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontFamily: 'monospace', outline: 'none' }}
+                                />
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Titular de la Cuenta
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Confecciones Breiner SAS"
+                                  value={newTransferHolder}
+                                  onChange={e => setNewTransferHolder(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                                />
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  NIT o Cédula
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="NIT 901.456.789-1"
+                                  value={newTransferDoc}
+                                  onChange={e => setNewTransferDoc(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Carga de Imagen de Código QR */}
+                            <div style={{ padding: '0.85rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              <label style={{ fontSize: '0.72rem', fontWeight: '850', color: '#0f172a', textTransform: 'uppercase' }}>
+                                📷 Imagen del Código QR de Pago (Aparecerá en el POS)
+                              </label>
+                              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                <label style={{
+                                  padding: '0.55rem 1rem',
+                                  backgroundColor: transferUploading ? '#cbd5e1' : customPrimary,
+                                  color: 'white',
+                                  borderRadius: '8px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '800',
+                                  cursor: transferUploading ? 'not-allowed' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.4rem',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+                                }}>
+                                  {transferUploading ? <Loader2 size={14} className="animate-spin" /> : '📁'} 
+                                  {transferUploading ? 'Subiendo QR...' : 'Subir Imagen QR'}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    disabled={transferUploading}
+                                    style={{ display: 'none' }}
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      setTransferUploading(true);
+                                      try {
+                                        const reader = new FileReader();
+                                        reader.onloadend = async () => {
+                                          const base64Content = (reader.result as string).split(',')[1];
+                                          const payload = {
+                                            name: `transfer_qr_${Date.now()}`,
+                                            value: '',
+                                            fileBase64: base64Content,
+                                            fileName: `qr-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`
+                                          };
+                                          const res = await fetch('/api/settings', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(payload)
+                                          });
+                                          if (!res.ok) {
+                                            const err = await res.json();
+                                            throw new Error(err.error || 'Error subiendo QR');
+                                          }
+                                          const data = await res.json();
+                                          if (data.value) {
+                                            setNewTransferQrUrl(data.value);
+                                          }
+                                        };
+                                        reader.readAsDataURL(file);
+                                      } catch (err: any) {
+                                        alert('Error al subir imagen QR: ' + err.message);
+                                      } finally {
+                                        setTransferUploading(false);
+                                      }
+                                    }}
+                                  />
+                                </label>
+
+                                <input
+                                  type="text"
+                                  placeholder="O pegar URL directa de la imagen QR..."
+                                  value={newTransferQrUrl}
+                                  onChange={e => setNewTransferQrUrl(e.target.value)}
+                                  style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', outline: 'none' }}
+                                />
+
+                                {newTransferQrUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setNewTransferQrUrl('')}
+                                    style={{ padding: '0.55rem 0.85rem', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    Quitar QR
+                                  </button>
+                                )}
+                              </div>
+
+                              {newTransferQrUrl && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+                                  <div style={{ width: '60px', height: '60px', borderRadius: '8px', border: '1px solid #cbd5e1', overflow: 'hidden', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <img src={newTransferQrUrl} alt="Preview QR" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                  </div>
+                                  <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '750' }}>✓ Imagen QR cargada y lista para mostrarse en el POS.</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                Instrucciones o Nota para el Cliente (Opcional)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Ej. Enviar comprobante al WhatsApp 310... o verificar titular antes de enviar."
+                                value={newTransferInstructions}
+                                onChange={e => setNewTransferInstructions(e.target.value)}
+                                style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                              />
+                            </div>
+
+                            <button
+                              type="submit"
+                              style={{
+                                padding: '0.75rem',
+                                background: `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
+                                border: 'none',
+                                borderRadius: '8px',
+                                color: 'white',
+                                fontWeight: '900',
+                                fontSize: '0.82rem',
+                                cursor: 'pointer',
+                                boxShadow: '0 3px 10px rgba(128,8,46,0.2)'
+                              }}
+                            >
+                              {editingTransferId ? '💾 Actualizar Medio de Transferencia' : '➕ Guardar y Publicar en POS'}
+                            </button>
+                          </form>
+                        </div>
+
+                        {/* List of Configured Transfer Accounts */}
+                        <div style={{ background: 'white', borderRadius: '14px', padding: '1.25rem', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>
+                            Cuentas y Códigos QR Configurados ({transferMethods.length})
+                          </h4>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                            {transferMethods.map((m, idx) => (
+                              <div
+                                key={m.id || idx}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '0.85rem 1rem',
+                                  borderRadius: '10px',
+                                  border: `1.5px solid ${m.activo ? '#cbd5e1' : '#f1f5f9'}`,
+                                  backgroundColor: m.activo ? '#ffffff' : '#f8fafc',
+                                  opacity: m.activo ? 1 : 0.6
+                                }}
+                              >
+                                <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
+                                  {/* QR Thumbnail */}
+                                  {m.qr_image_url ? (
+                                    <div 
+                                      onClick={() => setZoomQrModalUrl(m.qr_image_url || null)}
+                                      style={{ width: '48px', height: '48px', borderRadius: '6px', border: '1px solid #cbd5e1', overflow: 'hidden', cursor: 'pointer', backgroundColor: 'white', flexShrink: 0 }}
+                                      title="Clic para ampliar"
+                                    >
+                                      <img src={m.qr_image_url} alt="QR" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                    </div>
+                                  ) : (
+                                    <div style={{ width: '48px', height: '48px', borderRadius: '6px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                                      📲
+                                    </div>
+                                  )}
+
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', backgroundColor: m.color || '#80082E', color: ['#FDDA24', '#ffffff', '#fef08a'].includes(m.color) ? '#0f172a' : 'white', fontSize: '0.68rem', fontWeight: '900' }}>
+                                        {m.banco}
+                                      </span>
+                                      <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#0f172a', fontFamily: 'monospace' }}>
+                                        {m.numero_cuenta}
+                                      </span>
+                                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                        ({m.tipo_cuenta})
+                                      </span>
+                                    </div>
+                                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                                      Titular: <strong>{m.titular}</strong> · {m.identificacion}
+                                    </span>
+                                    {m.instrucciones && (
+                                      <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                                        Nota: {m.instrucciones}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const updated = transferMethods.map(item => item.id === m.id ? { ...item, activo: !item.activo } : item);
+                                      setTransferMethods(updated);
+                                      await saveCustomTheme(staffRoles, staffAssignments, updated);
+                                    }}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #cbd5e1',
+                                      backgroundColor: m.activo ? '#dcfce7' : '#fee2e2',
+                                      color: m.activo ? '#166534' : '#991b1b',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {m.activo ? '✓ Activo' : '✕ Inactivo'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingTransferId(m.id);
+                                      setNewTransferBank(m.banco);
+                                      setNewTransferType(m.tipo_cuenta || 'Ahorros');
+                                      setNewTransferNumber(m.numero_cuenta);
+                                      setNewTransferHolder(m.titular || 'Confecciones Breiner SAS');
+                                      setNewTransferDoc(m.identificacion || 'NIT 901.456.789-1');
+                                      setNewTransferColor(m.color || '#80082E');
+                                      setNewTransferInstructions(m.instrucciones || '');
+                                      setNewTransferQrUrl(m.qr_image_url || '');
+                                    }}
+                                    style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: 'white', color: '#0f172a', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    ✏️ Editar
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!confirm(`¿Eliminar la cuenta ${m.banco} (${m.numero_cuenta})?`)) return;
+                                      const updated = transferMethods.filter(item => item.id !== m.id);
+                                      setTransferMethods(updated);
+                                      await saveCustomTheme(staffRoles, staffAssignments, updated);
+                                    }}
+                                    style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Right: Live full preview */}
@@ -5720,63 +6693,116 @@ export default function POSPage() {
 
               {/* Checkout cost adjustments form layout */}
               <div style={{
-                padding: '1.25rem 1.5rem',
+                padding: '0.65rem 0.85rem',
                 borderTop: '1px solid #cbd5e1',
                 backgroundColor: '#f8fafc',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '1rem'
+                gap: '0.45rem'
               }}>
-                {/* Observación Button */}
-                <button
-                  style={{
-                    alignSelf: 'flex-start',
-                    fontSize: '0.72rem',
-                    fontWeight: '800',
-                    color: '#80082E',
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                >
-                  + Agregar Observación
-                </button>
-
                 {/* Cliente selector card widget */}
                 <div style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
+                  flexDirection: 'column',
+                  gap: '0.45rem',
                   backgroundColor: 'white',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '8px',
-                  padding: '0.5rem 0.75rem'
+                  border: '1.5px solid #cbd5e1',
+                  borderRadius: '10px',
+                  padding: '0.6rem 0.75rem'
                 }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <User size={16} style={{ color: '#80082E' }} />
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '755' }}>CLIENTE</span>
-                      <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#0f172a' }}>{selectedCustomer.name}</span>
-                      {selectedPriceListId && (
-                        <span style={{ fontSize: '0.6rem', color: '#10b981' }}>
-                          Lista: {priceLists.find(l => l.id === selectedPriceListId)?.nombre} ({priceLists.find(l => l.id === selectedPriceListId)?.tipo_descuento_global} - {priceLists.find(l => l.id === selectedPriceListId)?.valor_descuento_global})
-                        </span>
-                      )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <User size={16} style={{ color: '#80082E', flexShrink: 0 }} />
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase' }}>CLIENTE</span>
+                        <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a' }}>{selectedCustomer.name}</span>
+                      </div>
                     </div>
+                    <button onClick={() => setShowPosClientModal(true)} style={{
+                      backgroundColor: '#fff0f3',
+                      color: '#80082E',
+                      border: 'none',
+                      padding: '0.25rem 0.65rem',
+                      borderRadius: '6px',
+                      fontSize: '0.7rem',
+                      fontWeight: '850',
+                      cursor: 'pointer'
+                    }}>
+                      Cambiar
+                    </button>
                   </div>
-                  <button onClick={() => setShowPosClientModal(true)} style={{
-                    backgroundColor: '#fff0f3',
-                    color: '#80082E',
-                    border: 'none',
-                    padding: '0.25rem 0.65rem',
-                    borderRadius: '4px',
-                    fontSize: '0.7rem',
-                    fontWeight: '800',
-                    cursor: 'pointer'
-                  }}>
-                    Cambiar
-                  </button>
+
+                  {/* Price list selector & rule evaluation badge */}
+                  {(() => {
+                    const totalCartGarments = cart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0);
+                    const activePL = priceLists.find(l => l.id === selectedPriceListId);
+                    
+                    if (!activePL) {
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '0.35rem', borderTop: '1px dashed #e2e8f0' }}>
+                          <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '700' }}>Lista de Precios:</span>
+                          <select
+                            value={selectedPriceListId}
+                            onChange={e => setSelectedPriceListId(e.target.value)}
+                            style={{ fontSize: '0.68rem', padding: '0.2rem 0.4rem', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', color: '#475569', fontWeight: '750' }}
+                          >
+                            <option value="">Precio Base Estándar</option>
+                            {priceLists.filter(l => l.activo).map(l => (
+                              <option key={l.id} value={l.id}>{l.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    }
+
+                    const plRules = parsePriceListRules(activePL);
+                    const minQty = plRules.cantidad_minima || 1;
+                    const isRuleActive = totalCartGarments >= minQty;
+                    const missingGarments = Math.max(0, minQty - totalCartGarments);
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', paddingTop: '0.4rem', borderTop: '1px dashed #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <Tag size={13} style={{ color: isRuleActive ? '#10b981' : '#f59e0b' }} />
+                            <span style={{ fontSize: '0.7rem', fontWeight: '850', color: '#0f172a' }}>{activePL.nombre}</span>
+                          </div>
+                          <select
+                            value={selectedPriceListId}
+                            onChange={e => setSelectedPriceListId(e.target.value)}
+                            style={{ fontSize: '0.65rem', padding: '0.15rem 0.35rem', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', color: '#475569', fontWeight: '700' }}
+                          >
+                            <option value="">Precio Base</option>
+                            {priceLists.filter(l => l.activo).map(l => (
+                              <option key={l.id} value={l.id}>{l.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Visual Rule Feedback Badge */}
+                        <div style={{
+                          padding: '0.3rem 0.55rem',
+                          borderRadius: '6px',
+                          backgroundColor: isRuleActive ? '#ecfdf5' : '#fffbeb',
+                          border: `1px solid ${isRuleActive ? '#a7f3d0' : '#fde68a'}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '0.65rem'
+                        }}>
+                          {isRuleActive ? (
+                            <span style={{ color: '#065f46', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              ✓ Regla Activa ({totalCartGarments}/{minQty} prendas): Precios Especiales aplicados
+                            </span>
+                          ) : (
+                            <span style={{ color: '#92400e', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              ⚠️ Mínimo {minQty} prendas (Llevas {totalCartGarments}, faltan {missingGarments} para el descuento)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* METODOS DE PAGO buttons segment */}
@@ -5804,21 +6830,529 @@ export default function POSPage() {
                       </button>
                     ))}
                   </div>
+
+                  {/* 📲 CUENTAS Y CÓDIGOS QR DE TRANSFERENCIA (DEBAJO DEL BOTÓN TRANSFERENCIA) */}
+                  {paymentMethod === 'Transferencia' && (
+                    <div style={{
+                      marginTop: '0.65rem',
+                      padding: '0.85rem',
+                      borderRadius: '12px',
+                      backgroundColor: '#f8fafc',
+                      border: '1.5px solid #cbd5e1',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.65rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          📲 Cuentas / Billeteras para Transferir
+                        </span>
+                        {isPOSAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => { setActiveMenuId('ajustes'); setUxTab('transfer'); }}
+                            style={{ fontSize: '0.65rem', color: customPrimary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: '800', textDecoration: 'underline' }}
+                          >
+                            ⚙️ Parametrizar
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Selector de Cuentas / Bancos */}
+                      <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', paddingBottom: '0.2rem' }} className="pos-scrollbar">
+                        {transferMethods.filter(m => m.activo !== false).map(method => {
+                          const isSel = selectedTransferMethodId === method.id;
+                          return (
+                            <button
+                              key={method.id}
+                              type="button"
+                              onClick={() => setSelectedTransferMethodId(method.id)}
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '20px',
+                                border: isSel ? `2px solid ${method.color || customPrimary}` : '1px solid #cbd5e1',
+                                backgroundColor: isSel ? (method.color || customPrimary) : 'white',
+                                color: isSel ? (['#FDDA24', '#ffffff', '#fef08a'].includes(method.color) ? '#0f172a' : 'white') : '#475569',
+                                fontSize: '0.68rem',
+                                fontWeight: '850',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                whiteSpace: 'nowrap',
+                                boxShadow: isSel ? '0 2px 6px rgba(0,0,0,0.1)' : 'none',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: method.color || '#80082E' }} />
+                              {method.banco}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Tarjeta con los datos de la cuenta activa */}
+                      {(() => {
+                        const activeMethod = transferMethods.find(m => m.id === selectedTransferMethodId) || transferMethods.find(m => m.activo !== false);
+                        if (!activeMethod) {
+                          return (
+                            <div style={{ fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center', padding: '0.5rem' }}>
+                              No hay cuentas de transferencia configuradas.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                            {/* Número de cuenta y botón copiar */}
+                            <div style={{
+                              background: 'white',
+                              borderRadius: '10px',
+                              padding: '0.65rem 0.85rem',
+                              border: '1px solid #e2e8f0',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div>
+                                <div style={{ fontSize: '0.62rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+                                  {activeMethod.banco} · {activeMethod.tipo_cuenta}
+                                </div>
+                                <div style={{ fontSize: '0.95rem', fontWeight: '950', color: '#0f172a', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                                  {activeMethod.numero_cuenta}
+                                </div>
+                                <div style={{ fontSize: '0.62rem', color: '#64748b' }}>
+                                  {activeMethod.titular} {activeMethod.identificacion ? `(${activeMethod.identificacion})` : ''}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleCopyAccount(activeMethod.numero_cuenta, activeMethod.id)}
+                                style={{
+                                  padding: '0.4rem 0.65rem',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: copiedAccount === activeMethod.id ? '#dcfce7' : '#f1f5f9',
+                                  color: copiedAccount === activeMethod.id ? '#166534' : '#334155',
+                                  fontSize: '0.68rem',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem'
+                                }}
+                              >
+                                {copiedAccount === activeMethod.id ? '✓ Copiado' : '📋 Copiar'}
+                              </button>
+                            </div>
+
+                            {/* Imagen de QR de pago debajo de la transferencia */}
+                            {activeMethod.qr_image_url ? (
+                              <div style={{
+                                background: 'white',
+                                borderRadius: '10px',
+                                padding: '0.75rem',
+                                border: '1px dashed #cbd5e1',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '0.35rem'
+                              }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>
+                                  📷 Código QR {activeMethod.banco} para Pago
+                                </div>
+                                <div 
+                                  onClick={() => setZoomQrModalUrl(activeMethod.qr_image_url || null)}
+                                  style={{
+                                    width: '135px',
+                                    height: '135px',
+                                    borderRadius: '8px',
+                                    overflow: 'hidden',
+                                    cursor: 'pointer',
+                                    border: '1px solid #e2e8f0',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                                    backgroundColor: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                  title="Haz clic para ampliar en grande"
+                                >
+                                  <img 
+                                    src={activeMethod.qr_image_url} 
+                                    alt={`QR ${activeMethod.banco}`} 
+                                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+                                  />
+                                </div>
+                                <span style={{ fontSize: '0.58rem', color: '#94a3b8' }}>🔍 Clic para ampliar en pantalla completa</span>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', padding: '0.2rem' }}>
+                                (Sin imagen QR cargada aún. Puedes subir el QR en Ajustes UX)
+                              </div>
+                            )}
+
+                            {activeMethod.instrucciones && (
+                              <div style={{ fontSize: '0.65rem', color: '#64748b', backgroundColor: '#f1f5f9', padding: '0.35rem 0.55rem', borderRadius: '6px', lineHeight: 1.3 }}>
+                                ℹ️ {activeMethod.instrucciones}
+                              </div>
+                            )}
+
+                            {/* Campo de Código de Aprobación */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <label style={{ fontSize: '0.65rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>
+                                Nro. Comprobante / Aprobación (Opcional)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Ej. #892134 Bancolombia"
+                                value={transferReferenceCode}
+                                onChange={e => setTransferReferenceCode(e.target.value)}
+                                style={{
+                                  padding: '0.45rem 0.65rem',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '0.75rem',
+                                  outline: 'none',
+                                  fontFamily: 'monospace',
+                                  backgroundColor: 'white'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* 🔀 DESGLOSE DE PAGO MIXTO (COMPACTO Y ÁGIL) */}
+                  {paymentMethod === 'Mixto' && (() => {
+                    const numCash = Number(mixedCashAmount) || 0;
+                    const numCard = Number(mixedCardAmount) || 0;
+                    const numTransfer = Number(mixedTransferAmount) || 0;
+                    const totalPaid = numCash + numCard + numTransfer;
+                    const remaining = totalCartPrice - totalPaid;
+                    const isExact = remaining === 0 && totalPaid > 0;
+                    const isUnder = remaining > 0;
+                    const isOver = remaining < 0;
+                    const excessNonCash = (numCard + numTransfer) > totalCartPrice;
+
+                    return (
+                      <div style={{
+                        marginTop: '0.45rem',
+                        padding: '0.55rem',
+                        borderRadius: '8px',
+                        backgroundColor: '#f1f5f9',
+                        border: '1.5px solid #cbd5e1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.4rem'
+                      }}>
+                        {/* Header con Acciones Rápidas */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            🔀 Desglose Mixto
+                          </span>
+                          <div style={{ display: 'flex', gap: '0.25rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const half = Math.round(totalCartPrice / 2);
+                                setMixedCashAmount(String(half));
+                                setMixedCardAmount(String(totalCartPrice - half));
+                                setMixedTransferAmount('');
+                              }}
+                              style={{
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '4px',
+                                border: '1px solid #cbd5e1',
+                                backgroundColor: 'white',
+                                fontSize: '0.6rem',
+                                fontWeight: '850',
+                                color: customPrimary,
+                                cursor: 'pointer'
+                              }}
+                              title="Dividir 50% Efectivo y 50% Tarjeta"
+                            >
+                              ⚡ 50/50
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowMixedTransfer(!showMixedTransfer)}
+                              style={{
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '4px',
+                                border: '1px solid #cbd5e1',
+                                backgroundColor: showMixedTransfer ? '#fef3c7' : 'white',
+                                fontSize: '0.6rem',
+                                fontWeight: '850',
+                                color: showMixedTransfer ? '#92400e' : '#64748b',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {showMixedTransfer ? '− Transf' : '+ Transf'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMixedCashAmount('');
+                                setMixedCardAmount('');
+                                setMixedTransferAmount('');
+                              }}
+                              style={{
+                                padding: '0.15rem 0.35rem',
+                                borderRadius: '4px',
+                                border: '1px solid #cbd5e1',
+                                backgroundColor: 'white',
+                                fontSize: '0.6rem',
+                                fontWeight: '800',
+                                color: '#94a3b8',
+                                cursor: 'pointer'
+                              }}
+                              title="Limpiar campos"
+                            >
+                              ↺
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Renglón: EFECTIVO */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          backgroundColor: 'white',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          padding: '0.25rem 0.5rem'
+                        }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#166534', minWidth: '58px' }}>
+                            💵 Efectivo
+                          </span>
+                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#94a3b8' }}>$</span>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={mixedCashAmount}
+                            onChange={e => setMixedCashAmount(e.target.value)}
+                            style={{
+                              flex: 1,
+                              border: 'none',
+                              outline: 'none',
+                              fontSize: '0.8rem',
+                              fontWeight: '900',
+                              fontFamily: 'monospace',
+                              color: '#0f172a',
+                              minWidth: '45px'
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rest = Math.max(0, totalCartPrice - numCard - numTransfer);
+                              setMixedCashAmount(String(rest));
+                            }}
+                            style={{
+                              fontSize: '0.55rem',
+                              color: '#166534',
+                              backgroundColor: '#dcfce7',
+                              border: 'none',
+                              padding: '0.18rem 0.45rem',
+                              borderRadius: '4px',
+                              fontWeight: '850',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Asignar el saldo restante a Efectivo"
+                          >
+                            Resto (${Math.max(0, totalCartPrice - numCard - numTransfer).toLocaleString('es-CO')})
+                          </button>
+                        </div>
+
+                        {/* Renglón: TARJETA */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          backgroundColor: 'white',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          padding: '0.25rem 0.5rem'
+                        }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#1e40af', minWidth: '58px' }}>
+                            💳 Tarjeta
+                          </span>
+                          <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#94a3b8' }}>$</span>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={mixedCardAmount}
+                            onChange={e => setMixedCardAmount(e.target.value)}
+                            style={{
+                              flex: 1,
+                              border: 'none',
+                              outline: 'none',
+                              fontSize: '0.8rem',
+                              fontWeight: '900',
+                              fontFamily: 'monospace',
+                              color: '#0f172a',
+                              minWidth: '45px'
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rest = Math.max(0, totalCartPrice - numCash - numTransfer);
+                              setMixedCardAmount(String(rest));
+                            }}
+                            style={{
+                              fontSize: '0.55rem',
+                              color: '#1e40af',
+                              backgroundColor: '#dbeafe',
+                              border: 'none',
+                              padding: '0.18rem 0.45rem',
+                              borderRadius: '4px',
+                              fontWeight: '850',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Asignar el saldo restante a Tarjeta"
+                          >
+                            Resto (${Math.max(0, totalCartPrice - numCash - numTransfer).toLocaleString('es-CO')})
+                          </button>
+                        </div>
+
+                        {/* Renglón: TRANSFERENCIA (OPCIONAL) */}
+                        {showMixedTransfer && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              backgroundColor: 'white',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              padding: '0.25rem 0.5rem'
+                            }}>
+                              <span style={{ fontSize: '0.65rem', fontWeight: '900', color: '#92400e', minWidth: '58px' }}>
+                                📲 Transf.
+                              </span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#94a3b8' }}>$</span>
+                              <input
+                                type="number"
+                                placeholder="0"
+                                value={mixedTransferAmount}
+                                onChange={e => setMixedTransferAmount(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  border: 'none',
+                                  outline: 'none',
+                                  fontSize: '0.8rem',
+                                  fontWeight: '900',
+                                  fontFamily: 'monospace',
+                                  color: '#0f172a',
+                                  minWidth: '45px'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const rest = Math.max(0, totalCartPrice - numCash - numCard);
+                                  setMixedTransferAmount(String(rest));
+                                }}
+                                style={{
+                                  fontSize: '0.55rem',
+                                  color: '#92400e',
+                                  backgroundColor: '#fef3c7',
+                                  border: 'none',
+                                  padding: '0.18rem 0.45rem',
+                                  borderRadius: '4px',
+                                  fontWeight: '850',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                Resto
+                              </button>
+                            </div>
+                            {numTransfer > 0 && (
+                              <div style={{ display: 'flex', gap: '0.25rem', overflowX: 'auto', paddingBottom: '0.1rem' }} className="pos-scrollbar">
+                                {transferMethods.filter(m => m.activo !== false).map(method => {
+                                  const isSel = selectedTransferMethodId === method.id;
+                                  return (
+                                    <button
+                                      key={method.id}
+                                      type="button"
+                                      onClick={() => setSelectedTransferMethodId(method.id)}
+                                      style={{
+                                        padding: '0.15rem 0.4rem',
+                                        borderRadius: '12px',
+                                        border: isSel ? `2px solid ${method.color || customPrimary}` : '1px solid #cbd5e1',
+                                        backgroundColor: isSel ? (method.color || customPrimary) : 'white',
+                                        color: isSel ? 'white' : '#475569',
+                                        fontSize: '0.58rem',
+                                        fontWeight: '850',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {method.banco}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Indicador de Estado Compacto de 1 línea */}
+                        <div style={{
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '5px',
+                          backgroundColor: excessNonCash ? '#fef2f2' : isExact ? '#f0fdf4' : isUnder ? '#fffbeb' : '#eff6ff',
+                          border: excessNonCash ? '1px solid #fca5a5' : isExact ? '1px solid #86efac' : isUnder ? '1px solid #fde68a' : '1px solid #bfdbfe',
+                          fontSize: '0.65rem',
+                          fontWeight: '850',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <span>Asignado: <strong>${totalPaid.toLocaleString('es-CO')}</strong></span>
+                          {excessNonCash ? (
+                            <span style={{ color: '#dc2626' }}>⚠️ Excede total</span>
+                          ) : isExact ? (
+                            <span style={{ color: '#16a34a' }}>✓ Cubierto exacto</span>
+                          ) : isUnder ? (
+                            <span style={{ color: '#b45309' }}>Faltan <strong>${remaining.toLocaleString('es-CO')}</strong></span>
+                          ) : isOver ? (
+                            <span style={{ color: '#1d4ed8' }}>Vueltos: <strong>${Math.abs(remaining).toLocaleString('es-CO')}</strong></span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Observaciones a la venta */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Observaciones / Notas</label>
-                  <textarea
-                    value={cartNotes}
-                    onChange={(e) => setCartNotes(e.target.value)}
-                    placeholder="Ej. Entregado sin bolsa, regalo, etc..."
-                    style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', outline: 'none', resize: 'none', minHeight: '50px', fontFamily: 'inherit' }}
-                  />
-                </div>
+                {/* Observaciones a la venta (Compacto) */}
+                <input
+                  type="text"
+                  value={cartNotes}
+                  onChange={(e) => setCartNotes(e.target.value)}
+                  placeholder="Observaciones / Notas de venta (opcional)..."
+                  style={{
+                    width: '100%',
+                    padding: '0.35rem 0.6rem',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.72rem',
+                    outline: 'none',
+                    backgroundColor: 'white'
+                  }}
+                />
 
                 {/* Subtotals & Taxes breakdown details */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.78rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.65rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.72rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.45rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Subtotal (Base Imponible)</span>
                     <span style={{ fontWeight: '750', color: '#0f172a' }}>${(totalCartPrice - ivaAmount).toLocaleString('es-CO')}</span>
@@ -5836,12 +7370,12 @@ export default function POSPage() {
                 </div>
 
                 {/* TOTAL A COBRAR output label */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop: '1px dashed #cbd5e1', paddingTop: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px dashed #cbd5e1', paddingTop: '0.5rem' }}>
                   
                   {/* Destacado Renglón Total a Cobrar */}
                   <div style={{ 
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                    padding: customTotalPadding, borderRadius: '14px', 
+                    padding: customTotalPadding, borderRadius: '10px', 
                     background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
                     border: '1px solid #dbeafe', boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
                     transition: 'all 0.2s ease'
@@ -5858,19 +7392,19 @@ export default function POSPage() {
                     disabled={(!currentSession && isOnline) || cart.length === 0}
                     style={{
                       width: '100%',
-                      padding: '0.95rem 1.5rem',
+                      padding: '0.8rem 1.25rem',
                       background: `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
                       color: customButtonText,
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '0.92rem',
+                      borderRadius: '10px',
+                      fontSize: '0.88rem',
                       fontWeight: '900',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.5rem',
-                      boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
+                      boxShadow: '0 4px 15px rgba(0,0,0,0.12)',
                       opacity: cart.length === 0 ? 0.6 : 1,
                       transition: 'transform 0.2s, box-shadow 0.2s'
                     }}
@@ -6612,6 +8146,261 @@ export default function POSPage() {
             >
               Cerrar Bandeja
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔍 MODAL DE ZOOM / AMPLIACIÓN DE CÓDIGO QR */}
+      {zoomQrModalUrl && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1300, backdropFilter: 'blur(5px)' }} onClick={() => setZoomQrModalUrl(null)}>
+          <div style={{
+            width: '90%',
+            maxWidth: '380px',
+            backgroundColor: 'white',
+            borderRadius: '24px',
+            padding: '2rem',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '1rem',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+            position: 'relative'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.4rem' }}>📱</span>
+                <span style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a' }}>Escanear Código QR</span>
+              </div>
+              <button onClick={() => setZoomQrModalUrl(null)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+
+            <div style={{ width: '260px', height: '260px', borderRadius: '16px', overflow: 'hidden', border: '2px solid #e2e8f0', padding: '0.5rem', backgroundColor: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}>
+              <img src={zoomQrModalUrl} alt="QR Zoom" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            </div>
+
+            <p style={{ fontSize: '0.78rem', color: '#64748b', textAlign: 'center', margin: 0, lineHeight: 1.4 }}>
+              Abre la cámara o app bancaria en tu teléfono móvil y apunta al código QR para transferir.
+            </p>
+
+            <button
+              onClick={() => setZoomQrModalUrl(null)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                backgroundColor: customPrimary,
+                color: 'white',
+                border: 'none',
+                borderRadius: '10px',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer'
+              }}
+            >
+              Listo / Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 📊 MODAL DE HISTORIAL Y TRANSACCIONES DEL TURNO ACTIVO */}
+      {showSessionTransactionsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, backdropFilter: 'blur(4px)' }}>
+          <div style={{
+            width: '92%',
+            maxWidth: '850px',
+            backgroundColor: 'white',
+            borderRadius: '20px',
+            padding: '1.75rem',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.25rem',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.2)'
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.85rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.4rem' }}>📊</span>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '900', color: '#0f172a' }}>
+                    Resumen y Transacciones del Turno Activo
+                  </h3>
+                  <span style={{ padding: '0.2rem 0.6rem', borderRadius: '20px', backgroundColor: '#dcfce7', color: '#166534', fontSize: '0.68rem', fontWeight: '900' }}>
+                    🟢 EN CURSO
+                  </span>
+                </div>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                  Caja: <strong>{selectedRegister?.codigo_caja || 'Caja Principal'}</strong> · Cajero: <strong>{currentSession?.usuario_apertura || 'Cajero'}</strong> · Apertura: <strong>{currentSession ? new Date(currentSession.fecha_apertura).toLocaleString('es-CO') : '—'}</strong>
+                </p>
+              </div>
+              <button onClick={() => setShowSessionTransactionsModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={22} /></button>
+            </div>
+
+            {/* KPI Cards Grid */}
+            {(() => {
+              const cashSales = sessionSalesDetails.reduce((sum, s) => {
+                const pays = s.pos_payments?.filter((pay: any) => pay.metodo_pago === 'Efectivo') || [];
+                return sum + pays.reduce((acc: number, p: any) => acc + Number(p.monto || 0), 0);
+              }, 0);
+              const cardSales = sessionSalesDetails.reduce((sum, s) => {
+                const pays = s.pos_payments?.filter((pay: any) => pay.metodo_pago === 'Tarjeta' || pay.metodo_pago === 'Datafono') || [];
+                return sum + pays.reduce((acc: number, p: any) => acc + Number(p.monto || 0), 0);
+              }, 0);
+              const transferSales = sessionSalesDetails.reduce((sum, s) => {
+                const pays = s.pos_payments?.filter((pay: any) => pay.metodo_pago?.toLowerCase().includes('transferencia')) || [];
+                return sum + pays.reduce((acc: number, p: any) => acc + Number(p.monto || 0), 0);
+              }, 0);
+              const mixedCount = sessionSalesDetails.filter((s: any) => (s.pos_payments && s.pos_payments.length > 1) || s.observaciones?.includes('Pago Mixto')).length;
+              const totalVendido = sessionSalesDetails.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
+              const totalCajaEfectivo = Number(currentSession?.monto_apertura || 0) + cashSales;
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.65rem' }}>
+                  <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Base Apertura</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '950', color: '#0f172a', fontFamily: 'monospace', marginTop: '0.2rem' }}>
+                      ${Number(currentSession?.monto_apertura || 0).toLocaleString('es-CO')}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ecfdf5', padding: '0.75rem', borderRadius: '10px', border: '1px solid #a7f3d0' }}>
+                    <div style={{ fontSize: '0.6rem', color: '#047857', fontWeight: '800', textTransform: 'uppercase' }}>Total Facturado</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '950', color: '#065f46', fontFamily: 'monospace', marginTop: '0.2rem' }}>
+                      ${totalVendido.toLocaleString('es-CO')}
+                    </div>
+                    <div style={{ fontSize: '0.58rem', color: '#059669', marginTop: '0.1rem' }}>{sessionSalesDetails.length} transacciones {mixedCount > 0 ? `(${mixedCount} mixtas)` : ''}</div>
+                  </div>
+
+                  <div style={{ background: '#eff6ff', padding: '0.75rem', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: '0.6rem', color: '#1d4ed8', fontWeight: '800', textTransform: 'uppercase' }}>Efectivo en Caja</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '950', color: '#1e40af', fontFamily: 'monospace', marginTop: '0.2rem' }}>
+                      ${totalCajaEfectivo.toLocaleString('es-CO')}
+                    </div>
+                    <div style={{ fontSize: '0.58rem', color: '#3b82f6', marginTop: '0.1rem' }}>Ventas: ${cashSales.toLocaleString('es-CO')}</div>
+                  </div>
+
+                  <div style={{ background: '#fef3c7', padding: '0.75rem', borderRadius: '10px', border: '1px solid #fde68a' }}>
+                    <div style={{ fontSize: '0.6rem', color: '#b45309', fontWeight: '800', textTransform: 'uppercase' }}>Transferencias</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '950', color: '#92400e', fontFamily: 'monospace', marginTop: '0.2rem' }}>
+                      ${transferSales.toLocaleString('es-CO')}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#f5f3ff', padding: '0.75rem', borderRadius: '10px', border: '1px solid #ddd6fe' }}>
+                    <div style={{ fontSize: '0.6rem', color: '#6d28d9', fontWeight: '800', textTransform: 'uppercase' }}>Tarjetas</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '950', color: '#5b21b6', fontFamily: 'monospace', marginTop: '0.2rem' }}>
+                      ${cardSales.toLocaleString('es-CO')}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Transactions Table */}
+            <div style={{ flex: 1, overflowY: 'auto', maxHeight: '380px', border: '1px solid #e2e8f0', borderRadius: '12px' }} className="pos-scrollbar">
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 5 }}>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900' }}># Ticket</th>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900' }}>Hora</th>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900' }}>Cliente</th>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900' }}>Método de Pago</th>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900' }}>Detalle / Ref</th>
+                    <th style={{ padding: '0.65rem 0.85rem', color: '#475569', fontWeight: '900', textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessionSalesDetails.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
+                        No se han registrado ventas aún en este turno de caja.
+                      </td>
+                    </tr>
+                  ) : (
+                    sessionSalesDetails.map((sale, idx) => {
+                      const isMixed = (sale.pos_payments && sale.pos_payments.length > 1) || sale.observaciones?.includes('Pago Mixto');
+                      const pay = sale.pos_payments?.[0];
+                      const payMethod = isMixed ? 'Mixto' : (pay?.metodo_pago || 'Efectivo');
+                      const isTransfer = payMethod.toLowerCase().includes('transferencia');
+                      const isCard = payMethod.toLowerCase().includes('tarjeta');
+
+                      return (
+                        <tr key={sale.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: '900', color: '#0f172a', fontFamily: 'monospace' }}>
+                            #{(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(sale.consecutive).padStart(4, '0')}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', color: '#64748b' }}>
+                            {new Date(sale.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <span style={{ fontWeight: '800', color: '#1e293b', display: 'block' }}>{sale.client_name || 'Cliente General'}</span>
+                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{sale.client_document}</span>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem' }}>
+                            <span style={{
+                              padding: '0.2rem 0.5rem',
+                              borderRadius: '4px',
+                              fontSize: '0.65rem',
+                              fontWeight: '900',
+                              backgroundColor: isMixed ? '#f3e8ff' : isTransfer ? '#fef3c7' : isCard ? '#eff6ff' : '#ecfdf5',
+                              color: isMixed ? '#7e22ce' : isTransfer ? '#92400e' : isCard ? '#1e40af' : '#065f46'
+                            }}>
+                              {isMixed ? '🔀 Mixto' : payMethod}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', fontSize: '0.7rem', color: '#64748b', maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={sale.observaciones || ''}>
+                            {sale.observaciones || (sale.pos_payments && sale.pos_payments.length > 1 ? sale.pos_payments.map((p: any) => `${p.metodo_pago}: $${Number(p.monto).toLocaleString('es-CO')}`).join(' + ') : `${sale.items?.length || 1} prenda(s)`)}
+                          </td>
+                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: '950', color: '#0f172a', fontFamily: 'monospace' }}>
+                            ${Number(sale.total || 0).toLocaleString('es-CO')}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSessionSalesDetails(currentSession.id);
+                  alert('✓ Transacciones sincronizadas con el servidor.');
+                }}
+                style={{
+                  padding: '0.6rem 1rem',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#f8fafc',
+                  color: '#475569',
+                  fontSize: '0.75rem',
+                  fontWeight: '800',
+                  cursor: 'pointer'
+                }}
+              >
+                🔄 Actualizar Datos
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowSessionTransactionsModal(false)}
+                style={{
+                  padding: '0.6rem 1.5rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: customPrimary,
+                  color: 'white',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
+                  cursor: 'pointer'
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

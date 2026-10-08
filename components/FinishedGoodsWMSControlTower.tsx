@@ -366,6 +366,10 @@ export default function FinishedGoodsWMSControlTower() {
       if (selectedWarehouseFilter && selectedWarehouseFilter !== 'all') {
         const selectedWhObj = warehouses.find(w => w.id === selectedWarehouseFilter);
         if (selectedWhObj && !isSameWarehouse(item, selectedWhObj)) return false;
+      } else {
+        // Por defecto en vista general de existencias se excluye bodega tránsito
+        const whName = (item.warehouses?.nombre_bodega || '').toLowerCase();
+        if (whName.includes('transito') || whName.includes('confeccion')) return false;
       }
       // Filtro Categoría
       if (selectedCategoryFilter !== 'all') {

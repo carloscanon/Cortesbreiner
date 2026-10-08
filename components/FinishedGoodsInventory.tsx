@@ -985,20 +985,71 @@ export default function FinishedGoodsInventory() {
       // 1. Consultar existencias de stock de la bodega seleccionada
       const whStock = stock.filter(s => isSameWarehouse(s, targetWh));
 
-      // 2. Consultar prendas individuales con stickers/código de barras asignadas a esta bodega (paginado sin límite de 1000 hasta 100,000+)
-      const individualGarments = await fetchAllPages(
+      // 2. Consultar prendas individuales con stickers/código de barras asociadas a esta bodega o por referencias de stock
+      let individualGarments = await fetchAllPages(
         supabase
           .from('individual_garments')
           .select('*')
           .eq('warehouse_id', selectedExportWarehouseId)
-          .neq('status', 'vendido'),
+          .neq('status', 'vendido')
+          .neq('status', 'en_transito'),
         100000
       );
 
+      // Si por alguna razón individual_garments conserva las prendas con warehouse_id nulo/diferente, traer por las referencias activas de stock
+      if (!individualGarments || individualGarments.length === 0) {
+        const refNames = Array.from(new Set(whStock.map(s => s.products?.codigo_referencia || s.products?.nombre_producto).filter(Boolean)));
+        if (refNames.length > 0) {
+          const { data: fallbackGarms } = await supabase
+            .from('individual_garments')
+            .select('*')
+            .in('reference_name', refNames)
+            .neq('status', 'vendido')
+            .neq('status', 'en_transito')
+            .limit(10000);
+          individualGarments = fallbackGarms || [];
+        }
+      }
+
+      // Map origin source for each stock item by querying recent Kardex movements for this warehouse
+      const { data: whKardex } = await supabase
+        .from('finished_goods_kardex')
+        .select('product_id, size_id, color_id, tipo_movimiento, documento_origen, observaciones')
+        .or(`warehouse_dest_id.eq.${selectedExportWarehouseId},warehouse_orig_id.eq.${selectedExportWarehouseId}`)
+        .order('created_at', { ascending: false });
+
+      // Create lookup map for stock origin
+      const originSourceMap: Record<string, string> = {};
+      (whKardex || []).forEach((k: any) => {
+        const key = `${k.product_id}_${k.color_id || 'null'}_${k.size_id}`;
+        if (!originSourceMap[key]) {
+          const movLower = (k.tipo_movimiento || '').toLowerCase();
+          const docLower = (k.documento_origen || '').toLowerCase();
+          const obsLower = (k.observaciones || '').toLowerCase();
+
+          if (movLower.includes('traslado') || movLower.includes('transferencia') || docLower.includes('transferencia') || docLower.includes('tr-')) {
+            originSourceMap[key] = 'Traslado Inter-Bodega';
+          } else if (movLower.includes('calidad') || docLower.includes('inspección') || docLower.includes('calidad') || obsLower.includes('calidad')) {
+            originSourceMap[key] = 'Ingreso de Calidad';
+          } else if (movLower.includes('inicial') || movLower.includes('histórico') || docLower.includes('históric') || docLower.includes('asistente') || obsLower.includes('historico') || obsLower.includes('etiqueta')) {
+            originSourceMap[key] = 'Carga Histórica / Lote Inicial';
+          } else if (movLower.includes('ajuste')) {
+            originSourceMap[key] = 'Ajuste Manual de Inventario';
+          } else {
+            originSourceMap[key] = k.tipo_movimiento || 'Ingreso Regular';
+          }
+        }
+      });
+
+      // Create lookup maps for fast and flexible matching of individual garments
+      const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const usedGarmentIds = new Set<string>();
+
       const BOM = '\uFEFF';
       const headers = [
-        'ID Prenda / Sticker',
-        'Código de Barras',
+        'ID Prenda / Serial',
+        'barcode',
+        'etiqueta',
         'Bodega',
         'Código Referencia',
         'Nombre Producto',
@@ -1007,54 +1058,76 @@ export default function FinishedGoodsInventory() {
         'Talla',
         'Cantidad Disponible',
         'Estado Prenda',
+        'Origen / Canal de Ingreso',
         'Fecha Registro'
       ];
 
       const rows: string[] = [];
 
-      // Mapear prendas individuales si existen
       if (individualGarments && individualGarments.length > 0) {
+        // Mapear exactamente 1 fila por cada prenda física real registrada en la bodega
         individualGarments.forEach((g: any) => {
-          const prod = products.find(p => p.id === g.product_id || p.codigo_referencia === g.reference_name);
-          const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
-          const refCode = g.reference_name || prod?.codigo_referencia || 'SIN-REF';
-          const prodName = prod?.nombre_producto || refCode;
+          const gRefNorm = norm(g.reference_name);
+          const matchedProd = products.find((p: any) => {
+            const pCode = norm(p.codigo_referencia);
+            const pName = norm(p.nombre_producto);
+            return (pCode && (gRefNorm === pCode || gRefNorm.includes(pCode))) ||
+                   (pName && (gRefNorm === pName || gRefNorm.includes(pName) || pName.includes(gRefNorm)));
+          });
+
+          const refCode = matchedProd?.codigo_referencia || g.reference_name || 'SIN-REF';
+          const prodName = matchedProd?.nombre_producto || g.reference_name || 'Prenda';
+          const catName = matchedProd?.categories?.categoria || matchedProd?.categoria || 'General';
+          const colorDisplay = g.color_name || '—';
+          const sizeDisplay = g.size_code || 'ST';
+          const statusVal = g.status || 'Aprobada';
+          const canalIngreso = g.historical_doc || (g.is_historical ? 'Carga Histórica / Lote Inicial' : 'Ingreso Regular / Calidad');
+          const fechaReg = g.created_at ? new Date(g.created_at).toLocaleString('es-CO') : '';
 
           rows.push([
-            g.id || '',
-            g.barcode || '',
+            g.id,
+            g.barcode,
+            g.barcode,
             whName,
             refCode,
             prodName,
             catName,
-            g.color_name || '—',
-            g.size_code || 'ST',
-            1, // Prenda individual = 1 Ud
-            g.status || 'Disponible',
-            g.created_at ? new Date(g.created_at).toLocaleString('es-CO') : ''
+            colorDisplay,
+            sizeDisplay,
+            1, // Cada fila representa exactamente 1 unidad física
+            statusVal,
+            canalIngreso,
+            fechaReg
           ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
         });
       } else {
-        // Fallback: Mapear desde stock consolidado por SKU de esa bodega
+        // Fallback para bodegas sin registro 1-a-1 en individual_garments: expandir existencias de finished_goods_stock
         whStock.forEach((st: any) => {
           const prod = st.products;
-          const refCode = prod?.codigo_referencia || 'SIN-REF';
-          const prodName = prod?.nombre_producto || refCode;
+          const refCode = prod?.codigo_referencia || '';
+          const prodName = prod?.nombre_producto || refCode || 'Producto';
           const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+          const key = `${st.product_id}_${st.color_id || 'null'}_${st.size_id}`;
+          const canalIngreso = originSourceMap[key] || 'Ingreso Regular / Calidad';
+          const totalQty = Math.max(0, Number(st.cantidad_disponible || 0));
 
-          rows.push([
-            `SKU-${st.id?.slice(0, 8)}`,
-            refCode,
-            whName,
-            refCode,
-            prodName,
-            catName,
-            st.colors?.nombre_color || '—',
-            st.sizes?.codigo_talla || 'ST',
-            st.cantidad_disponible || 0,
-            'Consolidado',
-            st.created_at ? new Date(st.created_at).toLocaleString('es-CO') : ''
-          ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
+          for (let i = 0; i < totalQty; i++) {
+            rows.push([
+              st.id,
+              refCode || '',
+              '',
+              whName,
+              refCode,
+              prodName,
+              catName,
+              st.colors?.nombre_color || '—',
+              st.sizes?.codigo_talla || 'ST',
+              1,
+              'Disponible en Stock',
+              canalIngreso,
+              st.created_at ? new Date(st.created_at).toLocaleString('es-CO') : ''
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
+          }
         });
       }
 
@@ -1326,6 +1399,41 @@ export default function FinishedGoodsInventory() {
     printWindow.document.close();
   };
 
+  // Conteo Sincrónico Físico por Bodega en Tiempo Real (Actualización cada minuto)
+  const [physicalCounts, setPhysicalCounts] = useState<Record<string, number>>({});
+  const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
+  const [isSyncingPhysical, setIsSyncingPhysical] = useState<boolean>(false);
+
+  const fetchPhysicalWarehouseCounts = async (whList?: any[]) => {
+    setIsSyncingPhysical(true);
+    try {
+      const list = (whList && whList.length > 0) ? whList : warehouses;
+      if (!list || list.length === 0) return;
+
+      const countsMap: Record<string, number> = {};
+      await Promise.all(
+        list.map(async (w: any) => {
+          const { count, error } = await supabase
+            .from('individual_garments')
+            .select('id', { count: 'exact', head: true })
+            .eq('warehouse_id', w.id)
+            .neq('status', 'vendido')
+            .neq('status', 'en_transito');
+
+          if (!error && typeof count === 'number') {
+            countsMap[w.id] = count;
+          }
+        })
+      );
+      setPhysicalCounts(countsMap);
+      setLastSyncTime(new Date());
+    } catch (err) {
+      console.error('Error fetching physical counts:', err);
+    } finally {
+      setIsSyncingPhysical(false);
+    }
+  };
+
   useEffect(() => {
     supabase.from('company_params').select('*').eq('name', 'print_sticker_config').maybeSingle().then(({ data }) => {
       if (data && data.value) {
@@ -1335,13 +1443,28 @@ export default function FinishedGoodsInventory() {
         } catch (e) {}
       }
     });
-    fetchMasters().then(() => {
+    fetchMasters().then((masters) => {
       fetchStock();
       fetchKardex();
       fetchTransfers();
       fetchHistoricalBatches();
+      if (masters?.warehouses) {
+        fetchPhysicalWarehouseCounts(masters.warehouses);
+      }
     });
   }, []);
+
+  // Sincronización automática de inventario físico y stock cada 1 minuto (60.000 ms)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchStock();
+      fetchKardex();
+      fetchTransfers();
+      fetchPhysicalWarehouseCounts();
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, [warehouses]);
 
   useEffect(() => {
     if (activeTab === 'historical_inventory') {
@@ -1440,6 +1563,11 @@ export default function FinishedGoodsInventory() {
         `)
         .order('created_at', { ascending: false });
 
+      if (item.warehouse_id) {
+        query = query.eq('warehouse_id', item.warehouse_id);
+      }
+      query = query.neq('status', 'vendido').neq('status', 'en_transito');
+
       if (refName) {
         query = query.ilike('reference_name', `%${refName.replace(/\s*\[.*?\]/g, '').trim()}%`);
       }
@@ -1503,6 +1631,7 @@ export default function FinishedGoodsInventory() {
       setFabrics(fab || []);
       setCategories(cat || []);
       setStores(st || []);
+      return { products: p, colors: c, sizes: s, warehouses: w, locations: loc, fabrics: fab, categories: cat, stores: st };
     } catch (err) {
       console.error('Error fetching masters:', err);
     } finally {
@@ -1730,16 +1859,84 @@ export default function FinishedGoodsInventory() {
     }
   };
 
-  // Quick stats
-  const totalGarments = stock.reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0);
-  const totalReserved = stock.reduce((sum, item) => sum + (item.cantidad_reservada || 0), 0);
-  const totalValue = stock.reduce((sum, item) => {
-    const price = item.products?.precio || 0;
-    return sum + (item.cantidad_disponible * price);
-  }, 0);
+  // Quick stats - Conteo sincrónico físico por bodega (excluyendo tránsito/confección)
+  const availableStockList = useMemo(() => {
+    return stock.filter(item => {
+      const whName = (item.warehouses?.nombre_bodega || item.nombre_bodega || '').toLowerCase();
+      return !whName.includes('transito') && !whName.includes('confeccion');
+    });
+  }, [stock]);
+
+  // Total de prendas físicas disponibles sincrónico
+  const totalGarments = useMemo(() => {
+    let sum = 0;
+    const activeWhs = warehouses.filter(w => {
+      const wName = (w.nombre_bodega || '').toLowerCase();
+      return !wName.includes('transito') && !wName.includes('confeccion');
+    });
+
+    activeWhs.forEach(w => {
+      if (physicalCounts[w.id] !== undefined && physicalCounts[w.id] > 0) {
+        sum += physicalCounts[w.id];
+      } else {
+        const whStock = stock.filter(s => isSameWarehouse(s, w));
+        sum += whStock.reduce((acc, s) => acc + (s.cantidad_disponible || 0), 0);
+      }
+    });
+
+    return sum > 0 ? sum : availableStockList.reduce((acc, item) => acc + (item.cantidad_disponible || 0), 0);
+  }, [warehouses, physicalCounts, stock, availableStockList]);
+
+  // Total de prendas en tránsito (Bodega Tránsito + Traslados inter-bodega)
+  const transitTotal = useMemo(() => {
+    let sum = 0;
+    const transitWhs = warehouses.filter(w => {
+      const wName = (w.nombre_bodega || '').toLowerCase();
+      return wName.includes('transito') || wName.includes('confeccion');
+    });
+
+    transitWhs.forEach(w => {
+      if (physicalCounts[w.id] !== undefined && physicalCounts[w.id] > 0) {
+        sum += physicalCounts[w.id];
+      } else {
+        const whStock = stock.filter(s => isSameWarehouse(s, w));
+        sum += whStock.reduce((acc, s) => acc + (s.cantidad_disponible || 0), 0);
+      }
+    });
+
+    const pendingTxQty = transfers
+      .filter(t => t.estado === 'Pendiente' || t.estado === 'EN_TRANSITO')
+      .reduce((sum, t) => sum + (t.finished_goods_transfer_items || []).reduce((s: number, i: any) => s + Number(i.cantidad || 0), 0), 0);
+
+    return sum > 0 ? sum : pendingTxQty;
+  }, [warehouses, physicalCounts, stock, transfers]);
+
+  const totalReserved = availableStockList.reduce((sum, item) => sum + (item.cantidad_reservada || 0), 0);
+
+  const totalValue = useMemo(() => {
+    let sum = 0;
+    const activeWhs = warehouses.filter(w => {
+      const wName = (w.nombre_bodega || '').toLowerCase();
+      return !wName.includes('transito') && !wName.includes('confeccion');
+    });
+
+    activeWhs.forEach(w => {
+      const whStock = stock.filter(s => isSameWarehouse(s, w));
+      const hasPhysical = physicalCounts[w.id] !== undefined && physicalCounts[w.id] > 0;
+      const whQty = hasPhysical ? physicalCounts[w.id] : whStock.reduce((acc, s) => acc + (s.cantidad_disponible || 0), 0);
+      const avgPrice = whStock.length > 0 
+        ? (whStock.reduce((acc, s) => acc + (s.products?.precio || 0), 0) / whStock.length)
+        : 50000;
+      
+      const whVal = whStock.reduce((acc, s) => acc + ((s.cantidad_disponible || 0) * (s.products?.precio || 0)), 0);
+      sum += (whVal > 0 && Math.abs(whStock.reduce((acc, s) => acc + (s.cantidad_disponible || 0), 0) - whQty) < 50) ? whVal : (whQty * avgPrice);
+    });
+
+    return sum > 0 ? sum : availableStockList.reduce((acc, item) => acc + ((item.cantidad_disponible || 0) * (item.products?.precio || 0)), 0);
+  }, [warehouses, physicalCounts, stock, availableStockList]);
   
-  const activeRefsCount = new Set(stock.map(item => item.product_id)).size;
-  const criticalItems = stock.filter(item => item.cantidad_disponible <= (item.stock_minimo || 0) && item.stock_minimo > 0);
+  const activeRefsCount = new Set(availableStockList.map(item => item.product_id)).size;
+  const criticalItems = availableStockList.filter(item => item.cantidad_disponible <= (item.stock_minimo || 0) && item.stock_minimo > 0);
   
   const todayStart = new Date();
   todayStart.setHours(0,0,0,0);
@@ -1995,42 +2192,81 @@ export default function FinishedGoodsInventory() {
           }
         }
 
-        // Deduct from origin
+        const targetProductId = finalProductId || item.product_id || products[0]?.id || '';
+        const targetColorId = finalColorId;
+        const targetSizeId = finalSizeId || item.size_id || sizes[0]?.id || '';
+
+        // Deduct from origin stock (finished_goods_stock)
         let origQuery = supabase
           .from('finished_goods_stock')
           .select('*')
           .eq('warehouse_id', transferForm.warehouse_orig_id)
-          .eq('product_id', item.product_id)
-          .eq('size_id', item.size_id)
-          .is('location_id', null);
+          .eq('product_id', targetProductId);
 
-        if (item.color_id) {
-          origQuery = origQuery.eq('color_id', item.color_id);
-        } else {
-          origQuery = origQuery.is('color_id', null);
+        if (targetSizeId) {
+          origQuery = origQuery.eq('size_id', targetSizeId);
         }
 
-        const { data: origStock } = await origQuery.limit(1);
+        if (targetColorId) {
+          origQuery = origQuery.eq('color_id', targetColorId);
+        }
+
+        let { data: origStock } = await origQuery.limit(1);
+
+        if (!origStock || origStock.length === 0) {
+          const { data: fallbackStock } = await supabase
+            .from('finished_goods_stock')
+            .select('*')
+            .eq('warehouse_id', transferForm.warehouse_orig_id)
+            .eq('product_id', targetProductId)
+            .limit(1);
+          origStock = fallbackStock;
+        }
 
         const currentOrigQty = origStock?.[0] ? Number(origStock[0].cantidad_disponible) : 0;
         if (origStock?.[0]) {
-          await supabase
+          const newQty = Math.max(0, currentOrigQty - Number(item.cantidad));
+          const { error: updErr } = await supabase
             .from('finished_goods_stock')
-            .update({ cantidad_disponible: Math.max(0, currentOrigQty - Number(item.cantidad)) })
+            .update({ cantidad_disponible: newQty })
             .eq('id', origStock[0].id);
+          if (updErr) throw new Error('Error al actualizar existencias de origen: ' + updErr.message);
         }
 
-        // If specific individual barcode stickers were scanned, set status as en_transito during transit
+        // Also update individual garments status to en_transito if barcodes scanned OR matched by reference/warehouse
         if (item.barcodes && item.barcodes.length > 0) {
           await supabase
             .from('individual_garments')
             .update({ status: 'en_transito' })
             .in('barcode', item.barcodes);
+        } else {
+          // If no specific barcodes scanned, update N garments of THIS product/reference from origin warehouse to en_transito
+          const targetRefName = products.find(p => p.id === targetProductId)?.codigo_referencia;
+          
+          let garmsQuery = supabase
+            .from('individual_garments')
+            .select('id')
+            .eq('warehouse_id', transferForm.warehouse_orig_id)
+            .neq('status', 'vendido')
+            .neq('status', 'en_transito');
+
+          if (targetProductId) {
+            garmsQuery = garmsQuery.or(`product_id.eq.${targetProductId}${targetRefName ? `,reference_name.ilike.%${targetRefName}%` : ''}`);
+          }
+
+          const { data: garmsToTransit } = await garmsQuery.limit(Number(item.cantidad));
+
+          if (garmsToTransit && garmsToTransit.length > 0) {
+            await supabase
+              .from('individual_garments')
+              .update({ status: 'en_transito' })
+              .in('id', garmsToTransit.map(g => g.id));
+          }
         }
 
         // Kardex Orig (Salida en Tránsito)
         await supabase.from('finished_goods_kardex').insert({
-          product_id: item.product_id,
+          product_id: targetProductId,
           color_id: item.color_id || null,
           size_id: item.size_id,
           tipo_movimiento: 'Transferencia (Salida)',
@@ -2050,7 +2286,7 @@ export default function FinishedGoodsInventory() {
       await fetchStock();
       await fetchKardex();
       await fetchTransfers();
-      alert('✓ Solicitud de transferencia enviada. Queda en estado Pendiente hasta que la tienda destino la Acepte.');
+      alert('✓ Solicitud de transferencia enviada. Las prendas salieron de la bodega origen y quedaron en Tránsito.');
     } catch (err: any) {
       alert('Error en transferencia: ' + err.message);
     } finally {
@@ -2073,37 +2309,44 @@ export default function FinishedGoodsInventory() {
           .from('finished_goods_stock')
           .select('*')
           .eq('warehouse_id', tx.warehouse_dest_id)
-          .eq('product_id', item.product_id)
-          .eq('size_id', item.size_id)
-          .is('location_id', null);
+          .eq('product_id', item.product_id);
 
-        if (item.color_id) {
-          destQuery = destQuery.eq('color_id', item.color_id);
-        } else {
-          destQuery = destQuery.is('color_id', null);
+        if (item.size_id) destQuery = destQuery.eq('size_id', item.size_id);
+        if (item.color_id) destQuery = destQuery.eq('color_id', item.color_id);
+
+        let { data: destStock } = await destQuery.limit(1);
+
+        if (!destStock || destStock.length === 0) {
+          const { data: fallbackDest } = await supabase
+            .from('finished_goods_stock')
+            .select('*')
+            .eq('warehouse_id', tx.warehouse_dest_id)
+            .eq('product_id', item.product_id)
+            .limit(1);
+          destStock = fallbackDest;
         }
 
-        const { data: destStock } = await destQuery.limit(1);
-
-        const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible) : 0;
+        const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible || 0) : 0;
         if (destStock?.[0]) {
-          await supabase
+          const { error: destUpdErr } = await supabase
             .from('finished_goods_stock')
             .update({ cantidad_disponible: currentDestQty + Number(item.cantidad) })
             .eq('id', destStock[0].id);
+          if (destUpdErr) throw new Error('Error al ingresar existencias en destino: ' + destUpdErr.message);
         } else {
-          await supabase
+          const { error: destInsErr } = await supabase
             .from('finished_goods_stock')
             .insert({
               warehouse_id: tx.warehouse_dest_id,
               product_id: item.product_id,
               color_id: item.color_id || null,
-              size_id: item.size_id,
+              size_id: item.size_id || sizes[0]?.id || '',
               cantidad_disponible: Number(item.cantidad)
             });
+          if (destInsErr) throw new Error('Error al crear registro de existencias en destino: ' + destInsErr.message);
         }
 
-        // When transfer is confirmed and accepted, update individual garment barcodes to destination warehouse
+        // When transfer is confirmed and accepted, update individual garment barcodes and status to destination warehouse
         if (item.barcodes && item.barcodes.length > 0) {
           await supabase
             .from('individual_garments')
@@ -2112,13 +2355,46 @@ export default function FinishedGoodsInventory() {
               status: 'Aprobada'
             })
             .in('barcode', item.barcodes);
+        } else {
+          // If no specific barcodes, reassign N garments in transit of THIS product to destination warehouse
+          const targetRefName = products.find(p => p.id === item.product_id)?.codigo_referencia;
+
+          let transitQuery = supabase
+            .from('individual_garments')
+            .select('id')
+            .eq('status', 'en_transito');
+
+          if (item.product_id) {
+            transitQuery = transitQuery.or(`product_id.eq.${item.product_id}${targetRefName ? `,reference_name.ilike.%${targetRefName}%` : ''}`);
+          }
+
+          let { data: garmsInTransit } = await transitQuery.limit(Number(item.cantidad));
+
+          if (!garmsInTransit || garmsInTransit.length === 0) {
+            const { data: anyTransit } = await supabase
+              .from('individual_garments')
+              .select('id')
+              .eq('status', 'en_transito')
+              .limit(Number(item.cantidad));
+            garmsInTransit = anyTransit;
+          }
+
+          if (garmsInTransit && garmsInTransit.length > 0) {
+            await supabase
+              .from('individual_garments')
+              .update({
+                warehouse_id: tx.warehouse_dest_id,
+                status: 'Aprobada'
+              })
+              .in('id', garmsInTransit.map(g => g.id));
+          }
         }
 
         // Check if there is a store linked to this destination warehouse, and sync it to the POS store_inventory
         const { data: linkedStores } = await supabase
           .from('stores')
           .select('id')
-          .eq('bodega_asociada_id', tx.warehouse_dest_id);
+          .or(`bodega_asociada_id.eq.${tx.warehouse_dest_id},id.eq.${tx.warehouse_dest_id}`);
 
         if (linkedStores && linkedStores.length > 0) {
           for (const store of linkedStores) {
@@ -2135,7 +2411,17 @@ export default function FinishedGoodsInventory() {
               storeQuery = storeQuery.is('color_id', null);
             }
 
-            const { data: storeStock } = await storeQuery.limit(1);
+            let { data: storeStock } = await storeQuery.limit(1);
+
+            if (!storeStock || storeStock.length === 0) {
+              const { data: fallbackStore } = await supabase
+                .from('store_inventory')
+                .select('*')
+                .eq('store_id', store.id)
+                .eq('product_id', item.product_id)
+                .limit(1);
+              storeStock = fallbackStore;
+            }
 
             const currentStoreQty = storeStock?.[0] ? Number(storeStock[0].cantidad_disponible) : 0;
             if (storeStock?.[0]) {
@@ -2434,6 +2720,32 @@ export default function FinishedGoodsInventory() {
         </div>
         
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Botón de Actualización Global */}
+          <button
+            className="btn"
+            onClick={async () => {
+              await fetchMasters();
+              await fetchStock();
+              await fetchKardex();
+              await fetchTransfers();
+              await fetchPhysicalWarehouseCounts();
+              await fetchHistoricalBatches();
+            }}
+            disabled={isSyncingPhysical}
+            style={{
+              border: '1.5px solid #2563eb',
+              backgroundColor: '#eff6ff',
+              color: '#1d4ed8',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: isSyncingPhysical ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <RefreshCw size={16} className={isSyncingPhysical ? "animate-spin" : ""} />
+            {isSyncingPhysical ? 'Actualizando...' : '🔄 Actualizar Inventario'}
+          </button>
           {/* Botón de Reversión exclusivo para SuperAdmin o usuarios habilitados */}
           <button
             className="btn"
@@ -2619,8 +2931,9 @@ export default function FinishedGoodsInventory() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
             {[
               { label: 'Total Prendas Disponibles', value: `${totalGarments.toLocaleString()} uds`, subText: `${totalReserved} reservadas`, color: 'var(--primary)', icon: Package },
+              { label: 'Prendas en Tránsito', value: `${transitTotal.toLocaleString()} uds`, subText: 'Bodega Tránsito / Despachos', color: '#f59e0b', icon: MoveHorizontal },
               { label: 'Valor Total Inventario', value: `$${totalValue.toLocaleString('es-CO')}`, subText: 'Calculado a precio venta', color: '#10b981', icon: TrendingUp },
-              { label: 'Referencias Activas', value: `${activeRefsCount} SKU`, subText: 'En stock', color: '#6366f1', icon: Barcode },
+              { label: 'Referencias Activas', value: `${activeRefsCount} SKU`, subText: 'En stock disponible', color: '#6366f1', icon: Barcode },
               { label: 'Entradas de Hoy', value: `+${entriesToday} uds`, subText: 'Aprobaciones y ajustes', color: '#3b82f6', icon: CheckCircle2 },
               { label: 'Salidas de Hoy', value: `-${exitsToday} uds`, subText: 'Despachos y bajas', color: '#ef4444', icon: TrendingDown },
               { label: 'Stock Crítico / Alertas', value: `${criticalItems.length} refs`, subText: 'Bajo el mínimo', color: '#f59e0b', icon: AlertTriangle }
@@ -2641,23 +2954,81 @@ export default function FinishedGoodsInventory() {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
             {/* Bodega list & occupancy */}
             <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>Distribución Física por Bodega</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Distribución Física por Bodega</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.72rem', color: '#059669', fontWeight: '800', backgroundColor: '#ecfdf5', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }} />
+                      Conteo Sincrónico (Auto 1 min)
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                      Última sinc: {lastSyncTime.toLocaleTimeString('es-CO')}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isSyncingPhysical}
+                  onClick={() => {
+                    fetchStock();
+                    fetchKardex();
+                    fetchTransfers();
+                    fetchPhysicalWarehouseCounts();
+                  }}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    backgroundColor: '#f8fafc',
+                    color: '#334155',
+                    border: '1.5px solid #cbd5e1',
+                    borderRadius: '8px',
+                    cursor: isSyncingPhysical ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
+                  }}
+                >
+                  <RefreshCw size={13} className={isSyncingPhysical ? "animate-spin" : ""} />
+                  {isSyncingPhysical ? 'Sincronizando...' : 'Sincronizar Ahora'}
+                </button>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {warehouses.filter(w => {
                   const wName = (w.nombre_bodega || '').toLowerCase();
                   return !wName.includes('transito') && !wName.includes('confeccion');
                 }).map(w => {
                   const whStock = stock.filter(s => isSameWarehouse(s, w));
-                  const qty = whStock.reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0);
-                  const value = whStock.reduce((sum, item) => sum + (item.cantidad_disponible * (item.products?.precio || 0)), 0);
+                  const hasPhysical = physicalCounts[w.id] !== undefined && physicalCounts[w.id] > 0;
+                  const qty = hasPhysical ? physicalCounts[w.id] : whStock.reduce((sum, item) => sum + (item.cantidad_disponible || 0), 0);
+                  const avgPrice = whStock.length > 0 ? (whStock.reduce((acc, s) => acc + (s.products?.precio || 0), 0) / whStock.length) : 50000;
+                  const value = whStock.reduce((sum, item) => sum + (item.cantidad_disponible * (item.products?.precio || 0)), 0) || (qty * avgPrice);
                   const percentage = totalGarments > 0 ? (qty / totalGarments) * 100 : 0;
                   
                   return (
                     <div key={w.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
-                        <span style={{ fontWeight: '800', color: '#0f172a' }}>{w.nombre_bodega} ({w.tipo})</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: '800', color: '#0f172a' }}>{w.nombre_bodega} ({w.tipo})</span>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: '900',
+                            padding: '0.12rem 0.45rem',
+                            borderRadius: '6px',
+                            backgroundColor: hasPhysical ? '#ecfdf5' : '#f1f5f9',
+                            color: hasPhysical ? '#059669' : '#64748b'
+                          }}>
+                            {hasPhysical ? '🏷️ Físico 1-a-1' : '📦 Stock'}
+                          </span>
+                        </div>
+
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ fontWeight: '700', color: 'var(--text-muted)' }}>{qty.toLocaleString()} uds / ${value.toLocaleString('es-CO')}</span>
+                          <span style={{ fontWeight: '700', color: '#334155' }}>
+                            <strong style={{ color: '#0f172a', fontWeight: '950' }}>{qty.toLocaleString()} uds</strong> / ${value.toLocaleString('es-CO')}
+                          </span>
                           <button
                             onClick={() => {
                               setSelectedWarehouseForModal(w);
@@ -2689,6 +3060,47 @@ export default function FinishedGoodsInventory() {
                     </div>
                   );
                 })}
+
+                {/* Fila Especial: Bodega / Mercancía en Tránsito (Traslados Pendientes) */}
+                {(() => {
+                  const pendingTransitQty = transfers
+                    .filter(t => t.estado === 'Pendiente' || t.estado === 'EN_TRANSITO')
+                    .reduce((sum, t) => sum + (t.finished_goods_transfer_items || []).reduce((s: number, i: any) => s + Number(i.cantidad || 0), 0), 0);
+                  
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderBottom: '1px dashed #f59e0b', paddingBottom: '0.75rem', backgroundColor: '#fffbeb', padding: '0.65rem', borderRadius: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
+                        <span style={{ fontWeight: '900', color: '#b45309', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <MoveHorizontal size={16} /> Bodega Tránsito (Traslados Inter-Bodega)
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontWeight: '900', color: '#d97706' }}>{pendingTransitQty.toLocaleString()} uds en tránsito</span>
+                          <button
+                            onClick={() => setActiveTab('transfers')}
+                            style={{
+                              padding: '0.25rem 0.65rem',
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              backgroundColor: '#fef3c7',
+                              color: '#b45309',
+                              border: '1px solid #fde68a',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            <Eye size={12} /> Ver Traslados
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', backgroundColor: '#fef3c7', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: `${totalGarments > 0 ? (pendingTransitQty / totalGarments) * 100 : 0}%`, height: '100%', backgroundColor: '#f59e0b', borderRadius: '4px' }} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -5434,7 +5846,7 @@ export default function FinishedGoodsInventory() {
                             </span>
                           </td>
                           <td style={{ padding: '0.65rem 1rem', color: '#475569', fontWeight: 700 }}>
-                            {selectedStockItemForDetail.warehouses?.nombre_bodega || 'Bodega Principal'}
+                            {warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || selectedStockItemForDetail.warehouses?.nombre_bodega || 'Bodega Principal'}
                           </td>
                           <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.75rem' }}>
                             {new Date(g.created_at).toLocaleDateString('es-CO')}
@@ -6098,31 +6510,85 @@ export default function FinishedGoodsInventory() {
                         .from('finished_goods_stock')
                         .select('*')
                         .eq('warehouse_id', tx.warehouse_dest_id)
-                        .eq('product_id', item.product_id)
-                        .eq('size_id', item.size_id)
-                        .is('location_id', null);
+                        .eq('product_id', item.product_id);
 
+                      if (item.size_id) destQuery = destQuery.eq('size_id', item.size_id);
                       if (item.color_id) destQuery = destQuery.eq('color_id', item.color_id);
-                      else destQuery = destQuery.is('color_id', null);
 
-                      const { data: destStock } = await destQuery.limit(1);
-                      const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible) : 0;
+                      let { data: destStock } = await destQuery.limit(1);
+
+                      if (!destStock || destStock.length === 0) {
+                        const { data: fallbackDest } = await supabase
+                          .from('finished_goods_stock')
+                          .select('*')
+                          .eq('warehouse_id', tx.warehouse_dest_id)
+                          .eq('product_id', item.product_id)
+                          .limit(1);
+                        destStock = fallbackDest;
+                      }
+
+                      const currentDestQty = destStock?.[0] ? Number(destStock[0].cantidad_disponible || 0) : 0;
 
                       if (destStock?.[0]) {
-                        await supabase
+                        const { error: mUpdErr } = await supabase
                           .from('finished_goods_stock')
                           .update({ cantidad_disponible: currentDestQty + qtyReceived })
                           .eq('id', destStock[0].id);
+                        if (mUpdErr) throw new Error('Error al ingresar existencias en destino: ' + mUpdErr.message);
                       } else {
-                        await supabase
+                        const { error: mInsErr } = await supabase
                           .from('finished_goods_stock')
                           .insert({
                             warehouse_id: tx.warehouse_dest_id,
                             product_id: item.product_id,
                             color_id: item.color_id || null,
-                            size_id: item.size_id,
+                            size_id: item.size_id || sizes[0]?.id || '',
                             cantidad_disponible: qtyReceived
                           });
+                        if (mInsErr) throw new Error('Error al crear existencias en destino: ' + mInsErr.message);
+                      }
+
+                      // Check if there is a store linked to this destination warehouse, and sync it to the POS store_inventory
+                      const { data: linkedStores } = await supabase
+                        .from('stores')
+                        .select('id')
+                        .eq('bodega_asociada_id', tx.warehouse_dest_id);
+
+                      if (linkedStores && linkedStores.length > 0) {
+                        for (const store of linkedStores) {
+                          let storeQuery = supabase
+                            .from('store_inventory')
+                            .select('*')
+                            .eq('store_id', store.id)
+                            .eq('product_id', item.product_id)
+                            .eq('size_id', item.size_id);
+
+                          if (item.color_id) {
+                            storeQuery = storeQuery.eq('color_id', item.color_id);
+                          } else {
+                            storeQuery = storeQuery.is('color_id', null);
+                          }
+
+                          const { data: storeStock } = await storeQuery.limit(1);
+
+                          const currentStoreQty = storeStock?.[0] ? Number(storeStock[0].cantidad_disponible) : 0;
+                          if (storeStock?.[0]) {
+                            await supabase
+                              .from('store_inventory')
+                              .update({ cantidad_disponible: currentStoreQty + qtyReceived })
+                              .eq('id', storeStock[0].id);
+                          } else {
+                            await supabase
+                              .from('store_inventory')
+                              .insert({
+                                store_id: store.id,
+                                product_id: item.product_id,
+                                color_id: item.color_id || null,
+                                size_id: item.size_id,
+                                cantidad_disponible: qtyReceived
+                              });
+                          }
+                        }
                       }
 
                       // Kardex entry
@@ -6142,12 +6608,22 @@ export default function FinishedGoodsInventory() {
                       });
                     }
 
-                    // 3. Update individual garments locations for scanned barcodes
-                    if (scannedReceivingBarcodes.size > 0) {
+                    // 3. Update individual garments locations and status for scanned barcodes and transfer item barcodes
+                    const barcodesToUpdate = new Set<string>(Array.from(scannedReceivingBarcodes));
+                    (tx.finished_goods_transfer_items || []).forEach((it: any) => {
+                      if (it.barcodes && Array.isArray(it.barcodes)) {
+                        it.barcodes.forEach((b: string) => barcodesToUpdate.add(b));
+                      }
+                    });
+
+                    if (barcodesToUpdate.size > 0) {
                       await supabase
                         .from('individual_garments')
-                        .update({ warehouse_id: tx.warehouse_dest_id })
-                        .in('barcode', Array.from(scannedReceivingBarcodes));
+                        .update({
+                          warehouse_id: tx.warehouse_dest_id,
+                          status: 'Aprobada'
+                        })
+                        .in('barcode', Array.from(barcodesToUpdate));
                     }
 
                     alert('✅ ¡Recepción completada con éxito! Las prendas escaneadas fueron ingresadas al inventario de la bodega destino.');
