@@ -300,33 +300,29 @@ export default function QualityPage() {
 
       if (insErr) {
         console.error('Error fetching quality inspections:', insErr);
-        setInspections([]);
-        return;
       }
 
-      if (!insData || insData.length === 0) {
-        setInspections([]);
-        return;
-      }
+      const rawInsData = insData || [];
 
-      const soIds = Array.from(new Set(insData.map((i: any) => i.sewing_order_id).filter(Boolean)));
-      const directOrdIds = Array.from(new Set(insData.map((i: any) => i.order_id).filter(Boolean)));
+      const soIds = Array.from(new Set(rawInsData.map((i: any) => i.sewing_order_id).filter(Boolean)));
+      const directOrdIds = Array.from(new Set(rawInsData.map((i: any) => i.order_id).filter(Boolean)));
 
       let soData: any[] = [];
       if (soIds.length > 0) {
         const { data: fetchedSo, error: soErr } = await supabase
           .from('sewing_orders')
-          .select('id, confeccion_code, product_id, parent_order_id, status, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
+          .select('id, confeccion_code, product_id, parent_order_id, status, cantidad_planeada, cantidad_confeccionada, created_at, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
           .in('id', soIds);
 
         if (soErr) console.error('Error fetching sewing_orders by IDs:', soErr);
         else soData = fetchedSo || [];
       }
 
+      // Query sewing orders that are sent to quality, in validation, or finished/received from workshops
       const { data: pendingDispatches } = await supabase
         .from('sewing_orders')
-        .select('id, confeccion_code, product_id, parent_order_id, status, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
-        .in('status', ['Enviado a Calidad', 'Validación Calidad']);
+        .select('id, confeccion_code, product_id, parent_order_id, status, cantidad_planeada, cantidad_confeccionada, created_at, workshops(id, nombre_taller), products(id, nombre_producto, codigo_referencia), sewing_order_sizes(cantidad_planeada)')
+        .in('status', ['Enviado a Calidad', 'Validación Calidad', 'Terminada']);
 
       if (pendingDispatches && pendingDispatches.length > 0) {
         const existingSoIds = new Set(soData.map((s: any) => String(s.id)));
@@ -351,7 +347,7 @@ export default function QualityPage() {
         else ordData = fetchedOrd || [];
       }
 
-      const enriched = insData.map((item: any) => {
+      const enriched = rawInsData.map((item: any) => {
         const matchedSo = item.sewing_order_id ? soData.find((so: any) => String(so.id) === String(item.sewing_order_id)) : null;
         const parentOrderId = item.order_id || matchedSo?.parent_order_id;
         const matchedOrd = parentOrderId ? ordData.find((o: any) => String(o.id) === String(parentOrderId)) : null;
@@ -365,13 +361,13 @@ export default function QualityPage() {
         };
       });
 
-      // Virtual fallback inspections for any dispatched sewing orders or parent orders that don't have a record in quality_inspections yet
-      const existingInspectionSoIds = new Set(insData.map((i: any) => String(i.sewing_order_id)).filter(Boolean));
+      // Virtual fallback inspections for any dispatched/finished sewing orders that don't have a record in quality_inspections yet
+      const existingInspectionSoIds = new Set(rawInsData.map((i: any) => String(i.sewing_order_id)).filter(Boolean));
       if (pendingDispatches && pendingDispatches.length > 0) {
         pendingDispatches.forEach((pd: any) => {
           if (!existingInspectionSoIds.has(String(pd.id))) {
             const parentOrd = pd.parent_order_id ? ordData.find((o: any) => String(o.id) === String(pd.parent_order_id)) : null;
-            const plannedQty = pd.sewing_order_sizes?.reduce((sum: number, item: any) => sum + (Number(item.cantidad_planeada) || 0), 0) || 0;
+            const plannedQty = pd.sewing_order_sizes?.reduce((sum: number, item: any) => sum + (Number(item.cantidad_planeada) || 0), 0) || (pd.cantidad_planeada || 0);
 
             enriched.push({
               id: `virtual-${pd.id}`,
@@ -382,7 +378,7 @@ export default function QualityPage() {
               items_approved: 0,
               items_rejected: 0,
               status: 'Pendiente',
-              notes: 'Enviado desde el portal taller a calidad.',
+              notes: 'Ingresado automáticamente desde taller a control de calidad.',
               created_at: pd.created_at || new Date().toISOString(),
               sewing_orders: { ...pd, parent_order: parentOrd },
               orders: parentOrd
@@ -422,25 +418,47 @@ export default function QualityPage() {
   };
 
   const handleConfirmReceivedCheck = async (inspection: any) => {
+    const orderDisplay = inspection.sewing_orders?.confeccion_code || inspection.orders?.internal_code || 'OC';
     const novedades = prompt(
-      `¿Confirmar recepción de prendas de la orden ${inspection.sewing_orders?.confeccion_code}?\n\nNovedades de recepción (déjalo vacío si todo llegó conforme):`,
+      `¿Confirmar recepción de prendas de la orden ${orderDisplay}?\n\nNovedades de recepción (déjalo vacío si todo llegó conforme):`,
       ""
     );
     if (novedades === null) return;
     setReceivingCheckId(inspection.id);
     try {
-      await supabase.from('sewing_orders').update({ status: 'Terminada' }).eq('id', inspection.sewing_order_id);
+      if (inspection.sewing_order_id) {
+        await supabase.from('sewing_orders').update({ status: 'Terminada' }).eq('id', inspection.sewing_order_id);
+      }
       const formattedNotes = (inspection.notes || '') + `\n[Recibido en Calidad] ${novedades || 'Sin novedades'}`;
-      await supabase.from('quality_inspections').update({
-        status: 'Pendiente',
-        notes: formattedNotes,
-        received_at: new Date().toISOString()
-      }).eq('id', inspection.id);
+      
+      let realInspectionId = inspection.id;
+      if (String(inspection.id).startsWith('virtual-')) {
+        const { data: newIns, error: insErr } = await supabase.from('quality_inspections').insert([{
+          order_id: inspection.order_id || inspection.sewing_orders?.parent_order_id || null,
+          sewing_order_id: inspection.sewing_order_id || null,
+          workshop_name: inspection.workshop_name || inspection.sewing_orders?.workshops?.nombre_taller || 'Taller Satélite',
+          items_inspected: inspection.items_inspected || 0,
+          items_approved: 0,
+          items_rejected: 0,
+          status: 'Pendiente',
+          notes: formattedNotes,
+          received_at: new Date().toISOString()
+        }]).select().single();
+        if (insErr) throw insErr;
+        if (newIns) realInspectionId = newIns.id;
+      } else {
+        await supabase.from('quality_inspections').update({
+          status: 'Pendiente',
+          notes: formattedNotes,
+          received_at: new Date().toISOString()
+        }).eq('id', inspection.id);
+      }
+
       await supabase.from('notifications').insert({
-        title: `Lote Recepcionado: ${inspection.sewing_orders?.confeccion_code || 'OC'}`,
+        title: `Lote Recepcionado: ${orderDisplay}`,
         message: `Ingresado al módulo de calidad. Novedades: ${novedades || 'Ninguna'}.`,
         type: 'recepcion', severity: novedades ? 'medium' : 'low',
-        inspection_id: inspection.id
+        inspection_id: realInspectionId
       });
       fetchInspections();
       fetchNotifications();
@@ -1018,7 +1036,7 @@ export default function QualityPage() {
 
     let error = null;
     let savedInspectionId = editingId;
-    if (editingId) {
+    if (editingId && !String(editingId).startsWith('virtual-')) {
       const res = await supabase.from('quality_inspections').update(payload).eq('id', editingId);
       error = res.error;
     } else {
@@ -1355,17 +1373,21 @@ export default function QualityPage() {
 
   const filtered = inspections.filter(i => {
     const ordCons = i.orders?.consecutive ? `OC-${i.orders.consecutive.toString().padStart(4, '0')}` : (i.sewing_orders?.parent_order?.consecutive ? `OC-${i.sewing_orders.parent_order.consecutive.toString().padStart(4, '0')}` : '');
+    const internalCode = i.orders?.internal_code || i.sewing_orders?.parent_order?.internal_code || '';
     const confCode = i.sewing_orders?.confeccion_code || '';
-    const orderCodeStr = `${ordCons} ${confCode}`;
     const client = i.orders?.client_name || i.sewing_orders?.parent_order?.client_name || '';
+    const brand = i.orders?.brand || i.sewing_orders?.parent_order?.brand || '';
     const workshop = i.workshop_name || i.sewing_orders?.workshops?.nombre_taller || '';
-    const matchSearch = orderCodeStr.toLowerCase().includes(search.toLowerCase()) || client.toLowerCase().includes(search.toLowerCase()) || workshop.toLowerCase().includes(search.toLowerCase());
+    const prodName = i.sewing_orders?.products?.nombre_producto || '';
+    const refCode = i.sewing_orders?.products?.codigo_referencia || '';
+    const orderCodeStr = `${ordCons} ${internalCode} ${confCode} ${client} ${brand} ${workshop} ${prodName} ${refCode}`;
+    const matchSearch = !search.trim() || orderCodeStr.toLowerCase().includes(search.toLowerCase());
     
     let matchStatus = true;
     if (filterStatus === 'Pendientes de Pago') {
       matchStatus = i.pago_status === 'Pendiente de aprobación financiera' && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Pendiente') {
-      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' || i.sewing_orders?.status === 'Validación Calidad';
+      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' || i.sewing_orders?.status === 'Validación Calidad' || i.sewing_orders?.status === 'Terminada' || (i.status === 'Pendiente' && !i.received_at);
       matchStatus = (i.status === 'Pendiente' || isPendienteRecibo) && i.status !== 'Inhabilitado';
     } else if (filterStatus) {
       matchStatus = i.status === filterStatus;
