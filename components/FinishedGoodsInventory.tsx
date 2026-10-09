@@ -5302,6 +5302,27 @@ export default function FinishedGoodsInventory() {
                         const codeClean = inputVal.toUpperCase();
                         e.currentTarget.value = '';
 
+                        // Helper to extract category name cleanly (e.g. "Body Lilo Premium Azul" -> "Body Lilo")
+                        const extractCategory = (garmentObj: any, prodObj: any) => {
+                          if (prodObj?.categories?.categoria) return prodObj.categories.categoria;
+                          if (prodObj?.category_id) {
+                            const f = categories.find(c => c.id === prodObj.category_id);
+                            if (f?.categoria) return f.categoria;
+                          }
+                          if (prodObj?.categoria) return prodObj.categoria;
+
+                          const fullText = `${prodObj?.nombre_producto || ''} ${garmentObj?.reference_name || ''}`.trim().toLowerCase();
+                          if (fullText && categories.length > 0) {
+                            const sorted = [...categories].sort((a, b) => (b.categoria?.length || 0) - (a.categoria?.length || 0));
+                            const m = sorted.find(c => c.categoria && fullText.includes(c.categoria.toLowerCase()));
+                            if (m?.categoria) return m.categoria;
+                          }
+
+                          const raw = prodObj?.nombre_producto || garmentObj?.reference_name || 'Prenda';
+                          const cleaned = raw.replace(/\s+(premium|azul|verde|negro|blanco|rojo|cafe|café|camel|rosado|gris|amarillo|lila|beige|sm|s\/m|lxl|l\/xl|s|m|l|xl|unica|u)\b/gi, '').trim();
+                          return cleaned || raw;
+                        };
+
                         // 1. Strictly look up 1-to-1 barcode sticker in `individual_garments` database
                         const { data: garment } = await supabase
                           .from('individual_garments')
@@ -5332,40 +5353,48 @@ export default function FinishedGoodsInventory() {
                             }
                           }
 
-                          // Category label resolution
-                          const categoryName = matchedProd?.categories?.categoria ||
-                            categories.find(c => c.id === matchedProd?.category_id)?.categoria ||
-                            matchedProd?.categoria ||
-                            (matchedProd?.nombre_producto ? `${matchedProd.nombre_producto}` : null) ||
-                            garment.reference_name ||
-                            'Prenda / Categoría General';
-
-                          const displayName = categoryName;
+                          // Strict Category resolution (e.g., "Body Lilo")
+                          const resolvedCategory = extractCategory(garment, matchedProd);
 
                           // Resolve color_id and size_id if available to preserve stock integrity
                           let resolvedColorId = garment.color_id || colors[0]?.id || null;
                           let resolvedSizeId = garment.size_id || sizes[0]?.id || null;
 
-                          // Group by category/product
+                          // Group strictly by Category
                           const existingIdx = transferForm.items.findIndex(i =>
-                            resolvedProductId ? i.product_id === resolvedProductId : (i.categoryLabel === displayName || i.nameLabel === displayName)
+                            (i.categoryLabel || i.nameLabel || '').trim().toLowerCase() === resolvedCategory.trim().toLowerCase()
                           );
 
                           if (existingIdx >= 0) {
                             const items = [...transferForm.items];
                             items[existingIdx].cantidad += 1;
                             items[existingIdx].barcodes = [...(items[existingIdx].barcodes || []), codeClean];
+                            if (!items[existingIdx].subItems) items[existingIdx].subItems = [];
+                            items[existingIdx].subItems.push({
+                              garment_id: garment.id,
+                              barcode: codeClean,
+                              product_id: resolvedProductId || matchedProd?.id || null,
+                              color_id: resolvedColorId,
+                              size_id: resolvedSizeId
+                            });
                             setTransferForm({ ...transferForm, items });
                           } else {
                             const items = [{
-                              product_id: resolvedProductId || null,
+                              product_id: resolvedProductId || matchedProd?.id || products[0]?.id || null,
                               color_id: resolvedColorId,
                               size_id: resolvedSizeId,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              categoryLabel: displayName,
-                              nameLabel: displayName
+                              categoryLabel: resolvedCategory,
+                              nameLabel: resolvedCategory,
+                              subItems: [{
+                                garment_id: garment.id,
+                                barcode: codeClean,
+                                product_id: resolvedProductId || matchedProd?.id || null,
+                                color_id: resolvedColorId,
+                                size_id: resolvedSizeId
+                              }]
                             }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
@@ -5381,13 +5410,12 @@ export default function FinishedGoodsInventory() {
                           .maybeSingle();
                         
                         if (prod) {
-                          const categoryName = prod.categories?.categoria ||
-                            categories.find(c => c.id === prod.category_id)?.categoria ||
-                            prod.categoria ||
-                            prod.nombre_producto ||
-                            'Categoría General';
+                          const resolvedCategory = extractCategory(null, prod);
 
-                          const existingIdx = transferForm.items.findIndex(i => i.product_id === prod.id);
+                          const existingIdx = transferForm.items.findIndex(i =>
+                            (i.categoryLabel || i.nameLabel || '').trim().toLowerCase() === resolvedCategory.trim().toLowerCase()
+                          );
+
                           if (existingIdx >= 0) {
                             const items = [...transferForm.items];
                             items[existingIdx].cantidad += 1;
@@ -5402,8 +5430,8 @@ export default function FinishedGoodsInventory() {
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              categoryLabel: categoryName,
-                              nameLabel: categoryName
+                              categoryLabel: resolvedCategory,
+                              nameLabel: resolvedCategory
                             }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
@@ -5424,17 +5452,17 @@ export default function FinishedGoodsInventory() {
                 <button
                   type="button"
                   onClick={() => {
-                    const firstProd = products[0];
-                    const catName = firstProd?.categories?.categoria || categories.find(c => c.id === firstProd?.category_id)?.categoria || firstProd?.categoria || firstProd?.nombre_producto || 'Categoría General';
+                    const firstCat = categories[0]?.categoria || products[0]?.nombre_producto || 'Categoría General';
+                    const matchedProd = products.find(p => p.categories?.categoria === firstCat || p.nombre_producto === firstCat) || products[0];
                     setTransferForm({
                       ...transferForm,
                       items: [{
-                        product_id: firstProd?.id || '',
+                        product_id: matchedProd?.id || '',
                         color_id: colors[0]?.id || null,
                         size_id: sizes[0]?.id || null,
                         cantidad: 1,
-                        categoryLabel: catName,
-                        nameLabel: firstProd?.nombre_producto || catName,
+                        categoryLabel: firstCat,
+                        nameLabel: firstCat,
                         barcodes: []
                       }, ...transferForm.items]
                     });
@@ -5460,7 +5488,7 @@ export default function FinishedGoodsInventory() {
                       Pistolea el código de barras de las prendas o presiona (+ Manual)
                     </p>
                     <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                      Cada escaneo incrementará automáticamente +1 unidad a la lista de despacho sin mostrar desglose de color ni talla.
+                      Cada escaneo agrupará automáticamente por su categoría (ej: Body Lilo) incrementando la cantidad total sin mostrar color ni tallas.
                     </p>
                   </div>
                 ) : (
@@ -5480,36 +5508,39 @@ export default function FinishedGoodsInventory() {
                               <td style={{ padding: '0.65rem 1rem' }}>
                                 {item.nameLabel ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                    <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.88rem' }}>
+                                    <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.9rem' }}>
                                       {item.categoryLabel || item.nameLabel}
                                     </span>
                                     {item.barcodes && item.barcodes.length > 0 && (
                                       <span style={{ fontSize: '0.7rem', color: '#6366f1', fontWeight: '700' }}>
-                                        {item.barcodes.length} {item.barcodes.length === 1 ? 'código escaneado' : 'códigos escaneados'}
+                                        {item.barcodes.length} {item.barcodes.length === 1 ? 'prenda escaneada' : 'prendas escaneadas'}
                                       </span>
                                     )}
                                   </div>
                                 ) : (
                                   <select
                                     required
-                                    value={item.product_id || ''}
+                                    value={item.categoryLabel || item.product_id || ''}
                                     onChange={e => {
+                                      const selVal = e.target.value;
                                       const items = [...transferForm.items];
-                                      const selProd = products.find(p => p.id === e.target.value);
-                                      const catName = selProd?.categories?.categoria || categories.find(c => c.id === selProd?.category_id)?.categoria || selProd?.categoria || selProd?.nombre_producto;
-                                      items[index].product_id = e.target.value;
+                                      const selCat = categories.find(c => c.id === selVal || c.categoria === selVal);
+                                      const selProd = products.find(p => p.id === selVal);
+                                      const catName = selCat?.categoria || selProd?.categories?.categoria || selProd?.categoria || selProd?.nombre_producto || selVal;
+                                      items[index].product_id = selProd?.id || null;
                                       items[index].categoryLabel = catName;
-                                      items[index].nameLabel = selProd?.nombre_producto || catName;
+                                      items[index].nameLabel = catName;
                                       setTransferForm({ ...transferForm, items });
                                     }}
                                     style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '800' }}
                                   >
-                                    <option value="">Seleccionar Categoría / Producto...</option>
-                                    {products.map(p => {
-                                      const catName = p.categories?.categoria || categories.find(c => c.id === p.category_id)?.categoria || p.categoria;
-                                      const label = catName ? `${catName} — ${p.nombre_producto || p.codigo_referencia}` : (p.nombre_producto || p.codigo_referencia);
-                                      return <option key={p.id} value={p.id}>{label}</option>;
-                                    })}
+                                    <option value="">Seleccionar Categoría / Referencia...</option>
+                                    {categories.map(c => (
+                                      <option key={c.id} value={c.categoria}>{c.categoria}</option>
+                                    ))}
+                                    {products.filter(p => !categories.some(c => c.categoria === p.nombre_producto)).map(p => (
+                                      <option key={p.id} value={p.id}>{p.nombre_producto}</option>
+                                    ))}
                                   </select>
                                 )}
                               </td>

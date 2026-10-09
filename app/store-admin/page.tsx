@@ -46,10 +46,32 @@ export function getAllPremiumCategories(productList: any[]): string[] {
   return Array.from(set).sort();
 }
 
+export function isBodyProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('body') || cat.includes('body') || ref.includes('body') || desc.includes('body');
+}
+
+export function isTopProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('top') || cat.includes('top') || ref.includes('top') || desc.includes('top');
+}
+
 export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
   let categorias_permitidas: string[] = [];
+  let body_discount_type = 'precio_fijo';
+  let body_discount_val: number | string = '';
+  let top_discount_type = 'precio_fijo';
+  let top_discount_val: number | string = '';
   let userDesc = pl?.descripcion || '';
 
   if (userDesc) {
@@ -68,6 +90,10 @@ export function parsePriceListRules(pl: any) {
         if (Array.isArray(parsed.categorias_permitidas)) {
           categorias_permitidas = parsed.categorias_permitidas;
         }
+        if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
+        if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
+        if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
+        if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
       } catch (e) {
         console.warn('Error parsing Base64 rules in store admin:', e);
       }
@@ -89,6 +115,10 @@ export function parsePriceListRules(pl: any) {
           if (Array.isArray(parsed.categorias_permitidas)) {
             categorias_permitidas = parsed.categorias_permitidas;
           }
+          if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
+          if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
+          if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
+          if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
         } catch (e) {
           console.warn('Error parsing legacy rules JSON:', e);
         }
@@ -116,6 +146,10 @@ export function parsePriceListRules(pl: any) {
     cantidad_minima,
     aplica_todas_categorias,
     categorias_permitidas,
+    body_discount_type,
+    body_discount_val,
+    top_discount_type,
+    top_discount_val,
     userDesc
   };
 }
@@ -471,7 +505,11 @@ export default function StoreAdminPage() {
     valor_descuento_global: '',
     cantidad_minima: '1',
     aplica_todas_categorias: true,
-    categorias_permitidas: [] as string[]
+    categorias_permitidas: [] as string[],
+    body_discount_type: 'precio_fijo',
+    body_discount_val: '',
+    top_discount_type: 'precio_fijo',
+    top_discount_val: ''
   });
   const [storeInvForm, setStoreInvForm] = useState({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
 
@@ -771,7 +809,11 @@ export default function StoreAdminPage() {
       const rulesData = {
         cantidad_minima: minQty,
         aplica_todas_categorias: priceListForm.aplica_todas_categorias !== false,
-        categorias_permitidas: priceListForm.categorias_permitidas || []
+        categorias_permitidas: priceListForm.categorias_permitidas || [],
+        body_discount_type: priceListForm.body_discount_type || 'precio_fijo',
+        body_discount_val: priceListForm.body_discount_val,
+        top_discount_type: priceListForm.top_discount_type || 'precio_fijo',
+        top_discount_val: priceListForm.top_discount_val
       };
 
       const cleanedDesc = (priceListForm.descripcion || '')
@@ -794,17 +836,78 @@ export default function StoreAdminPage() {
         valor_descuento_global: priceListForm.valor_descuento_global === '' ? null : Number(priceListForm.valor_descuento_global)
       };
 
+      let targetListId = priceListForm.id;
       if (priceListForm.id) {
         const { error } = await supabase.from('pos_price_lists').update(payload).eq('id', priceListForm.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('pos_price_lists').insert([payload]);
+        const { data: inserted, error } = await supabase.from('pos_price_lists').insert([payload]).select().single();
         if (error) throw error;
+        if (inserted?.id) targetListId = inserted.id;
       }
+
+      // Upsert/clean BODY item rule in pos_price_list_items
+      if (targetListId) {
+        const bodyVal = Number(priceListForm.body_discount_val);
+        const existingBody = priceListItems.find(item => item.price_list_id === targetListId && item.categoria?.toUpperCase() === 'BODY');
+        if (!isNaN(bodyVal) && bodyVal > 0) {
+          if (existingBody) {
+            await supabase.from('pos_price_list_items').update({
+              tipo_descuento: priceListForm.body_discount_type || 'precio_fijo',
+              valor_descuento: bodyVal
+            }).eq('id', existingBody.id);
+          } else {
+            await supabase.from('pos_price_list_items').insert([{
+              price_list_id: targetListId,
+              categoria: 'BODY',
+              tipo_descuento: priceListForm.body_discount_type || 'precio_fijo',
+              valor_descuento: bodyVal
+            }]);
+          }
+        } else if (existingBody) {
+          await supabase.from('pos_price_list_items').delete().eq('id', existingBody.id);
+        }
+
+        // Upsert/clean TOP item rule in pos_price_list_items
+        const topVal = Number(priceListForm.top_discount_val);
+        const existingTop = priceListItems.find(item => item.price_list_id === targetListId && item.categoria?.toUpperCase() === 'TOP');
+        if (!isNaN(topVal) && topVal > 0) {
+          if (existingTop) {
+            await supabase.from('pos_price_list_items').update({
+              tipo_descuento: priceListForm.top_discount_type || 'precio_fijo',
+              valor_descuento: topVal
+            }).eq('id', existingTop.id);
+          } else {
+            await supabase.from('pos_price_list_items').insert([{
+              price_list_id: targetListId,
+              categoria: 'TOP',
+              tipo_descuento: priceListForm.top_discount_type || 'precio_fijo',
+              valor_descuento: topVal
+            }]);
+          }
+        } else if (existingTop) {
+          await supabase.from('pos_price_list_items').delete().eq('id', existingTop.id);
+        }
+      }
+
       setShowPriceListModal(false);
-      setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [] });
+      setPriceListForm({
+        id: '',
+        nombre: '',
+        descripcion: '',
+        activo: true,
+        tipo_descuento_global: 'porcentaje',
+        valor_descuento_global: '',
+        cantidad_minima: '1',
+        aplica_todas_categorias: true,
+        categorias_permitidas: [],
+        body_discount_type: 'precio_fijo',
+        body_discount_val: '',
+        top_discount_type: 'precio_fijo',
+        top_discount_val: ''
+      });
       await fetchData();
-      alert('✓ Lista de precios y reglas de volumen guardadas exitosamente en la base de datos.');
+      alert('✓ Lista de precios y reglas para Body y Top guardadas exitosamente.');
     } catch (err: any) {
       alert("Error guardando lista de precios: " + err.message);
     } finally {
@@ -1542,7 +1645,7 @@ export default function StoreAdminPage() {
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
               else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [] });
+              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [], body_discount_type: 'precio_fijo', body_discount_val: '', top_discount_type: 'precio_fijo', top_discount_val: '' });
               else if (activeTab === 'inventory_monitoring') setStoreInvForm({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
               
               if (activeTab === 'stores') setShowStoreModal(true);
@@ -1917,6 +2020,13 @@ export default function StoreAdminPage() {
                             const customPricesCount = priceListItems.filter(item => item.price_list_id === pl.id).length;
                             const rules = parsePriceListRules(pl);
                             const hasGlobalDiscount = pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0;
+                            
+                            const existingBodyItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
+                            const existingTopItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                            const bodyVal = existingBodyItem?.valor_descuento || rules.body_discount_val;
+                            const bodyType = existingBodyItem?.tipo_descuento || rules.body_discount_type || 'precio_fijo';
+                            const topVal = existingTopItem?.valor_descuento || rules.top_discount_val;
+                            const topType = existingTopItem?.tipo_descuento || rules.top_discount_type || 'precio_fijo';
 
                             return (
                               <tr key={pl.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1928,7 +2038,7 @@ export default function StoreAdminPage() {
                                 </td>
                                 <td style={{ padding: '1rem', color: '#475569' }}>{rules.userDesc || pl.descripcion || '—'}</td>
                                 <td style={{ padding: '1rem' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                     <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                                       <span style={{
                                         padding: '0.2rem 0.55rem',
@@ -1940,6 +2050,36 @@ export default function StoreAdminPage() {
                                       }}>
                                         📦 Mín. {rules.cantidad_minima} prenda{rules.cantidad_minima > 1 ? 's' : ''}
                                       </span>
+
+                                      {/* BODY Rule Badge */}
+                                      {bodyVal && Number(bodyVal) > 0 ? (
+                                        <span style={{
+                                          padding: '0.2rem 0.55rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '850',
+                                          backgroundColor: '#fce7f3',
+                                          color: '#be185d',
+                                          border: '1px solid #fbcfe8'
+                                        }}>
+                                          👗 BODY: {bodyType === 'precio_fijo' ? `$${Number(bodyVal).toLocaleString('es-CO')}` : bodyType === 'porcentaje' ? `${bodyVal}% OFF` : `-$${Number(bodyVal).toLocaleString('es-CO')}`}
+                                        </span>
+                                      ) : null}
+
+                                      {/* TOP Rule Badge */}
+                                      {topVal && Number(topVal) > 0 ? (
+                                        <span style={{
+                                          padding: '0.2rem 0.55rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '850',
+                                          backgroundColor: '#e0f2fe',
+                                          color: '#0369a1',
+                                          border: '1px solid #bae6fd'
+                                        }}>
+                                          👚 TOP: {topType === 'precio_fijo' ? `$${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-$${Number(topVal).toLocaleString('es-CO')}`}
+                                        </span>
+                                      ) : null}
                                       
                                       {hasGlobalDiscount ? (
                                         <span style={{
@@ -1950,20 +2090,9 @@ export default function StoreAdminPage() {
                                           backgroundColor: '#ecfdf5',
                                           color: '#065f46'
                                         }}>
-                                          {pl.tipo_descuento_global === 'porcentaje' ? `${pl.valor_descuento_global}% Descuento Base` : `$${Number(pl.valor_descuento_global).toLocaleString('es-CO')} Descuento Base`}
+                                          {pl.tipo_descuento_global === 'porcentaje' ? `${pl.valor_descuento_global}% Base` : `$${Number(pl.valor_descuento_global).toLocaleString('es-CO')} Base`}
                                         </span>
-                                      ) : (
-                                        <span style={{
-                                          padding: '0.2rem 0.55rem',
-                                          borderRadius: '6px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: '700',
-                                          backgroundColor: '#f1f5f9',
-                                          color: '#64748b'
-                                        }}>
-                                          Sin descuento global
-                                        </span>
-                                      )}
+                                      ) : null}
                                     </div>
                                     <div style={{ fontSize: '0.7rem', color: rules.aplica_todas_categorias ? '#059669' : '#b45309', fontWeight: '750' }}>
                                       {rules.aplica_todas_categorias ? '✓ Aplica a todo el catálogo' : `⚡ Solo ${rules.categorias_permitidas.length} categoría(s)`}
@@ -1971,7 +2100,7 @@ export default function StoreAdminPage() {
                                   </div>
                                 </td>
                                 <td style={{ padding: '1rem', fontWeight: '700', color: customPricesCount > 0 ? 'var(--primary)' : '#94a3b8' }}>
-                                  {customPricesCount > 0 ? `${customPricesCount} categoría(s) con precio/descuento especial` : 'Precio base general'}
+                                  {customPricesCount > 0 ? `${customPricesCount} regla(s) de precios/categorías` : 'Precio base general'}
                                 </td>
                                 <td style={{ padding: '1rem' }}>
                                   <span style={{
@@ -2003,6 +2132,13 @@ export default function StoreAdminPage() {
                                     <button
                                       onClick={() => {
                                         const parsedRules = parsePriceListRules(pl);
+                                        const existBody = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
+                                        const existTop = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                                        const bType = existBody?.tipo_descuento || parsedRules.body_discount_type || 'precio_fijo';
+                                        const bVal = existBody ? String(existBody.valor_descuento) : (parsedRules.body_discount_val !== '' && parsedRules.body_discount_val !== undefined ? String(parsedRules.body_discount_val) : '');
+                                        const tType = existTop?.tipo_descuento || parsedRules.top_discount_type || 'precio_fijo';
+                                        const tVal = existTop ? String(existTop.valor_descuento) : (parsedRules.top_discount_val !== '' && parsedRules.top_discount_val !== undefined ? String(parsedRules.top_discount_val) : '');
+
                                         setPriceListForm({
                                           id: pl.id,
                                           nombre: pl.nombre,
@@ -2012,7 +2148,11 @@ export default function StoreAdminPage() {
                                           valor_descuento_global: pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined ? String(pl.valor_descuento_global) : '',
                                           cantidad_minima: String(parsedRules.cantidad_minima || 1),
                                           aplica_todas_categorias: parsedRules.aplica_todas_categorias !== false,
-                                          categorias_permitidas: parsedRules.categorias_permitidas || []
+                                          categorias_permitidas: parsedRules.categorias_permitidas || [],
+                                          body_discount_type: bType,
+                                          body_discount_val: bVal,
+                                          top_discount_type: tType,
+                                          top_discount_val: tVal
                                         });
                                         setShowPriceListModal(true);
                                       }}
@@ -4219,7 +4359,85 @@ export default function StoreAdminPage() {
                 </p>
               </div>
 
-              {/* REGLA 2: DESCUENTO GLOBAL BASE */}
+              {/* REGLA PRINCIPAL: PRECIOS Y DESCUENTOS PARA BODY Y TOP */}
+              <div style={{ backgroundColor: '#fdf2f8', padding: '1rem', borderRadius: '12px', border: '1.5px solid #fbcfe8', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.82rem', fontWeight: '900', color: '#9d174d', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    👗 Parametrización Clave: BODY y TOP
+                  </label>
+                  <p style={{ fontSize: '0.72rem', color: '#831843', margin: '0.2rem 0 0', opacity: 0.9 }}>
+                    Estipula el precio fijo o descuento automático según si la prenda es un <strong>Body</strong> o un <strong>Top</strong>.
+                  </p>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {/* Card BODY */}
+                  <div style={{ backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1.5px solid #f472b6', display: 'flex', flexDirection: 'column', gap: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '950', color: '#be185d' }}>👗 BODY</span>
+                      <span style={{ fontSize: '0.65rem', backgroundColor: '#fce7f3', color: '#9d174d', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>Todos los Bodys</span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Modalidad</label>
+                      <select
+                        value={priceListForm.body_discount_type}
+                        onChange={e => setPriceListForm({ ...priceListForm, body_discount_type: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: '750', backgroundColor: '#fff' }}
+                      >
+                        <option value="precio_fijo">Precio Fijo Especial ($)</option>
+                        <option value="porcentaje">Porcentaje Descuento (%)</option>
+                        <option value="valor">Monto Fijo a Descontar ($)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Valor a Aplicar</label>
+                      <input
+                        type="number"
+                        placeholder={priceListForm.body_discount_type === 'precio_fijo' ? 'Ej: 25000' : priceListForm.body_discount_type === 'porcentaje' ? 'Ej: 15' : 'Ej: 5000'}
+                        value={priceListForm.body_discount_val}
+                        onChange={e => setPriceListForm({ ...priceListForm, body_discount_val: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fbcfe8', fontSize: '0.85rem', fontWeight: '900', color: '#be185d' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Card TOP */}
+                  <div style={{ backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1.5px solid #38bdf8', display: 'flex', flexDirection: 'column', gap: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '950', color: '#0369a1' }}>👚 TOP</span>
+                      <span style={{ fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0284c7', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>Todos los Tops</span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Modalidad</label>
+                      <select
+                        value={priceListForm.top_discount_type}
+                        onChange={e => setPriceListForm({ ...priceListForm, top_discount_type: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: '750', backgroundColor: '#fff' }}
+                      >
+                        <option value="precio_fijo">Precio Fijo Especial ($)</option>
+                        <option value="porcentaje">Porcentaje Descuento (%)</option>
+                        <option value="valor">Monto Fijo a Descontar ($)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Valor a Aplicar</label>
+                      <input
+                        type="number"
+                        placeholder={priceListForm.top_discount_type === 'precio_fijo' ? 'Ej: 20000' : priceListForm.top_discount_type === 'porcentaje' ? 'Ej: 15' : 'Ej: 5000'}
+                        value={priceListForm.top_discount_val}
+                        onChange={e => setPriceListForm({ ...priceListForm, top_discount_val: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #bae6fd', fontSize: '0.85rem', fontWeight: '900', color: '#0369a1' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* REGLA 3: DESCUENTO GLOBAL BASE */}
               <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: '850', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   🏷️ Descuento Base / Global para el Cliente

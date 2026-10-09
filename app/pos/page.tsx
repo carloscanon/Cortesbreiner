@@ -84,10 +84,32 @@ export function getPremiumReferenceCategory(p: any): string {
   return p.codigo_referencia ? `Ref: ${p.codigo_referencia}` : 'General';
 }
 
+export function isBodyProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('body') || cat.includes('body') || ref.includes('body') || desc.includes('body');
+}
+
+export function isTopProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('top') || cat.includes('top') || ref.includes('top') || desc.includes('top');
+}
+
 export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
   let categorias_permitidas: string[] = [];
+  let body_discount_type = 'precio_fijo';
+  let body_discount_val: number | string = '';
+  let top_discount_type = 'precio_fijo';
+  let top_discount_val: number | string = '';
   let userDesc = pl?.descripcion || '';
 
   if (userDesc) {
@@ -106,6 +128,10 @@ export function parsePriceListRules(pl: any) {
         if (Array.isArray(parsed.categorias_permitidas)) {
           categorias_permitidas = parsed.categorias_permitidas;
         }
+        if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
+        if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
+        if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
+        if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
       } catch (e) {
         console.warn('Error parsing Base64 rules in POS:', e);
       }
@@ -127,6 +153,10 @@ export function parsePriceListRules(pl: any) {
           if (Array.isArray(parsed.categorias_permitidas)) {
             categorias_permitidas = parsed.categorias_permitidas;
           }
+          if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
+          if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
+          if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
+          if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
         } catch (e) {
           console.warn('Error parsing legacy rules JSON in POS:', e);
         }
@@ -154,6 +184,10 @@ export function parsePriceListRules(pl: any) {
     cantidad_minima,
     aplica_todas_categorias,
     categorias_permitidas,
+    body_discount_type,
+    body_discount_val,
+    top_discount_type,
+    top_discount_val,
     userDesc
   };
 }
@@ -2315,7 +2349,42 @@ export default function POSPage() {
       }
     }
 
-    // Regla 5: Descuento global de la lista
+    // Regla 5: Precios / Descuentos por Tipo de Prenda: BODY y TOP
+    if (isBodyProduct(product)) {
+      const bodyItem = customItems.find(item => item.price_list_id === priceListId && item.categoria?.toUpperCase() === 'BODY');
+      const bodyVal = bodyItem?.valor_descuento !== undefined && bodyItem?.valor_descuento !== null
+        ? Number(bodyItem.valor_descuento)
+        : (rules.body_discount_val !== '' && rules.body_discount_val !== undefined ? Number(rules.body_discount_val) : null);
+      const bodyType = bodyItem?.tipo_descuento || rules.body_discount_type || 'precio_fijo';
+      
+      if (bodyVal !== null && !isNaN(bodyVal) && bodyVal > 0) {
+        if (bodyType === 'precio_fijo') {
+          return Math.max(0, bodyVal);
+        } else if (bodyType === 'porcentaje') {
+          return Math.max(0, basePrice - (basePrice * (bodyVal / 100)));
+        } else {
+          return Math.max(0, basePrice - bodyVal);
+        }
+      }
+    } else if (isTopProduct(product)) {
+      const topItem = customItems.find(item => item.price_list_id === priceListId && item.categoria?.toUpperCase() === 'TOP');
+      const topVal = topItem?.valor_descuento !== undefined && topItem?.valor_descuento !== null
+        ? Number(topItem.valor_descuento)
+        : (rules.top_discount_val !== '' && rules.top_discount_val !== undefined ? Number(rules.top_discount_val) : null);
+      const topType = topItem?.tipo_descuento || rules.top_discount_type || 'precio_fijo';
+      
+      if (topVal !== null && !isNaN(topVal) && topVal > 0) {
+        if (topType === 'precio_fijo') {
+          return Math.max(0, topVal);
+        } else if (topType === 'porcentaje') {
+          return Math.max(0, basePrice - (basePrice * (topVal / 100)));
+        } else {
+          return Math.max(0, basePrice - topVal);
+        }
+      }
+    }
+
+    // Regla 6: Descuento global de la lista
     if (pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0) {
       const globalVal = Number(pl.valor_descuento_global);
       if (pl.tipo_descuento_global === 'porcentaje') {
@@ -7416,24 +7485,53 @@ export default function POSPage() {
 
                         {/* Visual Rule Feedback Badge */}
                         <div style={{
-                          padding: '0.3rem 0.55rem',
+                          padding: '0.35rem 0.55rem',
                           borderRadius: '6px',
                           backgroundColor: isRuleActive ? '#ecfdf5' : '#fffbeb',
                           border: `1px solid ${isRuleActive ? '#a7f3d0' : '#fde68a'}`,
                           display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
+                          flexDirection: 'column',
+                          gap: '0.2rem',
                           fontSize: '0.65rem'
                         }}>
-                          {isRuleActive ? (
-                            <span style={{ color: '#065f46', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                              ✓ Regla Activa ({totalCartGarments}/{minQty} prendas): Precios Especiales aplicados
-                            </span>
-                          ) : (
-                            <span style={{ color: '#92400e', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                              ⚠️ Mínimo {minQty} prendas (Llevas {totalCartGarments}, faltan {missingGarments} para el descuento)
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            {isRuleActive ? (
+                              <span style={{ color: '#065f46', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                ✓ Regla Activa ({totalCartGarments}/{minQty} prendas): Precios Especiales aplicados
+                              </span>
+                            ) : (
+                              <span style={{ color: '#92400e', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                ⚠️ Mínimo {minQty} prendas (Llevas {totalCartGarments}, faltan {missingGarments} para el descuento)
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Body & Top price indicator badges */}
+                          {(() => {
+                            const existBody = priceListItems.find(item => item.price_list_id === activePL.id && item.categoria?.toUpperCase() === 'BODY');
+                            const existTop = priceListItems.find(item => item.price_list_id === activePL.id && item.categoria?.toUpperCase() === 'TOP');
+                            const bodyVal = existBody?.valor_descuento || plRules.body_discount_val;
+                            const bodyType = existBody?.tipo_descuento || plRules.body_discount_type || 'precio_fijo';
+                            const topVal = existTop?.valor_descuento || plRules.top_discount_val;
+                            const topType = existTop?.tipo_descuento || plRules.top_discount_type || 'precio_fijo';
+
+                            if (!bodyVal && !topVal) return null;
+
+                            return (
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
+                                {bodyVal && Number(bodyVal) > 0 ? (
+                                  <span style={{ backgroundColor: '#fce7f3', color: '#9d174d', padding: '1px 5px', borderRadius: '4px', fontWeight: '800', fontSize: '0.6rem', border: '1px solid #fbcfe8' }}>
+                                    👗 Body: {bodyType === 'precio_fijo' ? `$${Number(bodyVal).toLocaleString('es-CO')}` : bodyType === 'porcentaje' ? `${bodyVal}% OFF` : `-$${Number(bodyVal).toLocaleString('es-CO')}`}
+                                  </span>
+                                ) : null}
+                                {topVal && Number(topVal) > 0 ? (
+                                  <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: '4px', fontWeight: '800', fontSize: '0.6rem', border: '1px solid #bae6fd' }}>
+                                    👚 Top: {topType === 'precio_fijo' ? `$${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-$${Number(topVal).toLocaleString('es-CO')}`}
+                                  </span>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
