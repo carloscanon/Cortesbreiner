@@ -17,13 +17,14 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { garmentId, updates } = body;
 
-    if (!garmentId || !updates) {
-      return NextResponse.json({ error: 'Faltan parámetros.' }, { status: 400 });
+    const finalUpdates = { ...updates };
+    if (finalUpdates.status === 'Rechazada') {
+      finalUpdates.warehouse_id = '710e4d52-771c-4ca5-a24b-83ba1aa9dc04'; // Bodega Rechazos
     }
 
     const { data, error } = await supabaseAdmin
       .from('individual_garments')
-      .update(updates)
+      .update(finalUpdates)
       .eq('id', garmentId)
       .select();
 

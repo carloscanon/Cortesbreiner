@@ -91,13 +91,21 @@ export async function POST(req: Request) {
         const g = existing[i];
         const targetStatus = targets[i];
 
+        const BODEGA_RECHAZOS_ID = '710e4d52-771c-4ca5-a24b-83ba1aa9dc04';
+        const BODEGA_TRANSITO_ID = 'a7de052c-cff0-46a4-989d-ed6eaab21a0e';
+        const assignedWarehouseId = targetStatus === 'Rechazada' ? BODEGA_RECHAZOS_ID : BODEGA_TRANSITO_ID;
+
         if (g && targetStatus) {
-          // Ambos existen: check if status changed o inspection_id falta
-          const needsUpdate = g.status !== targetStatus || (savedInspectionId && g.quality_inspection_id !== savedInspectionId);
+          // Ambos existen: check if status changed, warehouse cambió o inspection_id falta
+          const needsUpdate = g.status !== targetStatus || 
+            (targetStatus === 'Rechazada' && g.warehouse_id !== BODEGA_RECHAZOS_ID) || 
+            (savedInspectionId && g.quality_inspection_id !== savedInspectionId);
+            
           if (needsUpdate) {
             updates.push({
               id: g.id,
               status: targetStatus,
+              warehouse_id: assignedWarehouseId,
               quality_inspection_id: savedInspectionId || g.quality_inspection_id || null
             });
           }
@@ -113,7 +121,7 @@ export async function POST(req: Request) {
             size_code: sizeCode,
             status: targetStatus,
             defect_checklist: {},
-            warehouse_id: 'a7de052c-cff0-46a4-989d-ed6eaab21a0e' // Bodega Transito
+            warehouse_id: assignedWarehouseId
           });
         } else if (g) {
           // No hay target: DELETE

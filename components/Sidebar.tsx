@@ -20,7 +20,8 @@ import {
   DollarSign,
   CreditCard,
   Building2,
-  Activity
+  Activity,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -35,6 +36,7 @@ const allMenuItems = [
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
+  { icon: AlertTriangle, label: 'Bodega de Rechazos', href: '/inventory/rejections', module: 'quality' },
   { icon: CreditCard, label: 'Pagos Talleres', href: '/payments', module: 'payments' },
   { icon: DollarSign, label: 'Módulo Financiero', href: '/financial', module: 'financial' },
 ];

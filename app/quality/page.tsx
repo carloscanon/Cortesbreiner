@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { syncQualityApprovalToInventory, revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
+import Link from 'next/link';
 import {
   CheckCircle2, XCircle, AlertCircle, Search, ClipboardCheck,
-  Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity
+  Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity, AlertTriangle
 } from 'lucide-react';
 
 const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado', 'Inhabilitado'];
@@ -1434,9 +1435,27 @@ export default function QualityPage() {
             Módulo independiente de 7 etapas: trazabilidad por prenda, reprocesos y liquidación financiera.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(EMPTY_FORM); setEditingId(null); setOrderDetail(null); setShowModal(true); }}>
-          <Plus size={18} /> Nueva Inspección
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <Link
+            href="/inventory/rejections"
+            className="btn"
+            style={{
+              backgroundColor: '#fee2e2',
+              color: '#dc2626',
+              border: '1.5px solid #fca5a5',
+              fontWeight: '850',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              textDecoration: 'none'
+            }}
+          >
+            <AlertTriangle size={18} /> Bodega de Rechazos
+          </Link>
+          <button className="btn btn-primary" onClick={() => { setForm(EMPTY_FORM); setEditingId(null); setOrderDetail(null); setShowModal(true); }}>
+            <Plus size={18} /> Nueva Inspección
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
