@@ -1853,6 +1853,282 @@ export default function POSPage() {
     }
   };
 
+  const deductStockForSaleItem = async ({
+    store,
+    cartItem,
+    consecutive,
+    vendedor,
+    productsList,
+    colorsList,
+    sizesList,
+    inventoryList: localInvList
+  }: {
+    store: any;
+    cartItem: any;
+    consecutive: number | string;
+    vendedor: string;
+    productsList: any[];
+    colorsList: any[];
+    sizesList: any[];
+    inventoryList: any[];
+  }) => {
+    if (!store) return;
+    const storeName = store?.nombre || 'POS';
+    const prefix = storeName.substring(0, 3).toUpperCase();
+    const docRef = `Venta POS #${prefix}-${String(consecutive).padStart(4, '0')}`;
+    const qtyToDeduct = Number(cartItem.cantidad) || 1;
+    const isDevolucion = qtyToDeduct < 0;
+    const movType = isDevolucion ? 'Devolución' : 'Venta POS';
+
+    const productObj = productsList.find(p => p.id === cartItem.product_id) || {
+      id: cartItem.product_id,
+      nombre_producto: cartItem.nombre,
+      codigo_referencia: cartItem.codigo_referencia
+    };
+    const colorObj = colorsList.find(c => c.id === cartItem.color_id);
+    const sizeObj = sizesList.find(s => s.id === cartItem.size_id);
+
+    // 1. UPDATE FINISHED_GOODS_STOCK (If store has an associated warehouse)
+    if (store.bodega_asociada_id) {
+      const whId = store.bodega_asociada_id;
+      let targetStock: any = null;
+
+      // Priority 1: Exact warehouse + product_id + size_id + color_id
+      let q1 = supabase.from('finished_goods_stock').select('*')
+        .eq('warehouse_id', whId)
+        .eq('product_id', cartItem.product_id);
+      if (cartItem.size_id) q1 = q1.eq('size_id', cartItem.size_id);
+      if (cartItem.color_id) q1 = q1.eq('color_id', cartItem.color_id);
+      else q1 = q1.is('color_id', null);
+      const { data: d1 } = await q1;
+      if (d1 && d1.length > 0) targetStock = d1[0];
+
+      // Priority 2: Exact product_id + size_id with positive stock in this warehouse
+      if (!targetStock) {
+        let q2 = supabase.from('finished_goods_stock').select('*')
+          .eq('warehouse_id', whId)
+          .eq('product_id', cartItem.product_id);
+        if (cartItem.size_id) q2 = q2.eq('size_id', cartItem.size_id);
+        const { data: d2 } = await q2.order('cantidad_disponible', { ascending: false });
+        if (d2 && d2.length > 0) targetStock = d2[0];
+      }
+
+      // Priority 3: Match from active in-memory inventory list for this warehouse
+      if (!targetStock && localInvList && localInvList.length > 0) {
+        const matchInv = localInvList.find(inv => {
+          const sameProd = inv.product_id === cartItem.product_id || 
+            (inv.products?.nombre_producto && cartItem.nombre && inv.products.nombre_producto.trim().toLowerCase() === cartItem.nombre.trim().toLowerCase());
+          const sameSize = !cartItem.size_id || inv.size_id === cartItem.size_id;
+          const sameColor = !cartItem.color_id || inv.color_id === cartItem.color_id;
+          return sameProd && sameSize && sameColor;
+        }) || localInvList.find(inv => {
+          const sameProd = inv.product_id === cartItem.product_id || 
+            (inv.products?.nombre_producto && cartItem.nombre && inv.products.nombre_producto.trim().toLowerCase() === cartItem.nombre.trim().toLowerCase());
+          const sameSize = !cartItem.size_id || inv.size_id === cartItem.size_id;
+          return sameProd && sameSize && Number(inv.cantidad_disponible) > 0;
+        });
+
+        if (matchInv) {
+          const { data: d3 } = await supabase.from('finished_goods_stock').select('*').eq('id', matchInv.id);
+          if (d3 && d3.length > 0) targetStock = d3[0];
+        }
+      }
+
+      // Priority 4: Match by product name in finished_goods_stock of this warehouse
+      if (!targetStock && (productObj.nombre_producto || cartItem.nombre)) {
+        const pName = (productObj.nombre_producto || cartItem.nombre || '').trim();
+        const { data: d4 } = await supabase.from('finished_goods_stock')
+          .select('*, products!inner(*)')
+          .eq('warehouse_id', whId)
+          .ilike('products.nombre_producto', pName)
+          .order('cantidad_disponible', { ascending: false });
+        if (d4 && d4.length > 0) targetStock = d4[0];
+      }
+
+      // Priority 5: Any row with this product_id in this warehouse
+      if (!targetStock) {
+        const { data: d5 } = await supabase.from('finished_goods_stock').select('*')
+          .eq('warehouse_id', whId)
+          .eq('product_id', cartItem.product_id)
+          .order('cantidad_disponible', { ascending: false });
+        if (d5 && d5.length > 0) targetStock = d5[0];
+      }
+
+      let currentQty = 0;
+      let finalProductId = cartItem.product_id;
+      let finalSizeId = cartItem.size_id;
+      let finalColorId = cartItem.color_id;
+
+      if (targetStock) {
+        currentQty = Number(targetStock.cantidad_disponible) || 0;
+        finalProductId = targetStock.product_id || cartItem.product_id;
+        finalSizeId = targetStock.size_id || cartItem.size_id;
+        finalColorId = targetStock.color_id || cartItem.color_id;
+        const newQty = currentQty - qtyToDeduct;
+
+        await supabase.from('finished_goods_stock')
+          .update({ 
+            cantidad_disponible: newQty,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', targetStock.id);
+      } else {
+        const newQty = 0 - qtyToDeduct;
+        await supabase.from('finished_goods_stock').insert([{
+          warehouse_id: whId,
+          product_id: cartItem.product_id,
+          size_id: cartItem.size_id || null,
+          color_id: cartItem.color_id || null,
+          cantidad_disponible: newQty,
+          cantidad_reservada: 0,
+          cantidad_en_transito: 0
+        }]);
+      }
+
+      // Kardex record
+      try {
+        await supabase.from('finished_goods_kardex').insert([{
+          warehouse_dest_id: whId,
+          product_id: finalProductId,
+          color_id: finalColorId || null,
+          size_id: finalSizeId || null,
+          tipo_movimiento: movType,
+          cantidad: Math.abs(qtyToDeduct),
+          saldo_anterior: currentQty,
+          saldo_nuevo: currentQty - qtyToDeduct,
+          documento_origen: docRef,
+          usuario: vendedor || 'Vendedor'
+        }]);
+      } catch (eKardex) {
+        console.warn("finished_goods_kardex insert warning:", eKardex);
+      }
+    }
+
+    // 2. ALSO UPDATE STORE_INVENTORY (If store_inventory rows exist for this store)
+    try {
+      let sQuery = supabase.from('store_inventory').select('*')
+        .eq('store_id', store.id)
+        .eq('product_id', cartItem.product_id);
+      if (cartItem.size_id) sQuery = sQuery.eq('size_id', cartItem.size_id);
+      if (cartItem.color_id) sQuery = sQuery.eq('color_id', cartItem.color_id);
+      const { data: sData } = await sQuery;
+
+      if (sData && sData.length > 0) {
+        const sStock = sData[0];
+        const sCurrentQty = Number(sStock.cantidad_disponible) || 0;
+        await supabase.from('store_inventory')
+          .update({ 
+            cantidad_disponible: sCurrentQty - qtyToDeduct,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', sStock.id);
+
+        await supabase.from('store_kardex').insert([{
+          store_id: store.id,
+          product_id: cartItem.product_id,
+          color_id: cartItem.color_id || null,
+          size_id: cartItem.size_id || null,
+          tipo_movimiento: movType,
+          cantidad: Math.abs(qtyToDeduct),
+          saldo_anterior: sCurrentQty,
+          saldo_nuevo: sCurrentQty - qtyToDeduct,
+          documento_ref: docRef,
+          usuario: vendedor || 'Vendedor'
+        }]);
+      } else if (!store.bodega_asociada_id) {
+        const newQty = 0 - qtyToDeduct;
+        await supabase.from('store_inventory').insert([{
+          store_id: store.id,
+          product_id: cartItem.product_id,
+          size_id: cartItem.size_id || null,
+          color_id: cartItem.color_id || null,
+          cantidad_disponible: newQty,
+          cantidad_reservada: 0
+        }]);
+
+        await supabase.from('store_kardex').insert([{
+          store_id: store.id,
+          product_id: cartItem.product_id,
+          color_id: cartItem.color_id || null,
+          size_id: cartItem.size_id || null,
+          tipo_movimiento: movType,
+          cantidad: Math.abs(qtyToDeduct),
+          saldo_anterior: 0,
+          saldo_nuevo: newQty,
+          documento_ref: docRef,
+          usuario: vendedor || 'Vendedor'
+        }]);
+      }
+    } catch (errStoreInv) {
+      console.warn("store_inventory sync warning:", errStoreInv);
+    }
+
+    // 3. FIFO DEDUCTION OF INDIVIDUAL_GARMENTS (Barcode tags)
+    if (qtyToDeduct > 0) {
+      try {
+        const refName = productObj?.nombre_producto || productObj?.codigo_referencia || cartItem.nombre;
+        const sizeCode = sizeObj?.codigo_talla;
+        const colorName = colorObj?.nombre_color;
+
+        let gQuery = supabase.from('individual_garments')
+          .select('id, barcode')
+          .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
+
+        if (store.bodega_asociada_id) {
+          gQuery = gQuery.or(`warehouse_id.eq.${store.bodega_asociada_id},store_id.eq.${store.id}`);
+        } else {
+          gQuery = gQuery.eq('store_id', store.id);
+        }
+
+        if (sizeCode) gQuery = gQuery.eq('size_code', sizeCode);
+        if (colorName) gQuery = gQuery.eq('color_name', colorName);
+
+        let { data: localGarms } = await gQuery.limit(qtyToDeduct);
+        let matchedGarments = localGarms || [];
+
+        if (matchedGarments.length < qtyToDeduct && refName) {
+          let gRefQuery = supabase.from('individual_garments')
+            .select('id, barcode')
+            .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
+          if (store.bodega_asociada_id) {
+            gRefQuery = gRefQuery.or(`warehouse_id.eq.${store.bodega_asociada_id},store_id.eq.${store.id}`);
+          } else {
+            gRefQuery = gRefQuery.eq('store_id', store.id);
+          }
+          gRefQuery = gRefQuery.or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`);
+          const { data: refGarms } = await gRefQuery.limit(qtyToDeduct - matchedGarments.length);
+          if (refGarms && refGarms.length > 0) {
+            const existingIds = new Set(matchedGarments.map(g => g.id));
+            refGarms.forEach(g => { if (!existingIds.has(g.id)) matchedGarments.push(g); });
+          }
+        }
+
+        if (matchedGarments.length === 0 && sizeCode && refName) {
+          const { data: globalGarms } = await supabase.from('individual_garments')
+            .select('id, barcode')
+            .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
+            .eq('size_code', sizeCode)
+            .or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`)
+            .limit(qtyToDeduct);
+          matchedGarments = globalGarms || [];
+        }
+
+        if (matchedGarments.length > 0) {
+          const ids = matchedGarments.map(g => g.id);
+          await supabase.from('individual_garments')
+            .update({ 
+              status: 'Vendido', 
+              sold_at: new Date().toISOString(),
+              notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
+            })
+            .in('id', ids);
+        }
+      } catch (eGarm) {
+        console.warn("individual_garments FIFO deduction warning:", eGarm);
+      }
+    }
+  };
+
   const syncQueueOfflineSales = async () => {
     const queue = [...syncQueue];
     const remainingQueue: any[] = [];
@@ -1890,33 +2166,15 @@ export default function POSPage() {
             total: cartItem.precio * cartItem.cantidad
           });
 
-          let stockQuery = supabase.from('store_inventory').select('*')
-            .eq('store_id', item.sale.store_id)
-            .eq('product_id', cartItem.product_id)
-            .eq('size_id', cartItem.size_id);
-          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
-          else stockQuery = stockQuery.is('color_id', null);
-          const { data: localStock } = await stockQuery;
-
-          const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
-          if (localStock?.[0]) {
-            await supabase
-              .from('store_inventory')
-              .update({ cantidad_disponible: currentQty - cartItem.cantidad })
-              .eq('id', localStock[0].id);
-          }
-
-          await supabase.from('store_kardex').insert({
-            store_id: item.sale.store_id,
-            product_id: cartItem.product_id,
-            color_id: cartItem.color_id,
-            size_id: cartItem.size_id,
-            tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta (Offline-Sync)',
-            cantidad: cartItem.cantidad,
-            saldo_anterior: currentQty,
-            saldo_nuevo: currentQty - cartItem.cantidad,
-            documento_ref: `Venta POS #${newSale.consecutive}`,
-            usuario: item.sale.vendedor
+          await deductStockForSaleItem({
+            store: selectedStore || { id: item.sale.store_id, nombre: 'POS' },
+            cartItem,
+            consecutive: newSale.consecutive,
+            vendedor: item.sale.vendedor,
+            productsList: products,
+            colorsList: colors,
+            sizesList: sizes,
+            inventoryList: inventoryList
           });
         }
 
@@ -2342,132 +2600,16 @@ export default function POSPage() {
           total: cartItem.precio * cartItem.cantidad
         });
 
-        if (selectedStore.bodega_asociada_id) {
-          let stockQuery = supabase.from('finished_goods_stock').select('*')
-            .eq('warehouse_id', selectedStore.bodega_asociada_id)
-            .eq('product_id', cartItem.product_id)
-            .eq('size_id', cartItem.size_id);
-          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
-          else stockQuery = stockQuery.is('color_id', null);
-          let { data: localStock } = await stockQuery;
-
-          // Fallback if product_id is mapped under a synonymous product name row in finished_goods_stock
-          if (!localStock || localStock.length === 0) {
-            const matchingInv = inventoryList.find(inv => 
-              inv.size_id === cartItem.size_id && 
-              ((!cartItem.color_id && !inv.color_id) || inv.color_id === cartItem.color_id) &&
-              (inv.products?.nombre_producto?.trim().toLowerCase() === cartItem.nombre?.trim().toLowerCase())
-            );
-            if (matchingInv) {
-              const { data: altStock } = await supabase.from('finished_goods_stock')
-                .select('*')
-                .eq('id', matchingInv.id);
-              if (altStock && altStock.length > 0) {
-                localStock = altStock;
-              }
-            }
-          }
-
-          const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
-          const targetStockId = localStock?.[0]?.id;
-          const targetProductId = localStock?.[0]?.product_id || cartItem.product_id;
-
-          if (targetStockId) {
-            await supabase
-              .from('finished_goods_stock')
-              .update({ cantidad_disponible: currentQty - cartItem.cantidad })
-              .eq('id', targetStockId);
-          }
-
-          await supabase.from('finished_goods_kardex').insert({
-            warehouse_dest_id: selectedStore.bodega_asociada_id,
-            product_id: targetProductId,
-            color_id: cartItem.color_id,
-            size_id: cartItem.size_id,
-            tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta POS',
-            cantidad: Math.abs(cartItem.cantidad),
-            saldo_anterior: currentQty,
-            saldo_nuevo: currentQty - cartItem.cantidad,
-            documento_origen: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
-            usuario: user?.email || 'Vendedor'
-          });
-        } else {
-          let stockQuery = supabase.from('store_inventory').select('*')
-            .eq('store_id', selectedStore.id)
-            .eq('product_id', cartItem.product_id)
-            .eq('size_id', cartItem.size_id);
-          if (cartItem.color_id) stockQuery = stockQuery.eq('color_id', cartItem.color_id);
-          else stockQuery = stockQuery.is('color_id', null);
-          const { data: localStock } = await stockQuery;
-
-          const currentQty = localStock?.[0] ? Number(localStock[0].cantidad_disponible) : 0;
-          if (localStock?.[0]) {
-            await supabase
-              .from('store_inventory')
-              .update({ cantidad_disponible: currentQty - cartItem.cantidad })
-              .eq('id', localStock[0].id);
-          }
-
-          await supabase.from('store_kardex').insert({
-            store_id: selectedStore.id,
-            product_id: cartItem.product_id,
-            color_id: cartItem.color_id,
-            size_id: cartItem.size_id,
-            tipo_movimiento: cartItem.cantidad < 0 ? 'Devolución' : 'Venta',
-            cantidad: cartItem.cantidad,
-            saldo_anterior: currentQty,
-            saldo_nuevo: currentQty - cartItem.cantidad,
-            documento_ref: `Venta POS #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`,
-            usuario: user?.email || 'Vendedor'
-          });
-        }
-
-        // FIFO discount of individual_garments (Unique barcodes)
-        if (cartItem.cantidad > 0) {
-          try {
-            const productObj = products.find(p => p.id === cartItem.product_id);
-            const colorObj = colors.find(c => c.id === cartItem.color_id);
-            const sizeObj = sizes.find(s => s.id === cartItem.size_id);
-            
-            if (productObj && sizeObj) {
-              const refName = productObj.nombre_producto || productObj.codigo_referencia;
-              let garmentQuery = supabase.from('individual_garments')
-                .select('id')
-                .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
-                .eq('size_code', sizeObj.codigo_talla)
-                .limit(cartItem.cantidad);
-                
-              if (colorObj?.nombre_color) {
-                garmentQuery = garmentQuery.eq('color_name', colorObj.nombre_color);
-              }
-                
-              const { data: maybeMatchName } = await garmentQuery.eq('reference_name', refName);
-              let matchedGarments = maybeMatchName || [];
-
-              if (matchedGarments.length === 0 && productObj.codigo_referencia) {
-                 const { data: matchRef } = await supabase.from('individual_garments')
-                  .select('id')
-                  .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
-                  .eq('size_code', sizeObj.codigo_talla)
-                  .eq('reference_name', productObj.codigo_referencia)
-                  .limit(cartItem.cantidad);
-                 matchedGarments = matchRef || [];
-              }
-
-              if (matchedGarments.length > 0) {
-                const ids = matchedGarments.map(g => g.id);
-                await supabase.from('individual_garments')
-                  .update({ 
-                    status: 'Vendido', 
-                    notes: `Vendido en POS - Transacción #${newSale.consecutive}` 
-                  })
-                  .in('id', ids);
-              }
-            }
-          } catch(e) {
-            console.error('Error descontando individual_garments:', e);
-          }
-        }
+        await deductStockForSaleItem({
+          store: selectedStore,
+          cartItem,
+          consecutive: newSale.consecutive,
+          vendedor: profile?.full_name || user?.email || 'Vendedor',
+          productsList: products,
+          colorsList: colors,
+          sizesList: sizes,
+          inventoryList: inventoryList
+        });
       }
 
       for (const p of paymentsToInsert) {
