@@ -1380,7 +1380,7 @@ export default function POSPage() {
     setLoading(true);
     try {
       const { data: st } = await supabase.from('stores').select('*').eq('estado', 'activo');
-      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)').eq('estado', 'activo'));
+      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)'));
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: promo } = await supabase.from('pos_promotions').select('*').eq('activo', true);
@@ -2344,42 +2344,167 @@ export default function POSPage() {
     }
   };
 
+  const resolveProductForGarment = (garment: any) => {
+    if (!garment) return null;
+    const refRaw = (garment.reference_name || '').trim().toLowerCase();
+    const cleanRef = refRaw.replace(/\s*premium\s*/gi, '').trim();
+
+    // 1. Direct ID match from sewing_orders
+    if (garment.sewing_orders?.product_id) {
+      const p = products.find(prod => prod.id === garment.sewing_orders.product_id);
+      if (p) return p;
+    }
+
+    // 2. Exact match by reference code or full name
+    let found = products.find(p => {
+      const pName = (p.nombre_producto || '').trim().toLowerCase();
+      const pCode = (p.codigo_referencia || '').trim().toLowerCase();
+      return pName === refRaw || pCode === refRaw;
+    });
+    if (found) return found;
+
+    // 3. Clean name match (e.g. "Top Lassie Corto" matches "Top Lassie Corto Premium", Ref 21060)
+    found = products.find(p => {
+      const pName = (p.nombre_producto || '').trim().toLowerCase();
+      const pClean = pName.replace(/\s*premium\s*/gi, '').trim();
+      const pCat = (p.categories?.categoria || '').trim().toLowerCase();
+      const pCode = (p.codigo_referencia || '').trim().toLowerCase();
+      return pClean === cleanRef || pCat === cleanRef || pCode === cleanRef ||
+        (cleanRef.length >= 4 && pClean.includes(cleanRef)) ||
+        (cleanRef.length >= 4 && cleanRef.includes(pClean));
+    });
+    if (found) return found;
+
+    // 4. Keyword / category match
+    found = products.find(p => {
+      const pName = (p.nombre_producto || '').trim().toLowerCase();
+      const pCat = (p.categories?.categoria || '').trim().toLowerCase();
+      const words = cleanRef.split(' ').filter((w: string) => w.length > 3);
+      return words.length > 0 && words.every((w: string) => pName.includes(w) || pCat.includes(w));
+    });
+
+    return found || null;
+  };
+
+  const resolveColorForGarment = (colorNameRaw: string) => {
+    const gColor = (colorNameRaw || '').trim().toLowerCase();
+    if (!gColor) return null;
+    return colors.find(c => {
+      const cName = (c.nombre_color || '').trim().toLowerCase();
+      const cCode = (c.codigo_color || '').trim().toLowerCase();
+      return cName === gColor || (cCode && gColor.includes(cCode)) || 
+        (cName.length >= 4 && gColor.includes(cName)) || 
+        (gColor.length >= 4 && cName.includes(gColor));
+    }) || null;
+  };
+
+  const resolveSizeForGarment = (sizeCodeRaw: string) => {
+    const gSize = (sizeCodeRaw || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+    if (!gSize) return null;
+    return sizes.find(s => {
+      const sName = (s.nombre_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+      const sCode = (s.codigo_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
+      return sCode === gSize || sName === gSize || 
+        (gSize === 'unica' && (sCode === 'unica' || sCode === 'u' || sName === 'unica' || sName === 'u')) || 
+        (gSize === 'u' && (sCode === 'unica' || sCode === 'u' || sName === 'unica' || sName === 'u')) || 
+        (gSize === 'lxl' && (sCode === 'lxl' || sName.includes('lx') || sCode.includes('lxl'))) || 
+        (gSize === 'sm' && (sCode === 'sm' || sName.includes('sm') || sCode.includes('sm')));
+    }) || null;
+  };
+
+  const handleScanBarcodeDirect = async (barcodeToScan: string) => {
+    const term = barcodeToScan.trim();
+    if (!term) return;
+
+    // 1. Search in individual_garments
+    try {
+      let { data: garment } = await supabase
+        .from('individual_garments')
+        .select('*, sewing_orders(*, products(*))')
+        .eq('barcode', term)
+        .maybeSingle();
+
+      if (!garment && term.length >= 5) {
+        const { data: partial } = await supabase
+          .from('individual_garments')
+          .select('*, sewing_orders(*, products(*))')
+          .ilike('barcode', `%${term}%`)
+          .limit(1)
+          .maybeSingle();
+        garment = partial;
+      }
+
+      if (garment) {
+        let matchedProduct = resolveProductForGarment(garment);
+        
+        // If not found in loaded products, query Supabase products directly
+        if (!matchedProduct) {
+          const cleanRef = (garment.reference_name || '').replace(/\s*premium\s*/gi, '').trim();
+          const { data: dbProd } = await supabase
+            .from('products')
+            .select('*, categories(*)')
+            .or(`nombre_producto.ilike.%${cleanRef}%,codigo_referencia.ilike.%${cleanRef}%,codigo_referencia.eq.21060`)
+            .limit(1)
+            .maybeSingle();
+          if (dbProd) matchedProduct = dbProd;
+        }
+
+        if (matchedProduct) {
+          const matchedColor = resolveColorForGarment(garment.color_name || '');
+          const matchedSize = resolveSizeForGarment(garment.size_code || '');
+
+          doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null);
+          setSearchQuery('');
+          setScannedGarment(null);
+          setResolvedBarcodeRef(null);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Error scanning barcode in individual_garments:', e);
+    }
+
+    // 2. Direct product match (SKU, reference code, barcode, or name)
+    const directProd = products.find(p => 
+      p.codigo_referencia?.trim().toLowerCase() === term.toLowerCase() ||
+      p.sku?.trim().toLowerCase() === term.toLowerCase() ||
+      p.nombre_producto?.trim().toLowerCase() === term.toLowerCase()
+    );
+
+    if (directProd) {
+      handleAddToCart(directProd);
+      setSearchQuery('');
+      return;
+    }
+
+    // 3. Fallback to first filtered product
+    if (filteredProducts.length > 0) {
+      handleAddToCart(filteredProducts[0]);
+      setSearchQuery('');
+    }
+  };
+
   const handleAddToCart = (product: any) => {
+    // 1. If scanned barcode is active, match EXACT variant and add immediately
+    if (scannedGarment) {
+      const resolved = resolveProductForGarment(scannedGarment);
+      if (resolved && (resolved.id === product.id || resolved.nombre_producto === product.nombre_producto)) {
+        const matchedColor = resolveColorForGarment(scannedGarment.color_name || '');
+        const matchedSize = resolveSizeForGarment(scannedGarment.size_code || '');
+        doAddToCart(product, matchedColor?.id || null, matchedSize?.id || null);
+        setSearchQuery('');
+        setScannedGarment(null);
+        setResolvedBarcodeRef(null);
+        return;
+      }
+    }
+
     const inStockItems = inventoryList.filter(inv => 
       (inv.product_id === product.id || (inv.products?.nombre_producto && inv.products.nombre_producto.trim().toLowerCase() === product.nombre_producto?.trim().toLowerCase())) &&
       Number(inv.cantidad_disponible) > 0
     );
-    
-    // 1. If scanned barcode, try to match EXACT variant
-    if (scannedGarment && (
-      product.codigo_referencia === scannedGarment.reference_name || 
-      product.nombre_producto?.trim().toLowerCase() === scannedGarment.reference_name?.trim().toLowerCase() ||
-      product.id === scannedGarment.sewing_orders?.product_id
-    )) {
-      const gColor = (scannedGarment.color_name || '').trim().toLowerCase();
-      const gSize = (scannedGarment.size_code || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
 
-      const invMatch = inStockItems.find(inv => {
-        const cName = (inv.colors?.nombre_color || '').trim().toLowerCase();
-        const cCode = (inv.colors?.codigo_color || '').trim().toLowerCase();
-        const sName = (inv.sizes?.nombre_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
-        const sCode = (inv.sizes?.codigo_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
-
-        const colorMatches = !gColor || cName === gColor || (cCode && gColor.includes(cCode)) || gColor.startsWith(cName.substring(0, 5)) || cName.startsWith(gColor.substring(0, 5));
-        const sizeMatches = !gSize || sCode === gSize || sName === gSize || (gSize === 'lxl' && (sCode === 'lxl' || sName.includes('lx') || sCode.includes('lxl'))) || (gSize === 'sm' && (sCode === 'sm' || sName.includes('sm')));
-
-        return colorMatches && sizeMatches;
-      });
-      
-      if (invMatch) {
-         doAddToCart(product, invMatch.color_id, invMatch.size_id);
-         setSearchQuery(''); // Limpiar busqueda
-         setScannedGarment(null);
-         return;
-      }
-    }
-
-    // 2. Otherwise, variant selection
+    // 2. Variant selection
     if (inStockItems.length === 1) {
        doAddToCart(product, inStockItems[0].color_id, inStockItems[0].size_id);
        return;
@@ -2390,20 +2515,18 @@ export default function POSPage() {
       setProductVariants(inStockItems);
       setVariantSearch('');
       setShowVariantModal(true);
-    } else {
-      alert('Este producto no tiene inventario disponible en ninguna talla/color.');
+      return;
     }
+
+    // Fallback: If no inventory registered yet, allow adding with default or generic color/size
+    const defaultColor = colors[0]?.id || null;
+    const defaultSize = sizes.find(s => s.codigo_talla === 'UNICA' || s.codigo_talla === 'U')?.id || sizes[0]?.id || null;
+    doAddToCart(product, defaultColor, defaultSize);
   };
 
   const handleQuickAddGarmentToCart = (garment: any) => {
     // 1. Find product in catalog
-    const matchedProduct = products.find(p => 
-      p.id === garment.sewing_orders?.product_id ||
-      p.nombre_producto?.trim().toLowerCase() === garment.reference_name?.trim().toLowerCase() ||
-      p.codigo_referencia?.trim().toLowerCase() === garment.reference_name?.trim().toLowerCase() ||
-      p.nombre_producto?.toLowerCase().includes(garment.reference_name?.toLowerCase()) ||
-      garment.reference_name?.toLowerCase().includes(p.nombre_producto?.toLowerCase())
-    );
+    let matchedProduct = resolveProductForGarment(garment);
 
     if (!matchedProduct) {
       alert(`No se encontró el producto en catálogo para la referencia "${garment.reference_name}".`);
@@ -2411,20 +2534,8 @@ export default function POSPage() {
     }
 
     // 2. Match color and size
-    const gColor = (garment.color_name || '').trim().toLowerCase();
-    const gSize = (garment.size_code || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
-
-    const matchedColor = colors.find(c => {
-      const cName = (c.nombre_color || '').trim().toLowerCase();
-      const cCode = (c.codigo_color || '').trim().toLowerCase();
-      return !gColor || cName === gColor || (cCode && gColor.includes(cCode)) || gColor.startsWith(cName.substring(0, 5)) || cName.startsWith(gColor.substring(0, 5));
-    });
-
-    const matchedSize = sizes.find(s => {
-      const sName = (s.nombre_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
-      const sCode = (s.codigo_talla || '').trim().toLowerCase().replace(/[\s\-_a]/g, '');
-      return !gSize || sCode === gSize || sName === gSize || (gSize === 'lxl' && (sCode === 'lxl' || sName.includes('lx'))) || (gSize === 'sm' && (sCode === 'sm' || sName.includes('sm')));
-    });
+    const matchedColor = resolveColorForGarment(garment.color_name || '');
+    const matchedSize = resolveSizeForGarment(garment.size_code || '');
 
     doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null);
     setActiveMenuId('pos');
@@ -2710,30 +2821,23 @@ export default function POSPage() {
   }, [searchQuery]);
 
   const filteredProducts = products.filter(p => {
-    // Check if the product has > 0 inventory in the current store (by product ID or matching product name)
-    const hasInventory = inventoryList.some(inv => 
-      (inv.product_id === p.id || (inv.products?.nombre_producto && inv.products.nombre_producto.trim().toLowerCase() === p.nombre_producto?.trim().toLowerCase())) && 
-      Number(inv.cantidad_disponible) > 0
-    );
-    
-    if (!hasInventory) return false;
-
-    // 1. If a specific individual barcode tag is scanned/detected, return ONLY the 1 exact product
+    // 1. If a specific individual barcode tag is scanned/detected, return ONLY the exact matched product
     if (scannedGarment) {
-      const orderProdId = scannedGarment.sewing_orders?.product_id;
-      if (orderProdId) {
-        return p.id === orderProdId;
+      const resolved = resolveProductForGarment(scannedGarment);
+      if (resolved) {
+        return p.id === resolved.id;
       }
-      if (resolvedBarcodeRef) {
-        if (p.id === resolvedBarcodeRef || p.codigo_referencia?.trim().toLowerCase() === resolvedBarcodeRef.trim().toLowerCase()) {
-          return true;
-        }
-      }
-      return p.nombre_producto?.trim().toLowerCase() === scannedGarment.reference_name?.trim().toLowerCase();
     }
 
     const sq = searchQuery.trim().toLowerCase();
-    if (!sq) return true;
+    if (!sq) {
+      // Check if the product has > 0 inventory in the current store (by product ID or matching product name)
+      const hasInventory = inventoryList.some(inv => 
+        (inv.product_id === p.id || (inv.products?.nombre_producto && inv.products.nombre_producto.trim().toLowerCase() === p.nombre_producto?.trim().toLowerCase())) && 
+        Number(inv.cantidad_disponible) > 0
+      );
+      return hasInventory;
+    }
 
     const matchesName = p.nombre_producto?.toLowerCase().includes(sq);
     const matchesCode = p.codigo_referencia?.toLowerCase().includes(sq);
@@ -3160,9 +3264,7 @@ export default function POSPage() {
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    if (filteredProducts.length > 0) {
-                      handleAddToCart(filteredProducts[0]);
-                    }
+                    handleScanBarcodeDirect(searchQuery);
                   }
                 }}
                 style={{
@@ -3214,27 +3316,25 @@ export default function POSPage() {
                       <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Color: <strong style={{ color: '#0f172a' }}>{scannedGarment.color_name}</strong> | Talla: <strong style={{ color: '#0f172a' }}>{scannedGarment.size_code}</strong></span>
                     </div>
                   </div>
-                  {filteredProducts.length > 0 && (
-                    <button
-                      onClick={() => handleAddToCart(filteredProducts[0])}
-                      style={{
-                        backgroundColor: '#10b981',
-                        color: 'white',
-                        border: 'none',
-                        padding: '0.45rem 1rem',
-                        borderRadius: '8px',
-                        fontSize: '0.78rem',
-                        fontWeight: '850',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
-                      }}
+                  <button
+                    onClick={() => handleScanBarcodeDirect(scannedGarment.barcode)}
+                    style={{
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      padding: '0.45rem 1rem',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      fontWeight: '850',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                    }}
                     >
                       <ShoppingCart size={14} /> Agregar
                     </button>
-                  )}
                 </div>
               )}
             </div>
