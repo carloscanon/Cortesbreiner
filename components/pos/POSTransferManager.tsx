@@ -46,6 +46,7 @@ export default function POSTransferManager({
   const [manualAvailableStock, setManualAvailableStock] = useState<any[]>([]);
   const [selectedStockForAdd, setSelectedStockForAdd] = useState<any>(null);
   const [manualQtyToAdd, setManualQtyToAdd] = useState(1);
+  const [manualRowQuantities, setManualRowQuantities] = useState<Record<string, number>>({});
   const [showManualModal, setShowManualModal] = useState(false);
   const [isProcessingDispatch, setIsProcessingDispatch] = useState(false);
   const [lastDispatchedTransfer, setLastDispatchedTransfer] = useState<any>(null);
@@ -634,6 +635,77 @@ export default function POSTransferManager({
     if (receiveInputRef.current) receiveInputRef.current.focus();
   };
 
+  // Toggle check de aceptación de un ítem completo
+  const handleToggleItemAcceptance = (itemId: string, forceCheck?: boolean) => {
+    if (!selectedReceiveTransfer) return;
+    const item = (selectedReceiveTransfer.finished_goods_transfer_items || []).find((it: any) => it.id === itemId);
+    if (!item) return;
+
+    const expected = Number(item.cantidad || 0);
+    const currentCount = scannedItemsCountMap[itemId] || 0;
+    const isCurrentlyComplete = currentCount >= expected;
+    const shouldAccept = forceCheck !== undefined ? forceCheck : !isCurrentlyComplete;
+
+    setScannedItemsCountMap(prev => ({
+      ...prev,
+      [itemId]: shouldAccept ? expected : 0
+    }));
+
+    setScannedReceiveBarcodes(prev => {
+      const updated = new Set(prev);
+      if (item.barcodes && Array.isArray(item.barcodes)) {
+        item.barcodes.forEach((bc: string) => {
+          if (shouldAccept) {
+            updated.add(bc);
+          } else {
+            updated.delete(bc);
+          }
+        });
+      }
+      return updated;
+    });
+  };
+
+  // Toggle check de un código de barras individual
+  const handleToggleBarcodeAcceptance = (itemId: string, barcode: string) => {
+    if (!selectedReceiveTransfer) return;
+    const isCurrentlyScanned = scannedReceiveBarcodes.has(barcode);
+    const newScanned = new Set(scannedReceiveBarcodes);
+
+    if (isCurrentlyScanned) {
+      newScanned.delete(barcode);
+      setScannedItemsCountMap(prev => ({
+        ...prev,
+        [itemId]: Math.max(0, (prev[itemId] || 1) - 1)
+      }));
+    } else {
+      newScanned.add(barcode);
+      setScannedItemsCountMap(prev => ({
+        ...prev,
+        [itemId]: (prev[itemId] || 0) + 1
+      }));
+    }
+    setScannedReceiveBarcodes(newScanned);
+  };
+
+  // Aceptar todas las prendas y códigos del traslado con 1 solo check
+  const handleAcceptAllTransferItems = () => {
+    if (!selectedReceiveTransfer) return;
+    const newMap: Record<string, number> = {};
+    const newBarcodes = new Set<string>();
+
+    (selectedReceiveTransfer.finished_goods_transfer_items || []).forEach((it: any) => {
+      const qty = Number(it.cantidad || 0);
+      newMap[it.id] = qty;
+      if (it.barcodes && Array.isArray(it.barcodes)) {
+        it.barcodes.forEach((bc: string) => newBarcodes.add(bc));
+      }
+    });
+
+    setScannedItemsCountMap(newMap);
+    setScannedReceiveBarcodes(newBarcodes);
+  };
+
   // Totales esperados vs escaneados en recepción
   const totalExpectedInReceive = useMemo(() => {
     if (!selectedReceiveTransfer) return 0;
@@ -643,8 +715,11 @@ export default function POSTransferManager({
   }, [selectedReceiveTransfer]);
 
   const totalScannedInReceive = useMemo(() => {
-    return scannedReceiveBarcodes.size;
-  }, [scannedReceiveBarcodes]);
+    if (!selectedReceiveTransfer) return 0;
+    // Si hay códigos específicos escaneados, usar el conteo de barcodes o la suma de items aceptados
+    const itemsSum = Object.values(scannedItemsCountMap).reduce((s, c) => s + (Number(c) || 0), 0);
+    return Math.max(scannedReceiveBarcodes.size, itemsSum);
+  }, [scannedReceiveBarcodes, scannedItemsCountMap, selectedReceiveTransfer]);
 
   const receiveDifference = totalExpectedInReceive - totalScannedInReceive;
 
@@ -1037,27 +1112,38 @@ export default function POSTransferManager({
                     style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '800' }}
                   >
                     <option value="store">🏬 Tienda / Punto POS</option>
-                    <option value="warehouse">🏢 Bodega Central / Fabrica</option>
+                    <option value="warehouse">🧼 Bodega Lavandería / Puntos</option>
                   </select>
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-                    {destLocationType === 'store' ? 'Selecciona la Tienda Destino' : 'Selecciona la Bodega Destino'}
+                    {destLocationType === 'store' ? 'Selecciona la Tienda Destino' : 'Selecciona la Bodega Destino (Lavandería / Puntos)'}
                   </label>
                   <select
                     value={destLocationId}
                     onChange={e => setDestLocationId(e.target.value)}
                     style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '850', color: '#0f172a', backgroundColor: '#f8fafc' }}
                   >
-                    <option value="">-- Seleccionar ubicación destino --</option>
+                    <option value="">-- Seleccionar ubicación destino autorizada --</option>
                     {destLocationType === 'store'
                       ? stores.filter(s => s.id !== currentStore?.id).map(s => (
                           <option key={s.id} value={s.id}>🏬 {s.nombre} ({s.ciudad || 'Colombia'})</option>
                         ))
-                      : warehouses.filter(w => w.id !== originWarehouseId).map(w => (
-                          <option key={w.id} value={w.id}>🏢 {w.nombre_bodega} ({w.tipo || 'Bodega'})</option>
-                        ))}
+                      : warehouses
+                          .filter(w => {
+                            if (w.id === originWarehouseId) return false;
+                            const name = (w.nombre_bodega || w.name || '').toLowerCase();
+                            const type = (w.tipo || '').toLowerCase();
+                            const isLavanderia = name.includes('lavanderia') || type.includes('lavanderia');
+                            const isPuntoOrStore = type.includes('local') || type.includes('punto') || type.includes('tienda') || stores.some(s => s.bodega_asociada_id === w.id);
+                            return isLavanderia || isPuntoOrStore;
+                          })
+                          .map(w => (
+                            <option key={w.id} value={w.id}>
+                              {w.nombre_bodega?.toLowerCase().includes('lavanderia') ? '🧼' : '🏢'} {w.nombre_bodega} ({w.tipo || 'Punto / Lavandería'})
+                            </option>
+                          ))}
                   </select>
                 </div>
               </div>
@@ -1450,11 +1536,58 @@ export default function POSTransferManager({
                 </form>
               </div>
 
+              {/* Banner de Check de Aceptación General con Códigos */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: '#ecfdf5',
+                border: '2px solid #10b981',
+                padding: '0.85rem 1.25rem',
+                borderRadius: '12px',
+                boxShadow: '0 2px 8px rgba(16,185,129,0.15)'
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', cursor: 'pointer', fontWeight: '900', color: '#065f46', fontSize: '0.9rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={totalScannedInReceive >= totalExpectedInReceive && totalExpectedInReceive > 0}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        handleAcceptAllTransferItems();
+                      } else {
+                        setScannedItemsCountMap({});
+                        setScannedReceiveBarcodes(new Set());
+                      }
+                    }}
+                    style={{ width: '20px', height: '20px', accentColor: '#10b981', cursor: 'pointer' }}
+                  />
+                  <span>✅ Check de Aceptación General: Aceptar todo el traslado con sus códigos ({totalExpectedInReceive} prendas)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAcceptAllTransferItems}
+                  style={{
+                    backgroundColor: '#10b981',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: '850',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
+                  }}
+                >
+                  ✓ Aceptar Todo
+                </button>
+              </div>
+
               {/* Tabla de Comparación de Ítems (Enviado vs Recibido) */}
               <div style={{ border: '1.5px solid #cbd5e1', borderRadius: '12px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '1.5px solid #cbd5e1', fontSize: '0.7rem', textTransform: 'uppercase', color: '#475569' }}>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'center', width: '70px' }}>Aceptar</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Producto / Referencia</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Color</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Talla</th>
@@ -1471,25 +1604,44 @@ export default function POSTransferManager({
 
                       return (
                         <tr key={it.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isComplete ? '#f0fdf4' : 'white' }}>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={isComplete}
+                              onChange={() => handleToggleItemAcceptance(it.id)}
+                              style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+                              title="Marcar como recibido este ítem"
+                            />
+                          </td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: '850', color: '#0f172a' }}>
                             {it.products?.nombre_producto || 'Prenda'}
                             <span style={{ display: 'block', fontSize: '0.68rem', color: primaryColor }}>Ref: {it.products?.codigo_referencia || 'REF'}</span>
                             
-                            {/* Badges de códigos de barras de este ítem */}
+                            {/* Badges de códigos de barras de este ítem (Clickables para aceptar/desmarcar individualmente) */}
                             {it.barcodes && it.barcodes.length > 0 && (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.35rem' }}>
                                 {it.barcodes.map((bc: string) => {
                                   const isScanned = scannedReceiveBarcodes.has(bc);
                                   return (
-                                    <span key={bc} style={{
-                                      fontFamily: 'monospace', fontSize: '0.65rem', padding: '0.1rem 0.35rem', borderRadius: '4px',
-                                      backgroundColor: isScanned ? '#dcfce7' : '#f1f5f9',
-                                      color: isScanned ? '#15803d' : '#64748b',
-                                      border: `1px solid ${isScanned ? '#86efac' : '#cbd5e1'}`,
-                                      fontWeight: isScanned ? '900' : '700'
-                                    }}>
+                                    <button
+                                      key={bc}
+                                      type="button"
+                                      onClick={() => handleToggleBarcodeAcceptance(it.id, bc)}
+                                      title="Haz clic para marcar/desmarcar este código como recibido"
+                                      style={{
+                                        fontFamily: 'monospace', fontSize: '0.65rem', padding: '0.15rem 0.45rem', borderRadius: '5px',
+                                        backgroundColor: isScanned ? '#dcfce7' : '#f8fafc',
+                                        color: isScanned ? '#15803d' : '#64748b',
+                                        border: `1.5px solid ${isScanned ? '#86efac' : '#cbd5e1'}`,
+                                        fontWeight: isScanned ? '900' : '700',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.2rem'
+                                      }}
+                                    >
                                       {isScanned ? '✓ ' : '⏳ '}{bc}
-                                    </span>
+                                    </button>
                                   );
                                 })}
                               </div>
@@ -1512,7 +1664,7 @@ export default function POSTransferManager({
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
                             {isComplete ? (
                               <span style={{ backgroundColor: '#dcfce7', color: '#15803d', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '900' }}>
-                                ✓ COMPLETO
+                                ✓ ACEPTADO
                               </span>
                             ) : (
                               <span style={{ backgroundColor: '#fee2e2', color: '#dc2626', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '900' }}>
@@ -1718,15 +1870,16 @@ export default function POSTransferManager({
                 autoFocus
               />
 
-              <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <div style={{ maxHeight: '380px', overflowY: 'auto', border: '1.5px solid #cbd5e1', borderRadius: '12px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                   <thead>
-                    <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '1px solid #cbd5e1', fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                      <th style={{ padding: '0.6rem 0.85rem' }}>Producto</th>
-                      <th style={{ padding: '0.6rem 0.85rem' }}>Color</th>
-                      <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Talla</th>
-                      <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Disponible</th>
-                      <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Acción</th>
+                    <tr style={{ backgroundColor: '#f1f5f9', textAlign: 'left', borderBottom: '1.5px solid #cbd5e1', fontSize: '0.7rem', textTransform: 'uppercase', color: '#475569' }}>
+                      <th style={{ padding: '0.75rem 0.85rem' }}>Producto</th>
+                      <th style={{ padding: '0.75rem 0.85rem' }}>Color</th>
+                      <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center' }}>Talla</th>
+                      <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center' }}>Disponible</th>
+                      <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', width: '140px' }}>Cantidad</th>
+                      <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1738,25 +1891,96 @@ export default function POSTransferManager({
                         const pRef = (s.products?.codigo_referencia || '').toLowerCase();
                         return pName.includes(q) || pRef.includes(q);
                       })
-                      .map(s => (
-                        <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.65rem 0.85rem', fontWeight: '800' }}>
-                            {s.products?.nombre_producto || 'Prenda'}
-                            <span style={{ display: 'block', fontSize: '0.68rem', color: primaryColor }}>Ref: {s.products?.codigo_referencia}</span>
-                          </td>
-                          <td style={{ padding: '0.65rem 0.85rem' }}>{s.colors?.nombre_color || 'Estándar'}</td>
-                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center', fontWeight: '900' }}>{s.sizes?.codigo_talla || 'ST'}</td>
-                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center', fontWeight: '950', color: '#059669' }}>{s.cantidad_disponible} uds</td>
-                          <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
-                            <button
-                              onClick={() => handleAddManualItem(s, 1)}
-                              style={{ padding: '0.3rem 0.75rem', borderRadius: '6px', border: 'none', backgroundColor: primaryColor, color: 'white', fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer' }}
-                            >
-                              + Agregar 1 ud
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      .map(s => {
+                        const available = Number(s.cantidad_disponible || 0);
+                        const selectedQty = manualRowQuantities[s.id] !== undefined ? manualRowQuantities[s.id] : 1;
+
+                        return (
+                          <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.65rem 0.85rem', fontWeight: '850', color: '#0f172a' }}>
+                              {s.products?.nombre_producto || 'Prenda'}
+                              <span style={{ display: 'block', fontSize: '0.68rem', color: primaryColor }}>Ref: {s.products?.codigo_referencia}</span>
+                            </td>
+                            <td style={{ padding: '0.65rem 0.85rem', color: '#334155', fontWeight: '700' }}>
+                              {s.colors?.nombre_color || 'Estándar'}
+                            </td>
+                            <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                              <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '6px', fontWeight: '900', fontSize: '0.75rem' }}>
+                                {s.sizes?.codigo_talla || 'ST'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center', fontWeight: '950', color: '#059669', fontSize: '0.9rem' }}>
+                              {available} uds
+                            </td>
+                            <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setManualRowQuantities(prev => ({ ...prev, [s.id]: Math.max(1, (prev[s.id] || 1) - 1) }))}
+                                  style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', cursor: 'pointer', fontWeight: '900', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={available}
+                                  value={selectedQty}
+                                  onChange={e => {
+                                    const val = Math.min(available, Math.max(1, parseInt(e.target.value) || 1));
+                                    setManualRowQuantities(prev => ({ ...prev, [s.id]: val }));
+                                  }}
+                                  style={{
+                                    width: '50px',
+                                    padding: '0.25rem 0.2rem',
+                                    textAlign: 'center',
+                                    borderRadius: '6px',
+                                    border: '1.5px solid #cbd5e1',
+                                    fontWeight: '900',
+                                    fontSize: '0.85rem',
+                                    color: '#0f172a'
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setManualRowQuantities(prev => ({ ...prev, [s.id]: Math.min(available, (prev[s.id] || 1) + 1) }))}
+                                  style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', cursor: 'pointer', fontWeight: '900', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  +
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setManualRowQuantities(prev => ({ ...prev, [s.id]: available }))}
+                                  style={{ padding: '0.15rem 0.35rem', borderRadius: '5px', border: '1px solid #94a3b8', backgroundColor: '#f1f5f9', cursor: 'pointer', fontSize: '0.65rem', fontWeight: '800', color: '#475569' }}
+                                  title="Seleccionar todo el disponible"
+                                >
+                                  Máx
+                                </button>
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleAddManualItem(s, selectedQty)}
+                                style={{
+                                  padding: '0.4rem 0.85rem',
+                                  borderRadius: '8px',
+                                  border: 'none',
+                                  backgroundColor: primaryColor,
+                                  color: 'white',
+                                  fontWeight: '850',
+                                  fontSize: '0.78rem',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)'
+                                }}
+                              >
+                                + Agregar {selectedQty} ud{selectedQty > 1 ? 's' : ''}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
