@@ -16,6 +16,8 @@ import { useAuth } from '@/hooks/useAuth';
 import POSTransferManager from '@/components/pos/POSTransferManager';
 import POSExchangeModal from '@/components/pos/POSExchangeModal';
 import POSWarehouseStockModal from '@/components/pos/POSWarehouseStockModal';
+import POSReceiptModal, { POSReceiptData } from '@/components/pos/POSReceiptModal';
+import POSCashMovementModal, { POSCashConcept, DEFAULT_CASH_CONCEPTS } from '@/components/pos/POSCashMovementModal';
 
 const BodysuitIcon = ({ color }: { color: string }) => (
   <svg viewBox="0 0 100 130" style={{ width: '100%', height: '100%', maxHeight: '90px' }} xmlns="http://www.w3.org/2000/svg">
@@ -431,7 +433,7 @@ export default function POSPage() {
   const [showUserProfileCard, setShowUserProfileCard] = useState(false);
   
   const [logoUploading, setLogoUploading] = useState(false);
-  const [uxTab, setUxTab] = useState<'colors' | 'typography' | 'catalog' | 'logo' | 'transfer'>('colors');
+  const [uxTab, setUxTab] = useState<'colors' | 'typography' | 'catalog' | 'logo' | 'transfer' | 'cash_concepts'>('colors');
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeSaved, setThemeSaved] = useState(false);
 
@@ -455,6 +457,16 @@ export default function POSPage() {
   const [newTransferInstructions, setNewTransferInstructions] = useState('');
   const [newTransferQrUrl, setNewTransferQrUrl] = useState('');
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+  // Receipt modal state
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [lastReceiptData, setLastReceiptData] = useState<POSReceiptData | null>(null);
+
+  // Cash Movement modal & Concepts state
+  const [showCashMovementModal, setShowCashMovementModal] = useState(false);
+  const [cashConcepts, setCashConcepts] = useState<POSCashConcept[]>(DEFAULT_CASH_CONCEPTS);
+  const [newConceptName, setNewConceptName] = useState('');
+  const [newConceptType, setNewConceptType] = useState<'Ingreso' | 'Egreso'>('Egreso');
+  const [newConceptDesc, setNewConceptDesc] = useState('');
 
   const handleCopyAccount = (text: string, id: string) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -845,10 +857,24 @@ export default function POSPage() {
     if (activeTheme?.styles?.transfer_methods && activeTheme.styles.transfer_methods.length > 0) {
       setTransferMethods(activeTheme.styles.transfer_methods);
     }
+
+    // Load custom cash concepts
+    if (activeTheme?.styles?.cash_concepts && activeTheme.styles.cash_concepts.length > 0) {
+      setCashConcepts(activeTheme.styles.cash_concepts);
+    } else {
+      const localStored = localStorage.getItem('pos_cash_concepts');
+      if (localStored) {
+        try {
+          setCashConcepts(JSON.parse(localStored));
+        } catch (e) {
+          setCashConcepts(DEFAULT_CASH_CONCEPTS);
+        }
+      }
+    }
   }, [activeTheme]);
 
   // Create or Update Theme in DB
-  const saveCustomTheme = async (rolesOverride?: any[], assignmentsOverride?: any[], transferMethodsOverride?: any[]) => {
+  const saveCustomTheme = async (rolesOverride?: any[], assignmentsOverride?: any[], transferMethodsOverride?: any[], cashConceptsOverride?: any[]) => {
     setThemeSaving(true);
     try {
       // Step 1: Deactivate all other themes so POS Custom Theme wins
@@ -860,6 +886,7 @@ export default function POSPage() {
       const targetRoles = rolesOverride || staffRoles;
       const targetAssignments = assignmentsOverride || staffAssignments;
       const targetTransferMethods = transferMethodsOverride || transferMethods;
+      const targetCashConcepts = cashConceptsOverride || cashConcepts;
 
       // Step 2: Upsert the custom theme with all current values
       const payload = {
@@ -928,6 +955,7 @@ export default function POSPage() {
             headerTextPlacement: customHeaderTextPlacement
           },
           transfer_methods: targetTransferMethods,
+          cash_concepts: targetCashConcepts,
           pos_roles_config: targetRoles,
           pos_staff_assignments: targetAssignments
         }
@@ -2736,7 +2764,39 @@ export default function POSPage() {
         });
       }
 
-      alert(`✅ Transacción #${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')} registrada exitosamente.`);
+      const consecutiveStr = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`;
+      
+      const receiptPayload: POSReceiptData = {
+        storeName: selectedStore?.nombre || 'TIENDA PRINCIPAL',
+        storeAddress: selectedStore?.direccion || 'Sede Comercial',
+        storePhone: selectedStore?.telefono || '300 000 0000',
+        storeNit: selectedStore?.nit || 'NIT 901.456.789-1',
+        consecutive: consecutiveStr,
+        date: new Date().toLocaleString('es-CO'),
+        cashier: profile?.full_name || user?.email || 'Cajero POS',
+        clientName: selectedCustomer.name || 'Cliente General',
+        clientDoc: selectedCustomer.document || '2222222222',
+        items: cart.map(item => ({
+          nombre: item.nombre,
+          codigo_referencia: item.codigo_referencia,
+          talla: sizes.find(s => s.id === item.size_id)?.codigo_talla || 'U',
+          color: colors.find(c => c.id === item.color_id)?.nombre_color || 'Standard',
+          cantidad: item.cantidad,
+          precio: item.precio,
+          subtotal: item.precio * item.cantidad
+        })),
+        subtotal,
+        discount: discountAmount,
+        iva: ivaAmount,
+        total,
+        paymentMethod: paymentMethod,
+        payments: paymentsToInsert,
+        notes: finalObs
+      };
+
+      setLastReceiptData(receiptPayload);
+      setShowReceiptModal(true);
+
       setCart([]);
       setCartNotes('');
       setTransferReferenceCode('');
@@ -3147,34 +3207,62 @@ export default function POSPage() {
               </div>
 
               {currentSession && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    fetchSessionSalesDetails(currentSession.id);
-                    setShowSessionTransactionsModal(true);
-                  }}
-                  style={{
-                    width: '100%',
-                    marginTop: '0.75rem',
-                    padding: '0.45rem 0.65rem',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    background: 'rgba(255,255,255,0.1)',
-                    color: 'white',
-                    fontSize: '0.68rem',
-                    fontWeight: '800',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.35rem',
-                    transition: 'all 0.15s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                >
-                  📊 Transacciones ({sessionSalesDetails.length})
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fetchSessionSalesDetails(currentSession.id);
+                      setShowSessionTransactionsModal(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      marginTop: '0.75rem',
+                      padding: '0.45rem 0.65rem',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: 'white',
+                      fontSize: '0.68rem',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  >
+                    📊 Transacciones ({sessionSalesDetails.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCashMovementModal(true)}
+                    style={{
+                      width: '100%',
+                      marginTop: '0.4rem',
+                      padding: '0.45rem 0.65rem',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                      background: 'rgba(16, 185, 129, 0.18)',
+                      color: '#6ee7b7',
+                      fontSize: '0.68rem',
+                      fontWeight: '850',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.3)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.18)'}
+                  >
+                    💵 Movimiento de Caja (Ingreso / Retiro)
+                  </button>
+                </>
               )}
             </div>
 
@@ -3395,6 +3483,33 @@ export default function POSPage() {
               >
                 <RefreshCcw size={14} /> Módulo de Cambios
               </button>
+
+              {currentSession && (
+                <button
+                  type="button"
+                  onClick={() => setShowCashMovementModal(true)}
+                  style={{
+                    backgroundColor: '#10b981',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.45rem 0.95rem',
+                    borderRadius: '10px',
+                    fontSize: '0.78rem',
+                    fontWeight: '850',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
+                    transition: 'all 0.15s'
+                  }}
+                  title="Registrar Ingreso o Egreso de efectivo menor (Parqueadero, aseo, sencillo, etc.)"
+                  onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                >
+                  <DollarSign size={14} /> 💵 Movimiento Caja
+                </button>
+              )}
 
               <div 
                 onClick={() => {
@@ -5304,7 +5419,8 @@ export default function POSPage() {
                     { id: 'typography', label: '🔤 Tipografía' },
                     { id: 'catalog', label: '🖼️ Catálogo' },
                     { id: 'logo', label: '🏢 Logo Empresa' },
-                    { id: 'transfer', label: '💳 Medios de Transferencia' }
+                    { id: 'transfer', label: '💳 Medios de Transferencia' },
+                    { id: 'cash_concepts', label: '💵 Conceptos de Caja' }
                   ] as const).map(tab => (
                     <button key={tab.id} onClick={() => setUxTab(tab.id)} style={{
                       padding: '0.55rem 1.1rem',
@@ -6563,6 +6679,228 @@ export default function POSPage() {
                                       await saveCustomTheme(staffRoles, staffAssignments, updated);
                                     }}
                                     style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', fontSize: '0.68rem', fontWeight: '800', cursor: 'pointer' }}
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* === CASH CONCEPTS TAB === */}
+                    {uxTab === 'cash_concepts' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        {/* New Concept Form */}
+                        <div style={{ background: 'white', borderRadius: '14px', padding: '1.25rem', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '900', color: '#0f172a' }}>
+                              ➕ Parametrizar Nuevo Concepto de Caja (Ingreso / Egreso)
+                            </h3>
+                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                              Define los conceptos permitidos para registrar ingresos extraordinarios o egresos menores (parqueaderos, aseo, cadenas, etc.).
+                            </p>
+                          </div>
+
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!newConceptName.trim()) {
+                                alert('Por favor ingresa el nombre del concepto.');
+                                return;
+                              }
+
+                              const newConcept: POSCashConcept = {
+                                id: 'cpt-' + Date.now(),
+                                name: newConceptName.trim(),
+                                nombre: newConceptName.trim(),
+                                type: newConceptType.toLowerCase() as any,
+                                tipo: newConceptType,
+                                description: newConceptDesc.trim(),
+                                descripcion: newConceptDesc.trim(),
+                                is_active: true,
+                                activo: true
+                              };
+
+                              const updated = [...cashConcepts, newConcept];
+                              setCashConcepts(updated);
+                              localStorage.setItem('pos_cash_concepts', JSON.stringify(updated));
+
+                              // Try inserting into DB table if available
+                              try {
+                                await supabase.from('pos_cash_concepts').insert([{
+                                  nombre: newConcept.nombre,
+                                  tipo: newConcept.tipo,
+                                  descripcion: newConcept.descripcion,
+                                  activo: true
+                                }]);
+                              } catch (e) {
+                                console.warn('pos_cash_concepts DB table insert notice:', e);
+                              }
+
+                              await saveCustomTheme(staffRoles, staffAssignments, transferMethods, updated);
+                              setNewConceptName('');
+                              setNewConceptDesc('');
+                              alert('✓ Concepto de caja creado y guardado.');
+                            }}
+                            style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+                          >
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Nombre del Concepto
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="Ej. Pago Parqueaderos, Sencillo / Cambio, Aseo y Cafetería..."
+                                  value={newConceptName}
+                                  onChange={e => setNewConceptName(e.target.value)}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                                />
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                  Tipo de Movimiento
+                                </label>
+                                <select
+                                  value={newConceptType}
+                                  onChange={e => setNewConceptType(e.target.value as 'Ingreso' | 'Egreso')}
+                                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', backgroundColor: 'white' }}
+                                >
+                                  <option value="Egreso">🔴 Egreso (Salida / Gasto)</option>
+                                  <option value="Ingreso">🟢 Ingreso (Entrada / Recibo)</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                                Descripción / Observaciones por Defecto (Opcional)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Ej. Gastos menores autorizados de la tienda o ingresos por sencillo"
+                                value={newConceptDesc}
+                                onChange={e => setNewConceptDesc(e.target.value)}
+                                style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', outline: 'none' }}
+                              />
+                            </div>
+
+                            <button
+                              type="submit"
+                              style={{
+                                padding: '0.65rem 1rem',
+                                background: `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
+                                border: 'none',
+                                borderRadius: '8px',
+                                color: 'white',
+                                fontWeight: '900',
+                                fontSize: '0.8rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.4rem',
+                                boxShadow: '0 3px 10px rgba(128,8,46,0.2)'
+                              }}
+                            >
+                              <Plus size={15} /> Parametrizar y Guardar Concepto
+                            </button>
+                          </form>
+                        </div>
+
+                        {/* List of Concepts */}
+                        <div style={{ background: 'white', borderRadius: '14px', padding: '1.25rem', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>
+                            Conceptos Parametrizados en el Sistema ({cashConcepts.length})
+                          </h4>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                            {cashConcepts.map((cpt, idx) => (
+                              <div
+                                key={cpt.id || idx}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '0.85rem 1rem',
+                                  borderRadius: '10px',
+                                  border: `1.5px solid ${cpt.activo ? '#cbd5e1' : '#f1f5f9'}`,
+                                  backgroundColor: cpt.activo ? '#ffffff' : '#f8fafc',
+                                  opacity: cpt.activo ? 1 : 0.6
+                                }}
+                              >
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                                  <span style={{
+                                    padding: '0.2rem 0.6rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.68rem',
+                                    fontWeight: '900',
+                                    backgroundColor: cpt.tipo === 'Ingreso' ? '#ecfdf5' : '#fee2e2',
+                                    color: cpt.tipo === 'Ingreso' ? '#047857' : '#b91c1c',
+                                    border: `1px solid ${cpt.tipo === 'Ingreso' ? '#a7f3d0' : '#fca5a5'}`
+                                  }}>
+                                    {cpt.tipo === 'Ingreso' ? '🟢 Ingreso' : '🔴 Egreso'}
+                                  </span>
+
+                                  <div>
+                                    <div style={{ fontSize: '0.82rem', fontWeight: '850', color: '#0f172a' }}>
+                                      {cpt.nombre}
+                                    </div>
+                                    {cpt.descripcion && (
+                                      <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                                        {cpt.descripcion}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const updated = cashConcepts.map(c => c.id === cpt.id ? { ...c, activo: !c.activo } : c);
+                                      setCashConcepts(updated);
+                                      localStorage.setItem('pos_cash_concepts', JSON.stringify(updated));
+                                      await saveCustomTheme(staffRoles, staffAssignments, transferMethods, updated);
+                                    }}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #cbd5e1',
+                                      backgroundColor: cpt.activo ? '#dcfce7' : '#fee2e2',
+                                      color: cpt.activo ? '#166534' : '#991b1b',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {cpt.activo ? '✓ Activo' : '✕ Inactivo'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!confirm(`¿Eliminar el concepto "${cpt.nombre}"?`)) return;
+                                      const updated = cashConcepts.filter(c => c.id !== cpt.id);
+                                      setCashConcepts(updated);
+                                      localStorage.setItem('pos_cash_concepts', JSON.stringify(updated));
+                                      await saveCustomTheme(staffRoles, staffAssignments, transferMethods, updated);
+                                    }}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #fca5a5',
+                                      background: '#fff1f2',
+                                      color: '#dc2626',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
                                   >
                                     🗑️
                                   </button>
@@ -8638,6 +8976,35 @@ export default function POSPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Thermal Receipt Modal (Optional Print on demand) */}
+      <POSReceiptModal
+        isOpen={showReceiptModal}
+        onClose={() => setShowReceiptModal(false)}
+        receiptData={lastReceiptData}
+        primaryColor={customPrimary}
+      />
+
+      {/* Cash Movement (Ingresos / Egresos de Caja) Modal */}
+      {currentSession && (
+        <POSCashMovementModal
+          isOpen={showCashMovementModal}
+          onClose={() => setShowCashMovementModal(false)}
+          sessionId={currentSession.id}
+          sessionUser={profile?.full_name || user?.email || 'Cajero'}
+          storeId={selectedStore?.id || ''}
+          registerId={selectedRegister?.id || ''}
+          primaryColor={customPrimary}
+          secondaryColor={customSecondary}
+          concepts={cashConcepts}
+          onMovementSaved={() => {
+            if (currentSession) {
+              fetchSessionSalesTotal(currentSession.id);
+              fetchSessionSalesDetails(currentSession.id);
+            }
+          }}
+        />
       )}
     </div>
   );
