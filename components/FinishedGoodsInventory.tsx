@@ -6,7 +6,7 @@ import {
   Package, Search, Plus, MoveHorizontal, X, Loader2,
   TrendingUp, TrendingDown, CheckCircle2, Clock, AlertTriangle,
   MapPin, Eye, FileText, ArrowRight, Download, Upload, RefreshCw, Barcode, QrCode,
-  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3, RotateCcw, Layers3, Building2
+  Printer, Calendar, History, Tag, FileSpreadsheet, Layers, PieChart, BarChart3, RotateCcw, Layers3, Building2, Trash2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { revertQualityApprovalFromInventory } from '@/lib/finished-goods-sync';
@@ -5319,46 +5319,36 @@ export default function FinishedGoodsInventory() {
 
                           // Resolve product_id if null by checking reference_name against products master
                           let resolvedProductId = garment.product_id;
-                          let resolvedProductName = '';
-                          
-                          if (resolvedProductId) {
-                            const pObj = products.find(p => p.id === resolvedProductId);
-                            if (pObj) resolvedProductName = pObj.nombre_producto;
-                          }
+                          let matchedProd = resolvedProductId ? products.find(p => p.id === resolvedProductId) : null;
 
-                          if (!resolvedProductId && garment.reference_name) {
+                          if (!matchedProd && garment.reference_name) {
                             const refClean = garment.reference_name.trim().toUpperCase();
-                            const matchedProd = products.find(p =>
+                            matchedProd = products.find(p =>
                               (p.codigo_referencia && p.codigo_referencia.trim().toUpperCase() === refClean) ||
                               (p.nombre_producto && p.nombre_producto.trim().toUpperCase() === refClean)
                             );
                             if (matchedProd) {
                               resolvedProductId = matchedProd.id;
-                              resolvedProductName = matchedProd.nombre_producto;
                             }
                           }
 
-                          // Fallback display name if no master product matched
-                          const displayName = resolvedProductName || garment.reference_name || 'Prenda Única / Lote Histórico';
+                          // Category label resolution
+                          const categoryName = matchedProd?.categories?.categoria ||
+                            categories.find(c => c.id === matchedProd?.category_id)?.categoria ||
+                            matchedProd?.categoria ||
+                            (matchedProd?.nombre_producto ? `${matchedProd.nombre_producto}` : null) ||
+                            garment.reference_name ||
+                            'Prenda / Categoría General';
 
-                          // Resolve color_id and size_id if missing
-                          let resolvedColorId = garment.color_id;
-                          if (!resolvedColorId && garment.color_name) {
-                            const cObj = colors.find(c => c.nombre_color.trim().toUpperCase() === garment.color_name.trim().toUpperCase());
-                            if (cObj) resolvedColorId = cObj.id;
-                          }
+                          const displayName = categoryName;
 
-                          let resolvedSizeId = garment.size_id;
-                          if (!resolvedSizeId && garment.size_code) {
-                            const sObj = sizes.find(s => s.codigo_talla.trim().toUpperCase() === garment.size_code.trim().toUpperCase());
-                            if (sObj) resolvedSizeId = sObj.id;
-                          }
+                          // Resolve color_id and size_id if available to preserve stock integrity
+                          let resolvedColorId = garment.color_id || colors[0]?.id || null;
+                          let resolvedSizeId = garment.size_id || sizes[0]?.id || null;
 
-                          // Group by product, color, size
+                          // Group by category/product
                           const existingIdx = transferForm.items.findIndex(i =>
-                            (resolvedProductId ? i.product_id === resolvedProductId : (i.nameLabel === displayName)) &&
-                            (resolvedColorId ? i.color_id === resolvedColorId : true) &&
-                            (resolvedSizeId ? i.size_id === resolvedSizeId : true)
+                            resolvedProductId ? i.product_id === resolvedProductId : (i.categoryLabel === displayName || i.nameLabel === displayName)
                           );
 
                           if (existingIdx >= 0) {
@@ -5369,12 +5359,14 @@ export default function FinishedGoodsInventory() {
                           } else {
                             const items = [{
                               product_id: resolvedProductId || null,
-                              color_id: resolvedColorId || null,
-                              size_id: resolvedSizeId || null,
+                              color_id: resolvedColorId,
+                              size_id: resolvedSizeId,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              nameLabel: displayName }, ...transferForm.items];
+                              categoryLabel: displayName,
+                              nameLabel: displayName
+                            }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
                           return;
@@ -5383,26 +5375,36 @@ export default function FinishedGoodsInventory() {
                         // 2. If not found in individual_garments, check products catalog by SKU / barcode reference
                         const { data: prod } = await supabase
                           .from('products')
-                          .select('*')
+                          .select('*, categories(*)')
                           .or(`codigo_referencia.ilike.${codeClean},nombre_producto.ilike.%${codeClean}%`)
                           .limit(1)
                           .maybeSingle();
                         
                         if (prod) {
+                          const categoryName = prod.categories?.categoria ||
+                            categories.find(c => c.id === prod.category_id)?.categoria ||
+                            prod.categoria ||
+                            prod.nombre_producto ||
+                            'Categoría General';
+
                           const existingIdx = transferForm.items.findIndex(i => i.product_id === prod.id);
                           if (existingIdx >= 0) {
                             const items = [...transferForm.items];
                             items[existingIdx].cantidad += 1;
+                            if (!items[existingIdx].barcodes) items[existingIdx].barcodes = [];
+                            items[existingIdx].barcodes.push(codeClean);
                             setTransferForm({ ...transferForm, items });
                           } else {
                             const items = [{
                               product_id: prod.id,
-                              color_id: colors[0]?.id || '',
-                              size_id: sizes[0]?.id || '',
+                              color_id: colors[0]?.id || null,
+                              size_id: sizes[0]?.id || null,
                               cantidad: 1,
                               barcodes: [codeClean],
                               codeLabel: codeClean,
-                              nameLabel: prod.nombre_producto }, ...transferForm.items];
+                              categoryLabel: categoryName,
+                              nameLabel: categoryName
+                            }, ...transferForm.items];
                             setTransferForm({ ...transferForm, items });
                           }
                           return;
@@ -5422,9 +5424,19 @@ export default function FinishedGoodsInventory() {
                 <button
                   type="button"
                   onClick={() => {
+                    const firstProd = products[0];
+                    const catName = firstProd?.categories?.categoria || categories.find(c => c.id === firstProd?.category_id)?.categoria || firstProd?.categoria || firstProd?.nombre_producto || 'Categoría General';
                     setTransferForm({
                       ...transferForm,
-                      items: [{ product_id: products[0]?.id || '', color_id: colors[0]?.id || '', size_id: sizes[0]?.id || '', cantidad: 1 }, ...transferForm.items]
+                      items: [{
+                        product_id: firstProd?.id || '',
+                        color_id: colors[0]?.id || null,
+                        size_id: sizes[0]?.id || null,
+                        cantidad: 1,
+                        categoryLabel: catName,
+                        nameLabel: firstProd?.nombre_producto || catName,
+                        barcodes: []
+                      }, ...transferForm.items]
                     });
                   }}
                   style={{ padding: '0.75rem 1.25rem', backgroundColor: '#4338ca', color: 'white', border: 'none', borderRadius: '10px', fontWeight: '900', fontSize: '0.82rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
@@ -5448,7 +5460,7 @@ export default function FinishedGoodsInventory() {
                       Pistolea el código de barras de las prendas o presiona (+ Manual)
                     </p>
                     <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                      Cada escaneo incrementará automáticamente +1 unidad a la lista de despacho.
+                      Cada escaneo incrementará automáticamente +1 unidad a la lista de despacho sin mostrar desglose de color ni talla.
                     </p>
                   </div>
                 ) : (
@@ -5456,27 +5468,24 @@ export default function FinishedGoodsInventory() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
                       <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
                         <tr>
-                          <th style={{ padding: '0.6rem 0.85rem' }}>Producto / Referencia</th>
-                          <th style={{ padding: '0.6rem 0.85rem' }}>Color</th>
-                          <th style={{ padding: '0.6rem 0.85rem' }}>Talla</th>
-                          <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Cantidad a Trasladar</th>
-                          <th style={{ padding: '0.6rem 0.85rem', textAlign: 'center' }}>Acción</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Categoría / Referencia</th>
+                          <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Cantidad de Prendas</th>
+                          <th style={{ padding: '0.75rem 1rem', textAlign: 'center', width: '80px' }}>Acción</th>
                         </tr>
                       </thead>
                       <tbody>
                         {transferForm.items.map((item, index) => {
-                          const prodObj = products.find(p => p.id === item.product_id);
                           return (
                             <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '0.5rem 0.85rem' }}>
+                              <td style={{ padding: '0.65rem 1rem' }}>
                                 {item.nameLabel ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                                    <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.85rem' }}>
-                                      {item.nameLabel}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.88rem' }}>
+                                      {item.categoryLabel || item.nameLabel}
                                     </span>
-                                    {item.codeLabel && (
-                                      <span style={{ fontSize: '0.68rem', fontFamily: 'monospace', color: '#6366f1', fontWeight: '800' }}>
-                                        ID: {item.codeLabel}
+                                    {item.barcodes && item.barcodes.length > 0 && (
+                                      <span style={{ fontSize: '0.7rem', color: '#6366f1', fontWeight: '700' }}>
+                                        {item.barcodes.length} {item.barcodes.length === 1 ? 'código escaneado' : 'códigos escaneados'}
                                       </span>
                                     )}
                                   </div>
@@ -5486,50 +5495,27 @@ export default function FinishedGoodsInventory() {
                                     value={item.product_id || ''}
                                     onChange={e => {
                                       const items = [...transferForm.items];
+                                      const selProd = products.find(p => p.id === e.target.value);
+                                      const catName = selProd?.categories?.categoria || categories.find(c => c.id === selProd?.category_id)?.categoria || selProd?.categoria || selProd?.nombre_producto;
                                       items[index].product_id = e.target.value;
+                                      items[index].categoryLabel = catName;
+                                      items[index].nameLabel = selProd?.nombre_producto || catName;
                                       setTransferForm({ ...transferForm, items });
                                     }}
-                                    style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '800' }}
+                                    style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '800' }}
                                   >
-                                    <option value="">Seleccionar Producto...</option>
-                                    {products.map(p => <option key={p.id} value={p.id}>{p.nombre_producto || p.codigo_referencia}</option>)}
+                                    <option value="">Seleccionar Categoría / Producto...</option>
+                                    {products.map(p => {
+                                      const catName = p.categories?.categoria || categories.find(c => c.id === p.category_id)?.categoria || p.categoria;
+                                      const label = catName ? `${catName} — ${p.nombre_producto || p.codigo_referencia}` : (p.nombre_producto || p.codigo_referencia);
+                                      return <option key={p.id} value={p.id}>{label}</option>;
+                                    })}
                                   </select>
                                 )}
                               </td>
 
-                              <td style={{ padding: '0.5rem 0.85rem' }}>
-                                <select
-                                  value={item.color_id || ''}
-                                  onChange={e => {
-                                    const items = [...transferForm.items];
-                                    items[index].color_id = e.target.value;
-                                    setTransferForm({ ...transferForm, items });
-                                  }}
-                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
-                                >
-                                  <option value="">Color...</option>
-                                  {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
-                                </select>
-                              </td>
-
-                              <td style={{ padding: '0.5rem 0.85rem' }}>
-                                <select
-                                  required
-                                  value={item.size_id || ''}
-                                  onChange={e => {
-                                    const items = [...transferForm.items];
-                                    items[index].size_id = e.target.value;
-                                    setTransferForm({ ...transferForm, items });
-                                  }}
-                                  style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
-                                >
-                                  <option value="">Talla...</option>
-                                  {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
-                                </select>
-                              </td>
-
-                              <td style={{ padding: '0.5rem 0.85rem', textAlign: 'center' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+                              <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -5537,7 +5523,7 @@ export default function FinishedGoodsInventory() {
                                       items[index].cantidad = Math.max(1, items[index].cantidad - 1);
                                       setTransferForm({ ...transferForm, items });
                                     }}
-                                    style={{ padding: '0.2rem 0.5rem', backgroundColor: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', fontWeight: '900', cursor: 'pointer' }}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontWeight: '900', cursor: 'pointer' }}
                                   >
                                     -
                                   </button>
@@ -5551,7 +5537,7 @@ export default function FinishedGoodsInventory() {
                                       items[index].cantidad = Math.max(1, Number(e.target.value));
                                       setTransferForm({ ...transferForm, items });
                                     }}
-                                    style={{ width: '50px', padding: '0.35rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '900', textAlign: 'center' }}
+                                    style={{ width: '60px', padding: '0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '900', textAlign: 'center' }}
                                   />
                                   <button
                                     type="button"
@@ -5560,23 +5546,24 @@ export default function FinishedGoodsInventory() {
                                       items[index].cantidad += 1;
                                       setTransferForm({ ...transferForm, items });
                                     }}
-                                    style={{ padding: '0.2rem 0.5rem', backgroundColor: '#e0e7ff', color: '#4338ca', border: 'none', borderRadius: '4px', fontWeight: '900', cursor: 'pointer' }}
+                                    style={{ padding: '0.25rem 0.6rem', backgroundColor: '#e0e7ff', color: '#4338ca', border: 'none', borderRadius: '6px', fontWeight: '900', cursor: 'pointer' }}
                                   >
                                     +
                                   </button>
                                 </div>
                               </td>
 
-                              <td style={{ padding: '0.5rem 0.85rem', textAlign: 'center' }}>
+                              <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const items = transferForm.items.filter((_, i) => i !== index);
                                     setTransferForm({ ...transferForm, items });
                                   }}
-                                  style={{ border: 'none', backgroundColor: '#fef2f2', color: '#ef4444', padding: '0.3rem 0.5rem', borderRadius: '6px', cursor: 'pointer' }}
+                                  style={{ border: 'none', backgroundColor: '#fef2f2', color: '#ef4444', padding: '0.4rem 0.6rem', borderRadius: '8px', cursor: 'pointer' }}
+                                  title="Eliminar"
                                 >
-                                  <X size={16} />
+                                  <Trash2 size={16} />
                                 </button>
                               </td>
                             </tr>
