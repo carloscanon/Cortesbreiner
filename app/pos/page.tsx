@@ -9,12 +9,13 @@ import {
   DollarSign, FileText, Lock, Unlock, AlertCircle, Sparkles, X, Loader2,
   RefreshCcw, ArrowLeftRight, Clock, MoreHorizontal, XCircle,
   ShoppingBag, Shirt, Users, Receipt, Landmark, BarChart3, Award, Settings,
-  Bell, MessageSquare, Heart, LogOut, Package
+  Bell, MessageSquare, Heart, LogOut, Package, Building2, Warehouse
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import POSTransferManager from '@/components/pos/POSTransferManager';
 import POSExchangeModal from '@/components/pos/POSExchangeModal';
+import POSWarehouseStockModal from '@/components/pos/POSWarehouseStockModal';
 
 const BodysuitIcon = ({ color }: { color: string }) => (
   <svg viewBox="0 0 100 130" style={{ width: '100%', height: '100%', maxHeight: '90px' }} xmlns="http://www.w3.org/2000/svg">
@@ -476,6 +477,7 @@ export default function POSPage() {
 
   const mainItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingBag, module: 'pos' },
+    { id: 'stock_bodegas', label: '🏢 Stock por Bodega', icon: Building2, module: 'pos' },
     { id: 'traslados', label: '🚚📦 Traslados', icon: ArrowLeftRight, module: 'traslados' },
     { id: 'productos', label: 'Productos', icon: Shirt, module: 'pos' },
     { id: 'clientes', label: 'Clientes', icon: Users, module: 'clientes' },
@@ -990,6 +992,7 @@ export default function POSPage() {
   // Return / Exchange flow state
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showExchangeModal, setShowExchangeModal] = useState(false);
+  const [showWarehouseStockModal, setShowWarehouseStockModal] = useState(false);
   const [returnProduct, setReturnProduct] = useState<any>(null);
   const [returnSizeId, setReturnSizeId] = useState('');
   const [returnColorId, setReturnColorId] = useState('');
@@ -2997,7 +3000,9 @@ export default function POSPage() {
               const isActive = activeMenuId === item.id || (item.id === 'pos' && (activeMenuId === 'devoluciones' || activeMenuId === 'cambios'));
               return (
                 <div key={item.id} onClick={() => {
-                  if (item.id === 'cambios' || item.id === 'devoluciones') {
+                  if (item.id === 'stock_bodegas') {
+                    setShowWarehouseStockModal(true);
+                  } else if (item.id === 'cambios' || item.id === 'devoluciones') {
                     setShowExchangeModal(true);
                   } else {
                     setActiveMenuId(item.id);
@@ -3342,7 +3347,31 @@ export default function POSPage() {
             </div>
 
             {/* User status widgets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setShowWarehouseStockModal(true)}
+                style={{
+                  backgroundColor: '#3b82f6',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  boxShadow: '0 2px 8px rgba(59,130,246,0.35)',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <Building2 size={14} /> 🏢 Stock en Bodegas
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowExchangeModal(true)}
@@ -7973,6 +8002,18 @@ export default function POSPage() {
           fetchInlineInventory();
           fetchInlineSales();
         }}
+      />
+
+      {/* POS WAREHOUSE STOCK LOOKUP MODAL */}
+      <POSWarehouseStockModal
+        isOpen={showWarehouseStockModal}
+        onClose={() => setShowWarehouseStockModal(false)}
+        currentStore={selectedStore}
+        products={products}
+        colors={colors}
+        sizes={sizes}
+        onAddToCart={(prod, colId, szId) => doAddToCart(prod, colId, szId)}
+        onOpenTransfers={() => setActiveMenuId('traslados')}
       />
 
       {/* OPEN CASH SESSION MODAL */}
