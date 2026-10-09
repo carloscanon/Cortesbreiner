@@ -14,6 +14,7 @@ import {
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import POSTransferManager from '@/components/pos/POSTransferManager';
+import POSExchangeModal from '@/components/pos/POSExchangeModal';
 
 const BodysuitIcon = ({ color }: { color: string }) => (
   <svg viewBox="0 0 100 130" style={{ width: '100%', height: '100%', maxHeight: '90px' }} xmlns="http://www.w3.org/2000/svg">
@@ -479,7 +480,7 @@ export default function POSPage() {
     { id: 'productos', label: 'Productos', icon: Shirt, module: 'pos' },
     { id: 'clientes', label: 'Clientes', icon: Users, module: 'clientes' },
     { id: 'ventas', label: 'Ventas', icon: Receipt, module: 'ventas' },
-    { id: 'devoluciones', label: 'Devoluciones', icon: RefreshCcw, module: 'pos' },
+    { id: 'cambios', label: '🔄 Cambios / Devolución', icon: RefreshCcw, module: 'pos' },
     { id: 'cotizaciones', label: 'Cotizaciones', icon: FileText, module: 'pos' },
     { id: 'cajas', label: 'Cajas', icon: Landmark, module: 'pos' },
   ].filter(item => allowedPOSModules.includes(item.module));
@@ -988,6 +989,7 @@ export default function POSPage() {
 
   // Return / Exchange flow state
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [showExchangeModal, setShowExchangeModal] = useState(false);
   const [returnProduct, setReturnProduct] = useState<any>(null);
   const [returnSizeId, setReturnSizeId] = useState('');
   const [returnColorId, setReturnColorId] = useState('');
@@ -2992,11 +2994,11 @@ export default function POSPage() {
               MENÚ PRINCIPAL
             </div>
             {mainItems.map(item => {
-              const isActive = activeMenuId === item.id || (item.id === 'pos' && activeMenuId === 'devoluciones');
+              const isActive = activeMenuId === item.id || (item.id === 'pos' && (activeMenuId === 'devoluciones' || activeMenuId === 'cambios'));
               return (
                 <div key={item.id} onClick={() => {
-                  if (item.id === 'devoluciones') {
-                    setShowReturnModal(true);
+                  if (item.id === 'cambios' || item.id === 'devoluciones') {
+                    setShowExchangeModal(true);
                   } else {
                     setActiveMenuId(item.id);
                     if (item.id === 'clientes') fetchCrmCustomers();
@@ -3340,7 +3342,31 @@ export default function POSPage() {
             </div>
 
             {/* User status widgets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setShowExchangeModal(true)}
+                style={{
+                  backgroundColor: '#ec4899',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <RefreshCcw size={14} /> Módulo de Cambios
+              </button>
+
               <div 
                 onClick={() => {
                   setShowAlertsModal(true);
@@ -7923,105 +7949,31 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* DEVULUCIÓN / CAMBIO DE MERCANCÍA MODAL */}
-      {showReturnModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-          <div className="pos-modal" style={{
-            width: '90%',
-            maxWidth: '450px',
-            padding: '2.5rem',
-            background: 'var(--surface, #ffffff)',
-            border: '1px solid var(--border, #cbd5e1)',
-            borderRadius: '20px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ff6b00' }}><ArrowLeftRight size={22} /> Registrar Devolución</h3>
-              <button onClick={() => setShowReturnModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
-            </div>
-            
-            <form onSubmit={handleAddReturnToCart} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
-                Selecciona la prenda que el cliente va a devolver para ingresarla al inventario y asignarle saldo a favor.
-              </p>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Seleccionar Prenda</label>
-                <select
-                  required
-                  value={returnProduct?.id || ''}
-                  onChange={e => {
-                    const found = products.find(p => p.id === e.target.value);
-                    setReturnProduct(found || null);
-                    if (found) setReturnPrice(String(found.precio || 35000));
-                  }}
-                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border, #cbd5e1)', fontSize: '0.85rem', outline: 'none' }}
-                >
-                  <option value="">Seleccionar...</option>
-                  {products.filter(p => p.estado === 'activo' || !p.estado).map(p => <option key={p.id} value={p.id}>{p.nombre_producto} ({p.codigo_referencia})</option>)}
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Talla</label>
-                  <select
-                    required
-                    value={returnSizeId}
-                    onChange={e => setReturnSizeId(e.target.value)}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border, #cbd5e1)', fontSize: '0.85rem', outline: 'none' }}
-                  >
-                    <option value="">Seleccionar...</option>
-                    {sizes.map(s => <option key={s.id} value={s.id}>{s.codigo_talla}</option>)}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Color</label>
-                  <select
-                    required
-                    value={returnColorId}
-                    onChange={e => setReturnColorId(e.target.value)}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border, #cbd5e1)', fontSize: '0.85rem', outline: 'none' }}
-                  >
-                    <option value="">Seleccionar...</option>
-                    {colors.map(c => <option key={c.id} value={c.id}>{c.nombre_color}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Monto Crédito / Saldo a Favor ($)</label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  value={returnPrice}
-                  onChange={e => setReturnPrice(e.target.value)}
-                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1px solid var(--border, #cbd5e1)', fontSize: '0.85rem', outline: 'none' }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                style={{
-                  width: '100%',
-                  padding: '0.85rem',
-                  background: 'linear-gradient(90deg, #80082E 0%, #D81B60 100%)',
-                  border: 'none',
-                  borderRadius: '10px',
-                  color: 'white',
-                  fontWeight: '800',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(216,27,96,0.3)'
-                }}
-              >
-                Agregar al Carrito
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* POS EXCHANGE & RETURN MODAL */}
+      <POSExchangeModal
+        isOpen={showExchangeModal || showReturnModal}
+        onClose={() => {
+          setShowExchangeModal(false);
+          setShowReturnModal(false);
+        }}
+        currentStore={selectedStore}
+        currentSession={currentSession}
+        currentUser={user}
+        userProfile={profile}
+        products={products}
+        colors={colors}
+        sizes={sizes}
+        inventoryList={inventoryList}
+        deductStockFn={deductStockForSaleItem}
+        onExchangeCompleted={() => {
+          if (currentSession) {
+            fetchSessionSalesTotal(currentSession.id);
+            fetchSessionSalesDetails(currentSession.id);
+          }
+          fetchInlineInventory();
+          fetchInlineSales();
+        }}
+      />
 
       {/* OPEN CASH SESSION MODAL */}
       {showOpenSessionModal && (
