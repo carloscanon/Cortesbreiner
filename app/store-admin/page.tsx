@@ -694,7 +694,7 @@ export default function StoreAdminPage() {
     let targetStoreId = storeForm.id;
     try {
       if (storeForm.id) {
-        const { error } = await supabase.from('stores').update({
+        const updatePayload: any = {
           codigo: storeForm.codigo,
           nombre: storeForm.nombre,
           direccion: storeForm.direccion,
@@ -703,14 +703,19 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
+          meta_mensual: metaVal,
           estado: storeForm.estado
-        }).eq('id', storeForm.id);
+        };
+
+        const { error } = await supabase.from('stores').update(updatePayload).eq('id', storeForm.id);
 
         if (error) {
-          console.error('Error updating store in database:', error);
+          console.warn('Direct stores.meta_mensual update note:', error.message);
+          const { meta_mensual, ...fallbackPayload } = updatePayload;
+          await supabase.from('stores').update(fallbackPayload).eq('id', storeForm.id);
         }
       } else {
-        const { data: newStore, error } = await supabase.from('stores').insert([{
+        const insertPayload: any = {
           codigo: storeForm.codigo,
           nombre: storeForm.nombre,
           direccion: storeForm.direccion,
@@ -719,11 +724,17 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
+          meta_mensual: metaVal,
           estado: storeForm.estado
-        }]).select('id').single();
+        };
+
+        const { data: newStore, error } = await supabase.from('stores').insert([insertPayload]).select('id').single();
 
         if (error) {
-          console.error('Error inserting store in database:', error);
+          console.warn('Direct stores.meta_mensual insert note:', error.message);
+          const { meta_mensual, ...fallbackPayload } = insertPayload;
+          const { data: fbStore } = await supabase.from('stores').insert([fallbackPayload]).select('id').single();
+          if (fbStore?.id) targetStoreId = fbStore.id;
         } else if (newStore?.id) {
           targetStoreId = newStore.id;
         }
