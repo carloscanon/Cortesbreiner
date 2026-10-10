@@ -143,16 +143,33 @@ export async function POST(req: Request) {
 
       const globalGarmentMap = new Map<string, any>();
       dbMatchedGarments.forEach((g: any) => {
-        if (g.barcode) globalGarmentMap.set(g.barcode.trim(), g);
+        if (g.barcode) {
+          const rawBc = g.barcode.trim();
+          const unpaddedBc = rawBc.replace(/^0+/, '');
+          globalGarmentMap.set(rawBc, g);
+          globalGarmentMap.set(unpaddedBc, g);
+        }
       });
 
       const expectedBarcodeMap = new Map<string, any>();
       expectedGarments.forEach((g: any) => {
-        if (g.barcode) expectedBarcodeMap.set(g.barcode.trim(), g);
+        if (g.barcode) {
+          const rawBc = g.barcode.trim();
+          const unpaddedBc = rawBc.replace(/^0+/, '');
+          expectedBarcodeMap.set(rawBc, g);
+          expectedBarcodeMap.set(unpaddedBc, g);
+        }
       });
 
       // 6. Match and categorize items
-      const scannedSet = new Set(scannedBarcodes);
+      const scannedSet = new Set<string>();
+      scannedBarcodes.forEach(bc => {
+        const raw = bc.trim();
+        const unpadded = raw.replace(/^0+/, '');
+        scannedSet.add(raw);
+        scannedSet.add(unpadded);
+      });
+
       const auditItemsToInsert: any[] = [];
 
       let totalExpectedQty = expectedGarments.length;
@@ -180,7 +197,8 @@ export async function POST(req: Request) {
       // A. Process Expected items in this warehouse
       expectedGarments.forEach((g: any) => {
         const bc = (g.barcode || '').trim();
-        const wasScanned = scannedSet.has(bc);
+        const unpadded = bc.replace(/^0+/, '');
+        const wasScanned = scannedSet.has(bc) || (unpadded.length > 0 && scannedSet.has(unpadded));
         const prod = resolveProduct(g.reference_name, g.product_id);
         const unitCost = Number(prod?.costo || prod?.precio_costo || (prod?.precio ? prod.precio * 0.5 : 25000));
         const unitPrice = Number(prod?.precio || prod?.precio_con_iva || 50000);
@@ -193,7 +211,7 @@ export async function POST(req: Request) {
             sku_code: bc,
             barcode: bc,
             product_name: g.reference_name || prod?.nombre_producto || 'Prenda Indiv.',
-            category_name: 'Prendas Individuales',
+            category_name: prod?.categoria || 'Prendas Individuales',
             color_name: g.color_name || '—',
             size_code: g.size_code || 'ST',
             expected_qty: 1,
@@ -214,7 +232,7 @@ export async function POST(req: Request) {
             sku_code: bc,
             barcode: bc,
             product_name: g.reference_name || prod?.nombre_producto || 'Prenda Indiv.',
-            category_name: 'Prendas Individuales',
+            category_name: prod?.categoria || 'Prendas Individuales',
             color_name: g.color_name || '—',
             size_code: g.size_code || 'ST',
             expected_qty: 1,
@@ -227,39 +245,66 @@ export async function POST(req: Request) {
         }
       });
 
-      // B. Process Scanned items that were NOT expected in this warehouse
+      // B. Process Scanned items that were NOT in the expected category snapshot
       scannedBarcodes.forEach(bc => {
-        if (!expectedBarcodeMap.has(bc)) {
-          // SOBRANTE / DE MÁS
-          const gMatch = globalGarmentMap.get(bc);
+        const rawBc = bc.trim();
+        const unpaddedBc = rawBc.replace(/^0+/, '');
+        const isAlreadyInExpected = expectedBarcodeMap.has(rawBc) || (unpaddedBc.length > 0 && expectedBarcodeMap.has(unpaddedBc));
+
+        if (!isAlreadyInExpected) {
+          const gMatch = globalGarmentMap.get(rawBc) || globalGarmentMap.get(unpaddedBc);
           const prod = resolveProduct(gMatch?.reference_name || '', gMatch?.product_id);
           const unitCost = Number(prod?.costo || prod?.precio_costo || (prod?.precio ? prod.precio * 0.5 : 25000));
           const unitPrice = Number(prod?.precio || prod?.precio_con_iva || 50000);
 
-          totalSurplusQty += 1;
-          financialSurplus += unitCost;
+          const belongsToAuditedWarehouse = gMatch && gMatch.warehouse_id === locationId;
 
-          const originWhName = gMatch?.warehouses?.nombre_bodega || (gMatch?.warehouse_id ? `Bodega (${gMatch.warehouse_id.slice(0, 8)}...)` : 'Sin Asignar');
+          if (belongsToAuditedWarehouse) {
+            // Belongs to this warehouse -> Match 1-to-1 as OK / Conciliado!
+            totalExpectedQty += 1;
+            auditItemsToInsert.push({
+              audit_id: auditId,
+              product_id: prod?.id || gMatch?.product_id || null,
+              sku_code: rawBc,
+              barcode: rawBc,
+              product_name: gMatch?.reference_name || prod?.nombre_producto || 'Prenda Indiv.',
+              category_name: prod?.categoria || 'Prendas Individuales',
+              color_name: gMatch?.color_name || '—',
+              size_code: gMatch?.size_code || 'ST',
+              expected_qty: 1,
+              counted_qty: 1,
+              unit_cost: unitCost,
+              unit_price: unitPrice,
+              status: 'OK',
+              item_state: 'Detectada'
+            });
+          } else {
+            // SOBRANTE / DE OTRA BODEGA O NO REGISTRADO
+            totalSurplusQty += 1;
+            financialSurplus += unitCost;
 
-          auditItemsToInsert.push({
-            audit_id: auditId,
-            product_id: prod?.id || null,
-            sku_code: bc,
-            barcode: bc,
-            product_name: gMatch?.reference_name || prod?.nombre_producto || 'Prenda Sobrante',
-            category_name: 'Prendas Individuales',
-            color_name: gMatch?.color_name || '—',
-            size_code: gMatch?.size_code || 'ST',
-            expected_qty: 0,
-            counted_qty: 1,
-            unit_cost: unitCost,
-            unit_price: unitPrice,
-            status: 'Sobrante',
-            item_state: 'Detectada',
-            justification: gMatch?.warehouse_id && gMatch.warehouse_id !== locationId
-              ? `Leído físicamente aquí pero registrado en ${originWhName}`
-              : 'Código leído físicamente sin asignación previa en bodega'
-          });
+            const originWhName = gMatch?.warehouses?.nombre_bodega || (gMatch?.warehouse_id ? `Bodega (${gMatch.warehouse_id.slice(0, 8)}...)` : 'Sin Asignar');
+
+            auditItemsToInsert.push({
+              audit_id: auditId,
+              product_id: prod?.id || null,
+              sku_code: rawBc,
+              barcode: rawBc,
+              product_name: gMatch?.reference_name || prod?.nombre_producto || 'Prenda Sobrante',
+              category_name: 'Prendas Individuales',
+              color_name: gMatch?.color_name || '—',
+              size_code: gMatch?.size_code || 'ST',
+              expected_qty: 0,
+              counted_qty: 1,
+              unit_cost: unitCost,
+              unit_price: unitPrice,
+              status: 'Sobrante',
+              item_state: 'Detectada',
+              justification: gMatch?.warehouse_id && gMatch.warehouse_id !== locationId
+                ? `Leído físicamente aquí pero registrado en ${originWhName}`
+                : 'Código leído físicamente sin asignación previa en bodega'
+            });
+          }
         }
       });
 
@@ -382,7 +427,21 @@ export async function POST(req: Request) {
       const { data: session } = await supabase.from('audit_sessions').select('*').eq('id', auditId).single();
       if (!session) return NextResponse.json({ error: 'Auditoría no encontrada.' }, { status: 404 });
 
-      const { data: items } = await supabase.from('audit_items').select('*').eq('audit_id', auditId);
+      let items: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: chunk, error: itemsErr } = await supabase
+          .from('audit_items')
+          .select('*')
+          .eq('audit_id', auditId)
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (itemsErr || !chunk || chunk.length === 0) break;
+        items = items.concat(chunk);
+        if (chunk.length < pageSize) break;
+        page++;
+      }
 
       if (!items || items.length === 0) {
         return NextResponse.json({ error: 'No hay ítems registrados en la auditoría para ajustar.' }, { status: 400 });

@@ -28,11 +28,22 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Sesión de auditoría no encontrada.' }, { status: 404 });
       }
 
-      const { data: items } = await supabase
-        .from('audit_items')
-        .select('*')
-        .eq('audit_id', sessionId)
-        .order('created_at', { ascending: true });
+      let items: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: chunk, error: itemsErr } = await supabase
+          .from('audit_items')
+          .select('*')
+          .eq('audit_id', sessionId)
+          .order('created_at', { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (itemsErr || !chunk || chunk.length === 0) break;
+        items = items.concat(chunk);
+        if (chunk.length < pageSize) break;
+        page++;
+      }
 
       const { data: unregistered } = await supabase
         .from('audit_unregistered_items')
