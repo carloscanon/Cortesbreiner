@@ -141,46 +141,55 @@ export async function POST(req: Request) {
     let totalExpectedItems = 0;
     let totalExpectedQty = 0;
 
-    // 2. Query 1-to-1 individual barcode garments (`individual_garments`)
+    // 2. Query 1-to-1 individual barcode garments (`individual_garments`) with pagination
     let garments: any[] = [];
-    
-    const { data: gAll } = await supabase
-      .from('individual_garments')
-      .select('*, warehouses(id, nombre_bodega)')
-      .neq('status', 'vendido')
-      .order('created_at', { ascending: false });
+    const pageSize = 1000;
+    let page = 0;
 
-    if (gAll && gAll.length > 0) {
+    // Filter by category keyword if targetCategories specified
+    const filterKeyword = targetCategories.length > 0 
+      ? targetCategories.find(c => !['body', 'tipo', 'linea'].includes(c) && c.length >= 3) || targetCategories[0]
+      : null;
+
+    while (true) {
+      let q = supabase
+        .from('individual_garments')
+        .select('*')
+        .neq('status', 'vendido');
+
       if (locationId !== 'all') {
-        const targetName = locationName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-        garments = gAll.filter((g: any) => {
-          if (g.warehouse_id === locationId || (g.warehouses && g.warehouses.id === locationId)) return true;
-          const whName = (g.warehouses?.nombre_bodega || g.warehouse_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-          return whName && (whName.includes(targetName) || targetName.includes(whName));
-        });
-      } else {
-        garments = gAll;
+        q = q.eq('warehouse_id', locationId);
       }
+
+      if (filterKeyword) {
+        q = q.ilike('reference_name', `%${filterKeyword}%`);
+      }
+
+      const { data: chunk, error: gErr } = await q.range(page * pageSize, (page + 1) * pageSize - 1);
+      if (gErr || !chunk || chunk.length === 0) break;
+      garments = garments.concat(chunk);
+      if (chunk.length < pageSize) break;
+      page++;
     }
 
     const registeredBarcodes = new Set<string>();
 
     if (garments && garments.length > 0) {
       // Fetch product prices map for unit cost/price resolution
-      const { data: prods } = await supabase.from('products').select('id, codigo_referencia, nombre_producto, precio, costo, categoria, category_id, categories(categoria)');
+      const { data: prods } = await supabase.from('products').select('id, codigo_referencia, nombre_producto, precio, costo, categoria, category_id');
       const prodMap = new Map<string, any>();
-      prods?.forEach(p => {
+      prods?.forEach((p: any) => {
         if (p.id) prodMap.set(p.id, p);
         if (p.codigo_referencia) prodMap.set(p.codigo_referencia.trim().toUpperCase(), p);
+        if (p.nombre_producto) prodMap.set(p.nombre_producto.trim().toLowerCase(), p);
       });
 
       garments.forEach(g => {
         if (!g.barcode) return;
         const bCode = g.barcode.trim();
 
-        const prod = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toUpperCase());
-        const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
-        const categoryName = (catObj?.categoria || prod?.categoria || 'Prendas Individuales').trim();
+        const prod = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toLowerCase()) || prodMap.get((g.reference_name || '').trim().toUpperCase());
+        const categoryName = (prod?.categoria || 'Prendas Individuales').trim();
 
         // If partial audit by category is active, filter out garments outside selected categories
         if (targetCategories.length > 0) {
@@ -200,8 +209,8 @@ export async function POST(req: Request) {
         registeredBarcodes.add(bCode);
 
         const productName = g.reference_name || prod?.nombre_producto || 'Prenda Indiv.';
-        const unitCost = Number(prod?.costo || prod?.precio * 0.5 || 0);
-        const unitPrice = Number(prod?.precio || 0);
+        const unitCost = Number(prod?.costo || (prod?.precio ? prod.precio * 0.5 : 25000));
+        const unitPrice = Number(prod?.precio || 50000);
 
         auditItemsToInsert.push({
           audit_id: session.id,
