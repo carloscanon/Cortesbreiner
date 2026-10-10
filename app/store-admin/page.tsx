@@ -573,15 +573,35 @@ export default function StoreAdminPage() {
       let plData: any[] = [];
       let pliData: any[] = [];
       try {
-        const { data } = await supabase.from('pos_price_lists').select('*').order('nombre');
-        plData = data || [];
+        const { data: lists } = await supabase.from('pos_price_lists').select('*').order('nombre');
+        plData = lists || [];
         const { data: items } = await supabase.from('pos_price_list_items').select('*');
         pliData = items || [];
       } catch (err) {
         console.warn("Tables pos_price_lists or pos_price_list_items do not exist yet.");
       }
 
-      setStores(st || []);
+      // Load store monthly targets from database settings table
+      let targetsMap: Record<string, number> = {};
+      try {
+        const { data: targetsSetting } = await supabase
+          .from('settings')
+          .select('*')
+          .eq('key', 'pos_store_monthly_targets')
+          .maybeSingle();
+        if (targetsSetting?.value) {
+          targetsMap = JSON.parse(targetsSetting.value);
+        }
+      } catch (err) {
+        console.warn("Could not load targets from settings table:", err);
+      }
+
+      const enrichedStores = (st || []).map((s: any) => ({
+        ...s,
+        meta_mensual: Number(targetsMap[s.id]) || Number(s.meta_mensual) || 0
+      }));
+
+      setStores(enrichedStores);
       setRegisters(reg || []);
       setSessions(ses || []);
       setPromotions(promo || []);
@@ -671,6 +691,7 @@ export default function StoreAdminPage() {
     e.preventDefault();
     setSavingStore(true);
     const metaVal = Number(storeForm.meta_mensual) || 0;
+    let targetStoreId = storeForm.id;
     try {
       if (storeForm.id) {
         const { error } = await supabase.from('stores').update({
@@ -682,25 +703,14 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
-          meta_mensual: metaVal,
           estado: storeForm.estado
         }).eq('id', storeForm.id);
 
         if (error) {
-          await supabase.from('stores').update({
-            codigo: storeForm.codigo,
-            nombre: storeForm.nombre,
-            direccion: storeForm.direccion,
-            ciudad: storeForm.ciudad,
-            responsable: storeForm.responsable,
-            telefono: storeForm.telefono,
-            bodega_asociada_id: storeForm.bodega_asociada_id || null,
-            resolucion_nro: storeForm.resolucion_nro,
-            estado: storeForm.estado
-          }).eq('id', storeForm.id);
+          console.error('Error updating store in database:', error);
         }
       } else {
-        const { error } = await supabase.from('stores').insert([{
+        const { data: newStore, error } = await supabase.from('stores').insert([{
           codigo: storeForm.codigo,
           nombre: storeForm.nombre,
           direccion: storeForm.direccion,
@@ -709,37 +719,53 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
-          meta_mensual: metaVal,
           estado: storeForm.estado
-        }]);
+        }]).select('id').single();
 
         if (error) {
-          await supabase.from('stores').insert([{
-            codigo: storeForm.codigo,
-            nombre: storeForm.nombre,
-            direccion: storeForm.direccion,
-            ciudad: storeForm.ciudad,
-            responsable: storeForm.responsable,
-            telefono: storeForm.telefono,
-            bodega_asociada_id: storeForm.bodega_asociada_id || null,
-            resolucion_nro: storeForm.resolucion_nro,
-            estado: storeForm.estado
-          }]);
+          console.error('Error inserting store in database:', error);
+        } else if (newStore?.id) {
+          targetStoreId = newStore.id;
         }
       }
 
-      // Backup into local storage
-      try {
-        const localTargets = JSON.parse(localStorage.getItem('pos_store_monthly_targets') || '{}');
-        if (storeForm.id) {
-          localTargets[storeForm.id] = metaVal;
+      // Persist store target 100% in database
+      if (targetStoreId) {
+        try {
+          const { data: currentSettings } = await supabase
+            .from('settings')
+            .select('*')
+            .eq('key', 'pos_store_monthly_targets')
+            .maybeSingle();
+
+          let targetsMap: Record<string, number> = {};
+          if (currentSettings?.value) {
+            try {
+              targetsMap = JSON.parse(currentSettings.value);
+            } catch (e) {}
+          }
+          targetsMap[targetStoreId] = metaVal;
+
+          await supabase.from('settings').upsert({
+            key: 'pos_store_monthly_targets',
+            value: JSON.stringify(targetsMap),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+
+          // Also backup via backend API
+          await fetch('/api/stores/meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ store_id: targetStoreId, meta_mensual: metaVal })
+          });
+        } catch (dbErr) {
+          console.error('Error persisting monthly target to database:', dbErr);
         }
-        localStorage.setItem('pos_store_monthly_targets', JSON.stringify(localTargets));
-      } catch (e) {}
+      }
 
       setShowStoreModal(false);
       setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', meta_mensual: '', estado: 'activo' });
-      fetchData();
+      await fetchData();
     } catch (err) {
       console.error(err);
     } finally {

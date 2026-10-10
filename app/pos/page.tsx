@@ -1463,7 +1463,32 @@ export default function POSPage() {
         console.warn("Price list tables might not exist yet.");
       }
 
-      setStores(st || []);
+      // Load store monthly targets from database settings table
+      let targetsMap: Record<string, number> = {};
+      try {
+        const { data: targetsSetting } = await supabase
+          .from('settings')
+          .select('*')
+          .eq('key', 'pos_store_monthly_targets')
+          .maybeSingle();
+        if (targetsSetting?.value) {
+          targetsMap = JSON.parse(targetsSetting.value);
+        }
+      } catch (err) {
+        console.warn('Could not load targets from settings table in POS:', err);
+      }
+
+      const enrichedStores = (st || []).map((s: any) => ({
+        ...s,
+        meta_mensual: Number(targetsMap[s.id]) || Number(s.meta_mensual) || 0
+      }));
+
+      setStores(enrichedStores);
+      setSelectedStore((prev: any) => {
+        if (!prev) return prev;
+        const fresh = enrichedStores.find((s: any) => s.id === prev.id);
+        return fresh || prev;
+      });
       setProducts(prod || []);
       setColors(col || []);
       setSizes(sz || []);
@@ -4680,12 +4705,7 @@ export default function POSPage() {
                     .filter((s: any) => s.created_at && s.created_at.includes(currentMonthPrefix) && s.estado !== 'anulada')
                     .reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0);
                   
-                  let localTargets: any = {};
-                  try {
-                    localTargets = JSON.parse(localStorage.getItem('pos_store_monthly_targets') || '{}');
-                  } catch (e) {}
-                  
-                  const storeMeta = Number(selectedStore?.meta_mensual) || Number(localTargets[selectedStore?.id]) || 0;
+                  const storeMeta = Number(selectedStore?.meta_mensual) || 0;
                   const compliancePercent = storeMeta > 0 ? Math.round((currentMonthSales / storeMeta) * 100) : (currentMonthSales > 0 ? 100 : 0);
                   const isGoalReached = storeMeta > 0 && currentMonthSales >= storeMeta;
                   const diffGoal = storeMeta - currentMonthSales;
