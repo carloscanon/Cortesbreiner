@@ -492,7 +492,7 @@ export default function StoreAdminPage() {
 
 
   // Forms
-  const [storeForm, setStoreForm] = useState({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', estado: 'activo' });
+  const [storeForm, setStoreForm] = useState({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', meta_mensual: '', estado: 'activo' });
   const [registerForm, setRegisterForm] = useState({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
   const [promoForm, setPromoForm] = useState({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
   const [shiftForm, setShiftForm] = useState({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: '', hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
@@ -670,9 +670,10 @@ export default function StoreAdminPage() {
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingStore(true);
+    const metaVal = Number(storeForm.meta_mensual) || 0;
     try {
       if (storeForm.id) {
-        await supabase.from('stores').update({
+        const { error } = await supabase.from('stores').update({
           codigo: storeForm.codigo,
           nombre: storeForm.nombre,
           direccion: storeForm.direccion,
@@ -681,10 +682,25 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
+          meta_mensual: metaVal,
           estado: storeForm.estado
         }).eq('id', storeForm.id);
+
+        if (error) {
+          await supabase.from('stores').update({
+            codigo: storeForm.codigo,
+            nombre: storeForm.nombre,
+            direccion: storeForm.direccion,
+            ciudad: storeForm.ciudad,
+            responsable: storeForm.responsable,
+            telefono: storeForm.telefono,
+            bodega_asociada_id: storeForm.bodega_asociada_id || null,
+            resolucion_nro: storeForm.resolucion_nro,
+            estado: storeForm.estado
+          }).eq('id', storeForm.id);
+        }
       } else {
-        await supabase.from('stores').insert([{
+        const { error } = await supabase.from('stores').insert([{
           codigo: storeForm.codigo,
           nombre: storeForm.nombre,
           direccion: storeForm.direccion,
@@ -693,11 +709,36 @@ export default function StoreAdminPage() {
           telefono: storeForm.telefono,
           bodega_asociada_id: storeForm.bodega_asociada_id || null,
           resolucion_nro: storeForm.resolucion_nro,
+          meta_mensual: metaVal,
           estado: storeForm.estado
         }]);
+
+        if (error) {
+          await supabase.from('stores').insert([{
+            codigo: storeForm.codigo,
+            nombre: storeForm.nombre,
+            direccion: storeForm.direccion,
+            ciudad: storeForm.ciudad,
+            responsable: storeForm.responsable,
+            telefono: storeForm.telefono,
+            bodega_asociada_id: storeForm.bodega_asociada_id || null,
+            resolucion_nro: storeForm.resolucion_nro,
+            estado: storeForm.estado
+          }]);
+        }
       }
+
+      // Backup into local storage
+      try {
+        const localTargets = JSON.parse(localStorage.getItem('pos_store_monthly_targets') || '{}');
+        if (storeForm.id) {
+          localTargets[storeForm.id] = metaVal;
+        }
+        localStorage.setItem('pos_store_monthly_targets', JSON.stringify(localTargets));
+      } catch (e) {}
+
       setShowStoreModal(false);
-      setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', estado: 'activo' });
+      setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', meta_mensual: '', estado: 'activo' });
       fetchData();
     } catch (err) {
       console.error(err);
@@ -1484,6 +1525,7 @@ export default function StoreAdminPage() {
       name: store.nombre,
       revenue: storeRevenue,
       salesCount: storeSales.length,
+      meta_mensual: Number(store.meta_mensual) || 0,
       avgTicket: storeSales.length > 0 ? (storeRevenue / storeSales.length) : 0
     };
   });
@@ -1641,7 +1683,7 @@ export default function StoreAdminPage() {
         {activeTab !== 'dashboard' && activeTab !== 'sessions' && activeTab !== 'sales_billing' && activeTab !== 'ux_manager' && (
           <button
             onClick={() => {
-              if (activeTab === 'stores') setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', estado: 'activo' });
+              if (activeTab === 'stores') setStoreForm({ id: '', codigo: '', nombre: '', direccion: '', ciudad: '', responsable: '', telefono: '', bodega_asociada_id: '', resolucion_nro: '', meta_mensual: '', estado: 'activo' });
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
               else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
@@ -1788,13 +1830,20 @@ export default function StoreAdminPage() {
                       <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                           <span style={{ fontWeight: '800' }}>{st.name}</span>
-                          <span style={{ fontWeight: '950' }}>${st.revenue.toLocaleString('es-CO')} ({st.salesCount} vts)</span>
+                          <span style={{ fontWeight: '950' }}>
+                            ${st.revenue.toLocaleString('es-CO')} ({st.salesCount} vts)
+                            {st.meta_mensual > 0 && (
+                              <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: '800', marginLeft: '0.4rem' }}>
+                                / Meta: ${Number(st.meta_mensual).toLocaleString('es-CO')} ({Math.round((st.revenue / st.meta_mensual) * 100)}%)
+                              </span>
+                            )}
+                          </span>
                         </div>
                         <div style={{ width: '100%', height: '8px', backgroundColor: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
                           <div style={{
-                            width: `${totalRevenue > 0 ? (st.revenue / totalRevenue) * 100 : 0}%`,
+                            width: `${st.meta_mensual > 0 ? Math.min(100, (st.revenue / st.meta_mensual) * 100) : (totalRevenue > 0 ? (st.revenue / totalRevenue) * 100 : 0)}%`,
                             height: '100%',
-                            backgroundColor: 'var(--primary)',
+                            backgroundColor: st.meta_mensual > 0 && st.revenue >= st.meta_mensual ? '#10b981' : 'var(--primary)',
                             borderRadius: '4px'
                           }} />
                         </div>
@@ -1831,6 +1880,7 @@ export default function StoreAdminPage() {
                       <th style={{ padding: '1rem' }}>Nombre Sucursal</th>
                       <th style={{ padding: '1rem' }}>Ciudad / Dirección</th>
                       <th style={{ padding: '1rem' }}>Responsable</th>
+                      <th style={{ padding: '1rem' }}>🎯 Meta Mensual</th>
                       <th style={{ padding: '1rem' }}>Bodega Producto Terminado</th>
                       <th style={{ padding: '1rem' }}>Resolución DIAN</th>
                       <th style={{ padding: '1rem' }}>Estado</th>
@@ -1844,6 +1894,9 @@ export default function StoreAdminPage() {
                         <td style={{ padding: '1rem', fontWeight: '750' }}>{s.nombre}</td>
                         <td style={{ padding: '1rem' }}>{s.ciudad} - {s.direccion}</td>
                         <td style={{ padding: '1rem', color: 'var(--primary)', fontWeight: '700' }}>{s.responsable || 'Sin asignar'}</td>
+                        <td style={{ padding: '1rem', fontWeight: '850', color: '#166534' }}>
+                          ${(Number(s.meta_mensual) || 0).toLocaleString('es-CO')}
+                        </td>
                         <td style={{ padding: '1rem' }}>{s.warehouses?.nombre_bodega || '—'}</td>
                         <td style={{ padding: '1rem' }}>{s.resolucion_nro || '—'}</td>
                         <td style={{ padding: '1rem' }}>
@@ -1859,7 +1912,10 @@ export default function StoreAdminPage() {
                         <td style={{ padding: '1rem', textAlign: 'center' }}>
                           <button
                             onClick={() => {
-                              setStoreForm(s);
+                              setStoreForm({
+                                ...s,
+                                meta_mensual: s.meta_mensual ? String(s.meta_mensual) : ''
+                              });
                               setShowStoreModal(true);
                             }}
                             style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', marginRight: '0.5rem', color: '#475569' }}
@@ -4905,6 +4961,19 @@ export default function StoreAdminPage() {
                   value={storeForm.resolucion_nro}
                   onChange={e => setStoreForm({ ...storeForm, resolucion_nro: e.target.value })}
                   style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#166534', marginBottom: '0.4rem' }}>
+                  🎯 Meta de Venta Mensual ($ COP)
+                </label>
+                <input
+                  type="number"
+                  placeholder="Ej: 50000000"
+                  value={storeForm.meta_mensual}
+                  onChange={e => setStoreForm({ ...storeForm, meta_mensual: e.target.value })}
+                  style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #86efac', fontSize: '0.875rem', fontWeight: '800', backgroundColor: '#f0fdf4' }}
                 />
               </div>
 

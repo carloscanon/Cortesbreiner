@@ -4652,19 +4652,50 @@ export default function POSPage() {
               </div>
             ) : activeMenuId === 'reportes' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.5rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Resumen Gerencial de Gestión</h2>
+                
+                {/* Header with date filter */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#0f172a', margin: 0 }}>📊 Reportes & Dashboard Gerencial</h2>
+                    <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>Métricas en tiempo real para <strong>{selectedStore?.nombre || 'Sucursal'}</strong></p>
+                  </div>
                   <select
                     value={reportDateRange}
                     onChange={(e) => { setReportDateRange(e.target.value); }}
-                    style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', backgroundColor: 'white', color: '#334155', fontWeight: '700' }}
+                    style={{ padding: '0.5rem 1rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white', color: '#0f172a', fontWeight: '800', cursor: 'pointer' }}
                   >
-                    <option value="today">Ventas del Día</option>
-                    <option value="all">Histórico Completo</option>
+                    <option value="today">📅 Ventas del Día de Hoy</option>
+                    <option value="all">📈 Histórico Completo</option>
                   </select>
                 </div>
-                {/* Dashboard KPI cards styled as requested */}
+
+                {/* Dashboard KPI cards and Goal tracking */}
                 {(() => {
+                  // Monthly goal computation
+                  const currentMonthPrefix = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).substring(0, 7); // 'YYYY-MM'
+                  const rawMonthName = new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+                  const capitalizedMonth = rawMonthName.charAt(0).toUpperCase() + rawMonthName.slice(1);
+                  
+                  const currentMonthSales = salesLogs
+                    .filter((s: any) => s.created_at && s.created_at.includes(currentMonthPrefix) && s.estado !== 'anulada')
+                    .reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0);
+                  
+                  let localTargets: any = {};
+                  try {
+                    localTargets = JSON.parse(localStorage.getItem('pos_store_monthly_targets') || '{}');
+                  } catch (e) {}
+                  
+                  const storeMeta = Number(selectedStore?.meta_mensual) || Number(localTargets[selectedStore?.id]) || 0;
+                  const compliancePercent = storeMeta > 0 ? Math.round((currentMonthSales / storeMeta) * 100) : (currentMonthSales > 0 ? 100 : 0);
+                  const isGoalReached = storeMeta > 0 && currentMonthSales >= storeMeta;
+                  const diffGoal = storeMeta - currentMonthSales;
+                  
+                  const now = new Date();
+                  const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                  const currentDay = now.getDate();
+                  const remainingDays = Math.max(1, totalDaysInMonth - currentDay + 1);
+                  const dailyPaceNeeded = diffGoal > 0 ? Math.round(diffGoal / remainingDays) : 0;
+
                   const filteredSales = salesLogs.filter((s: any) => {
                     if (reportDateRange === 'today') {
                       const localStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
@@ -4699,6 +4730,146 @@ export default function POSPage() {
 
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+                      {/* 🎯 HERO CARD: CUMPLIMIENTO DE META MENSUAL */}
+                      <div style={{
+                        borderRadius: '20px',
+                        background: isGoalReached 
+                          ? 'linear-gradient(135deg, #064e3b 0%, #047857 50%, #059669 100%)' 
+                          : compliancePercent >= 50
+                            ? 'linear-gradient(135deg, #1e1b4b 0%, #312e81 45%, #4338ca 100%)'
+                            : 'linear-gradient(135deg, #451a03 0%, #78350f 50%, #b45309 100%)',
+                        color: 'white',
+                        padding: '1.75rem 2rem',
+                        boxShadow: '0 12px 28px rgba(0,0,0,0.15)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                      }}>
+                        {/* Background glow decoration */}
+                        <div style={{
+                          position: 'absolute', top: '-40px', right: '-40px', width: '220px', height: '220px',
+                          borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none'
+                        }} />
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', position: 'relative', zIndex: 1 }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
+                              <span style={{ fontSize: '1.25rem' }}>🎯</span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '900', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)' }}>
+                                META COMERCIAL DEL MES · {capitalizedMonth}
+                              </span>
+                              <span style={{
+                                padding: '0.2rem 0.65rem',
+                                borderRadius: '20px',
+                                fontSize: '0.68rem',
+                                fontWeight: '950',
+                                backgroundColor: isGoalReached ? '#dcfce7' : '#fef3c7',
+                                color: isGoalReached ? '#166534' : '#92400e',
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+                              }}>
+                                {isGoalReached ? '🎉 ¡META SUPERADA!' : compliancePercent >= 75 ? '🚀 ¡RECTA FINAL!' : compliancePercent >= 50 ? '📈 EN CAMINO' : '⏳ INICIANDO MES'}
+                              </span>
+                            </div>
+                            <h3 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '950', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                              {selectedStore?.nombre || 'Punto de Venta'}
+                            </h3>
+                          </div>
+
+                          {/* Big Percentage Badge */}
+                          <div style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+                            backgroundColor: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)',
+                            padding: '0.6rem 1.25rem', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.2)'
+                          }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase' }}>CUMPLIMIENTO</span>
+                            <span style={{ fontSize: '2.2rem', fontWeight: '950', color: '#ffffff', lineHeight: 1, fontFamily: 'monospace' }}>
+                              {compliancePercent}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Visual Progress Bar with milestones */}
+                        <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', position: 'relative', zIndex: 1 }}>
+                          <div style={{
+                            width: '100%', height: '18px', backgroundColor: 'rgba(0,0,0,0.3)',
+                            borderRadius: '10px', overflow: 'hidden', padding: '2px', border: '1px solid rgba(255,255,255,0.15)'
+                          }}>
+                            <div style={{
+                              width: `${Math.min(100, compliancePercent)}%`,
+                              height: '100%',
+                              borderRadius: '8px',
+                              background: isGoalReached
+                                ? 'linear-gradient(90deg, #34d399 0%, #10b981 50%, #059669 100%)'
+                                : 'linear-gradient(90deg, #fbbf24 0%, #f59e0b 50%, #10b981 100%)',
+                              boxShadow: '0 0 12px rgba(255,255,255,0.4)',
+                              transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }} />
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'rgba(255,255,255,0.85)', fontWeight: '800' }}>
+                            <span>$0</span>
+                            <span>25%</span>
+                            <span>50%</span>
+                            <span>75%</span>
+                            <span>Meta: ${storeMeta > 0 ? storeMeta.toLocaleString('es-CO') : 'Sin Asignar'}</span>
+                          </div>
+                        </div>
+
+                        {/* Metric stats grid */}
+                        <div style={{
+                          marginTop: '1.5rem',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                          gap: '0.85rem',
+                          position: 'relative',
+                          zIndex: 1
+                        }}>
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' }}>Meta Asignada</span>
+                            <span style={{ fontSize: '1.2rem', fontWeight: '950', color: '#ffffff' }}>
+                              ${storeMeta.toLocaleString('es-CO')}
+                            </span>
+                          </div>
+
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' }}>Ventas del Mes en Curso</span>
+                            <span style={{ fontSize: '1.2rem', fontWeight: '950', color: '#a7f3d0' }}>
+                              ${currentMonthSales.toLocaleString('es-CO')}
+                            </span>
+                          </div>
+
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' }}>
+                              {isGoalReached ? 'Superávit Alcanzado' : 'Faltante para la Meta'}
+                            </span>
+                            <span style={{ fontSize: '1.2rem', fontWeight: '950', color: isGoalReached ? '#6ee7b7' : '#fde68a' }}>
+                              {isGoalReached ? `+$${Math.abs(diffGoal).toLocaleString('es-CO')}` : `$${Math.max(0, diffGoal).toLocaleString('es-CO')}`}
+                            </span>
+                          </div>
+
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' }}>Días Restantes del Mes</span>
+                            <span style={{ fontSize: '1.2rem', fontWeight: '950', color: '#ffffff' }}>
+                              {remainingDays} día{remainingDays !== 1 ? 's' : ''} <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>(Día {currentDay}/{totalDaysInMonth})</span>
+                            </span>
+                          </div>
+
+                          <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.15)' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: '800', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' }}>Ritmo Diario Requerido</span>
+                            <span style={{ fontSize: '1.2rem', fontWeight: '950', color: isGoalReached ? '#6ee7b7' : '#fbbf24' }}>
+                              {isGoalReached ? '✓ ¡Completado!' : `$${dailyPaceNeeded.toLocaleString('es-CO')}/día`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {storeMeta === 0 && (
+                          <div style={{ marginTop: '1rem', padding: '0.6rem 1rem', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: '10px', fontSize: '0.75rem', color: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>ℹ️ Puedes asignar o actualizar la meta mensual de este punto en el portal <strong>Administración de Tiendas (POS)</strong> en la pestaña Sucursales.</span>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Top KPI Cards Row */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
                         
@@ -4717,7 +4888,7 @@ export default function POSPage() {
                               boxShadow: '0 2px 6px rgba(59,130,246,0.1)', color: '#1d4ed8', fontWeight: '900', fontSize: '1.15rem'
                             }}>$</div>
                             <div>
-                              <span style={{ fontSize: '0.625rem', fontWeight: '900', color: '#1d4ed8', letterSpacing: '0.05em' }}>VENTAS TOTALES</span>
+                              <span style={{ fontSize: '0.625rem', fontWeight: '900', color: '#1d4ed8', letterSpacing: '0.05em' }}>VENTAS ({reportDateRange === 'today' ? 'HOY' : 'HISTÓRICO'})</span>
                               <h3 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#1e3a8a', margin: '0.15rem 0 0 0' }}>${totalSales.toLocaleString('es-CO')}</h3>
                             </div>
                           </div>
@@ -8102,19 +8273,34 @@ export default function POSPage() {
                   </div>
                 </div>
 
-                {/* TOTAL A COBRAR output label */}
+                {/* TOTAL A COBRAR output label — Alto Impacto, Notorio y Sin Transparencias */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', borderTop: '1px dashed #cbd5e1', paddingTop: '0.5rem' }}>
                   
                   {/* Destacado Renglón Total a Cobrar */}
                   <div style={{ 
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                    padding: customTotalPadding, borderRadius: '10px', 
-                    background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
-                    border: '1px solid #dbeafe', boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                    padding: '0.85rem 1.15rem', borderRadius: '12px', 
+                    background: 'linear-gradient(135deg, #80082E 0%, #991b1b 50%, #4a0418 100%)',
+                    border: '1.5px solid #80082E',
+                    boxShadow: '0 6px 18px rgba(128,8,46,0.3), inset 0 1px 1px rgba(255,255,255,0.25)',
                     transition: 'all 0.2s ease'
                   }}>
-                    <span style={{ fontSize: customTotalFontSize, fontWeight: customTotalFontWeight as any, color: customTotalColor, letterSpacing: '0.01em' }}>{customTotalLabel}</span>
-                    <span style={{ fontSize: customTotalFontSize, fontWeight: customTotalFontWeight as any, color: customTotalColor, letterSpacing: '-0.02em' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.68rem', fontWeight: '900', color: 'rgba(255,255,255,0.92)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {customTotalLabel || 'TOTAL A COBRAR'}
+                      </span>
+                      <span style={{ fontSize: '0.62rem', color: '#fbcfe8', fontWeight: '700' }}>
+                        IVA 19% Incluido
+                      </span>
+                    </div>
+                    <span style={{ 
+                      fontSize: '1.6rem', 
+                      fontWeight: '950', 
+                      color: '#ffffff', 
+                      letterSpacing: '-0.02em',
+                      textShadow: '0 2px 4px rgba(0,0,0,0.4)',
+                      fontFamily: 'monospace'
+                    }}>
                       ${totalCartPrice.toLocaleString('es-CO')}
                     </span>
                   </div>
