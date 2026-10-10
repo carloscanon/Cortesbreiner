@@ -60,17 +60,26 @@ export default function AuditManagerDashboard({
       try {
         let countMap: Record<string, number> = {};
 
-        // 1. Fetch individual garments count by category
-        let garmentsQuery = supabase
-          .from('individual_garments')
-          .select('reference_name, product_id')
-          .neq('status', 'vendido');
+        // 1. Fetch individual garments count by category with pagination
+        let garments: any[] = [];
+        let page = 0;
+        const pageSize = 1000;
+        while (true) {
+          let garmentsQuery = supabase
+            .from('individual_garments')
+            .select('reference_name, product_id')
+            .neq('status', 'vendido');
 
-        if (newLocationId && newLocationId !== 'all') {
-          garmentsQuery = garmentsQuery.eq('warehouse_id', newLocationId);
+          if (newLocationId && newLocationId !== 'all') {
+            garmentsQuery = garmentsQuery.eq('warehouse_id', newLocationId);
+          }
+
+          const { data: chunk, error: gErr } = await garmentsQuery.range(page * pageSize, (page + 1) * pageSize - 1);
+          if (gErr || !chunk || chunk.length === 0) break;
+          garments = garments.concat(chunk);
+          if (chunk.length < pageSize) break;
+          page++;
         }
-
-        const { data: garments } = await garmentsQuery;
 
         // Fetch products to map categories
         const { data: prods } = await supabase

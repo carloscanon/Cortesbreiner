@@ -36,8 +36,16 @@ export async function POST(req: Request) {
       .or(`barcode.eq.${cleanCode},sku_code.eq.${cleanCode},barcode.ilike.%${cleanCode}%,sku_code.ilike.%${cleanCode}%`);
 
     let itemToUpdate = matchedItems && matchedItems.length > 0 ? matchedItems[0] : null;
-
     let newlyInserted = false;
+
+    // Fetch session details to check location
+    const { data: session } = await supabase
+      .from('audit_sessions')
+      .select('id, location_id, location_name')
+      .eq('id', auditId)
+      .maybeSingle();
+
+    const locationId = session?.location_id;
 
     // 2. If not found in session snapshot, check `individual_garments` database table
     if (!itemToUpdate) {
@@ -52,8 +60,13 @@ export async function POST(req: Request) {
       const garment = garmentsList && garmentsList.length > 0 ? garmentsList[0] : null;
 
       if (garment) {
-        // Registered in database but was not in initial expected snapshot -> Add to session as Sobrante / Hallazgo Físico (1-to-1)
-        const { data: newItem } = await supabase
+        // If garment is in the audited warehouse -> It's a MATCH / OK (1-to-1)
+        // If garment belongs to another warehouse -> It's a Sobrante / Hallazgo Físico
+        const isInAuditedWarehouse = locationId && garment.warehouse_id === locationId;
+        const itemStatus = isInAuditedWarehouse ? 'OK' : 'Sobrante';
+        const expectedVal = isInAuditedWarehouse ? 1 : 0;
+
+        const { data: newItem, error: insErr } = await supabase
           .from('audit_items')
           .insert({
             audit_id: auditId,
@@ -64,18 +77,21 @@ export async function POST(req: Request) {
             category_name: 'Prendas Individuales',
             color_name: garment.color_name || '—',
             size_code: garment.size_code || 'ST',
-            expected_qty: 0,
+            expected_qty: expectedVal,
             counted_qty: 1, // Strictly 1 unit initially
-            difference_cost: 0,
-            difference_price: 0,
-            status: 'Sobrante',
-            item_state: 'Detectada'
+            unit_cost: 25000,
+            unit_price: 50000,
+            status: itemStatus,
+            item_state: 'Detectada',
+            justification: isInAuditedWarehouse ? null : `Registrado previamente en otra bodega (${garment.warehouse_id})`
           })
           .select()
           .single();
 
-        itemToUpdate = newItem;
-        newlyInserted = true;
+        if (!insErr && newItem) {
+          itemToUpdate = newItem;
+          newlyInserted = true;
+        }
       }
     }
 
@@ -89,7 +105,7 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (prod) {
-        const { data: newItem } = await supabase
+        const { data: newItem, error: insErr } = await supabase
           .from('audit_items')
           .insert({
             audit_id: auditId,
@@ -99,17 +115,20 @@ export async function POST(req: Request) {
             product_name: prod.nombre_producto || prod.codigo_referencia,
             category_name: prod.categoria || 'Sin Categoría',
             expected_qty: 0,
-            counted_qty: 1, // Strictly 1 unit initially
-            unit_cost: prod.costo || prod.precio * 0.5 || 0,
-            unit_price: prod.precio || 0,
+            counted_qty: 1,
+            unit_cost: Number(prod.costo || prod.precio * 0.5 || 0),
+            unit_price: Number(prod.precio || 0),
             status: 'Sobrante',
-            item_state: 'Detectada'
+            item_state: 'Detectada',
+            justification: 'Producto de catálogo no individualizado previamente'
           })
           .select()
           .single();
 
-        itemToUpdate = newItem;
-        newlyInserted = true;
+        if (!insErr && newItem) {
+          itemToUpdate = newItem;
+          newlyInserted = true;
+        }
       }
     }
 
@@ -172,8 +191,6 @@ export async function POST(req: Request) {
         .from('audit_items')
         .update({
           counted_qty: newCounted,
-          difference_cost: diffCost,
-          difference_price: diffPrice,
           status: newStatus,
           updated_at: new Date().toISOString()
         })
