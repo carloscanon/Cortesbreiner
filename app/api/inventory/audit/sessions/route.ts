@@ -114,6 +114,7 @@ export async function POST(req: Request) {
       locationName,
       auditType = 'Completo',
       categories = [],
+      colors = [],
       samplePercentage = 100,
       userEmail,
       notes
@@ -126,6 +127,11 @@ export async function POST(req: Request) {
     // Normalize target categories for partial audit by category
     const targetCategories: string[] = Array.isArray(categories) && categories.length > 0
       ? categories.map((c: any) => (typeof c === 'string' ? c : c.categoria || c.name || '').trim().toLowerCase())
+      : [];
+
+    // Normalize target colors for granular audit by color
+    const targetColors: string[] = Array.isArray(colors) && colors.length > 0
+      ? colors.map((c: any) => String(c).trim().toUpperCase()).filter(Boolean)
       : [];
 
     // 1. Create audit_sessions entry
@@ -235,6 +241,12 @@ export async function POST(req: Request) {
             return matchesCat || matchesWords || refLower.includes(cleanTc) || prodNameLower.includes(cleanTc);
           });
           if (!matchesCategory) return;
+        }
+
+        // If color granularity is active, filter out garments outside selected colors
+        if (targetColors.length > 0) {
+          const garmentColor = (g.color_name || '').trim().toUpperCase();
+          if (!targetColors.includes(garmentColor)) return;
         }
 
         registeredBarcodes.add(bCode);
@@ -347,6 +359,11 @@ export async function POST(req: Request) {
         const productRef = prod?.codigo_referencia || 'SIN-REF';
         const productName = prod?.nombre_producto || productRef;
         const colorName = color?.nombre_color || '—';
+        if (targetColors.length > 0) {
+          const cUpper = colorName.trim().toUpperCase();
+          if (!targetColors.includes(cUpper)) return;
+        }
+
         const sizeCode = size?.codigo_talla || 'ST';
 
         const skuCode = `${productRef}_${colorName}_${sizeCode}`.toUpperCase();

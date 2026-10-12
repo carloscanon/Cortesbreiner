@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck, BarChart3, AlertTriangle, CheckCircle2, TrendingUp, TrendingDown,
-  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2, CheckSquare
+  Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2, CheckSquare,
+  Search, Palette, Check
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -39,7 +40,11 @@ export default function AuditManagerDashboard({
   const [categoriesList, setCategoriesList] = useState<any[]>(categories || []);
   const [isCreating, setIsCreating] = useState(false);
 
+  // Search & Color Granularity States
+  const [categorySearchTerm, setCategorySearchTerm] = useState('');
+  const [selectedColorNames, setSelectedColorNames] = useState<string[]>([]);
   const [categoriesStockCounts, setCategoriesStockCounts] = useState<Record<string, number>>({});
+  const [categoriesColorsMap, setCategoriesColorsMap] = useState<Record<string, Record<string, number>>>({});
 
   // Fetch categories from DB if not passed via props
   useEffect(() => {
@@ -52,13 +57,14 @@ export default function AuditManagerDashboard({
     }
   }, [categories]);
 
-  // Compute category stock totals dynamically for selected location when modal opens
+  // Compute category stock totals and colors dynamically for selected location when modal opens
   useEffect(() => {
     if (!showCreateModal) return;
 
     const fetchCategoryCounts = async () => {
       try {
         let countMap: Record<string, number> = {};
+        let colorMap: Record<string, Record<string, number>> = {};
 
         // 1. Fetch individual garments count by category with pagination
         let garments: any[] = [];
@@ -67,7 +73,7 @@ export default function AuditManagerDashboard({
         while (true) {
           let garmentsQuery = supabase
             .from('individual_garments')
-            .select('reference_name')
+            .select('reference_name, color_name')
             .neq('status', 'vendido');
 
           if (newLocationId && newLocationId !== 'all') {
@@ -116,13 +122,19 @@ export default function AuditManagerDashboard({
             }
 
             countMap[matchedKey] = (countMap[matchedKey] || 0) + 1;
+
+            const colName = (g.color_name || 'SIN COLOR').trim().toUpperCase();
+            if (!colorMap[matchedKey]) {
+              colorMap[matchedKey] = {};
+            }
+            colorMap[matchedKey][colName] = (colorMap[matchedKey][colName] || 0) + 1;
           });
         }
 
         // 2. Fetch stock count from finished_goods_stock if not in garments
         let stockQuery = supabase
           .from('finished_goods_stock')
-          .select('cantidad_disponible, products(nombre_producto, codigo_referencia, categoria, category_id, categories(categoria))');
+          .select('cantidad_disponible, products(nombre_producto, codigo_referencia, categoria, category_id, categories(categoria)), colors(nombre_color)');
 
         if (newLocationId && newLocationId !== 'all') {
           stockQuery = stockQuery.eq('warehouse_id', newLocationId);
@@ -139,10 +151,18 @@ export default function AuditManagerDashboard({
             const catName = (catObj?.categoria || prod?.categoria || prod?.nombre_producto || 'Sin Categoría').trim();
             const key = catName.toLowerCase();
             countMap[key] = (countMap[key] || 0) + qty;
+
+            const colObj = Array.isArray(st.colors) ? st.colors[0] : st.colors;
+            const colName = (colObj?.nombre_color || 'SIN COLOR').trim().toUpperCase();
+            if (!colorMap[key]) {
+              colorMap[key] = {};
+            }
+            colorMap[key][colName] = (colorMap[key][colName] || 0) + qty;
           });
         }
 
         setCategoriesStockCounts(countMap);
+        setCategoriesColorsMap(colorMap);
       } catch (err) {
         console.error('Error fetching category counts:', err);
       }
@@ -150,6 +170,33 @@ export default function AuditManagerDashboard({
 
     fetchCategoryCounts();
   }, [showCreateModal, newLocationId]);
+
+  // Filtered categories based on search term
+  const filteredCategoriesList = useMemo(() => {
+    if (!categorySearchTerm.trim()) return categoriesList;
+    const term = categorySearchTerm.toLowerCase().trim();
+    return (categoriesList || []).filter((cat: any) => {
+      const name = (typeof cat === 'string' ? cat : (cat.categoria || cat.name || cat.cod_categoria || '')).toLowerCase();
+      return name.includes(term);
+    });
+  }, [categoriesList, categorySearchTerm]);
+
+  // Compute available colors aggregated across all selected categories
+  const availableColors = useMemo(() => {
+    if (selectedCategoryIds.length === 0) return [];
+    const colorAgg: Record<string, number> = {};
+    selectedCategoryIds.forEach(catName => {
+      const key = catName.toLowerCase().trim();
+      const colorsForCat = categoriesColorsMap[key] || {};
+      Object.entries(colorsForCat).forEach(([col, count]) => {
+        colorAgg[col] = (colorAgg[col] || 0) + count;
+      });
+    });
+
+    return Object.entries(colorAgg)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [selectedCategoryIds, categoriesColorsMap]);
 
   // Check if current user is superadmin
   const isSuperAdminUser = isAdmin || profile?.role === 'super_admin' || profile?.role === 'admin' || user?.email?.includes('admin');
@@ -211,11 +258,15 @@ export default function AuditManagerDashboard({
       const whObj = warehouses.find(w => w.id === newLocationId);
       const locationName = whObj?.nombre_bodega || whObj?.name || 'Ubicación Desconocida';
 
-      const payloadNotes = newNotes || (
-        selectedCategoryIds.length > 0
-          ? `Auditoría Parcial por Categoría(s): ${selectedCategoryIds.join(', ')}`
-          : `Auditoría ${newAuditType} en ${locationName}`
-      );
+      const categoryNotes = selectedCategoryIds.length > 0
+        ? `Auditoría Parcial por Categoría(s): ${selectedCategoryIds.join(', ')}`
+        : `Auditoría ${newAuditType} en ${locationName}`;
+
+      const colorNotes = selectedColorNames.length > 0
+        ? ` | Color(es): ${selectedColorNames.join(', ')}`
+        : '';
+
+      const payloadNotes = newNotes || `${categoryNotes}${colorNotes}`;
 
       const res = await fetch('/api/inventory/audit/sessions', {
         method: 'POST',
@@ -225,6 +276,7 @@ export default function AuditManagerDashboard({
           locationName,
           auditType: newAuditType,
           categories: selectedCategoryIds,
+          colors: selectedColorNames,
           userEmail: user?.email || 'Sistema',
           notes: payloadNotes
         })
@@ -238,6 +290,8 @@ export default function AuditManagerDashboard({
       setNewLocationId('');
       setNewNotes('');
       setSelectedCategoryIds([]);
+      setSelectedColorNames([]);
+      setCategorySearchTerm('');
       await fetchAuditSessions();
       onOpenScanner(data.session);
     } catch (err: any) {
@@ -492,9 +546,19 @@ export default function AuditManagerDashboard({
                     const rate = s.reconciliation_rate ?? 100;
                     const semaforoColor = rate >= 98 ? '#10b981' : rate >= 90 ? '#f59e0b' : '#ef4444';
                     const semaforoLabel = rate >= 98 ? '🟢 Conciliado' : rate >= 90 ? '🟡 Diferencia Menor' : '🔴 Crítico';
-                    const categoryTag = s.notes && s.notes.includes('Categoría(s):')
-                      ? s.notes.split(/Categoría\(s\):/i)[1]?.trim()
-                      : null;
+                    let categoryTag: string | null = null;
+                    let colorTag: string | null = null;
+
+                    if (s.notes) {
+                      if (s.notes.match(/categor[ií]a\(s\):/i)) {
+                        const afterCat = s.notes.split(/categor[ií]a\(s\):/i)[1] || '';
+                        categoryTag = afterCat.split(/\||\n/)[0]?.trim() || null;
+                      }
+                      if (s.notes.match(/color\(es\):|colores:/i)) {
+                        const afterCol = s.notes.split(/color\(es\):|colores:/i)[1] || '';
+                        colorTag = afterCol.split(/\||\n/)[0]?.trim() || null;
+                      }
+                    }
 
                     const formattedDate = s.created_at
                       ? new Date(s.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
@@ -515,20 +579,35 @@ export default function AuditManagerDashboard({
                         </td>
                         <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>
                           <div style={{ fontWeight: '800' }}>{s.audit_type}</div>
-                          {categoryTag && (
-                            <span style={{
-                              fontSize: '0.68rem',
-                              fontWeight: '900',
-                              color: '#4338ca',
-                              backgroundColor: '#e0e7ff',
-                              padding: '0.15rem 0.45rem',
-                              borderRadius: '6px',
-                              display: 'inline-block',
-                              marginTop: '0.2rem'
-                            }}>
-                              🏷️ {categoryTag}
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
+                            {categoryTag && (
+                              <span style={{
+                                fontSize: '0.68rem',
+                                fontWeight: '900',
+                                color: '#4338ca',
+                                backgroundColor: '#e0e7ff',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '6px',
+                                display: 'inline-block'
+                              }}>
+                                🏷️ {categoryTag}
+                              </span>
+                            )}
+                            {colorTag && (
+                              <span style={{
+                                fontSize: '0.68rem',
+                                fontWeight: '900',
+                                color: '#047857',
+                                backgroundColor: '#ecfdf5',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '6px',
+                                display: 'inline-block',
+                                border: '1px solid #a7f3d0'
+                              }}>
+                                🎨 {colorTag}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '800', color: '#64748b' }}>
                           {(s.total_expected_qty || 0).toLocaleString()}
@@ -640,8 +719,8 @@ export default function AuditManagerDashboard({
           justifyContent: 'center', zIndex: 1100, padding: '1.5rem'
         }}>
           <div className="card" style={{
-            width: '100%', maxWidth: '520px', backgroundColor: 'white', borderRadius: '20px',
-            overflow: 'hidden', padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
+            width: '100%', maxWidth: '580px', maxHeight: '92vh', overflowY: 'auto', backgroundColor: 'white', borderRadius: '20px',
+            padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
           }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '950', color: '#0f172a' }}>
@@ -659,7 +738,11 @@ export default function AuditManagerDashboard({
                 </label>
                 <select
                   value={newLocationId}
-                  onChange={e => setNewLocationId(e.target.value)}
+                  onChange={e => {
+                    setNewLocationId(e.target.value);
+                    setSelectedCategoryIds([]);
+                    setSelectedColorNames([]);
+                  }}
                   style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '700' }}
                   required
                 >
@@ -688,23 +771,91 @@ export default function AuditManagerDashboard({
                 </select>
               </div>
 
-              {/* SELECCIONADOR DE CATEGORÍAS PARA AUDITORÍA PARCIAL */}
+              {/* SELECCIONADOR DE CATEGORÍAS Y GRANULARIDAD POR COLOR */}
               {(newAuditType === 'Parcial' || newAuditType === 'Por Categoria') && (
-                <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a' }}>
-                      📁 Seleccionar Categoría(s) a Auditar *
+                    <label style={{ fontSize: '0.8rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      📁 Categoría(s) a Auditar *
                     </label>
-                    <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: '800', backgroundColor: '#e0e7ff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
-                      {selectedCategoryIds.length} seleccionada(s)
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      {selectedCategoryIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCategoryIds([]);
+                            setSelectedColorNames([]);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#ef4444',
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            padding: '0.1rem 0.3rem'
+                          }}
+                        >
+                          Limpiar
+                        </button>
+                      )}
+                      <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: '800', backgroundColor: '#e0e7ff', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                        {selectedCategoryIds.length} seleccionada(s)
+                      </span>
+                    </div>
                   </div>
 
-                  <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.3rem' }}>
-                    {categoriesList.length === 0 ? (
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cargando categorías de la base de datos...</span>
+                  {/* BUSCADOR DE CATEGORÍA */}
+                  <div style={{ position: 'relative' }}>
+                    <Search size={15} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <input
+                      type="text"
+                      placeholder="Buscar categoría (ej. Lassie, Manga, Falda, Capri...)"
+                      value={categorySearchTerm}
+                      onChange={e => setCategorySearchTerm(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem 0.75rem 0.5rem 2.1rem',
+                        paddingRight: categorySearchTerm ? '2rem' : '0.75rem',
+                        borderRadius: '8px',
+                        border: '1.5px solid #cbd5e1',
+                        fontSize: '0.8rem',
+                        fontWeight: '600',
+                        outline: 'none',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                    {categorySearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setCategorySearchTerm('')}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: '#94a3b8',
+                          cursor: 'pointer',
+                          fontSize: '0.85rem',
+                          fontWeight: 'bold',
+                          padding: '0.1rem 0.3rem'
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* LISTADO DE CATEGORÍAS */}
+                  <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingRight: '0.3rem' }}>
+                    {filteredCategoriesList.length === 0 ? (
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center', padding: '0.75rem 0', fontStyle: 'italic' }}>
+                        {categorySearchTerm ? 'No se encontraron categorías que coincidan con la búsqueda.' : 'Cargando categorías...'}
+                      </div>
                     ) : (
-                      categoriesList.map((cat: any) => {
+                      filteredCategoriesList.map((cat: any) => {
                         let catName = 'Categoría';
                         if (typeof cat === 'string') {
                           catName = cat;
@@ -717,8 +868,8 @@ export default function AuditManagerDashboard({
 
                         // Calculate total products in category for selected warehouse
                         const totalUnitsInCat = (categoriesStockCounts && categoriesStockCounts[catName.toLowerCase()]) || 0;
-
                         const isSelected = selectedCategoryIds.includes(catName);
+
                         return (
                           <label
                             key={typeof cat === 'object' && cat?.id ? cat.id : catName}
@@ -730,7 +881,7 @@ export default function AuditManagerDashboard({
                               fontWeight: '700',
                               color: isSelected ? '#3730a3' : '#334155',
                               cursor: 'pointer',
-                              padding: '0.4rem 0.65rem',
+                              padding: '0.35rem 0.65rem',
                               borderRadius: '8px',
                               backgroundColor: isSelected ? '#e0e7ff' : 'white',
                               border: `1px solid ${isSelected ? '#818cf8' : '#cbd5e1'}`,
@@ -755,7 +906,7 @@ export default function AuditManagerDashboard({
                             <span style={{
                               fontSize: '0.72rem',
                               fontWeight: '900',
-                              padding: '0.15rem 0.45rem',
+                              padding: '0.12rem 0.45rem',
                               borderRadius: '6px',
                               backgroundColor: isSelected ? '#4f46e5' : '#f1f5f9',
                               color: isSelected ? 'white' : '#64748b'
@@ -767,6 +918,151 @@ export default function AuditManagerDashboard({
                       })
                     )}
                   </div>
+
+                  {/* GRANULARIDAD POR COLOR (CUANDO HAY CATEGORÍAS SELECCIONADAS) */}
+                  {selectedCategoryIds.length > 0 && (
+                    <div style={{
+                      backgroundColor: 'white',
+                      padding: '0.85rem',
+                      borderRadius: '12px',
+                      border: '1.5px solid #cbd5e1',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.6rem',
+                      marginTop: '0.25rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Palette size={14} style={{ color: '#6366f1' }} /> Filtrar por Color (Granularidad)
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
+                            {selectedColorNames.length === 0
+                              ? '(Todos los colores)'
+                              : `(${selectedColorNames.length} seleccionado${selectedColorNames.length > 1 ? 's' : ''})`}
+                          </span>
+                        </div>
+
+                        {availableColors.length > 0 && (
+                          <div style={{ display: 'flex', gap: '0.35rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedColorNames(availableColors.map(c => c.name))}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#4f46e5',
+                                fontSize: '0.72rem',
+                                fontWeight: '800',
+                                cursor: 'pointer',
+                                padding: '0.1rem 0.3rem'
+                              }}
+                            >
+                              Todos
+                            </button>
+                            {selectedColorNames.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedColorNames([])}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#dc2626',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  padding: '0.1rem 0.3rem'
+                                }}
+                              >
+                                Limpiar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {availableColors.length === 0 ? (
+                        <div style={{ fontSize: '0.73rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                          No se detectaron colores individuales en la bodega. Se auditarán todos los ítems de la categoría.
+                        </div>
+                      ) : (
+                        <div style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '0.35rem',
+                          maxHeight: '110px',
+                          overflowY: 'auto',
+                          padding: '0.15rem'
+                        }}>
+                          {availableColors.map(col => {
+                            const isColorSelected = selectedColorNames.includes(col.name);
+                            return (
+                              <button
+                                type="button"
+                                key={col.name}
+                                onClick={() => {
+                                  if (isColorSelected) {
+                                    setSelectedColorNames(selectedColorNames.filter(c => c !== col.name));
+                                  } else {
+                                    setSelectedColorNames([...selectedColorNames, col.name]);
+                                  }
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  padding: '0.25rem 0.55rem',
+                                  borderRadius: '16px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  border: `1.5px solid ${isColorSelected ? '#4f46e5' : '#cbd5e1'}`,
+                                  backgroundColor: isColorSelected ? '#e0e7ff' : '#f8fafc',
+                                  color: isColorSelected ? '#3730a3' : '#334155',
+                                  transition: 'all 0.15s'
+                                }}
+                              >
+                                <span>{isColorSelected ? '✓ ' : ''}{col.name}</span>
+                                <span style={{
+                                  backgroundColor: isColorSelected ? '#4338ca' : '#e2e8f0',
+                                  color: isColorSelected ? 'white' : '#64748b',
+                                  padding: '0.05rem 0.35rem',
+                                  borderRadius: '8px',
+                                  fontSize: '0.65rem',
+                                  fontWeight: '900'
+                                }}>
+                                  {col.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* RESUMEN DE ESPERADOS */}
+                      <div style={{
+                        fontSize: '0.73rem',
+                        fontWeight: '700',
+                        color: '#475569',
+                        backgroundColor: '#f8fafc',
+                        padding: '0.4rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <span>Prendas esperadas con esta selección:</span>
+                        <span style={{ fontWeight: '950', color: '#4f46e5' }}>
+                          {selectedColorNames.length === 0
+                            ? `${availableColors.reduce((sum, c) => sum + c.count, 0).toLocaleString()} Uds (Todos los colores)`
+                            : `${availableColors.filter(c => selectedColorNames.includes(c.name)).reduce((sum, c) => sum + c.count, 0).toLocaleString()} Uds (${selectedColorNames.length} color${selectedColorNames.length > 1 ? 'es' : ''})`
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
 

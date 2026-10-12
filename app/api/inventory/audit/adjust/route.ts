@@ -54,13 +54,14 @@ export async function POST(req: Request) {
 
       const scannedBarcodes = [...new Set((scans || []).map(s => (s.barcode || s.sku_code || '').trim()))].filter(Boolean);
 
-      // 2. Resolve Category Scope keywords
+      // 2. Resolve Category & Color Scope
       let categoryKeywords: string[] = [];
       const notesLower = (session.notes || '').toLowerCase();
       if (notesLower.includes('categoría(s):') || notesLower.includes('categoria(s):') || notesLower.includes('categoria:')) {
         const parts = notesLower.split(/categoría\(s\):|categoria\(s\):|categoria:/);
         if (parts[1]) {
-          const rawTerms = parts[1].split(',').map((c: string) => c.trim()).filter(Boolean);
+          const rawCatText = parts[1].split(/\||color\(es\):|colores:|color:/)[0] || '';
+          const rawTerms = rawCatText.split(',').map((c: string) => c.trim()).filter(Boolean);
           rawTerms.forEach((t: string) => {
             const clean = t.toLowerCase().trim();
             // extract words with > 3 chars (e.g. 'mango' from 'body mango')
@@ -74,6 +75,16 @@ export async function POST(req: Request) {
         clean.split(/\s+/).forEach((w: string) => {
           if (w.length >= 3 && !categoryKeywords.includes(w)) categoryKeywords.push(w);
         });
+      }
+
+      // Resolve Color Scope if specified in notes
+      let targetColors: string[] = [];
+      if (notesLower.includes('color(es):') || notesLower.includes('colores:') || notesLower.includes('color:')) {
+        const colorParts = (session.notes || '').split(/color\(es\):|colores:|color:/i);
+        if (colorParts[1]) {
+          const rawColorText = colorParts[1].split(/\||\n/)[0] || '';
+          targetColors = rawColorText.split(',').map((c: string) => c.trim().toUpperCase()).filter(Boolean);
+        }
       }
 
       // Filter out generic words like 'body', 'top', etc.
@@ -127,6 +138,14 @@ export async function POST(req: Request) {
         expectedGarments = expectedGarments.concat(filteredChunk);
         if (chunk.length < pageSize) break;
         page++;
+      }
+
+      // If color filter is active, filter expected garments to matching colors
+      if (targetColors.length > 0) {
+        expectedGarments = expectedGarments.filter((g: any) => {
+          const gColor = (g.color_name || '').trim().toUpperCase();
+          return targetColors.includes(gColor);
+        });
       }
 
       // 5. Query all scanned barcodes from individual_garments across the entire database to detect surplus & origin warehouses
