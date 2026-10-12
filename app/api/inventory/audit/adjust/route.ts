@@ -481,12 +481,62 @@ export async function POST(req: Request) {
       let missingGarmentsCount = 0;
       let surplusGarmentsCount = 0;
 
+      // Fetch product, color, and size catalogs to resolve IDs if missing on items
+      const { data: prodsList } = await supabase.from('products').select('id, codigo_referencia, nombre_producto');
+      const { data: colorsList } = await supabase.from('colors').select('id, nombre_color');
+      const { data: sizesList } = await supabase.from('sizes').select('id, codigo_talla');
+
+      const prodMapByName = new Map<string, any>();
+      const prodMapByRef = new Map<string, any>();
+      prodsList?.forEach((p: any) => {
+        if (p.nombre_producto) prodMapByName.set(p.nombre_producto.trim().toLowerCase(), p);
+        if (p.codigo_referencia) prodMapByRef.set(p.codigo_referencia.trim().toUpperCase(), p);
+      });
+
+      const colorMapByName = new Map<string, any>();
+      colorsList?.forEach((c: any) => {
+        if (c.nombre_color) colorMapByName.set(c.nombre_color.trim().toUpperCase(), c);
+      });
+
+      const sizeMapByCode = new Map<string, any>();
+      sizesList?.forEach((s: any) => {
+        if (s.codigo_talla) sizeMapByCode.set(s.codigo_talla.trim().toUpperCase(), s);
+      });
+
       // 1. Update individual_garments table in batches
       const conciliadosBarcodes: string[] = [];
       const sobrantesItems: any[] = [];
       const faltantesBarcodes: string[] = [];
 
       items.forEach((item: any) => {
+        // Resolve product_id, color_id, size_id if missing
+        if (!item.product_id && item.product_name) {
+          const cleanName = item.product_name.trim().toLowerCase();
+          const matchByName = prodMapByName.get(cleanName);
+          if (matchByName) {
+            item.product_id = matchByName.id;
+          } else {
+            for (const [name, p] of prodMapByName.entries()) {
+              if (cleanName.includes(name) || name.includes(cleanName)) {
+                item.product_id = p.id;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!item.color_id && item.color_name && item.color_name !== '—') {
+          const cleanCol = item.color_name.trim().toUpperCase();
+          const matchCol = colorMapByName.get(cleanCol);
+          if (matchCol) item.color_id = matchCol.id;
+        }
+
+        if (!item.size_id && item.size_code && item.size_code !== 'ST') {
+          const cleanSize = item.size_code.trim().toUpperCase();
+          const matchSize = sizeMapByCode.get(cleanSize);
+          if (matchSize) item.size_id = matchSize.id;
+        }
+
         const bc = item.barcode || item.sku_code;
         if (!bc) return;
         if (item.status === 'OK' || item.status === 'Conciliado') {
@@ -519,7 +569,7 @@ export async function POST(req: Request) {
         const bc = item.barcode || item.sku_code;
         const { data: existingGarment } = await supabase
           .from('individual_garments')
-          .select('id')
+          .select('id, color_name, reference_name, size_code')
           .eq('barcode', bc)
           .maybeSingle();
 
@@ -533,6 +583,13 @@ export async function POST(req: Request) {
               updated_at: new Date().toISOString()
             })
             .eq('barcode', bc);
+
+          // Inherit color from existing garment if item was missing it
+          if ((!item.color_name || item.color_name === '—') && existingGarment.color_name) {
+            item.color_name = existingGarment.color_name;
+            const matchCol = colorMapByName.get(existingGarment.color_name.trim().toUpperCase());
+            if (matchCol) item.color_id = matchCol.id;
+          }
         } else {
           await supabase
             .from('individual_garments')
@@ -549,15 +606,16 @@ export async function POST(req: Request) {
         surplusGarmentsCount++;
       }
 
-      // C. Faltantes: mark as Faltante Auditoría
+      // C. Faltantes: disassociate from warehouse and mark status = 'Rechazada' (valid in constraint)
       if (faltantesBarcodes.length > 0) {
         for (let i = 0; i < faltantesBarcodes.length; i += 100) {
           const batch = faltantesBarcodes.slice(i, i + 100);
           await supabase
             .from('individual_garments')
             .update({
-              status: 'Faltante Auditoría',
-              notes: `Marcado como faltante en auditoría #${session.consecutive} (${new Date().toLocaleDateString('es-CO')})`,
+              warehouse_id: null,
+              status: 'Rechazada',
+              notes: `Faltante / dado de baja en auditoría #${session.consecutive} (${new Date().toLocaleDateString('es-CO')})`,
               updated_at: new Date().toISOString()
             })
             .in('barcode', batch)
@@ -566,38 +624,64 @@ export async function POST(req: Request) {
         missingGarmentsCount = faltantesBarcodes.length;
       }
 
-      // 2. Adjust finished_goods_stock if products exist
-      const stockAdjustmentsMap = new Map<string, { product_id: string; color_name: string; size_code: string; delta: number; product_name: string }>();
+      // 2. Adjust finished_goods_stock: aggregate counted physical items by product_id, color_id, size_id
+      const stockAdjustmentsMap = new Map<string, {
+        product_id: string;
+        color_id: string | null;
+        size_id: string | null;
+        color_name: string;
+        size_code: string;
+        product_name: string;
+        counted_qty: number;
+        expected_qty: number;
+      }>();
 
       items.forEach((item: any) => {
-        const diff = (item.counted_qty || 0) - (item.expected_qty || 0);
-        if (diff !== 0 && item.product_id) {
-          const key = `${item.product_id}_${item.color_name || ''}_${item.size_code || ''}`;
-          const current = stockAdjustmentsMap.get(key) || {
-            product_id: item.product_id,
-            color_name: item.color_name || '',
-            size_code: item.size_code || '',
-            delta: 0,
-            product_name: item.product_name
-          };
-          current.delta += diff;
-          stockAdjustmentsMap.set(key, current);
-        }
+        if (!item.product_id) return;
+        const key = `${item.product_id}_${item.color_id || 'null'}_${item.size_id || 'null'}`;
+        const current = stockAdjustmentsMap.get(key) || {
+          product_id: item.product_id,
+          color_id: item.color_id || null,
+          size_id: item.size_id || null,
+          color_name: item.color_name || '',
+          size_code: item.size_code || '',
+          product_name: item.product_name || 'Producto',
+          counted_qty: 0,
+          expected_qty: 0
+        };
+
+        current.counted_qty += Number(item.counted_qty || 0);
+        current.expected_qty += Number(item.expected_qty || 0);
+        stockAdjustmentsMap.set(key, current);
       });
 
-      // Apply aggregated adjustments to finished_goods_stock and kardex
+      // Apply aggregated physical adjustments to finished_goods_stock and kardex
       for (const [_, adj] of stockAdjustmentsMap.entries()) {
-        if (adj.delta === 0) continue;
-
-        const { data: currentStock } = await supabase
+        let q = supabase
           .from('finished_goods_stock')
           .select('*')
-          .eq('product_id', adj.product_id)
           .eq('warehouse_id', locationId)
-          .maybeSingle();
+          .eq('product_id', adj.product_id);
+
+        if (adj.color_id) {
+          q = q.eq('color_id', adj.color_id);
+        } else {
+          q = q.is('color_id', null);
+        }
+
+        if (adj.size_id) {
+          q = q.eq('size_id', adj.size_id);
+        } else {
+          q = q.is('size_id', null);
+        }
+
+        const { data: stockRecords } = await q.limit(1);
+        const currentStock = stockRecords?.[0];
 
         const prevQty = currentStock ? Number(currentStock.cantidad_disponible || 0) : 0;
-        const newQty = Math.max(0, prevQty + adj.delta);
+        // Real physical count replaces theoretical stock
+        const newQty = Math.max(0, adj.counted_qty);
+        const delta = newQty - prevQty;
 
         if (currentStock) {
           await supabase
@@ -607,23 +691,29 @@ export async function POST(req: Request) {
         } else if (newQty > 0) {
           await supabase.from('finished_goods_stock').insert({
             product_id: adj.product_id,
+            color_id: adj.color_id,
+            size_id: adj.size_id,
             warehouse_id: locationId,
             cantidad_disponible: newQty
           });
         }
 
-        // Kardex audit movement record
-        await supabase.from('finished_goods_kardex').insert({
-          product_id: adj.product_id,
-          warehouse_dest_id: locationId,
-          tipo_movimiento: adj.delta > 0 ? 'Ajuste Auditoría (Sobrante)' : 'Ajuste Auditoría (Faltante)',
-          cantidad: Math.abs(adj.delta),
-          saldo_anterior: prevQty,
-          saldo_nuevo: newQty,
-          documento_origen: `AUDITORÍA #${session.consecutive}`,
-          usuario: userEmail || 'Aprobador',
-          observaciones: `Ajuste consolidado auditoría #${session.consecutive} (${adj.product_name})`
-        });
+        // Kardex audit movement record if there was a real difference
+        if (delta !== 0) {
+          await supabase.from('finished_goods_kardex').insert({
+            product_id: adj.product_id,
+            color_id: adj.color_id,
+            size_id: adj.size_id,
+            warehouse_dest_id: locationId,
+            tipo_movimiento: delta > 0 ? 'Ajuste Auditoría (Sobrante)' : 'Ajuste Auditoría (Faltante)',
+            cantidad: Math.abs(delta),
+            saldo_anterior: prevQty,
+            saldo_nuevo: newQty,
+            documento_origen: `AUDITORÍA #${session.consecutive}`,
+            usuario: userEmail || 'Aprobador',
+            observaciones: `Ajuste consolidado auditoría #${session.consecutive} (${adj.product_name} - ${adj.color_name || 'General'})`
+          });
+        }
       }
 
       // 3. Mark all audit items as Ajustada
