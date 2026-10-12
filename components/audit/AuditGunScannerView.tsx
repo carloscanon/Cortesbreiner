@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Barcode, CheckCircle2, AlertTriangle, ArrowLeft, Volume2, VolumeX,
-  Plus, Minus, RefreshCw, Layers, Package, HelpCircle, Send, Play, Check, AlertCircle, Eye
+  Plus, Minus, RefreshCw, Layers, Package, HelpCircle, Send, Play, Check, AlertCircle, Eye,
+  Sparkles, Clock, Tag
 } from 'lucide-react';
 
 interface AuditGunScannerViewProps {
@@ -150,7 +151,11 @@ export default function AuditGunScannerView({
         setStatusMessage({ text: `⚠️ Producto No Registrado: ${codeToScan}`, type: 'warning' });
       } else {
         playAudioFeedback('success');
-        setLastScannedItem(data.item);
+        const itemWithTime = {
+          ...data.item,
+          scanTime: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+        };
+        setLastScannedItem(itemWithTime);
         const countInfo = data.wasAlreadyCounted
           ? `ℹ️ Prenda (ID ${codeToScan}) ya estaba registrada (1/1)`
           : `✅ Escaneado (+1 unidad): ${data.item.product_name} (${data.item.counted_qty} contados)`;
@@ -187,6 +192,27 @@ export default function AuditGunScannerView({
     if (activeTabFilter === 'differences') return item.difference_qty !== 0;
     return true;
   });
+
+  // Sort items so newly scanned items appear at the very beginning (al inicio)
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      const aCounted = Number(a.counted_qty || 0);
+      const bCounted = Number(b.counted_qty || 0);
+
+      // Prioritize counted items over uncounted
+      if (aCounted > 0 && bCounted === 0) return -1;
+      if (bCounted > 0 && aCounted === 0) return 1;
+
+      // Among counted items, sort by updated_at descending (latest scan first!)
+      if (aCounted > 0 && bCounted > 0) {
+        const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        if (aTime !== bTime) return bTime - aTime;
+      }
+
+      return 0;
+    });
+  }, [filteredItems]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -297,6 +323,114 @@ export default function AuditGunScannerView({
         </div>
       </div>
 
+      {/* TARJETA ESPECIAL RESALTADA: ÚLTIMA PRENDA ESCANEADA */}
+      {lastScannedItem && (
+        <div style={{
+          backgroundColor: '#ffffff',
+          border: '2.5px solid #6366f1',
+          borderRadius: '16px',
+          padding: '1.25rem 1.5rem',
+          boxShadow: '0 12px 28px -6px rgba(99, 102, 241, 0.25)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.85rem',
+          background: 'linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%)',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0, width: '6px', height: '100%',
+            backgroundColor: lastScannedItem.status === 'OK' ? '#10b981' : '#0284c7'
+          }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{
+                backgroundColor: '#4f46e5',
+                color: 'white',
+                fontSize: '0.74rem',
+                fontWeight: '950',
+                padding: '0.3rem 0.75rem',
+                borderRadius: '8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                letterSpacing: '0.04em'
+              }}>
+                <Sparkles size={14} /> ÚLTIMA PRENDA ESCANEADA
+              </span>
+              <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Clock size={13} /> {lastScannedItem.scanTime || 'Reciente'}
+              </span>
+            </div>
+
+            <div>
+              <span style={{
+                backgroundColor: lastScannedItem.status === 'OK' ? '#dcfce7' : '#e0f2fe',
+                color: lastScannedItem.status === 'OK' ? '#15803d' : '#0369a1',
+                border: `1.5px solid ${lastScannedItem.status === 'OK' ? '#86efac' : '#7dd3fc'}`,
+                fontSize: '0.8rem',
+                fontWeight: '950',
+                padding: '0.3rem 0.85rem',
+                borderRadius: '10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}>
+                {lastScannedItem.status === 'OK' ? '🟢 CONCILIADO / OK' : '🔵 SOBRANTE / HALLAZGO'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div style={{ fontSize: '1.3rem', fontWeight: '950', color: '#0f172a' }}>
+                {lastScannedItem.product_name}
+              </div>
+              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontWeight: '900',
+                  fontSize: '0.95rem',
+                  backgroundColor: '#1e293b',
+                  color: '#38bdf8',
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem'
+                }}>
+                  <Barcode size={15} /> {lastScannedItem.barcode || lastScannedItem.sku_code}
+                </span>
+                <span style={{ fontSize: '0.82rem', fontWeight: '850', color: '#475569', backgroundColor: '#f1f5f9', padding: '0.25rem 0.65rem', borderRadius: '6px' }}>
+                  🎨 Color: <strong style={{ color: '#0f172a' }}>{lastScannedItem.color_name || '—'}</strong>
+                </span>
+                <span style={{ fontSize: '0.82rem', fontWeight: '850', color: '#475569', backgroundColor: '#f1f5f9', padding: '0.25rem 0.65rem', borderRadius: '6px' }}>
+                  📏 Talla: <strong style={{ color: '#0f172a' }}>{lastScannedItem.size_code || '—'}</strong>
+                </span>
+                {lastScannedItem.justification && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '0.25rem 0.65rem', borderRadius: '6px' }}>
+                    📍 {lastScannedItem.justification}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase' }}>
+                CANTIDAD REGISTRADA
+              </span>
+              <span style={{ fontSize: '1.6rem', fontWeight: '950', color: '#059669', lineHeight: 1.1 }}>
+                {lastScannedItem.counted_qty || 1} {lastScannedItem.counted_qty === 1 ? 'unidad' : 'unidades'}
+              </span>
+              <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748b' }}>
+                {lastScannedItem.status === 'OK' ? 'Emparejado 1-a-1 en bodega' : 'Ingresado como físico adicional'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KPI Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.25rem' }}>
         <div className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '14px', backgroundColor: 'white' }}>
@@ -400,14 +534,14 @@ export default function AuditGunScannerView({
                     </tr>
                   ))
                 )
-              ) : filteredItems.length === 0 ? (
+              ) : sortedItems.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
                     No hay productos en esta vista.
                   </td>
                 </tr>
               ) : (
-                filteredItems.map(item => {
+                sortedItems.map(item => {
                   const diff = item.difference_qty || (item.counted_qty - item.expected_qty);
                   const isMissing = diff < 0;
                   const isSurplus = diff > 0;

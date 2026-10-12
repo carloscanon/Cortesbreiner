@@ -67,7 +67,7 @@ export default function AuditManagerDashboard({
         while (true) {
           let garmentsQuery = supabase
             .from('individual_garments')
-            .select('reference_name, product_id')
+            .select('reference_name')
             .neq('status', 'vendido');
 
           if (newLocationId && newLocationId !== 'all') {
@@ -81,31 +81,48 @@ export default function AuditManagerDashboard({
           page++;
         }
 
-        // Fetch products to map categories
+        // Fetch products & categories to map references
         const { data: prods } = await supabase
           .from('products')
-          .select('id, codigo_referencia, categoria, category_id, categories(categoria)');
+          .select('id, codigo_referencia, nombre_producto, categoria, category_id, categories(categoria)');
 
-        const prodMap = new Map<string, string>();
-        prods?.forEach((p: any) => {
-          const catObj = Array.isArray(p.categories) ? p.categories[0] : p.categories;
-          const catName = catObj?.categoria || p.categoria || 'Sin Categoría';
-          if (p.id) prodMap.set(p.id, catName);
-          if (p.codigo_referencia) prodMap.set(p.codigo_referencia.trim().toUpperCase(), catName);
+        const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo']);
+
+        // Build list of category resolvers
+        const catResolvers: { key: string; name: string; distinctWords: string[] }[] = [];
+        (categoriesList || []).forEach((c: any) => {
+          const catName = typeof c === 'string' ? c : (c.categoria || c.name || '');
+          if (!catName) return;
+          const distinctWords = catName.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3 && !stopWords.has(w));
+          catResolvers.push({
+            key: catName.toLowerCase().trim(),
+            name: catName,
+            distinctWords
+          });
         });
 
         if (garments && garments.length > 0) {
           garments.forEach(g => {
-            const cat = prodMap.get(g.product_id) || prodMap.get((g.reference_name || '').trim().toUpperCase()) || 'Sin Categoría';
-            const key = cat.toLowerCase().trim();
-            countMap[key] = (countMap[key] || 0) + 1;
+            const refLower = (g.reference_name || '').toLowerCase().trim();
+            if (!refLower) return;
+
+            // Find matching category resolver
+            let matchedKey = 'sin categoría';
+            for (const cr of catResolvers) {
+              if (cr.distinctWords.length > 0 && cr.distinctWords.every((w: string) => refLower.includes(w))) {
+                matchedKey = cr.key;
+                break;
+              }
+            }
+
+            countMap[matchedKey] = (countMap[matchedKey] || 0) + 1;
           });
         }
 
         // 2. Fetch stock count from finished_goods_stock if not in garments
         let stockQuery = supabase
           .from('finished_goods_stock')
-          .select('cantidad_disponible, products(categoria, category_id, categories(categoria))');
+          .select('cantidad_disponible, products(nombre_producto, codigo_referencia, categoria, category_id, categories(categoria))');
 
         if (newLocationId && newLocationId !== 'all') {
           stockQuery = stockQuery.eq('warehouse_id', newLocationId);
@@ -113,18 +130,15 @@ export default function AuditManagerDashboard({
 
         const { data: stockItems } = await stockQuery;
 
-        if (stockItems && stockItems.length > 0) {
+        if (stockItems && stockItems.length > 0 && (!garments || garments.length === 0)) {
           stockItems.forEach((st: any) => {
             const qty = Number(st.cantidad_disponible || 0);
             if (qty <= 0) return;
             const prod = Array.isArray(st.products) ? st.products[0] : st.products;
             const catObj = Array.isArray(prod?.categories) ? prod?.categories[0] : prod?.categories;
-            const cat = catObj?.categoria || prod?.categoria || 'Sin Categoría';
-            const key = cat.toLowerCase().trim();
-            // Add if not already exclusively loaded by individual garments
-            if (!garments || garments.length === 0) {
-              countMap[key] = (countMap[key] || 0) + qty;
-            }
+            const catName = (catObj?.categoria || prod?.categoria || prod?.nombre_producto || 'Sin Categoría').trim();
+            const key = catName.toLowerCase();
+            countMap[key] = (countMap[key] || 0) + qty;
           });
         }
 
@@ -456,8 +470,9 @@ export default function AuditManagerDashboard({
               <thead style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: '800', color: '#475569' }}>
                 <tr>
                   <th style={{ padding: '0.85rem 1rem' }}>Auditoría #</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Fecha</th>
                   <th style={{ padding: '0.85rem 1rem' }}>Ubicación</th>
-                  <th style={{ padding: '0.85rem 1rem' }}>Tipo</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Tipo / Categoría</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Esperado</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Contado</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Semáforo</th>
@@ -468,7 +483,7 @@ export default function AuditManagerDashboard({
               <tbody>
                 {sessions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                    <td colSpan={9} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                       No se encontraron auditorías con los filtros seleccionados.
                     </td>
                   </tr>
@@ -477,17 +492,43 @@ export default function AuditManagerDashboard({
                     const rate = s.reconciliation_rate ?? 100;
                     const semaforoColor = rate >= 98 ? '#10b981' : rate >= 90 ? '#f59e0b' : '#ef4444';
                     const semaforoLabel = rate >= 98 ? '🟢 Conciliado' : rate >= 90 ? '🟡 Diferencia Menor' : '🔴 Crítico';
+                    const categoryTag = s.notes && s.notes.includes('Categoría(s):')
+                      ? s.notes.split(/Categoría\(s\):/i)[1]?.trim()
+                      : null;
+
+                    const formattedDate = s.created_at
+                      ? new Date(s.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+                        ' ' +
+                        new Date(s.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })
+                      : '—';
 
                     return (
                       <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '0.85rem 1rem', fontWeight: '950', color: 'var(--primary)' }}>
                           #{s.consecutive}
                         </td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#64748b', fontSize: '0.75rem', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                          📅 {formattedDate}
+                        </td>
                         <td style={{ padding: '0.85rem 1rem', fontWeight: '800', color: '#0f172a' }}>
                           {s.location_name}
                         </td>
                         <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>
-                          {s.audit_type}
+                          <div style={{ fontWeight: '800' }}>{s.audit_type}</div>
+                          {categoryTag && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              fontWeight: '900',
+                              color: '#4338ca',
+                              backgroundColor: '#e0e7ff',
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '6px',
+                              display: 'inline-block',
+                              marginTop: '0.2rem'
+                            }}>
+                              🏷️ {categoryTag}
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '800', color: '#64748b' }}>
                           {(s.total_expected_qty || 0).toLocaleString()}

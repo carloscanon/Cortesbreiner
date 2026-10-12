@@ -157,10 +157,20 @@ export async function POST(req: Request) {
     const pageSize = 1000;
     let page = 0;
 
-    // Filter by category keyword if targetCategories specified
-    const filterKeyword = targetCategories.length > 0 
-      ? targetCategories.find(c => !['body', 'tipo', 'linea'].includes(c) && c.length >= 3) || targetCategories[0]
-      : null;
+    // Filter by distinctive category keyword if targetCategories specified
+    const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo']);
+    const targetDistinctWords: string[] = [];
+    targetCategories.forEach(tc => {
+      tc.toLowerCase().split(/\s+/).forEach((w: string) => {
+        if (w.length >= 3 && !stopWords.has(w) && !targetDistinctWords.includes(w)) {
+          targetDistinctWords.push(w);
+        }
+      });
+    });
+
+    const primaryFilterKeyword = targetDistinctWords.length > 0
+      ? targetDistinctWords[0]
+      : (targetCategories.length > 0 ? targetCategories[0] : null);
 
     while (true) {
       let q = supabase
@@ -172,13 +182,22 @@ export async function POST(req: Request) {
         q = q.eq('warehouse_id', locationId);
       }
 
-      if (filterKeyword) {
-        q = q.ilike('reference_name', `%${filterKeyword}%`);
+      if (primaryFilterKeyword) {
+        q = q.ilike('reference_name', `%${primaryFilterKeyword}%`);
       }
 
       const { data: chunk, error: gErr } = await q.range(page * pageSize, (page + 1) * pageSize - 1);
       if (gErr || !chunk || chunk.length === 0) break;
-      garments = garments.concat(chunk);
+
+      // Filter in-memory to ensure all distinct keywords match
+      const filteredChunk = targetDistinctWords.length > 1
+        ? chunk.filter(g => {
+            const refLower = (g.reference_name || '').toLowerCase();
+            return targetDistinctWords.every(w => refLower.includes(w));
+          })
+        : chunk;
+
+      garments = garments.concat(filteredChunk);
       if (chunk.length < pageSize) break;
       page++;
     }
@@ -211,8 +230,9 @@ export async function POST(req: Request) {
           const matchesCategory = targetCategories.some(tc => {
             const cleanTc = tc.trim().toLowerCase();
             if (!cleanTc) return false;
-            return catLower.includes(cleanTc) || cleanTc.includes(catLower) ||
-                   refLower.includes(cleanTc) || prodNameLower.includes(cleanTc);
+            const matchesCat = catLower === cleanTc || catLower.includes(cleanTc);
+            const matchesWords = targetDistinctWords.length > 0 && targetDistinctWords.every(w => refLower.includes(w) || prodNameLower.includes(w));
+            return matchesCat || matchesWords || refLower.includes(cleanTc) || prodNameLower.includes(cleanTc);
           });
           if (!matchesCategory) return;
         }
@@ -317,8 +337,9 @@ export async function POST(req: Request) {
           const matchesCategory = targetCategories.some(tc => {
             const cleanTc = tc.trim().toLowerCase();
             if (!cleanTc) return false;
-            return catLower.includes(cleanTc) || cleanTc.includes(catLower) ||
-                   refLower.includes(cleanTc) || prodLower.includes(cleanTc);
+            const matchesCat = catLower === cleanTc || catLower.includes(cleanTc);
+            const matchesWords = targetDistinctWords.length > 0 && targetDistinctWords.every(w => refLower.includes(w) || prodLower.includes(w));
+            return matchesCat || matchesWords || refLower.includes(cleanTc) || prodLower.includes(cleanTc);
           });
           if (!matchesCategory) return;
         }

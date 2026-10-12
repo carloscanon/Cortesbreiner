@@ -76,8 +76,9 @@ export async function POST(req: Request) {
         });
       }
 
-      // Filter out generic words like 'body', 'top' if specific word like 'mango' is present
-      const mainKeywords = categoryKeywords.filter(k => !['body', 'tipo', 'linea', 'para'].includes(k));
+      // Filter out generic words like 'body', 'top', etc.
+      const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo']);
+      const mainKeywords = categoryKeywords.filter(k => !stopWords.has(k));
       const effectiveKeywords = mainKeywords.length > 0 ? mainKeywords : categoryKeywords;
 
       // 3. Fetch product catalog for price, cost, and product_id resolution
@@ -108,13 +109,22 @@ export async function POST(req: Request) {
           .neq('status', 'vendido');
 
         if (effectiveKeywords.length > 0) {
-          // Filter by keyword e.g. %mango%
+          // Filter by primary distinctive keyword e.g. %lassie% or %mango%
           q = q.ilike('reference_name', `%${effectiveKeywords[0]}%`);
         }
 
         const { data: chunk, error: gErr } = await q.range(page * pageSize, (page + 1) * pageSize - 1);
         if (gErr || !chunk || chunk.length === 0) break;
-        expectedGarments = expectedGarments.concat(chunk);
+
+        // Ensure all distinctive keywords match (e.g. both 'lassie' AND 'corto')
+        const filteredChunk = effectiveKeywords.length > 1
+          ? chunk.filter((g: any) => {
+              const refLower = (g.reference_name || '').toLowerCase();
+              return effectiveKeywords.every(w => refLower.includes(w));
+            })
+          : chunk;
+
+        expectedGarments = expectedGarments.concat(filteredChunk);
         if (chunk.length < pageSize) break;
         page++;
       }
