@@ -8,6 +8,8 @@ import ThemeProvider from "@/components/ThemeProvider";
 
 import { Suspense } from "react";
 
+import AppLayoutWrapper from "@/components/AppLayoutWrapper";
+
 export const metadata: Metadata = {
   title: "Breiner | Gestión Textil SaaS",
   description: "Plataforma premium para la gestión de producción textil, cortes e inventarios.",
@@ -29,17 +31,20 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider />
           <AuthGuard>
-            <div className="app-container">
-              <Suspense fallback={null}>
-                <Sidebar />
-              </Suspense>
-              <main className="main-content">
+            <AppLayoutWrapper
+              sidebar={
+                <Suspense fallback={null}>
+                  <Sidebar />
+                </Suspense>
+              }
+              navbar={
                 <Suspense fallback={null}>
                   <Navbar />
                 </Suspense>
-                {children}
-              </main>
-            </div>
+              }
+            >
+              {children}
+            </AppLayoutWrapper>
           </AuthGuard>
         </AuthProvider>
       </body>

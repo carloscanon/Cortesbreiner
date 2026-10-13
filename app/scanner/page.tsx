@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Camera,
   CameraOff,
@@ -9,7 +9,6 @@ import {
   Volume2,
   VolumeX,
   Vibrate,
-  VibrateOff,
   RotateCcw,
   Plus,
   Download,
@@ -17,9 +16,6 @@ import {
   Trash2,
   FileText,
   FileSpreadsheet,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
   History,
   Settings,
   X,
@@ -27,12 +23,11 @@ import {
   Wifi,
   WifiOff,
   Copy,
-  ChevronDown,
-  ChevronUp,
-  Layers,
-  ArrowRight,
   ExternalLink,
-  Barcode
+  Barcode,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 
 export type ScanMode = 'all' | 'grouped';
@@ -55,9 +50,9 @@ export interface ScannerSession {
   registros: ScanRecord[];
 }
 
-const STORAGE_SESSION_KEY = 'CB_BARCODE_SCANNER_SESSION_V1';
-const STORAGE_HISTORY_KEY = 'CB_BARCODE_SCANNER_HISTORY_V1';
-const STORAGE_CONFIG_KEY = 'CB_BARCODE_SCANNER_CONFIG_V1';
+const STORAGE_SESSION_KEY = 'CB_BARCODE_SCANNER_SESSION_V2';
+const STORAGE_HISTORY_KEY = 'CB_BARCODE_SCANNER_HISTORY_V2';
+const STORAGE_CONFIG_KEY = 'CB_BARCODE_SCANNER_CONFIG_V2';
 
 function formatCurrentDateTime(d = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -85,14 +80,15 @@ export default function MobileBarcodeScannerPage() {
     registros: []
   });
 
-  // Camera & scanner state
+  // Camera & stream state
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraState, setCameraState] = useState<'idle' | 'starting' | 'scanning' | 'paused' | 'error' | 'denied'>('idle');
-  const [cameraErrorMessage, setCameraErrorMessage] = useState('');
-  const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [isPaused, setIsPaused] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+  const [hasTorch, setHasTorch] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
-  const [hasTorchCapability, setHasTorchCapability] = useState(false);
 
   // User preferences
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -113,24 +109,29 @@ export default function MobileBarcodeScannerPage() {
   const [exportFormat, setExportFormat] = useState<'txt' | 'csv'>('txt');
   const [exportScope, setExportScope] = useState<'all' | 'unique'>('all');
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareStatus, setShareStatus] = useState<{ type: 'ready' | 'success' | 'fallback' | 'error'; message: string; downloadedFile?: string }>({
-    type: 'ready',
-    message: ''
+  const [shareStatus, setShareStatus] = useState<{ message: string; filename?: string; type: 'success' | 'fallback' }>({
+    message: '',
+    type: 'fallback'
   });
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [sessionHistory, setSessionHistory] = useState<ScannerSession[]>([]);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  // Scanner references
-  const html5QrcodeRef = useRef<any>(null);
+  // Refs for camera loop and ZXing reader
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const zxingReaderRef = useRef<any>(null);
+  const barcodeDetectorRef = useRef<any>(null);
+  const scanLoopTimerRef = useRef<any>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const lastScanTimestampRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
   const isPausedRef = useRef(false);
 
-  // Sync isPausedRef with cameraState
+  // Keep isPausedRef synced
   useEffect(() => {
-    isPausedRef.current = cameraState === 'paused';
-  }, [cameraState]);
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // Online / offline detector
   useEffect(() => {
@@ -144,6 +145,62 @@ export default function MobileBarcodeScannerPage() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Unlock audio on mobile user gestures
+  const unlockAudio = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioCtxRef.current && AudioCtx) {
+        audioCtxRef.current = new AudioCtx();
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Audio Beep generator via Web Audio API (zero external files required)
+  const triggerAudioBeep = useCallback((freq = 1900, duration = 0.08) => {
+    if (!soundEnabled || typeof window === 'undefined') return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioCtxRef.current && AudioCtx) {
+        audioCtxRef.current = new AudioCtx();
+      }
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration + 0.01);
+    } catch (e) {
+      console.warn('Audio synthesis failed:', e);
+    }
+  }, [soundEnabled]);
+
+  // Haptic feedback
+  const triggerHaptic = useCallback((pattern: number | number[] = 75) => {
+    if (!vibrationEnabled || typeof window === 'undefined') return;
+    try {
+      if (navigator && navigator.vibrate) {
+        navigator.vibrate(pattern);
+      }
+    } catch (e) {
+      // Ignore vibration error
+    }
+  }, [vibrationEnabled]);
 
   // Load preferences and session from localStorage
   useEffect(() => {
@@ -195,58 +252,21 @@ export default function MobileBarcodeScannerPage() {
     }
   }, [soundEnabled, vibrationEnabled, cooldownSeconds]);
 
-  // Audio Beep generator via Web Audio API (zero external assets needed)
-  const triggerAudioBeep = (frequency = 1850, duration = 0.08) => {
-    if (!soundEnabled || typeof window === 'undefined') return;
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      if (ctx.state === 'suspended') {
-        ctx.resume();
-      }
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration + 0.01);
-    } catch (e) {
-      console.warn('Audio synthesis failed:', e);
-    }
-  };
-
-  // Haptic feedback
-  const triggerHaptic = (pattern: number | number[] = 75) => {
-    if (!vibrationEnabled || typeof window === 'undefined') return;
-    try {
-      if (navigator && navigator.vibrate) {
-        navigator.vibrate(pattern);
-      }
-    } catch (e) {
-      // Ignore vibration error
-    }
-  };
-
-  // Add scan record logic
-  const handleProcessBarcode = (rawCode: string, method: CaptureMethod = 'camera', customQty = 1) => {
+  // Main barcode handler (records, groups, triggers beep/vibrate)
+  const handleProcessBarcode = useCallback((rawCode: string, method: CaptureMethod = 'camera', customQty = 1) => {
     const code = String(rawCode).trim();
     if (!code) return;
 
-    // Check anti-duplicate cooldown for camera reads
+    // Anti-duplicate cooldown check for camera scans
     const now = Date.now();
     if (method === 'camera') {
       if (lastScanTimestampRef.current.code === code && now - lastScanTimestampRef.current.time < cooldownSeconds * 1000) {
-        return; // Ignore duplicate within cooldown
+        return;
       }
       lastScanTimestampRef.current = { code, time: now };
     }
 
-    // Feedback
+    // Sensory feedback
     setScanFlash(true);
     setTimeout(() => setScanFlash(false), 300);
     triggerAudioBeep();
@@ -257,7 +277,6 @@ export default function MobileBarcodeScannerPage() {
       let updatedRegistros: ScanRecord[] = [];
 
       if (prev.modo === 'grouped') {
-        // Grouped mode: check if barcode exists
         const existingIdx = prev.registros.findIndex((r) => r.codigo_barras === code);
         if (existingIdx >= 0) {
           updatedRegistros = [...prev.registros];
@@ -273,7 +292,6 @@ export default function MobileBarcodeScannerPage() {
         }
       }
 
-      // Default or new grouped record
       const newRecord: ScanRecord = {
         id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         consecutivo: prev.registros.length + 1,
@@ -287,165 +305,269 @@ export default function MobileBarcodeScannerPage() {
       setLastScannedRecord(newRecord);
       return { ...prev, registros: updatedRegistros };
     });
-  };
+  }, [cooldownSeconds, triggerAudioBeep, triggerHaptic]);
 
-  // Camera initialization and stop
-  const stopCamera = async () => {
-    if (html5QrcodeRef.current) {
-      try {
-        if (html5QrcodeRef.current.isScanning) {
-          await html5QrcodeRef.current.stop();
-        }
-        await html5QrcodeRef.current.clear();
-      } catch (err) {
-        console.warn('Error stopping html5Qrcode:', err);
-      }
-      html5QrcodeRef.current = null;
+  // Stop camera and release all hardware resources
+  const stopCamera = useCallback(() => {
+    // 1. Cancel scan loop timer
+    if (scanLoopTimerRef.current) {
+      clearTimeout(scanLoopTimerRef.current);
+      scanLoopTimerRef.current = null;
     }
-    setIsCameraActive(false);
-    setCameraState('idle');
-    setIsTorchOn(false);
-    setHasTorchCapability(false);
-  };
 
-  const startCamera = async (deviceIdToUse?: string) => {
-    setCameraState('starting');
-    setCameraErrorMessage('');
+    // 2. Stop ZXing reader
+    if (zxingReaderRef.current) {
+      try {
+        zxingReaderRef.current.reset();
+      } catch (e) {
+        console.warn('ZXing reset error:', e);
+      }
+      zxingReaderRef.current = null;
+    }
 
-    try {
-      // Dynamic import of html5-qrcode
-      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+    barcodeDetectorRef.current = null;
 
-      // Stop previous instance if any
-      if (html5QrcodeRef.current) {
+    // 3. Stop media stream tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
         try {
-          if (html5QrcodeRef.current.isScanning) {
-            await html5QrcodeRef.current.stop();
-          }
+          track.stop();
         } catch {
           // ignore
         }
-      }
-
-      // Check available cameras
-      try {
-        const devices = await Html5Qrcode.getCameras();
-        if (devices && devices.length > 0) {
-          setAvailableCameras(devices.map((d) => ({ id: d.id, label: d.label || `Cámara ${d.id.substring(0, 5)}` })));
-          if (!deviceIdToUse && !selectedCameraId) {
-            // Find environment camera if possible
-            const backCam = devices.find((d) => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('trasera') || d.label.toLowerCase().includes('environment'));
-            const chosenId = backCam ? backCam.id : devices[devices.length - 1].id;
-            setSelectedCameraId(chosenId);
-            deviceIdToUse = chosenId;
-          }
-        }
-      } catch (camErr) {
-        console.warn('Could not list cameras, will use facingMode default', camErr);
-      }
-
-      const scannerId = 'barcode-reader-view';
-      const scanner = new Html5Qrcode(scannerId, {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.ITF,
-          Html5QrcodeSupportedFormats.QR_CODE
-        ],
-        verbose: false
       });
+      streamRef.current = null;
+    }
 
-      html5QrcodeRef.current = scanner;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
 
-      const cameraConstraint = deviceIdToUse || selectedCameraId || { facingMode: 'environment' };
+    setIsCameraActive(false);
+    setIsPaused(false);
+    setIsTorchOn(false);
+    setHasTorch(false);
+    setCameraLoading(false);
+  }, []);
 
-      const qrConfig = {
-        fps: 15,
-        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-          // Landscape horizontal box for barcodes
-          const w = Math.floor(viewfinderWidth * 0.85);
-          const h = Math.floor(Math.min(viewfinderHeight * 0.45, 180));
-          return { width: Math.max(w, 220), height: Math.max(h, 110) };
-        },
-        aspectRatio: 1.0,
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
+  // Start camera using MediaDevices + Native BarcodeDetector / ZXing fallback
+  const startCamera = async (targetDeviceId?: string, isSilent = false) => {
+    stopCamera();
+    unlockAudio();
+    setCameraLoading(true);
+    setCameraError(null);
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Tu navegador no admite acceso a la cámara o requiere conexión segura HTTPS.');
+      }
+
+      // Query available video devices
+      let videoDevices: MediaDeviceInfo[] = [];
+      try {
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = allDevices.filter((d) => d.kind === 'videoinput');
+        setAvailableDevices(videoDevices);
+      } catch (enumErr) {
+        console.warn('Could not enumerate devices:', enumErr);
+      }
+
+      // Camera constraints with progressive fallback
+      const deviceToUse = targetDeviceId || currentDeviceId;
+      let stream: MediaStream;
+
+      try {
+        const constraints: MediaStreamConstraints = {
+          audio: false,
+          video: deviceToUse
+            ? { deviceId: { exact: deviceToUse }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstErr) {
+        console.warn('Specific constraints failed, trying relaxed back-facing camera:', firstErr);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: 'environment' }
+          });
+        } catch (secondErr) {
+          console.warn('Relaxed facingMode failed, trying generic video:', secondErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true
+          });
         }
-      };
+      }
 
-      await scanner.start(
-        cameraConstraint,
-        qrConfig,
-        (decodedText: string) => {
-          if (!isPausedRef.current) {
-            handleProcessBarcode(decodedText, 'camera');
+      streamRef.current = stream;
+
+      // Check device ID & torch capability
+      const activeTrack = stream.getVideoTracks()[0];
+      if (activeTrack) {
+        const settings = activeTrack.getSettings ? activeTrack.getSettings() : {};
+        if (settings.deviceId) {
+          setCurrentDeviceId(settings.deviceId);
+        }
+
+        try {
+          const capabilities = (activeTrack as any).getCapabilities ? (activeTrack as any).getCapabilities() : {};
+          if (capabilities.torch) {
+            setHasTorch(true);
           }
-        },
-        () => {
-          // Frame error (no barcode detected in frame) - ignore silently
+        } catch {
+          setHasTorch(false);
         }
-      );
+      }
+
+      // Hook up stream to HTML5 <video> element
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn('Video play auto-error:', playErr);
+        }
+      }
 
       setIsCameraActive(true);
-      setCameraState('scanning');
+      setCameraLoading(false);
 
-      // Check flashlight torch support
-      try {
-        const capabilities = scanner.getRunningTrackCapabilities();
-        if (capabilities && (capabilities as any).torch) {
-          setHasTorchCapability(true);
+      // 4. Initialize Barcode Scanner Engine
+      let nativeDetectorActive = false;
+      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+        try {
+          const BarcodeDetectorClass = (window as any).BarcodeDetector;
+          const supportedFormats = await BarcodeDetectorClass.getSupportedFormats();
+          const targetFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf', 'qr_code'].filter((f: string) =>
+            supportedFormats.includes(f)
+          );
+
+          if (targetFormats.length > 0) {
+            barcodeDetectorRef.current = new BarcodeDetectorClass({ formats: targetFormats });
+            nativeDetectorActive = true;
+          }
+        } catch (natErr) {
+          console.warn('Native BarcodeDetector initialization error, will use ZXing:', natErr);
+          nativeDetectorActive = false;
         }
-      } catch {
-        setHasTorchCapability(false);
       }
+
+      // If native detector is not available, initialize @zxing/library
+      if (!nativeDetectorActive) {
+        try {
+          const { BrowserMultiFormatReader, BarcodeFormat, DecodeHintType } = await import('@zxing/library');
+          const hints = new Map();
+          const formats = [
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.CODE_128,
+            BarcodeFormat.CODE_39,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+            BarcodeFormat.ITF,
+            BarcodeFormat.QR_CODE
+          ];
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+          hints.set(DecodeHintType.TRY_HARDER, true);
+
+          const reader = new BrowserMultiFormatReader(hints);
+          zxingReaderRef.current = reader;
+        } catch (zxingErr) {
+          console.error('ZXing initialization error:', zxingErr);
+        }
+      }
+
+      // Continuous scanning frame loop (non-blocking, self-healing)
+      let isFrameRunning = false;
+      const scanFrame = async () => {
+        if (!streamRef.current || !videoRef.current) return;
+
+        if (!isPausedRef.current && !isFrameRunning && videoRef.current.readyState >= 2) {
+          isFrameRunning = true;
+          try {
+            if (barcodeDetectorRef.current) {
+              const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
+              if (barcodes && barcodes.length > 0 && !isPausedRef.current) {
+                const found = barcodes[0].rawValue;
+                if (found) handleProcessBarcode(found, 'camera');
+              }
+            } else if (zxingReaderRef.current) {
+              try {
+                const result = zxingReaderRef.current.decode(videoRef.current);
+                if (result && !isPausedRef.current) {
+                  const text = result.getText();
+                  if (text) handleProcessBarcode(text, 'camera');
+                }
+              } catch {
+                // ZXing NotFoundException is thrown when no barcode is in frame - completely normal
+              }
+            }
+          } catch {
+            // Transient frame error
+          } finally {
+            isFrameRunning = false;
+          }
+        }
+
+        scanLoopTimerRef.current = window.setTimeout(scanFrame, 80);
+      };
+
+      scanLoopTimerRef.current = window.setTimeout(scanFrame, 150);
     } catch (err: any) {
-      console.error('Camera start error:', err);
-      const errMsg = err?.message || String(err);
-      if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission denied')) {
-        setCameraState('denied');
-        setCameraErrorMessage('Permiso de cámara denegado. Concede permiso en el navegador para escanear.');
-      } else {
-        setCameraState('error');
-        setCameraErrorMessage(`No se pudo iniciar la cámara: ${errMsg}`);
+      console.error('Error starting camera:', err);
+      stopCamera();
+      if (!isSilent) {
+        const errMsg = err?.message || String(err);
+        if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission denied')) {
+          setCameraError('Permiso de cámara denegado. Permite el acceso a la cámara en los ajustes de tu navegador.');
+        } else if (errMsg.includes('NotFoundError') || errMsg.includes('DevicesNotFoundError')) {
+          setCameraError('No se encontró ninguna cámara en este dispositivo.');
+        } else {
+          setCameraError(`Error al activar la cámara: ${errMsg}`);
+        }
       }
-      setIsCameraActive(false);
     }
   };
 
-  const togglePauseScanning = () => {
-    if (cameraState === 'scanning') {
-      setCameraState('paused');
-    } else if (cameraState === 'paused') {
-      setCameraState('scanning');
-    }
-  };
-
+  // Toggle Torch (Flashlight)
   const toggleTorch = async () => {
-    if (!html5QrcodeRef.current || !hasTorchCapability) return;
+    if (!streamRef.current) return;
     try {
-      const nextState = !isTorchOn;
-      await html5QrcodeRef.current.applyVideoConstraints({
-        advanced: [{ torch: nextState }]
-      });
-      setIsTorchOn(nextState);
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track && (track as any).applyConstraints) {
+        const nextState = !isTorchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: nextState }]
+        });
+        setIsTorchOn(nextState);
+      }
     } catch (e) {
       console.warn('Torch toggle error:', e);
     }
   };
 
-  // Switch camera
+  // Switch camera device
   const handleSwitchCamera = async () => {
-    if (availableCameras.length <= 1) return;
-    const currentIdx = availableCameras.findIndex((c) => c.id === selectedCameraId);
-    const nextIdx = (currentIdx + 1) % availableCameras.length;
-    const nextCameraId = availableCameras[nextIdx].id;
-    setSelectedCameraId(nextCameraId);
-    await stopCamera();
-    await startCamera(nextCameraId);
+    if (availableDevices.length <= 1) {
+      // Toggle between facing modes
+      stopCamera();
+      await startCamera();
+      return;
+    }
+    const currentIdx = availableDevices.findIndex((d) => d.deviceId === currentDeviceId);
+    const nextIdx = (currentIdx + 1) % availableDevices.length;
+    const nextDevice = availableDevices[nextIdx];
+    setCurrentDeviceId(nextDevice.deviceId);
+    await startCamera(nextDevice.deviceId);
+  };
+
+  // Pause / Resume scanning
+  const togglePauseScanning = () => {
+    setIsPaused((prev) => !prev);
   };
 
   // Undo last reading
@@ -457,13 +579,11 @@ export default function MobileBarcodeScannerPage() {
       const last = updated[updated.length - 1];
 
       if (prev.modo === 'grouped' && last.cantidad > 1) {
-        // Decrement count
         updated[updated.length - 1] = {
           ...last,
           cantidad: last.cantidad - 1
         };
       } else {
-        // Pop last item
         updated.pop();
       }
 
@@ -475,11 +595,10 @@ export default function MobileBarcodeScannerPage() {
     triggerHaptic(40);
   };
 
-  // Delete single record
+  // Delete specific record
   const handleDeleteRecord = (id: string) => {
     setSession((prev) => {
       const updated = prev.registros.filter((r) => r.id !== id);
-      // Recompute consecutivos
       const renumbered = updated.map((r, i) => ({ ...r, consecutivo: i + 1 }));
       setLastScannedRecord(renumbered.length > 0 ? renumbered[renumbered.length - 1] : null);
       return { ...prev, registros: renumbered };
@@ -498,7 +617,6 @@ export default function MobileBarcodeScannerPage() {
       if (!confirmChange) return;
 
       if (newMode === 'grouped') {
-        // Consolidate current records
         const map = new Map<string, ScanRecord>();
         session.registros.forEach((r) => {
           if (map.has(r.codigo_barras)) {
@@ -532,7 +650,6 @@ export default function MobileBarcodeScannerPage() {
   // Start new session
   const handleStartNewSession = () => {
     if (session.registros.length > 0) {
-      // Archive current session
       const updatedHistory = [session, ...sessionHistory.slice(0, 19)];
       setSessionHistory(updatedHistory);
       try {
@@ -556,9 +673,9 @@ export default function MobileBarcodeScannerPage() {
     triggerAudioBeep(1200, 0.08);
   };
 
-  // Restore history session
+  // Load archived session
   const handleLoadArchivedSession = (archived: ScannerSession) => {
-    if (confirm(`¿Cargar la sesión "${archived.nombre}" del ${archived.fecha_creacion}? Los registros no guardados de la sesión actual se archivarán.`)) {
+    if (confirm(`¿Cargar la sesión "${archived.nombre}" del ${archived.fecha_creacion}?`)) {
       if (session.registros.length > 0) {
         const updatedHistory = [session, ...sessionHistory.filter((s) => s.id !== archived.id).slice(0, 19)];
         setSessionHistory(updatedHistory);
@@ -586,8 +703,8 @@ export default function MobileBarcodeScannerPage() {
     return session.registros.filter((r) => r.codigo_barras.toLowerCase().includes(q) || String(r.consecutivo).includes(q)).reverse();
   }, [session.registros, searchQuery]);
 
-  // File generation helpers (TXT and CSV)
-  const generateFileContent = (format: 'txt' | 'csv', scope: 'all' | 'unique') => {
+  // File generation (TXT / CSV)
+  const generateFileContent = useCallback((format: 'txt' | 'csv', scope: 'all' | 'unique') => {
     if (session.registros.length === 0) return { content: '', filename: '', mimeType: '' };
 
     const timestamp = getFileTimestamp();
@@ -612,7 +729,7 @@ export default function MobileBarcodeScannerPage() {
         mimeType: 'text/plain;charset=utf-8'
       };
     } else {
-      // CSV format
+      // CSV format with UTF-8 BOM
       const header = 'consecutivo,codigo_barras,fecha_hora,metodo,cantidad\r\n';
       let rows: string[] = [];
 
@@ -639,7 +756,6 @@ export default function MobileBarcodeScannerPage() {
         });
       }
 
-      // Add UTF-8 BOM so Excel opens it with perfect character and leading zero preservation
       const bom = '\uFEFF';
       return {
         content: bom + header + rows.join('\r\n'),
@@ -647,7 +763,7 @@ export default function MobileBarcodeScannerPage() {
         mimeType: 'text/csv;charset=utf-8'
       };
     }
-  };
+  }, [session.registros]);
 
   const handleDownloadFile = () => {
     if (session.registros.length === 0) {
@@ -680,7 +796,7 @@ export default function MobileBarcodeScannerPage() {
 
     setShowShareModal(true);
 
-    // 1. Try Web Share API Level 2 (with files)
+    // 1. Try Web Share API Level 2 (native file share)
     if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
@@ -690,12 +806,12 @@ export default function MobileBarcodeScannerPage() {
         });
         setShareStatus({
           type: 'success',
-          message: 'Se abrió el menú de compartir de tu dispositivo. Selecciona WhatsApp para enviar el archivo directamente.'
+          filename,
+          message: 'Se abrió la hoja de compartir de tu dispositivo. Selecciona WhatsApp para enviar el archivo adjunto.'
         });
         return;
       } catch (shareErr: any) {
         if (shareErr.name === 'AbortError') {
-          // User canceled share sheet
           setShowShareModal(false);
           return;
         }
@@ -703,7 +819,7 @@ export default function MobileBarcodeScannerPage() {
       }
     }
 
-    // 2. Fallback: Automatically download file and offer WhatsApp direct link with summary
+    // 2. Fallback: Automatically download file and offer WhatsApp direct link
     try {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -719,8 +835,8 @@ export default function MobileBarcodeScannerPage() {
 
     setShareStatus({
       type: 'fallback',
-      downloadedFile: filename,
-      message: `El archivo ${filename} se ha descargado en tu dispositivo. Puedes adjuntarlo en WhatsApp usando el ícono de clip 📎 o enviar el resumen de texto.`
+      filename,
+      message: `El archivo ${filename} se descargó automáticamente. Puedes adjuntarlo en WhatsApp usando el ícono de clip 📎 o enviar el resumen de texto.`
     });
   };
 
@@ -738,24 +854,30 @@ export default function MobileBarcodeScannerPage() {
     }
   };
 
-  // Cleanup camera on unmount
+  // Cleanup on unmount
   useEffect(() => {
+    // Attempt auto-start camera on initial page load (silent if browser blocks autoplay)
+    const autoTimer = setTimeout(() => {
+      startCamera(undefined, true).catch(() => {});
+    }, 450);
+
     return () => {
+      clearTimeout(autoTimer);
       stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   return (
-    <div className="scanner-standalone-container" style={{ minHeight: '100vh', backgroundColor: '#090d16', color: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: '#090d16', color: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       
       {/* TOP HEADER */}
       <header style={{ padding: '0.85rem 1rem', backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 30, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 12px rgba(2,132,199,0.5)' }}>
-            <Barcode size={22} color="#ffffff" />
+          <div style={{ width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 14px rgba(2,132,199,0.5)' }}>
+            <Barcode size={24} color="#ffffff" />
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '900', letterSpacing: '-0.02em', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <h1 style={{ margin: 0, fontSize: '1rem', fontWeight: '900', letterSpacing: '-0.02em', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               Escáner Móvil
               {isOnline ? (
                 <span title="Conectado a Internet" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.65rem', color: '#4ade80', fontWeight: '700', padding: '0.1rem 0.35rem', backgroundColor: '#14532d40', borderRadius: '4px' }}>
@@ -774,7 +896,6 @@ export default function MobileBarcodeScannerPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          {/* Audio toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             title={soundEnabled ? 'Sonido activado' : 'Sonido silenciado'}
@@ -783,7 +904,6 @@ export default function MobileBarcodeScannerPage() {
             {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
 
-          {/* History modal */}
           <button
             onClick={() => setShowHistoryModal(true)}
             title="Historial de sesiones"
@@ -792,7 +912,6 @@ export default function MobileBarcodeScannerPage() {
             <History size={18} />
           </button>
 
-          {/* Settings modal */}
           <button
             onClick={() => setShowSettingsModal(true)}
             title="Ajustes de escaneo"
@@ -844,10 +963,10 @@ export default function MobileBarcodeScannerPage() {
         </div>
       </div>
 
-      {/* MAIN CONTENT AREA */}
+      {/* MAIN VIEW */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '0.85rem', maxWidth: '640px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
         
-        {/* CAMERA VIEWFINDER CARD */}
+        {/* CAMERA PREVIEW CONTAINER */}
         <div style={{
           position: 'relative',
           borderRadius: '16px',
@@ -856,73 +975,82 @@ export default function MobileBarcodeScannerPage() {
           border: scanFlash ? '3px solid #22c55e' : (isCameraActive ? '2px solid #0284c7' : '2px dashed #334155'),
           boxShadow: scanFlash ? '0 0 25px rgba(34,197,94,0.6)' : '0 10px 25px rgba(0,0,0,0.5)',
           transition: 'border 0.2s ease, box-shadow 0.2s ease',
-          minHeight: isCameraActive ? '260px' : '180px',
+          height: '280px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center'
         }}>
-          {/* HTML5 QRCODE CONTAINER */}
-          <div
-            id="barcode-reader-view"
+          {/* Direct HTML5 video element with playsInline (kept mounted with opacity 0 when inactive so dimensions and hardware decoders are always initialized) */}
+          <video
+            ref={videoRef}
+            playsInline
+            autoPlay
+            muted
             style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
               width: '100%',
-              display: isCameraActive ? 'block' : 'none',
-              minHeight: '260px'
+              height: '100%',
+              objectFit: 'cover',
+              zIndex: 1,
+              opacity: isCameraActive ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: 'none'
             }}
           />
 
-          {/* CAMERA STATUS OVERLAY WHEN INACTIVE */}
+          {/* CAMERA IDLE / ERROR SCREEN */}
           {!isCameraActive && (
-            <div style={{ padding: '2rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ position: 'relative', zIndex: 2, padding: '2rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Camera size={28} color="#64748b" />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '850', color: '#f8fafc' }}>
-                  {cameraState === 'denied' ? 'Permiso de Cámara Denegado' : 'Cámara en Espera'}
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '850', color: '#f8fafc' }}>
+                  {cameraError ? 'Aviso de Cámara' : 'Cámara Apagada'}
                 </h3>
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: '#94a3b8', maxWidth: '280px' }}>
-                  {cameraState === 'denied'
-                    ? cameraErrorMessage
-                    : 'Apunta con la cámara de tu celular a códigos EAN, UPC, Code 128 o Code 39.'}
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: cameraError ? '#f87171' : '#94a3b8', maxWidth: '300px' }}>
+                  {cameraError || 'Activa la cámara de tu celular para escanear códigos de barras automáticamente.'}
                 </p>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
                   type="button"
+                  disabled={cameraLoading}
                   onClick={() => startCamera()}
                   style={{
-                    padding: '0.75rem 1.4rem',
+                    padding: '0.85rem 1.4rem',
                     borderRadius: '12px',
                     border: 'none',
                     backgroundColor: '#0284c7',
                     color: '#ffffff',
                     fontWeight: '900',
-                    fontSize: '0.88rem',
-                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    cursor: cameraLoading ? 'wait' : 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.5rem',
                     boxShadow: '0 4px 14px rgba(2,132,199,0.4)'
                   }}
                 >
-                  <Camera size={18} />
-                  Iniciar Escaneo con Cámara
+                  {cameraLoading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                  {cameraLoading ? 'Iniciando Cámara...' : 'Activar Cámara'}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowManualModal(true)}
                   style={{
-                    padding: '0.75rem 1.1rem',
+                    padding: '0.85rem 1.1rem',
                     borderRadius: '12px',
                     border: '1.5px solid #334155',
                     backgroundColor: '#1e293b',
                     color: '#f8fafc',
                     fontWeight: '850',
-                    fontSize: '0.88rem',
+                    fontSize: '0.9rem',
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -936,60 +1064,72 @@ export default function MobileBarcodeScannerPage() {
             </div>
           )}
 
-          {/* ACTIVE CAMERA CONTROLS OVERLAY */}
+          {/* ACTIVE CAMERA CONTROLS AND OVERLAYS */}
           {isCameraActive && (
             <>
-              {/* LASER LINE ANIMATION */}
-              {cameraState === 'scanning' && (
-                <div style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '10%',
-                  right: '10%',
-                  height: '2px',
-                  backgroundColor: '#ef4444',
-                  boxShadow: '0 0 10px #ef4444, 0 0 20px #ef4444',
-                  pointerEvents: 'none',
-                  zIndex: 10
-                }} />
-              )}
-
-              {/* TOP BAR OVERLAY */}
+              {/* TARGETING RETICLE & LASER */}
               <div style={{
                 position: 'absolute',
-                top: '0.6rem',
-                left: '0.6rem',
-                right: '0.6rem',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: '75%',
+                height: '110px',
+                border: '2px solid rgba(56,189,248,0.5)',
+                borderRadius: '12px',
+                pointerEvents: 'none',
+                boxShadow: '0 0 0 9999px rgba(0,0,0,0.3)'
+              }}>
+                {/* Laser scan line */}
+                {!isPaused && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '5%',
+                    right: '5%',
+                    height: '2px',
+                    backgroundColor: '#ef4444',
+                    boxShadow: '0 0 10px #ef4444, 0 0 20px #ef4444',
+                    animation: 'pulse 1.5s infinite'
+                  }} />
+                )}
+              </div>
+
+              {/* TOP FLOATING OVERLAY BAR */}
+              <div style={{
+                position: 'absolute',
+                top: '0.65rem',
+                left: '0.65rem',
+                right: '0.65rem',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                zIndex: 15,
-                pointerEvents: 'auto'
+                zIndex: 15
               }}>
                 <span style={{
-                  padding: '0.25rem 0.6rem',
+                  padding: '0.25rem 0.65rem',
                   borderRadius: '20px',
-                  fontSize: '0.7rem',
+                  fontSize: '0.72rem',
                   fontWeight: '850',
-                  backgroundColor: cameraState === 'paused' ? 'rgba(234,179,8,0.85)' : 'rgba(34,197,94,0.85)',
+                  backgroundColor: isPaused ? 'rgba(234,179,8,0.9)' : 'rgba(34,197,94,0.9)',
                   color: '#020617',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.35rem',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)'
                 }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#020617' }} />
-                  {cameraState === 'paused' ? 'En Pausa' : 'Escaneando'}
+                  {isPaused ? 'En Pausa' : 'Escaneando'}
                 </span>
 
                 <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  {hasTorchCapability && (
+                  {hasTorch && (
                     <button
                       type="button"
                       onClick={toggleTorch}
                       title={isTorchOn ? 'Apagar linterna' : 'Encender linterna'}
                       style={{
-                        padding: '0.4rem',
+                        padding: '0.45rem',
                         borderRadius: '8px',
                         border: 'none',
                         backgroundColor: isTorchOn ? '#facc15' : 'rgba(15,23,42,0.85)',
@@ -997,17 +1137,17 @@ export default function MobileBarcodeScannerPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      <Flashlight size={16} />
+                      <Flashlight size={18} />
                     </button>
                   )}
 
-                  {availableCameras.length > 1 && (
+                  {availableDevices.length > 1 && (
                     <button
                       type="button"
                       onClick={handleSwitchCamera}
-                      title="Cambiar cámara"
+                      title="Cambiar lente / cámara"
                       style={{
-                        padding: '0.4rem',
+                        padding: '0.45rem',
                         borderRadius: '8px',
                         border: 'none',
                         backgroundColor: 'rgba(15,23,42,0.85)',
@@ -1015,7 +1155,7 @@ export default function MobileBarcodeScannerPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      <FlipHorizontal size={16} />
+                      <FlipHorizontal size={18} />
                     </button>
                   )}
 
@@ -1024,25 +1164,25 @@ export default function MobileBarcodeScannerPage() {
                     onClick={stopCamera}
                     title="Detener cámara"
                     style={{
-                      padding: '0.4rem',
+                      padding: '0.45rem',
                       borderRadius: '8px',
                       border: 'none',
-                      backgroundColor: 'rgba(239,68,68,0.85)',
+                      backgroundColor: 'rgba(239,68,68,0.9)',
                       color: '#ffffff',
                       cursor: 'pointer'
                     }}
                   >
-                    <CameraOff size={16} />
+                    <CameraOff size={18} />
                   </button>
                 </div>
               </div>
 
-              {/* BOTTOM BAR OVERLAY WITH QUICK PAUSE */}
+              {/* BOTTOM FLOATING PAUSE BUTTON */}
               <div style={{
                 position: 'absolute',
-                bottom: '0.6rem',
-                left: '0.6rem',
-                right: '0.6rem',
+                bottom: '0.65rem',
+                left: '0.65rem',
+                right: '0.65rem',
                 display: 'flex',
                 justifyContent: 'center',
                 zIndex: 15
@@ -1051,19 +1191,19 @@ export default function MobileBarcodeScannerPage() {
                   type="button"
                   onClick={togglePauseScanning}
                   style={{
-                    padding: '0.4rem 1rem',
+                    padding: '0.45rem 1.1rem',
                     borderRadius: '20px',
                     border: '1px solid rgba(255,255,255,0.2)',
-                    backgroundColor: cameraState === 'paused' ? '#16a34a' : 'rgba(15,23,42,0.85)',
+                    backgroundColor: isPaused ? '#16a34a' : 'rgba(15,23,42,0.85)',
                     color: '#ffffff',
-                    fontWeight: '800',
-                    fontSize: '0.78rem',
+                    fontWeight: '850',
+                    fontSize: '0.8rem',
                     cursor: 'pointer',
                     backdropFilter: 'blur(4px)',
                     boxShadow: '0 2px 10px rgba(0,0,0,0.5)'
                   }}
                 >
-                  {cameraState === 'paused' ? '▶️ Reanudar Lectura' : '⏸️ Pausar Cámara'}
+                  {isPaused ? '▶️ Reanudar Lectura' : '⏸️ Pausar Cámara'}
                 </button>
               </div>
             </>
@@ -1076,7 +1216,7 @@ export default function MobileBarcodeScannerPage() {
             type="button"
             onClick={() => setShowManualModal(true)}
             style={{
-              padding: '0.75rem',
+              padding: '0.8rem',
               borderRadius: '12px',
               border: '1.5px solid #334155',
               backgroundColor: '#131b2e',
@@ -1099,7 +1239,7 @@ export default function MobileBarcodeScannerPage() {
             onClick={handleUndoLastScan}
             disabled={session.registros.length === 0}
             style={{
-              padding: '0.75rem',
+              padding: '0.8rem',
               borderRadius: '12px',
               border: '1.5px solid #334155',
               backgroundColor: session.registros.length === 0 ? '#0b1324' : '#131b2e',
@@ -1140,7 +1280,7 @@ export default function MobileBarcodeScannerPage() {
               <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                 Total Lecturas
               </span>
-              <span style={{ fontSize: '1.6rem', fontWeight: '950', color: '#38bdf8' }}>
+              <span style={{ fontSize: '1.7rem', fontWeight: '950', color: '#38bdf8' }}>
                 {totalReadingsCount}
               </span>
             </div>
@@ -1155,7 +1295,7 @@ export default function MobileBarcodeScannerPage() {
               <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                 Códigos Únicos
               </span>
-              <span style={{ fontSize: '1.6rem', fontWeight: '950', color: '#4ade80' }}>
+              <span style={{ fontSize: '1.7rem', fontWeight: '950', color: '#4ade80' }}>
                 {uniqueCodesCount}
               </span>
             </div>
@@ -1244,7 +1384,7 @@ export default function MobileBarcodeScannerPage() {
               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', fontSize: '0.82rem' }}>
                 <Barcode size={36} color="#334155" style={{ margin: '0 auto 0.5rem' }} />
                 {session.registros.length === 0
-                  ? 'No hay códigos escaneados todavía. Apunta con la cámara o ingresa un código manualmente.'
+                  ? 'No hay códigos escaneados todavía. Activa la cámara o ingresa un código manualmente.'
                   : 'No se encontraron coincidencias para la búsqueda.'}
               </div>
             ) : (
@@ -1538,7 +1678,7 @@ export default function MobileBarcodeScannerPage() {
               </button>
             </div>
 
-            {/* Formato selector */}
+            {/* Format selector */}
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#94a3b8', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
                 Formato de Archivo
@@ -1655,7 +1795,7 @@ export default function MobileBarcodeScannerPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 3: COMPARTIR POR WHATSAPP Y FALLBACK */}
+      {/* MODAL 3: COMPARTIR POR WHATSAPP */}
       {/* ========================================================================= */}
       {showShareModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(4px)' }}>
@@ -1672,16 +1812,13 @@ export default function MobileBarcodeScannerPage() {
               </button>
             </div>
 
-            {/* Notification message */}
             <div style={{ padding: '0.85rem', borderRadius: '12px', backgroundColor: shareStatus.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(2,132,199,0.15)', border: `1px solid ${shareStatus.type === 'success' ? '#22c55e' : '#0284c7'}` }}>
               <span style={{ fontSize: '0.82rem', color: '#f8fafc', lineHeight: 1.4, display: 'block' }}>
                 {shareStatus.message || 'Se ha generado el archivo con las lecturas escaneadas.'}
               </span>
             </div>
 
-            {/* Action options */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {/* Button to open WhatsApp directly with prefilled text */}
               <a
                 href={`https://api.whatsapp.com/send?text=${getWhatsAppMessageText()}`}
                 target="_blank"
@@ -1702,10 +1839,9 @@ export default function MobileBarcodeScannerPage() {
                 }}
               >
                 <ExternalLink size={18} />
-                Abrir WhatsApp con Resumen de Códigos
+                Abrir WhatsApp con Resumen
               </a>
 
-              {/* Copy barcodes list to clipboard */}
               <button
                 type="button"
                 onClick={copyBarcodesToClipboard}
@@ -1729,13 +1865,12 @@ export default function MobileBarcodeScannerPage() {
               </button>
             </div>
 
-            {/* Instructions box */}
             <div style={{ fontSize: '0.72rem', color: '#94a3b8', lineHeight: 1.4, backgroundColor: '#090d16', padding: '0.75rem', borderRadius: '10px', border: '1px solid #1e293b' }}>
               <strong>💡 Cómo adjuntar el archivo completo en WhatsApp:</strong>
               <ol style={{ margin: '0.35rem 0 0', paddingLeft: '1.2rem' }}>
                 <li>Abre la conversación o grupo en WhatsApp.</li>
                 <li>Toca el ícono de <strong>clip 📎</strong> o <strong>Documento</strong>.</li>
-                <li>Selecciona el archivo descargado en la carpeta <strong>Descargas</strong>.</li>
+                <li>Selecciona el archivo descargado en tu carpeta de <strong>Descargas</strong>.</li>
               </ol>
             </div>
 
