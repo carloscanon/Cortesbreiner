@@ -125,7 +125,7 @@ export default function Sidebar() {
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab') || 'dashboard';
 
-  if (pathname?.startsWith('/pos')) return null;
+  if (pathname?.startsWith('/pos') || pathname?.startsWith('/scanner')) return null;
 
   return (
     <aside className="sidebar">

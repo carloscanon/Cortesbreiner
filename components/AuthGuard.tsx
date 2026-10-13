@@ -11,7 +11,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user && pathname !== '/login') {
+    if (!loading && !user && pathname !== '/login' && !pathname?.startsWith('/scanner')) {
       router.push('/login');
     }
     if (!loading && user && pathname === '/login') {
@@ -45,6 +45,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [user, profile, loading, pathname, router]);
 
   const isProfileLoading = user && !profile && loading;
+
+  if (pathname?.startsWith('/scanner')) {
+    return <>{children}</>;
+  }
 
   if (loading || isProfileLoading) {
     return (

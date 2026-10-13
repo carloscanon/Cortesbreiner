@@ -136,7 +136,7 @@ export default function Navbar() {
     fetchPermissions();
   }, [profile]);
 
-  if (pathname?.startsWith('/pos')) return null;
+  if (pathname?.startsWith('/pos') || pathname?.startsWith('/scanner')) return null;
 
   return (
     <header style={{ 

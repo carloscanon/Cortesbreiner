@@ -6,6 +6,8 @@ import { AuthProvider } from "@/hooks/useAuth";
 import AuthGuard from "@/components/AuthGuard";
 import ThemeProvider from "@/components/ThemeProvider";
 
+import { Suspense } from "react";
+
 export const metadata: Metadata = {
   title: "Breiner | Gestión Textil SaaS",
   description: "Plataforma premium para la gestión de producción textil, cortes e inventarios.",
@@ -28,9 +30,13 @@ export default function RootLayout({
           <ThemeProvider />
           <AuthGuard>
             <div className="app-container">
-              <Sidebar />
+              <Suspense fallback={null}>
+                <Sidebar />
+              </Suspense>
               <main className="main-content">
-                <Navbar />
+                <Suspense fallback={null}>
+                  <Navbar />
+                </Suspense>
                 {children}
               </main>
             </div>
