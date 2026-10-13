@@ -182,7 +182,8 @@ export async function POST(req: Request) {
       let q = supabase
         .from('individual_garments')
         .select('*')
-        .neq('status', 'vendido');
+        .eq('status', 'Aprobada')
+        .not('warehouse_id', 'is', null);
 
       if (locationId !== 'all') {
         q = q.eq('warehouse_id', locationId);

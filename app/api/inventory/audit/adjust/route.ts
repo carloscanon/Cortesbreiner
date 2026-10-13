@@ -70,11 +70,37 @@ export async function POST(req: Request) {
             });
           });
         }
-      } else if (session.audit_type && session.audit_type !== 'Completo' && session.audit_type !== 'Por Ubicacion') {
+      } else if (session.audit_type && session.audit_type !== 'Completo' && session.audit_type !== 'Por Ubicacion' && session.audit_type !== 'Por Categoria' && session.audit_type !== 'Parcial') {
         const clean = session.audit_type.trim().toLowerCase();
         clean.split(/\s+/).forEach((w: string) => {
           if (w.length >= 3 && !categoryKeywords.includes(w)) categoryKeywords.push(w);
         });
+      }
+
+      // If category keywords could not be extracted from notes/audit_type AND scans exist,
+      // inspect the scanned barcodes in individual_garments to automatically infer the audited category/reference!
+      if (categoryKeywords.length === 0 && scannedBarcodes.length > 0) {
+        const sampleBarcodes = scannedBarcodes.slice(0, 50);
+        const { data: sampleGarments } = await supabase
+          .from('individual_garments')
+          .select('reference_name')
+          .in('barcode', sampleBarcodes);
+
+        if (sampleGarments && sampleGarments.length > 0) {
+          const refCounts: Record<string, number> = {};
+          sampleGarments.forEach((g: any) => {
+            if (g.reference_name) {
+              refCounts[g.reference_name] = (refCounts[g.reference_name] || 0) + 1;
+            }
+          });
+          const sorted = Object.entries(refCounts).sort((a, b) => b[1] - a[1]);
+          if (sorted.length > 0) {
+            const dominantRef = sorted[0][0].toLowerCase();
+            dominantRef.split(/\s+/).forEach((w: string) => {
+              if (w.length >= 3 && !categoryKeywords.includes(w)) categoryKeywords.push(w);
+            });
+          }
+        }
       }
 
       // Resolve Color Scope if specified in notes
@@ -117,7 +143,7 @@ export async function POST(req: Request) {
           .from('individual_garments')
           .select('*')
           .eq('warehouse_id', locationId)
-          .neq('status', 'vendido');
+          .eq('status', 'Aprobada');
 
         if (effectiveKeywords.length > 0) {
           // Filter by primary distinctive keyword e.g. %lassie% or %mango%
@@ -636,8 +662,11 @@ export async function POST(req: Request) {
         expected_qty: number;
       }>();
 
+      const auditedProductIds = new Set<string>();
+
       items.forEach((item: any) => {
         if (!item.product_id) return;
+        auditedProductIds.add(item.product_id);
         const key = `${item.product_id}_${item.color_id || 'null'}_${item.size_id || 'null'}`;
         const current = stockAdjustmentsMap.get(key) || {
           product_id: item.product_id,
@@ -655,39 +684,59 @@ export async function POST(req: Request) {
         stockAdjustmentsMap.set(key, current);
       });
 
-      // Apply aggregated physical adjustments to finished_goods_stock and kardex
-      for (const [_, adj] of stockAdjustmentsMap.entries()) {
-        let q = supabase
-          .from('finished_goods_stock')
-          .select('*')
-          .eq('warehouse_id', locationId)
-          .eq('product_id', adj.product_id);
+      // Query all existing stock records in this warehouse for the audited products
+      const { data: existingStockRecords } = await supabase
+        .from('finished_goods_stock')
+        .select('*')
+        .eq('warehouse_id', locationId)
+        .in('product_id', Array.from(auditedProductIds));
 
-        if (adj.color_id) {
-          q = q.eq('color_id', adj.color_id);
-        } else {
-          q = q.is('color_id', null);
-        }
+      const existingRecordsByKey = new Map<string, any[]>();
+      existingStockRecords?.forEach((rec: any) => {
+        const k = `${rec.product_id}_${rec.color_id || 'null'}_${rec.size_id || 'null'}`;
+        const list = existingRecordsByKey.get(k) || [];
+        list.push(rec);
+        existingRecordsByKey.set(k, list);
+      });
 
-        if (adj.size_id) {
-          q = q.eq('size_id', adj.size_id);
-        } else {
-          q = q.is('size_id', null);
-        }
-
-        const { data: stockRecords } = await q.limit(1);
-        const currentStock = stockRecords?.[0];
-
-        const prevQty = currentStock ? Number(currentStock.cantidad_disponible || 0) : 0;
-        // Real physical count replaces theoretical stock
+      // A. Apply counted adjustments to primary stock records and zero out duplicates
+      for (const [key, adj] of stockAdjustmentsMap.entries()) {
+        const matches = existingRecordsByKey.get(key) || [];
         const newQty = Math.max(0, adj.counted_qty);
-        const delta = newQty - prevQty;
 
-        if (currentStock) {
+        if (matches.length > 0) {
+          const primary = matches[0];
+          const prevQty = Number(primary.cantidad_disponible || 0);
+          const delta = newQty - prevQty;
+
           await supabase
             .from('finished_goods_stock')
             .update({ cantidad_disponible: newQty, updated_at: new Date().toISOString() })
-            .eq('id', currentStock.id);
+            .eq('id', primary.id);
+
+          // Zero out duplicate rows for the same variant
+          for (let d = 1; d < matches.length; d++) {
+            await supabase
+              .from('finished_goods_stock')
+              .update({ cantidad_disponible: 0, updated_at: new Date().toISOString() })
+              .eq('id', matches[d].id);
+          }
+
+          if (delta !== 0) {
+            await supabase.from('finished_goods_kardex').insert({
+              product_id: adj.product_id,
+              color_id: adj.color_id,
+              size_id: adj.size_id,
+              warehouse_dest_id: locationId,
+              tipo_movimiento: delta > 0 ? 'Ajuste Auditoría (Sobrante)' : 'Ajuste Auditoría (Faltante)',
+              cantidad: Math.abs(delta),
+              saldo_anterior: prevQty,
+              saldo_nuevo: newQty,
+              documento_origen: `AUDITORÍA #${session.consecutive}`,
+              usuario: userEmail || 'Aprobador',
+              observaciones: `Ajuste consolidado auditoría #${session.consecutive} (${adj.product_name} - ${adj.color_name || 'General'})`
+            });
+          }
         } else if (newQty > 0) {
           await supabase.from('finished_goods_stock').insert({
             product_id: adj.product_id,
@@ -697,22 +746,34 @@ export async function POST(req: Request) {
             cantidad_disponible: newQty
           });
         }
+      }
 
-        // Kardex audit movement record if there was a real difference
-        if (delta !== 0) {
-          await supabase.from('finished_goods_kardex').insert({
-            product_id: adj.product_id,
-            color_id: adj.color_id,
-            size_id: adj.size_id,
-            warehouse_dest_id: locationId,
-            tipo_movimiento: delta > 0 ? 'Ajuste Auditoría (Sobrante)' : 'Ajuste Auditoría (Faltante)',
-            cantidad: Math.abs(delta),
-            saldo_anterior: prevQty,
-            saldo_nuevo: newQty,
-            documento_origen: `AUDITORÍA #${session.consecutive}`,
-            usuario: userEmail || 'Aprobador',
-            observaciones: `Ajuste consolidado auditoría #${session.consecutive} (${adj.product_name} - ${adj.color_name || 'General'})`
-          });
+      // B. Set uncounted variants of audited products in this warehouse to 0
+      for (const [key, records] of existingRecordsByKey.entries()) {
+        if (!stockAdjustmentsMap.has(key)) {
+          for (const rec of records) {
+            const prevQty = Number(rec.cantidad_disponible || 0);
+            if (prevQty > 0) {
+              await supabase
+                .from('finished_goods_stock')
+                .update({ cantidad_disponible: 0, updated_at: new Date().toISOString() })
+                .eq('id', rec.id);
+
+              await supabase.from('finished_goods_kardex').insert({
+                product_id: rec.product_id,
+                color_id: rec.color_id,
+                size_id: rec.size_id,
+                warehouse_dest_id: locationId,
+                tipo_movimiento: 'Ajuste Auditoría (Faltante)',
+                cantidad: prevQty,
+                saldo_anterior: prevQty,
+                saldo_nuevo: 0,
+                documento_origen: `AUDITORÍA #${session.consecutive}`,
+                usuario: userEmail || 'Aprobador',
+                observaciones: `Ajuste auditoría #${session.consecutive} (Variante no encontrada en conteo físico)`
+              });
+            }
+          }
         }
       }
 

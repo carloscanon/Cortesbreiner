@@ -74,7 +74,8 @@ export default function AuditManagerDashboard({
           let garmentsQuery = supabase
             .from('individual_garments')
             .select('reference_name, color_name')
-            .neq('status', 'vendido');
+            .eq('status', 'Aprobada')
+            .not('warehouse_id', 'is', null);
 
           if (newLocationId && newLocationId !== 'all') {
             garmentsQuery = garmentsQuery.eq('warehouse_id', newLocationId);
@@ -266,7 +267,8 @@ export default function AuditManagerDashboard({
         ? ` | Color(es): ${selectedColorNames.join(', ')}`
         : '';
 
-      const payloadNotes = newNotes || `${categoryNotes}${colorNotes}`;
+      const baseNotes = `${categoryNotes}${colorNotes}`;
+      const payloadNotes = newNotes ? `${baseNotes} | ${newNotes}` : baseNotes;
 
       const res = await fetch('/api/inventory/audit/sessions', {
         method: 'POST',
