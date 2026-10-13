@@ -2663,6 +2663,34 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    {/* Catalogación de Ventas POS (Conceptos y Estados) */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div>
+                          <h3 style={{ margin: 0 }}>🏷️ Catalogación de Ventas POS</h3>
+                          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: 0, marginTop: '0.25rem' }}>
+                            Configura conceptos y estados para catalogar ventas (ej. Ventas Mayoristas, Detal, Dotación, Eventos).
+                          </p>
+                        </div>
+                        <a
+                          href="/store-admin"
+                          className="btn btn-secondary"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.5rem 1rem',
+                            fontSize: '0.825rem',
+                            fontWeight: '750',
+                            borderRadius: '8px',
+                            textDecoration: 'none'
+                          }}
+                        >
+                          Ir a Facturación POS ➔
+                        </a>
+                      </div>
+                    </div>
+
                   {/* Dark Mode Toggle */}
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>

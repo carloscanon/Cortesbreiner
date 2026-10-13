@@ -7,7 +7,7 @@ import {
   BarChart3, RefreshCw, Layers, CheckCircle2, XCircle, AlertTriangle,
   FolderOpen, Calendar, DollarSign, Tag, Clock, ArrowRight, UserCheck,
   Loader2, X, Activity, ShoppingBag, CreditCard, ChevronRight, Users,
-  ListPlus, DollarSign as MoneyIcon, Search, Shirt, Package, ShoppingCart
+  ListPlus, DollarSign as MoneyIcon, Search, Shirt, Package, ShoppingCart, Save
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -283,6 +283,26 @@ export default function StoreAdminPage() {
   } | null>(null);
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [showStoreInvModal, setShowStoreInvModal] = useState(false);
+
+  // Conceptos y Estados de Catalogación de Ventas POS
+  const [salesConcepts, setSalesConcepts] = useState<any[]>([]);
+  const [conceptFilter, setConceptFilter] = useState<string>('all');
+  const [showConceptSettingsModal, setShowConceptSettingsModal] = useState<boolean>(false);
+  const [editingConceptId, setEditingConceptId] = useState<string | null>(null);
+  const [conceptForm, setConceptForm] = useState<{
+    nombre: string;
+    color: string;
+    descripcion: string;
+    is_default: boolean;
+  }>({
+    nombre: '',
+    color: '#3b82f6',
+    descripcion: '',
+    is_default: false
+  });
+  const [savingConcept, setSavingConcept] = useState<boolean>(false);
+  const [batchConceptToApply, setBatchConceptToApply] = useState<string>('Ventas Mayoristas');
+  const [isApplyingConcept, setIsApplyingConcept] = useState<boolean>(false);
 
   // Credit Note Modal State
   const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
@@ -642,6 +662,23 @@ export default function StoreAdminPage() {
       // Fetch SIIGO Document Types for Document Selector
       fetchSiigoDocTypes();
 
+      // Fetch Sales Classification Concepts
+      try {
+        const cRes = await fetch('/api/pos/concepts');
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          if (cData.concepts && Array.isArray(cData.concepts)) {
+            setSalesConcepts(cData.concepts);
+            const defaultC = cData.concepts.find((c: any) => c.is_default);
+            if (defaultC) {
+              setBatchConceptToApply(defaultC.nombre || defaultC.name || 'Ventas Mayoristas');
+            }
+          }
+        }
+      } catch (cErr) {
+        console.warn('Could not load sales concepts:', cErr);
+      }
+
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -990,6 +1027,117 @@ export default function StoreAdminPage() {
       alert("Error guardando lista de precios: " + err.message);
     } finally {
       setSavingPriceList(false);
+    }
+  };
+
+  // Concept helpers and handlers for Sales Cataloging
+  const getSaleConcept = (sale: any) => {
+    if (sale?.concepto_venta && typeof sale.concepto_venta === 'string' && sale.concepto_venta.trim()) {
+      return sale.concepto_venta.trim();
+    }
+    if (sale?.observaciones && typeof sale.observaciones === 'string') {
+      const match = sale.observaciones.match(/\[CONCEPTO:\s*([^\]]+)\]/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    const def = salesConcepts.find((c: any) => c.is_default);
+    return def?.nombre || def?.name || 'Venta Detal / Minorista';
+  };
+
+  const getConceptInfo = (conceptName: string) => {
+    const found = salesConcepts.find((c: any) => (c.nombre || c.name || '').toLowerCase() === (conceptName || '').toLowerCase());
+    if (found) return found;
+    return {
+      nombre: conceptName || 'Venta Detal / Minorista',
+      color: '#64748b',
+      descripcion: ''
+    };
+  };
+
+  const handleClassifySales = async (saleIds: string[], conceptName: string) => {
+    if (!saleIds || saleIds.length === 0 || !conceptName) return;
+    setIsApplyingConcept(true);
+    try {
+      const res = await fetch('/api/pos/sales/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ saleIds, conceptName })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setSalesList(prev => prev.map(s => {
+          if (saleIds.includes(s.id)) {
+            let obs = (s.observaciones || '').replace(/\|\s*\[CONCEPTO:[^\]]+\]/gi, '').replace(/\[CONCEPTO:[^\]]+\]/gi, '').trim();
+            obs = obs ? `${obs} | [CONCEPTO: ${conceptName}]` : `[CONCEPTO: ${conceptName}]`;
+            return {
+              ...s,
+              concepto_venta: conceptName,
+              observaciones: obs
+            };
+          }
+          return s;
+        }));
+        alert(`✅ ${saleIds.length === 1 ? 'Venta catalogada' : `${saleIds.length} ventas catalogadas`} exitosamente como "${conceptName}"`);
+      } else {
+        alert(`❌ Error al catalogar: ${json.error || 'Desconocido'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error al catalogar: ${err.message}`);
+    } finally {
+      setIsApplyingConcept(false);
+    }
+  };
+
+  const handleSaveConcept = async () => {
+    if (!conceptForm.nombre.trim()) {
+      alert('Por favor ingrese el nombre del concepto');
+      return;
+    }
+    setSavingConcept(true);
+    try {
+      const payload = editingConceptId
+        ? { action: 'update', concept: { id: editingConceptId, ...conceptForm } }
+        : { action: 'add', concept: { ...conceptForm } };
+
+      const res = await fetch('/api/pos/concepts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (json.success && Array.isArray(json.concepts)) {
+        setSalesConcepts(json.concepts);
+        setConceptForm({ nombre: '', color: '#3b82f6', descripcion: '', is_default: false });
+        setEditingConceptId(null);
+        alert(editingConceptId ? 'Concepto actualizado correctamente' : 'Nuevo concepto creado exitosamente en la base de datos');
+      } else {
+        alert(`Error al guardar concepto: ${json.error || 'Error desconocido'}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSavingConcept(false);
+    }
+  };
+
+  const handleDeleteConcept = async (conceptId: string) => {
+    if (!confirm('¿Está seguro de eliminar este concepto de catalogación de la base de datos?')) return;
+    try {
+      const res = await fetch('/api/pos/concepts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: conceptId })
+      });
+      const json = await res.json();
+      if (json.success && Array.isArray(json.concepts)) {
+        setSalesConcepts(json.concepts);
+        alert('Concepto eliminado correctamente');
+      } else {
+        alert(`Error al eliminar: ${json.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
     }
   };
 
@@ -3290,190 +3438,396 @@ export default function StoreAdminPage() {
                 </div>
               )}
 
-              {/* Buscador de Facturación */}
-              <div style={{ display: 'flex', marginBottom: '1rem' }}>
-                <input
-                  type="text"
-                  placeholder="Buscar por cliente, cédula, ticket o vendedor..."
-                  value={billingSearch}
-                  onChange={(e) => setBillingSearch(e.target.value)}
-                  style={{ width: '100%', maxWidth: '400px', padding: '0.625rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
-                />
-              </div>
+              {/* Buscador de Facturación, Filtro por Concepto y Acciones de Catalogación */}
+              {(() => {
+                const filteredSalesList = salesList.filter(s => {
+                  if (billingSearch) {
+                    const q = billingSearch.toLowerCase();
+                    const matchesSearch =
+                      s.client_name?.toLowerCase().includes(q) ||
+                      s.client_document?.includes(q) ||
+                      String(s.consecutive).includes(q) ||
+                      s.vendedor?.toLowerCase().includes(q);
+                    if (!matchesSearch) return false;
+                  }
+                  if (conceptFilter !== 'all') {
+                    const sConcept = getSaleConcept(s);
+                    if (sConcept.toLowerCase() !== conceptFilter.toLowerCase()) {
+                      return false;
+                    }
+                  }
+                  return true;
+                });
 
-              {/* Sales List Table with checkboxes */}
-              <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                        <th style={{ padding: '1rem', width: '40px', textAlign: 'center' }}>
+                return (
+                  <>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+                        <div style={{ position: 'relative', minWidth: '280px', flex: 1, maxWidth: '420px' }}>
+                          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                           <input
-                            type="checkbox"
-                            checked={
-                              salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).length > 0 &&
-                              selectedSales.length === salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).length
-                            }
-                            onChange={(e) => {
-                              const filtered = salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase()));
-                              if (e.target.checked) {
-                                setSelectedSales(filtered.map(s => s.id));
-                              } else {
-                                setSelectedSales([]);
-                              }
-                            }}
+                            type="text"
+                            placeholder="Buscar por cliente, cédula, ticket o vendedor..."
+                            value={billingSearch}
+                            onChange={(e) => setBillingSearch(e.target.value)}
+                            style={{ width: '100%', padding: '0.625rem 0.85rem 0.625rem 2.25rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
                           />
-                        </th>
-                        <th style={{ padding: '1rem' }}>Ticket POS</th>
-                        <th style={{ padding: '1rem' }}>Tienda</th>
-                        <th style={{ padding: '1rem' }}>Cliente Persona</th>
-                        <th style={{ padding: '1rem' }}>Detalle Prendas</th>
-                        <th style={{ padding: '1rem', textAlign: 'right' }}>Total</th>
-                        <th style={{ padding: '1rem' }}>Método Pago</th>
-                        <th style={{ padding: '1rem', textAlign: 'center' }}>Estado ERP</th>
-                        <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {salesList.filter(s => !billingSearch || s.client_name?.toLowerCase().includes(billingSearch.toLowerCase()) || s.client_document?.includes(billingSearch) || String(s.consecutive).includes(billingSearch) || s.vendedor?.toLowerCase().includes(billingSearch.toLowerCase())).map((sale) => (
-                        <tr key={sale.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '1rem', textAlign: 'center' }}>
-                            <input
-                              type="checkbox"
-                              checked={selectedSales.includes(sale.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedSales([...selectedSales, sale.id]);
-                                } else {
-                                  setSelectedSales(selectedSales.filter(id => id !== sale.id));
-                                }
-                              }}
-                            />
-                          </td>
-                          <td style={{ padding: '1rem', fontWeight: '800' }}>#{sale.consecutive}</td>
-                          <td style={{ padding: '1rem', fontWeight: '700' }}>{sale.stores?.nombre}</td>
-                          <td style={{ padding: '1rem' }}>
-                            <span style={{ display: 'block', fontWeight: '750' }}>{sale.client_name}</span>
-                            <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b' }}>C.C. {sale.client_document}</span>
-                          </td>
-                          <td style={{ padding: '1rem' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.75rem' }}>
-                              {sale.pos_sale_items?.map((item: any) => (
-                                <span key={item.id}>
-                                  {item.cantidad}x {item.products?.nombre_producto} ({item.sizes?.codigo_talla || '—'})
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td style={{ padding: '1rem', textAlign: 'right', fontWeight: '800' }}>${sale.total.toLocaleString('es-CO')}</td>
-                          <td style={{ padding: '1rem' }}>
-                            {sale.pos_payments?.map((p: any) => p.metodo_pago).join(', ') || 'Efectivo'}
-                          </td>
-                          <td style={{ padding: '1rem', textAlign: 'center' }}>
-                            <span style={{
-                              padding: '0.25rem 0.5rem',
-                              borderRadius: '12px',
-                              fontSize: '0.75rem',
-                              fontWeight: '800',
-                              backgroundColor: sale.estado === 'anulada' ? '#fee2e2' : (sale.sincronizado_erp ? '#dcfce7' : '#fef3c7'),
-                              color: sale.estado === 'anulada' ? '#991b1b' : (sale.sincronizado_erp ? '#166534' : '#92400e')
-                            }}>
-                              {sale.estado === 'anulada' ? 'Anulada / NC' : (sale.sincronizado_erp ? 'Facturado / ERP' : 'Pendiente')}
-                            </span>
-                          </td>
-                          <td style={{ padding: '1rem', textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', alignItems: 'center' }}>
-                              <button
-                                onClick={() => handleOpenTrackingModal(sale)}
-                                title="Ver historial de auditoría y trazabilidad SIIGO"
-                                style={{
-                                  padding: '0.35rem 0.65rem',
-                                  fontSize: '0.75rem',
-                                  fontWeight: '850',
-                                  backgroundColor: '#f1f5f9',
-                                  color: '#334155',
-                                  border: '1px solid #cbd5e1',
-                                  borderRadius: '8px',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.35rem'
-                                }}
-                              >
-                                <Activity size={12} />
-                                Seguimiento
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  setDebugPayloadSale(sale);
-                                  setShowDebugPayloadModal(true);
-                                  try {
-                                    const { data } = await supabase
-                                      .from('siigo_sync_logs')
-                                      .select('*')
-                                      .eq('sale_id', sale.id)
-                                      .order('created_at', { ascending: false })
-                                      .limit(1);
-                                    if (data && data.length > 0) {
-                                      setDebugPayloadContent({ request: data[0].request_body, response: data[0].response_body });
-                                    } else {
-                                      setDebugPayloadContent(null);
-                                    }
-                                  } catch (e) {
-                                    setDebugPayloadContent(null);
+                        </div>
+
+                        {/* Filtro por Concepto / Estado */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Tag size={16} color="#64748b" />
+                          <select
+                            value={conceptFilter}
+                            onChange={(e) => setConceptFilter(e.target.value)}
+                            style={{
+                              padding: '0.625rem 0.85rem',
+                              borderRadius: '10px',
+                              border: '1.5px solid #cbd5e1',
+                              fontSize: '0.85rem',
+                              fontWeight: '750',
+                              backgroundColor: '#ffffff',
+                              color: '#1e293b',
+                              cursor: 'pointer',
+                              outline: 'none'
+                            }}
+                          >
+                            <option value="all">🏷️ Todos los Conceptos ({salesList.length})</option>
+                            {salesConcepts.map((c: any) => {
+                              const cName = c.nombre || c.name;
+                              const count = salesList.filter(s => getSaleConcept(s).toLowerCase() === cName.toLowerCase()).length;
+                              return (
+                                <option key={c.id} value={cName}>
+                                  {cName} ({count})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Botón de Ajustes de Conceptos */}
+                      <button
+                        type="button"
+                        onClick={() => setShowConceptSettingsModal(true)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.625rem 1rem',
+                          borderRadius: '10px',
+                          fontWeight: '800',
+                          fontSize: '0.85rem',
+                          backgroundColor: '#f8fafc',
+                          border: '1.5px solid #cbd5e1',
+                          color: '#334155',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Settings size={16} color="#475569" />
+                        ⚙️ Ajustes de Conceptos
+                      </button>
+                    </div>
+
+                    {/* Barra de Catalogación Masiva (cuando hay seleccionadas) */}
+                    {selectedSales.length > 0 && (
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                        padding: '0.85rem 1.25rem',
+                        marginBottom: '1rem',
+                        borderRadius: '12px',
+                        backgroundColor: '#eff6ff',
+                        border: '1.5px solid #93c5fd',
+                        boxShadow: '0 2px 8px rgba(59,130,246,0.1)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <Tag size={18} color="#2563eb" />
+                          <span style={{ fontWeight: '850', color: '#1e40af', fontSize: '0.875rem' }}>
+                            Catalogar en Bloque: {selectedSales.length} {selectedSales.length === 1 ? 'venta seleccionada' : 'ventas seleccionadas'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <select
+                            value={batchConceptToApply}
+                            onChange={(e) => setBatchConceptToApply(e.target.value)}
+                            style={{
+                              padding: '0.45rem 0.8rem',
+                              borderRadius: '8px',
+                              border: '1.5px solid #93c5fd',
+                              backgroundColor: 'white',
+                              fontSize: '0.82rem',
+                              fontWeight: '750',
+                              outline: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {salesConcepts.map((c: any) => (
+                              <option key={c.id} value={c.nombre || c.name}>
+                                {c.nombre || c.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            disabled={isApplyingConcept}
+                            onClick={() => handleClassifySales(selectedSales, batchConceptToApply)}
+                            style={{
+                              padding: '0.45rem 1rem',
+                              borderRadius: '8px',
+                              border: 'none',
+                              backgroundColor: '#2563eb',
+                              color: 'white',
+                              fontWeight: '850',
+                              fontSize: '0.82rem',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              boxShadow: '0 2px 4px rgba(37,99,235,0.25)'
+                            }}
+                          >
+                            {isApplyingConcept ? <Loader2 size={14} className="animate-spin" /> : <Tag size={14} />}
+                            Aplicar Concepto a Selección
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sales List Table with checkboxes */}
+                    <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
+                              <th style={{ padding: '1rem', width: '40px', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    filteredSalesList.length > 0 &&
+                                    selectedSales.length === filteredSalesList.length
                                   }
-                                }}
-                                title="Inspeccionar Payload JSON (Modo SuperAdmin Debug)"
-                                style={{
-                                  padding: '0.35rem 0.65rem',
-                                  fontSize: '0.75rem',
-                                  fontWeight: '850',
-                                  backgroundColor: '#0f172a',
-                                  color: '#38bdf8',
-                                  border: '1px solid #334155',
-                                  borderRadius: '8px',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.35rem'
-                                }}
-                              >
-                                🔍 JSON Debug
-                              </button>
-                              {sale.estado !== 'anulada' ? (
-                                <button
-                                  onClick={() => {
-                                    setSelectedSaleForCN(sale);
-                                    setShowCreditNoteModal(true);
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedSales(filteredSalesList.map(s => s.id));
+                                    } else {
+                                      setSelectedSales([]);
+                                    }
                                   }}
-                                  style={{
-                                    padding: '0.35rem 0.65rem',
-                                    fontSize: '0.75rem',
-                                    fontWeight: '850',
-                                    backgroundColor: '#fee2e2',
-                                    color: '#b91c1c',
-                                    border: '1px solid #fca5a5',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.35rem'
-                                  }}
-                                >
-                                  <RefreshCw size={12} />
-                                  Nota Crédito
-                                </button>
-                              ) : (
-                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700' }}>Nota emitida</span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                                />
+                              </th>
+                              <th style={{ padding: '1rem' }}>Ticket POS</th>
+                              <th style={{ padding: '1rem' }}>Tienda</th>
+                              <th style={{ padding: '1rem' }}>Cliente Persona</th>
+                              <th style={{ padding: '1rem' }}>Concepto / Clasificación</th>
+                              <th style={{ padding: '1rem' }}>Detalle Prendas</th>
+                              <th style={{ padding: '1rem', textAlign: 'right' }}>Total</th>
+                              <th style={{ padding: '1rem' }}>Método Pago</th>
+                              <th style={{ padding: '1rem', textAlign: 'center' }}>Estado ERP</th>
+                              <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredSalesList.map((sale) => {
+                              const conceptName = getSaleConcept(sale);
+                              const conceptInfo = getConceptInfo(conceptName);
+
+                              return (
+                                <tr key={sale.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '1rem', textAlign: 'center' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedSales.includes(sale.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedSales([...selectedSales, sale.id]);
+                                        } else {
+                                          setSelectedSales(selectedSales.filter(id => id !== sale.id));
+                                        }
+                                      }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '1rem', fontWeight: '800' }}>#{sale.consecutive}</td>
+                                  <td style={{ padding: '1rem', fontWeight: '700' }}>{sale.stores?.nombre}</td>
+                                  <td style={{ padding: '1rem' }}>
+                                    <span style={{ display: 'block', fontWeight: '750' }}>{sale.client_name}</span>
+                                    <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b' }}>C.C. {sale.client_document}</span>
+                                  </td>
+                                  {/* Columna Concepto / Clasificación con insignia y selector inline */}
+                                  <td style={{ padding: '1rem' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', alignItems: 'flex-start' }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        padding: '0.25rem 0.6rem',
+                                        borderRadius: '9999px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: '850',
+                                        backgroundColor: `${conceptInfo.color || '#3b82f6'}18`,
+                                        color: conceptInfo.color || '#3b82f6',
+                                        border: `1.5px solid ${conceptInfo.color || '#3b82f6'}50`
+                                      }}>
+                                        <span style={{
+                                          width: '6px',
+                                          height: '6px',
+                                          borderRadius: '50%',
+                                          backgroundColor: conceptInfo.color || '#3b82f6'
+                                        }} />
+                                        {conceptName}
+                                      </span>
+
+                                      {/* Selector rápido inline para cambiar concepto */}
+                                      <select
+                                        value={conceptName}
+                                        onChange={(e) => handleClassifySales([sale.id], e.target.value)}
+                                        title="Cambiar clasificación de esta venta"
+                                        style={{
+                                          fontSize: '0.7rem',
+                                          padding: '0.2rem 0.4rem',
+                                          borderRadius: '6px',
+                                          border: '1px solid #cbd5e1',
+                                          backgroundColor: '#ffffff',
+                                          color: '#475569',
+                                          cursor: 'pointer',
+                                          outline: 'none'
+                                        }}
+                                      >
+                                        {salesConcepts.map((c: any) => (
+                                          <option key={c.id} value={c.nombre || c.name}>
+                                            {c.nombre || c.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '1rem' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.75rem' }}>
+                                      {sale.pos_sale_items?.map((item: any) => (
+                                        <span key={item.id}>
+                                          {item.cantidad}x {item.products?.nombre_producto} ({item.sizes?.codigo_talla || '—'})
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '1rem', textAlign: 'right', fontWeight: '800' }}>${sale.total.toLocaleString('es-CO')}</td>
+                                  <td style={{ padding: '1rem' }}>
+                                    {sale.pos_payments?.map((p: any) => p.metodo_pago).join(', ') || 'Efectivo'}
+                                  </td>
+                                  <td style={{ padding: '1rem', textAlign: 'center' }}>
+                                    <span style={{
+                                      padding: '0.25rem 0.5rem',
+                                      borderRadius: '12px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: '800',
+                                      backgroundColor: sale.estado === 'anulada' ? '#fee2e2' : (sale.sincronizado_erp ? '#dcfce7' : '#fef3c7'),
+                                      color: sale.estado === 'anulada' ? '#991b1b' : (sale.sincronizado_erp ? '#166534' : '#92400e')
+                                    }}>
+                                      {sale.estado === 'anulada' ? 'Anulada / NC' : (sale.sincronizado_erp ? 'Facturado / ERP' : 'Pendiente')}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '1rem', textAlign: 'center' }}>
+                                    <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', alignItems: 'center' }}>
+                                      <button
+                                        onClick={() => handleOpenTrackingModal(sale)}
+                                        title="Ver historial de auditoría y trazabilidad SIIGO"
+                                        style={{
+                                          padding: '0.35rem 0.65rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '850',
+                                          backgroundColor: '#f1f5f9',
+                                          color: '#334155',
+                                          border: '1px solid #cbd5e1',
+                                          borderRadius: '8px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.35rem'
+                                        }}
+                                      >
+                                        <Activity size={12} />
+                                        Seguimiento
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          setDebugPayloadSale(sale);
+                                          setShowDebugPayloadModal(true);
+                                          try {
+                                            const { data } = await supabase
+                                              .from('siigo_sync_logs')
+                                              .select('*')
+                                              .eq('sale_id', sale.id)
+                                              .order('created_at', { ascending: false })
+                                              .limit(1);
+                                            if (data && data.length > 0) {
+                                              setDebugPayloadContent({ request: data[0].request_body, response: data[0].response_body });
+                                            } else {
+                                              setDebugPayloadContent(null);
+                                            }
+                                          } catch (e) {
+                                            setDebugPayloadContent(null);
+                                          }
+                                        }}
+                                        title="Inspeccionar Payload JSON (Modo SuperAdmin Debug)"
+                                        style={{
+                                          padding: '0.35rem 0.65rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '850',
+                                          backgroundColor: '#0f172a',
+                                          color: '#38bdf8',
+                                          border: '1px solid #334155',
+                                          borderRadius: '8px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.35rem'
+                                        }}
+                                      >
+                                        🔍 JSON Debug
+                                      </button>
+                                      {sale.estado !== 'anulada' ? (
+                                        <button
+                                          onClick={() => {
+                                            setSelectedSaleForCN(sale);
+                                            setShowCreditNoteModal(true);
+                                          }}
+                                          style={{
+                                            padding: '0.35rem 0.65rem',
+                                            fontSize: '0.75rem',
+                                            fontWeight: '850',
+                                            backgroundColor: '#fee2e2',
+                                            color: '#b91c1c',
+                                            border: '1px solid #fca5a5',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem'
+                                          }}
+                                        >
+                                          <RefreshCw size={12} />
+                                          Nota Crédito
+                                        </button>
+                                      ) : (
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700' }}>Nota emitida</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* SIIGO SERVICE DIAGNOSTICS & TRACKING PANEL */}
               <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: '#fafafa', border: '1.5px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -5499,6 +5853,356 @@ export default function StoreAdminPage() {
             <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowDocTypesLibraryModal(false)} className="btn btn-primary" style={{ padding: '0.5rem 1.5rem', fontSize: '0.825rem' }}>
                 Cerrar Biblioteca
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE AJUSTES DE CONCEPTOS DE CATALOGACIÓN POS */}
+      {showConceptSettingsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, backdropFilter: 'blur(5px)' }}>
+          <div className="card" style={{ width: '92%', maxWidth: '850px', padding: '1.75rem', borderRadius: '16px', backgroundColor: 'white', color: '#0f172a', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '88vh', overflowY: 'auto', border: '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.85rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.2rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Tag size={22} color="var(--primary)" />
+                  Ajustes de Conceptos de Catalogación (POS)
+                </h3>
+                <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                  Administra los estados y conceptos para clasificar ventas (ej. Mayoristas, Detal, Dotación). Se guardan permanentemente en la base de datos.
+                </span>
+              </div>
+              <button onClick={() => { setShowConceptSettingsModal(false); setEditingConceptId(null); }} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <X size={22} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1.2fr) minmax(280px, 1fr)', gap: '1.5rem' }}>
+              
+              {/* LISTADO DE CONCEPTOS EXISTENTES */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '850', fontSize: '0.85rem', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Conceptos Configurados ({salesConcepts.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingConceptId(null);
+                      setConceptForm({ nombre: '', color: '#3b82f6', descripcion: '', is_default: false });
+                    }}
+                    style={{
+                      padding: '0.3rem 0.6rem',
+                      fontSize: '0.75rem',
+                      fontWeight: '800',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#f8fafc',
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem'
+                    }}
+                  >
+                    <Plus size={14} /> Nuevo Concepto
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '420px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                  {salesConcepts.map((concept) => {
+                    const cName = concept.nombre || concept.name || '';
+                    const cColor = concept.color || '#3b82f6';
+                    const cDesc = concept.descripcion || concept.description || '';
+                    const isSelected = editingConceptId === concept.id;
+                    const salesCount = salesList.filter(s => getSaleConcept(s).toLowerCase() === cName.toLowerCase()).length;
+
+                    return (
+                      <div
+                        key={concept.id}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          borderRadius: '10px',
+                          border: isSelected ? `2px solid ${cColor}` : '1px solid #e2e8f0',
+                          backgroundColor: isSelected ? `${cColor}0d` : '#ffffff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.35rem',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{
+                              width: '12px',
+                              height: '12px',
+                              borderRadius: '50%',
+                              backgroundColor: cColor,
+                              boxShadow: `0 0 6px ${cColor}80`
+                            }} />
+                            <span style={{ fontWeight: '850', fontSize: '0.875rem', color: '#0f172a' }}>
+                              {cName}
+                            </span>
+                            {concept.is_default && (
+                              <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: '800',
+                                padding: '0.15rem 0.4rem',
+                                borderRadius: '4px',
+                                backgroundColor: '#dcfce7',
+                                color: '#166534'
+                              }}>
+                                Por Defecto
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingConceptId(concept.id);
+                                setConceptForm({
+                                  nombre: cName,
+                                  color: cColor,
+                                  descripcion: cDesc,
+                                  is_default: Boolean(concept.is_default)
+                                });
+                              }}
+                              title="Editar este concepto"
+                              style={{
+                                border: 'none',
+                                backgroundColor: '#f1f5f9',
+                                padding: '0.35rem',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                color: '#475569'
+                              }}
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteConcept(concept.id)}
+                              title="Eliminar concepto de la base de datos"
+                              style={{
+                                border: 'none',
+                                backgroundColor: '#fee2e2',
+                                padding: '0.35rem',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                color: '#dc2626'
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {cDesc && (
+                          <span style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
+                            {cDesc}
+                          </span>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '700' }}>
+                            {salesCount} {salesCount === 1 ? 'venta asociada' : 'ventas asociadas'} en lista actual
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* FORMULARIO AGREGAR / EDITAR CONCEPTO */}
+              <div style={{
+                padding: '1.25rem',
+                borderRadius: '12px',
+                backgroundColor: '#f8fafc',
+                border: '1.5px solid #e2e8f0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+              }}>
+                <div>
+                  <h4 style={{ margin: 0, fontWeight: '850', fontSize: '0.95rem', color: '#1e293b' }}>
+                    {editingConceptId ? '✏️ Editar Concepto' : '✨ Nuevo Concepto de Venta'}
+                  </h4>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    {editingConceptId ? 'Modifica los atributos del concepto seleccionado' : 'Crea una nueva clasificación para tus ventas'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>
+                    Nombre del Concepto *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Ventas Mayoristas, Dotación, etc."
+                    value={conceptForm.nombre}
+                    onChange={(e) => setConceptForm(prev => ({ ...prev, nombre: e.target.value }))}
+                    style={{
+                      padding: '0.6rem 0.8rem',
+                      borderRadius: '8px',
+                      border: '1.5px solid #cbd5e1',
+                      fontSize: '0.85rem',
+                      outline: 'none',
+                      backgroundColor: 'white'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>
+                    Color de Identificación
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="color"
+                      value={conceptForm.color}
+                      onChange={(e) => setConceptForm(prev => ({ ...prev, color: e.target.value }))}
+                      style={{
+                        width: '42px',
+                        height: '38px',
+                        padding: 0,
+                        border: '1.5px solid #cbd5e1',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={conceptForm.color}
+                      onChange={(e) => setConceptForm(prev => ({ ...prev, color: e.target.value }))}
+                      placeholder="#3b82f6"
+                      style={{
+                        flex: 1,
+                        padding: '0.55rem 0.75rem',
+                        borderRadius: '8px',
+                        border: '1.5px solid #cbd5e1',
+                        fontSize: '0.8rem',
+                        fontFamily: 'monospace',
+                        outline: 'none',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+
+                  {/* Colores predefinidos */}
+                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                    {['#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#64748b', '#ef4444'].map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setConceptForm(prev => ({ ...prev, color: c }))}
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: c,
+                          border: conceptForm.color === c ? '2.5px solid #0f172a' : '1px solid rgba(0,0,0,0.15)',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>
+                    Descripción o Propósito
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Para qué se usa esta clasificación..."
+                    value={conceptForm.descripcion}
+                    onChange={(e) => setConceptForm(prev => ({ ...prev, descripcion: e.target.value }))}
+                    style={{
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1.5px solid #cbd5e1',
+                      fontSize: '0.8rem',
+                      outline: 'none',
+                      resize: 'none',
+                      backgroundColor: 'white'
+                    }}
+                  />
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '700', color: '#334155' }}>
+                  <input
+                    type="checkbox"
+                    checked={conceptForm.is_default}
+                    onChange={(e) => setConceptForm(prev => ({ ...prev, is_default: e.target.checked }))}
+                  />
+                  <span>Concepto por defecto (Ventas regulares)</span>
+                </label>
+
+                {/* BOTONES ACCION FORM */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={handleSaveConcept}
+                    disabled={savingConcept || !conceptForm.nombre.trim()}
+                    style={{
+                      flex: 1,
+                      padding: '0.65rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: 'var(--primary)',
+                      color: 'white',
+                      fontWeight: '850',
+                      fontSize: '0.825rem',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem',
+                      boxShadow: '0 4px 10px rgba(249,115,22,0.25)'
+                    }}
+                  >
+                    {savingConcept ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    {editingConceptId ? 'Actualizar en BD' : 'Crear en BD'}
+                  </button>
+
+                  {editingConceptId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingConceptId(null);
+                        setConceptForm({ nombre: '', color: '#3b82f6', descripcion: '', is_default: false });
+                      }}
+                      style={{
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                        color: '#475569',
+                        fontWeight: '750',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => { setShowConceptSettingsModal(false); setEditingConceptId(null); }}
+                className="btn btn-primary"
+                style={{ padding: '0.55rem 1.5rem', fontSize: '0.85rem', fontWeight: '850' }}
+              >
+                Cerrar Ajustes
               </button>
             </div>
           </div>
