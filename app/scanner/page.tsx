@@ -30,7 +30,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-export type ScanMode = 'all' | 'grouped';
+export type ScanMode = 'unique' | 'all' | 'grouped';
 export type CaptureMethod = 'camera' | 'manual';
 
 export interface ScanRecord {
@@ -71,12 +71,12 @@ function getFileTimestamp(d = new Date()): string {
 }
 
 export default function MobileBarcodeScannerPage() {
-  // Session & records state
+  // Session & records state (Default: Solo Códigos Únicos)
   const [session, setSession] = useState<ScannerSession>({
     id: `ses_${Date.now()}`,
     nombre: `Sesión ${new Date().toLocaleDateString('es-CO')}`,
     fecha_creacion: formatCurrentDateTime(),
-    modo: 'all',
+    modo: 'unique',
     registros: []
   });
 
@@ -100,14 +100,16 @@ export default function MobileBarcodeScannerPage() {
   const [lastScannedRecord, setLastScannedRecord] = useState<ScanRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isOnline, setIsOnline] = useState(true);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
-  // Modals
+  // Modals & export settings
   const [showManualModal, setShowManualModal] = useState(false);
   const [manualCodeInput, setManualCodeInput] = useState('');
   const [manualQuantityInput, setManualQuantityInput] = useState('1');
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'txt' | 'csv'>('txt');
   const [exportScope, setExportScope] = useState<'all' | 'unique'>('all');
+  const [txtDelimiter, setTxtDelimiter] = useState<',' | '\n'>(',');
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareStatus, setShareStatus] = useState<{ message: string; filename?: string; type: 'success' | 'fallback' }>({
     message: '',
@@ -266,20 +268,26 @@ export default function MobileBarcodeScannerPage() {
       lastScanTimestampRef.current = { code, time: now };
     }
 
-    // Sensory feedback
-    setScanFlash(true);
-    setTimeout(() => setScanFlash(false), 300);
-    triggerAudioBeep();
-    triggerHaptic(method === 'camera' ? 70 : [40, 30, 40]);
-
     setSession((prev) => {
       const nowStr = formatCurrentDateTime();
-      let updatedRegistros: ScanRecord[] = [];
 
+      // MODO 1: SOLO CÓDIGOS ÚNICOS (Bloquea lecturas duplicadas en la sesión)
+      if (prev.modo === 'unique') {
+        const existingRecord = prev.registros.find((r) => r.codigo_barras === code);
+        if (existingRecord) {
+          setDuplicateWarning(`Código "${code}" ya registrado anteriormente en esta sesión (#${existingRecord.consecutivo}).`);
+          setTimeout(() => setDuplicateWarning(null), 3000);
+          triggerAudioBeep(450, 0.14); // Tono grave de advertencia
+          triggerHaptic([60, 40, 60]); // Vibración de advertencia
+          return prev; // Bloqueado: no se añade a la sesión
+        }
+      }
+
+      // MODO 2: AGRUPAR DUPLICADOS (Incrementa la cantidad)
       if (prev.modo === 'grouped') {
         const existingIdx = prev.registros.findIndex((r) => r.codigo_barras === code);
         if (existingIdx >= 0) {
-          updatedRegistros = [...prev.registros];
+          const updatedRegistros = [...prev.registros];
           const current = updatedRegistros[existingIdx];
           const updatedRecord: ScanRecord = {
             ...current,
@@ -288,9 +296,19 @@ export default function MobileBarcodeScannerPage() {
           };
           updatedRegistros[existingIdx] = updatedRecord;
           setLastScannedRecord(updatedRecord);
+          setScanFlash(true);
+          setTimeout(() => setScanFlash(false), 300);
+          triggerAudioBeep();
+          triggerHaptic(method === 'camera' ? 70 : [40, 30, 40]);
           return { ...prev, registros: updatedRegistros };
         }
       }
+
+      // Lectura nueva confirmada (Modo Único o Registrar Todas)
+      setScanFlash(true);
+      setTimeout(() => setScanFlash(false), 300);
+      triggerAudioBeep();
+      triggerHaptic(method === 'camera' ? 70 : [40, 30, 40]);
 
       const newRecord: ScanRecord = {
         id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -301,7 +319,7 @@ export default function MobileBarcodeScannerPage() {
         cantidad: customQty || 1
       };
 
-      updatedRegistros = [...prev.registros, newRecord];
+      const updatedRegistros = [...prev.registros, newRecord];
       setLastScannedRecord(newRecord);
       return { ...prev, registros: updatedRegistros };
     });
@@ -609,14 +627,31 @@ export default function MobileBarcodeScannerPage() {
   const handleChangeMode = (newMode: ScanMode) => {
     if (newMode === session.modo) return;
     if (session.registros.length > 0) {
-      const confirmChange = confirm(
-        newMode === 'grouped'
-          ? '¿Cambiar a Modo Agrupado? Los registros actuales se consolidarán por código único acumulando sus cantidades.'
-          : '¿Cambiar a Modo Registro Individual? Los próximos escaneos generarán una fila por lectura.'
-      );
-      if (!confirmChange) return;
+      if (newMode === 'unique') {
+        const hasDuplicates = new Set(session.registros.map((r) => r.codigo_barras)).size < session.registros.length;
+        if (hasDuplicates) {
+          const confirmChange = confirm(
+            '¿Cambiar a Modo Solo Únicos? Los registros actuales se filtrarán para conservar solo códigos únicos, eliminando repeticiones.'
+          );
+          if (!confirmChange) return;
 
-      if (newMode === 'grouped') {
+          const uniqueMap = new Map<string, ScanRecord>();
+          session.registros.forEach((r) => {
+            if (!uniqueMap.has(r.codigo_barras)) {
+              uniqueMap.set(r.codigo_barras, { ...r, cantidad: 1 });
+            }
+          });
+          const uniqueList = Array.from(uniqueMap.values()).map((r, i) => ({ ...r, consecutivo: i + 1 }));
+          setSession((prev) => ({ ...prev, modo: newMode, registros: uniqueList }));
+          setLastScannedRecord(uniqueList.length > 0 ? uniqueList[uniqueList.length - 1] : null);
+          return;
+        }
+      } else if (newMode === 'grouped') {
+        const confirmChange = confirm(
+          '¿Cambiar a Modo Agrupado? Los registros actuales se consolidarán por código acumulando sus cantidades.'
+        );
+        if (!confirmChange) return;
+
         const map = new Map<string, ScanRecord>();
         session.registros.forEach((r) => {
           if (map.has(r.codigo_barras)) {
@@ -629,6 +664,7 @@ export default function MobileBarcodeScannerPage() {
         });
         const groupedList = Array.from(map.values()).map((r, i) => ({ ...r, consecutivo: i + 1 }));
         setSession((prev) => ({ ...prev, modo: newMode, registros: groupedList }));
+        setLastScannedRecord(groupedList.length > 0 ? groupedList[groupedList.length - 1] : null);
         return;
       }
     }
@@ -703,28 +739,28 @@ export default function MobileBarcodeScannerPage() {
     return session.registros.filter((r) => r.codigo_barras.toLowerCase().includes(q) || String(r.consecutivo).includes(q)).reverse();
   }, [session.registros, searchQuery]);
 
-  // File generation (TXT / CSV)
-  const generateFileContent = useCallback((format: 'txt' | 'csv', scope: 'all' | 'unique') => {
+  // File generation (TXT / CSV - Delimitado por comas por defecto)
+  const generateFileContent = useCallback((format: 'txt' | 'csv', scope: 'all' | 'unique', delimiter: ',' | '\n' = ',') => {
     if (session.registros.length === 0) return { content: '', filename: '', mimeType: '' };
 
     const timestamp = getFileTimestamp();
     const filename = `escaneo_${timestamp}.${format}`;
 
     if (format === 'txt') {
-      let lines: string[] = [];
-      if (scope === 'unique') {
+      let codes: string[] = [];
+      if (scope === 'unique' || session.modo === 'unique') {
         const uniqueSet = new Set(session.registros.map((r) => r.codigo_barras));
-        lines = Array.from(uniqueSet);
+        codes = Array.from(uniqueSet);
       } else {
         session.registros.forEach((r) => {
           const qty = r.cantidad || 1;
           for (let i = 0; i < qty; i++) {
-            lines.push(r.codigo_barras);
+            codes.push(r.codigo_barras);
           }
         });
       }
       return {
-        content: lines.join('\r\n'),
+        content: codes.join(delimiter === ',' ? ',' : '\r\n'),
         filename,
         mimeType: 'text/plain;charset=utf-8'
       };
@@ -733,7 +769,7 @@ export default function MobileBarcodeScannerPage() {
       const header = 'consecutivo,codigo_barras,fecha_hora,metodo,cantidad\r\n';
       let rows: string[] = [];
 
-      if (scope === 'unique') {
+      if (scope === 'unique' || session.modo === 'unique') {
         const map = new Map<string, { fecha: string; metodo: string; totalQty: number }>();
         session.registros.forEach((r) => {
           if (map.has(r.codigo_barras)) {
@@ -763,14 +799,14 @@ export default function MobileBarcodeScannerPage() {
         mimeType: 'text/csv;charset=utf-8'
       };
     }
-  }, [session.registros]);
+  }, [session.registros, session.modo]);
 
   const handleDownloadFile = () => {
     if (session.registros.length === 0) {
       alert('No hay lecturas registradas para exportar.');
       return;
     }
-    const { content, filename, mimeType } = generateFileContent(exportFormat, exportScope);
+    const { content, filename, mimeType } = generateFileContent(exportFormat, exportScope, txtDelimiter);
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -783,14 +819,15 @@ export default function MobileBarcodeScannerPage() {
     setShowExportModal(false);
   };
 
-  // WhatsApp sharing logic
-  const handleShareToWhatsApp = async (chosenFormat: 'txt' | 'csv' = exportFormat) => {
+  // WhatsApp sharing logic (envía archivo plano delimitado por comas)
+  const handleShareToWhatsApp = async (chosenFormat: 'txt' | 'csv' = 'txt') => {
     if (session.registros.length === 0) {
       alert('No hay lecturas registradas para compartir.');
       return;
     }
 
-    const { content, filename, mimeType } = generateFileContent(chosenFormat, exportScope);
+    // El archivo plano compartido por WhatsApp va delimitado por comas
+    const { content, filename, mimeType } = generateFileContent(chosenFormat, exportScope, ',');
     const blob = new Blob([content], { type: mimeType });
     const file = new File([blob], filename, { type: mimeType.split(';')[0] });
 
@@ -802,12 +839,12 @@ export default function MobileBarcodeScannerPage() {
         await navigator.share({
           files: [file],
           title: `Escaneo de Códigos (${filename})`,
-          text: `📦 Archivo de códigos de barras (${totalReadingsCount} lecturas, ${uniqueCodesCount} únicos). ${session.nombre}`
+          text: `📦 Archivo plano de códigos de barras delimitado por comas (${totalReadingsCount} lecturas, ${uniqueCodesCount} únicos). ${session.nombre}`
         });
         setShareStatus({
           type: 'success',
           filename,
-          message: 'Se abrió la hoja de compartir de tu dispositivo. Selecciona WhatsApp para enviar el archivo adjunto.'
+          message: 'Se abrió la hoja de compartir de tu dispositivo. Selecciona WhatsApp para enviar el archivo plano adjunto delimitado por comas.'
         });
         return;
       } catch (shareErr: any) {
@@ -836,20 +873,32 @@ export default function MobileBarcodeScannerPage() {
     setShareStatus({
       type: 'fallback',
       filename,
-      message: `El archivo ${filename} se descargó automáticamente. Puedes adjuntarlo en WhatsApp usando el ícono de clip 📎 o enviar el resumen de texto.`
+      message: `El archivo plano ${filename} (delimitado por comas) se descargó automáticamente. Puedes adjuntarlo en WhatsApp usando el ícono de clip 📎 o enviar el resumen con los códigos delimitados por comas.`
     });
   };
 
   const getWhatsAppMessageText = () => {
-    const sample = session.registros.slice(-10).map((r) => `• ${r.codigo_barras}${r.cantidad > 1 ? ` (x${r.cantidad})` : ''}`).join('%0A');
-    return `📦 *REPORTE DE ESCANEO DE CÓDIGOS*%0A*Sesión:* ${encodeURIComponent(session.nombre)}%0A*Total lecturas:* ${totalReadingsCount}%0A*Códigos únicos:* ${uniqueCodesCount}%0A*Fecha:* ${encodeURIComponent(session.fecha_creacion)}%0A%0A*Últimas lecturas:*%0A${sample}%0A%0A_Adjunto archivo descargado para listado completo._`;
+    const codes = (session.modo === 'unique' || exportScope === 'unique')
+      ? Array.from(new Set(session.registros.map((r) => r.codigo_barras)))
+      : session.registros.map((r) => r.codigo_barras);
+
+    const codesDelimitedByComma = codes.join(',');
+    const preview = codesDelimitedByComma.length > 350
+      ? codesDelimitedByComma.substring(0, 350) + '... (ver archivo adjunto)'
+      : codesDelimitedByComma;
+
+    return `📦 *REPORTE DE ESCANEO DE CÓDIGOS*%0A*Sesión:* ${encodeURIComponent(session.nombre)}%0A*Total lecturas:* ${totalReadingsCount}%0A*Códigos únicos:* ${uniqueCodesCount}%0A*Fecha:* ${encodeURIComponent(session.fecha_creacion)}%0A%0A*Códigos delimitados por comas:*%0A${encodeURIComponent(preview)}%0A%0A_Adjunto archivo plano TXT delimitado por comas para listado completo._`;
   };
 
   const copyBarcodesToClipboard = () => {
-    const list = session.registros.map((r) => `${r.codigo_barras}${r.cantidad > 1 ? `\t${r.cantidad}` : ''}`).join('\n');
+    const codes = (session.modo === 'unique' || exportScope === 'unique')
+      ? Array.from(new Set(session.registros.map((r) => r.codigo_barras)))
+      : session.registros.map((r) => r.codigo_barras);
+
+    const commaText = codes.join(',');
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(list).then(() => {
-        alert('Códigos copiados al portapapeles.');
+      navigator.clipboard.writeText(commaText).then(() => {
+        alert('Códigos copiados al portapapeles delimitados por comas (,).');
       });
     }
   };
@@ -923,18 +972,34 @@ export default function MobileBarcodeScannerPage() {
       </header>
 
       {/* MODE SELECTOR BANNER */}
-      <div style={{ padding: '0.5rem 1rem', backgroundColor: '#0b1324', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+      <div style={{ padding: '0.45rem 0.85rem', backgroundColor: '#0b1324', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
           Modalidad:
         </span>
         <div style={{ display: 'flex', backgroundColor: '#1e293b', padding: '2px', borderRadius: '8px', border: '1px solid #334155' }}>
           <button
-            onClick={() => handleChangeMode('all')}
+            onClick={() => handleChangeMode('unique')}
             style={{
-              padding: '0.3rem 0.65rem',
+              padding: '0.28rem 0.55rem',
               borderRadius: '6px',
               border: 'none',
-              fontSize: '0.72rem',
+              fontSize: '0.7rem',
+              fontWeight: '850',
+              cursor: 'pointer',
+              backgroundColor: session.modo === 'unique' ? '#0284c7' : 'transparent',
+              color: session.modo === 'unique' ? '#ffffff' : '#94a3b8',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            ⭐ Solo Únicos
+          </button>
+          <button
+            onClick={() => handleChangeMode('all')}
+            style={{
+              padding: '0.28rem 0.55rem',
+              borderRadius: '6px',
+              border: 'none',
+              fontSize: '0.7rem',
               fontWeight: '850',
               cursor: 'pointer',
               backgroundColor: session.modo === 'all' ? '#0284c7' : 'transparent',
@@ -947,10 +1012,10 @@ export default function MobileBarcodeScannerPage() {
           <button
             onClick={() => handleChangeMode('grouped')}
             style={{
-              padding: '0.3rem 0.65rem',
+              padding: '0.28rem 0.55rem',
               borderRadius: '6px',
               border: 'none',
-              fontSize: '0.72rem',
+              fontSize: '0.7rem',
               fontWeight: '850',
               cursor: 'pointer',
               backgroundColor: session.modo === 'grouped' ? '#059669' : 'transparent',
@@ -958,30 +1023,30 @@ export default function MobileBarcodeScannerPage() {
               transition: 'all 0.15s ease'
             }}
           >
-            🔢 Agrupar Duplicados
+            🔢 Agrupar
           </button>
         </div>
       </div>
 
       {/* MAIN VIEW */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '0.85rem', maxWidth: '640px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.65rem', padding: '0.65rem 0.85rem', maxWidth: '640px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
         
-        {/* CAMERA PREVIEW CONTAINER */}
+        {/* CAMERA PREVIEW CONTAINER (Pantalla compacta / más pequeña) */}
         <div style={{
           position: 'relative',
-          borderRadius: '16px',
+          borderRadius: '14px',
           overflow: 'hidden',
           backgroundColor: '#020617',
           border: scanFlash ? '3px solid #22c55e' : (isCameraActive ? '2px solid #0284c7' : '2px dashed #334155'),
-          boxShadow: scanFlash ? '0 0 25px rgba(34,197,94,0.6)' : '0 10px 25px rgba(0,0,0,0.5)',
+          boxShadow: scanFlash ? '0 0 20px rgba(34,197,94,0.6)' : '0 6px 18px rgba(0,0,0,0.5)',
           transition: 'border 0.2s ease, box-shadow 0.2s ease',
-          height: '280px',
+          height: '170px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center'
         }}>
-          {/* Direct HTML5 video element with playsInline (kept mounted with opacity 0 when inactive so dimensions and hardware decoders are always initialized) */}
+          {/* Direct HTML5 video element with playsInline */}
           <video
             ref={videoRef}
             playsInline
@@ -1001,64 +1066,64 @@ export default function MobileBarcodeScannerPage() {
             }}
           />
 
-          {/* CAMERA IDLE / ERROR SCREEN */}
+          {/* CAMERA IDLE / ERROR SCREEN COMPACT */}
           {!isCameraActive && (
-            <div style={{ position: 'relative', zIndex: 2, padding: '2rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Camera size={28} color="#64748b" />
+            <div style={{ position: 'relative', zIndex: 2, padding: '0.85rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '50%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Camera size={22} color="#64748b" />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '850', color: '#f8fafc' }}>
+                <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: '850', color: '#f8fafc' }}>
                   {cameraError ? 'Aviso de Cámara' : 'Cámara Apagada'}
                 </h3>
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: cameraError ? '#f87171' : '#94a3b8', maxWidth: '300px' }}>
-                  {cameraError || 'Activa la cámara de tu celular para escanear códigos de barras automáticamente.'}
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: cameraError ? '#f87171' : '#94a3b8', maxWidth: '280px' }}>
+                  {cameraError || 'Toca para escanear con la cámara de tu celular.'}
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
                   type="button"
                   disabled={cameraLoading}
                   onClick={() => startCamera()}
                   style={{
-                    padding: '0.85rem 1.4rem',
-                    borderRadius: '12px',
+                    padding: '0.6rem 1.1rem',
+                    borderRadius: '10px',
                     border: 'none',
                     backgroundColor: '#0284c7',
                     color: '#ffffff',
                     fontWeight: '900',
-                    fontSize: '0.9rem',
+                    fontSize: '0.82rem',
                     cursor: cameraLoading ? 'wait' : 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '0.5rem',
-                    boxShadow: '0 4px 14px rgba(2,132,199,0.4)'
+                    gap: '0.4rem',
+                    boxShadow: '0 4px 12px rgba(2,132,199,0.35)'
                   }}
                 >
-                  {cameraLoading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                  {cameraLoading ? 'Iniciando Cámara...' : 'Activar Cámara'}
+                  {cameraLoading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                  {cameraLoading ? 'Iniciando...' : 'Activar Cámara'}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowManualModal(true)}
                   style={{
-                    padding: '0.85rem 1.1rem',
-                    borderRadius: '12px',
+                    padding: '0.6rem 0.9rem',
+                    borderRadius: '10px',
                     border: '1.5px solid #334155',
                     backgroundColor: '#1e293b',
                     color: '#f8fafc',
                     fontWeight: '850',
-                    fontSize: '0.9rem',
+                    fontSize: '0.82rem',
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '0.4rem'
+                    gap: '0.35rem'
                   }}
                 >
-                  <Plus size={18} />
-                  Ingreso Manual
+                  <Plus size={16} />
+                  Manual
                 </button>
               </div>
             </div>
@@ -1073,20 +1138,20 @@ export default function MobileBarcodeScannerPage() {
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
-                width: '75%',
-                height: '110px',
-                border: '2px solid rgba(56,189,248,0.5)',
-                borderRadius: '12px',
+                width: '78%',
+                height: '75px',
+                border: '2px solid rgba(56,189,248,0.6)',
+                borderRadius: '10px',
                 pointerEvents: 'none',
-                boxShadow: '0 0 0 9999px rgba(0,0,0,0.3)'
+                boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)'
               }}>
                 {/* Laser scan line */}
                 {!isPaused && (
                   <div style={{
                     position: 'absolute',
                     top: '50%',
-                    left: '5%',
-                    right: '5%',
+                    left: '4%',
+                    right: '4%',
                     height: '2px',
                     backgroundColor: '#ef4444',
                     boxShadow: '0 0 10px #ef4444, 0 0 20px #ef4444',
@@ -1098,38 +1163,38 @@ export default function MobileBarcodeScannerPage() {
               {/* TOP FLOATING OVERLAY BAR */}
               <div style={{
                 position: 'absolute',
-                top: '0.65rem',
-                left: '0.65rem',
-                right: '0.65rem',
+                top: '0.45rem',
+                left: '0.45rem',
+                right: '0.45rem',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 zIndex: 15
               }}>
                 <span style={{
-                  padding: '0.25rem 0.65rem',
-                  borderRadius: '20px',
-                  fontSize: '0.72rem',
+                  padding: '0.2rem 0.55rem',
+                  borderRadius: '16px',
+                  fontSize: '0.68rem',
                   fontWeight: '850',
                   backgroundColor: isPaused ? 'rgba(234,179,8,0.9)' : 'rgba(34,197,94,0.9)',
                   color: '#020617',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.35rem',
+                  gap: '0.3rem',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.5)'
                 }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#020617' }} />
-                  {isPaused ? 'En Pausa' : 'Escaneando'}
+                  {isPaused ? 'Pausa' : 'Escaneando'}
                 </span>
 
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
                   {hasTorch && (
                     <button
                       type="button"
                       onClick={toggleTorch}
                       title={isTorchOn ? 'Apagar linterna' : 'Encender linterna'}
                       style={{
-                        padding: '0.45rem',
+                        padding: '0.35rem 0.5rem',
                         borderRadius: '8px',
                         border: 'none',
                         backgroundColor: isTorchOn ? '#facc15' : 'rgba(15,23,42,0.85)',
@@ -1137,7 +1202,7 @@ export default function MobileBarcodeScannerPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      <Flashlight size={18} />
+                      <Flashlight size={16} />
                     </button>
                   )}
 
@@ -1147,7 +1212,7 @@ export default function MobileBarcodeScannerPage() {
                       onClick={handleSwitchCamera}
                       title="Cambiar lente / cámara"
                       style={{
-                        padding: '0.45rem',
+                        padding: '0.35rem 0.5rem',
                         borderRadius: '8px',
                         border: 'none',
                         backgroundColor: 'rgba(15,23,42,0.85)',
@@ -1155,7 +1220,7 @@ export default function MobileBarcodeScannerPage() {
                         cursor: 'pointer'
                       }}
                     >
-                      <FlipHorizontal size={18} />
+                      <FlipHorizontal size={16} />
                     </button>
                   )}
 
@@ -1164,7 +1229,7 @@ export default function MobileBarcodeScannerPage() {
                     onClick={stopCamera}
                     title="Detener cámara"
                     style={{
-                      padding: '0.45rem',
+                      padding: '0.35rem 0.5rem',
                       borderRadius: '8px',
                       border: 'none',
                       backgroundColor: 'rgba(239,68,68,0.9)',
@@ -1172,7 +1237,7 @@ export default function MobileBarcodeScannerPage() {
                       cursor: 'pointer'
                     }}
                   >
-                    <CameraOff size={18} />
+                    <CameraOff size={16} />
                   </button>
                 </div>
               </div>
@@ -1180,9 +1245,9 @@ export default function MobileBarcodeScannerPage() {
               {/* BOTTOM FLOATING PAUSE BUTTON */}
               <div style={{
                 position: 'absolute',
-                bottom: '0.65rem',
-                left: '0.65rem',
-                right: '0.65rem',
+                bottom: '0.45rem',
+                left: '0.45rem',
+                right: '0.45rem',
                 display: 'flex',
                 justifyContent: 'center',
                 zIndex: 15
@@ -1191,24 +1256,44 @@ export default function MobileBarcodeScannerPage() {
                   type="button"
                   onClick={togglePauseScanning}
                   style={{
-                    padding: '0.45rem 1.1rem',
-                    borderRadius: '20px',
+                    padding: '0.35rem 0.85rem',
+                    borderRadius: '16px',
                     border: '1px solid rgba(255,255,255,0.2)',
                     backgroundColor: isPaused ? '#16a34a' : 'rgba(15,23,42,0.85)',
                     color: '#ffffff',
                     fontWeight: '850',
-                    fontSize: '0.8rem',
+                    fontSize: '0.75rem',
                     cursor: 'pointer',
                     backdropFilter: 'blur(4px)',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.5)'
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)'
                   }}
                 >
-                  {isPaused ? '▶️ Reanudar Lectura' : '⏸️ Pausar Cámara'}
+                  {isPaused ? '▶️ Reanudar' : '⏸️ Pausar'}
                 </button>
               </div>
             </>
           )}
         </div>
+
+        {/* DUPLICATE WARNING ALERT BANNER */}
+        {duplicateWarning && (
+          <div style={{
+            padding: '0.6rem 0.85rem',
+            borderRadius: '12px',
+            backgroundColor: 'rgba(234,179,8,0.18)',
+            border: '1.5px solid #eab308',
+            color: '#facc15',
+            fontSize: '0.78rem',
+            fontWeight: '850',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            boxShadow: '0 4px 12px rgba(234,179,8,0.2)'
+          }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+            <span>{duplicateWarning}</span>
+          </div>
+        )}
 
         {/* ONE-HANDED QUICK ACTIONS ROW */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -1216,13 +1301,13 @@ export default function MobileBarcodeScannerPage() {
             type="button"
             onClick={() => setShowManualModal(true)}
             style={{
-              padding: '0.8rem',
-              borderRadius: '12px',
+              padding: '0.65rem',
+              borderRadius: '10px',
               border: '1.5px solid #334155',
               backgroundColor: '#131b2e',
               color: '#f8fafc',
               fontWeight: '850',
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -1239,13 +1324,13 @@ export default function MobileBarcodeScannerPage() {
             onClick={handleUndoLastScan}
             disabled={session.registros.length === 0}
             style={{
-              padding: '0.8rem',
-              borderRadius: '12px',
+              padding: '0.65rem',
+              borderRadius: '10px',
               border: '1.5px solid #334155',
               backgroundColor: session.registros.length === 0 ? '#0b1324' : '#131b2e',
               color: session.registros.length === 0 ? '#475569' : '#f87171',
               fontWeight: '850',
-              fontSize: '0.85rem',
+              fontSize: '0.82rem',
               cursor: session.registros.length === 0 ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -1258,83 +1343,89 @@ export default function MobileBarcodeScannerPage() {
           </button>
         </div>
 
-        {/* STATS & LAST SCAN DISPLAY CARD */}
+        {/* STATS & LAST SCAN DISPLAY CARD (Compacto) */}
         <div style={{
-          padding: '1rem',
-          borderRadius: '16px',
+          padding: '0.65rem 0.8rem',
+          borderRadius: '14px',
           backgroundColor: '#0f172a',
           border: '1px solid #1e293b',
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.75rem'
+          gap: '0.5rem'
         }}>
           {/* Counters Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div style={{
-              padding: '0.75rem',
-              borderRadius: '12px',
+              padding: '0.5rem 0.75rem',
+              borderRadius: '10px',
               backgroundColor: '#1e293b',
               border: '1px solid #334155',
-              textAlign: 'center'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 Total Lecturas
               </span>
-              <span style={{ fontSize: '1.7rem', fontWeight: '950', color: '#38bdf8' }}>
+              <span style={{ fontSize: '1.25rem', fontWeight: '950', color: '#38bdf8' }}>
                 {totalReadingsCount}
               </span>
             </div>
 
             <div style={{
-              padding: '0.75rem',
-              borderRadius: '12px',
+              padding: '0.5rem 0.75rem',
+              borderRadius: '10px',
               backgroundColor: '#1e293b',
               border: '1px solid #334155',
-              textAlign: 'center'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 Códigos Únicos
               </span>
-              <span style={{ fontSize: '1.7rem', fontWeight: '950', color: '#4ade80' }}>
+              <span style={{ fontSize: '1.25rem', fontWeight: '950', color: '#4ade80' }}>
                 {uniqueCodesCount}
               </span>
             </div>
           </div>
 
-          {/* Last Scanned Code Spotlight */}
+          {/* Last Scanned Code Spotlight (Compacto) */}
           <div style={{
-            padding: '0.85rem 1rem',
-            borderRadius: '12px',
+            padding: '0.55rem 0.85rem',
+            borderRadius: '10px',
             backgroundColor: lastScannedRecord ? 'rgba(56,189,248,0.08)' : '#1e293b',
             border: lastScannedRecord ? '1.5px solid #0284c7' : '1px dashed #334155',
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center'
+            alignItems: 'center',
+            gap: '0.5rem'
           }}>
-            <div>
-              <span style={{ fontSize: '0.68rem', color: '#38bdf8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                 Última Lectura Confirmada
               </span>
-              <span style={{ fontSize: '1.15rem', fontWeight: '900', color: '#f8fafc', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: '#f8fafc', fontFamily: 'monospace', letterSpacing: '0.03em', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {lastScannedRecord ? lastScannedRecord.codigo_barras : '— Ninguno aún —'}
               </span>
               {lastScannedRecord && (
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginTop: '0.1rem' }}>
-                  {lastScannedRecord.fecha_hora} • {lastScannedRecord.metodo === 'camera' ? '📷 Cámara' : '⌨️ Manual'}
+                <span style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginTop: '0.1rem' }}>
+                  {lastScannedRecord.fecha_hora.split(' ')[1]} • {lastScannedRecord.metodo === 'camera' ? '📷 Cámara' : '⌨️ Manual'}
                 </span>
               )}
             </div>
 
             {lastScannedRecord && (
               <span style={{
-                padding: '0.25rem 0.55rem',
-                borderRadius: '8px',
-                fontSize: '0.75rem',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '6px',
+                fontSize: '0.72rem',
                 fontWeight: '900',
                 backgroundColor: '#0284c7',
-                color: '#ffffff'
+                color: '#ffffff',
+                flexShrink: 0
               }}>
-                x{lastScannedRecord.cantidad}
+                #{lastScannedRecord.consecutivo}
               </span>
             )}
           </div>
@@ -1704,7 +1795,7 @@ export default function MobileBarcodeScannerPage() {
                 >
                   <FileText size={24} />
                   <span>Texto Plano (.TXT)</span>
-                  <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#64748b' }}>Un código por línea</span>
+                  <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#64748b' }}>Delimitado por comas</span>
                 </button>
 
                 <button
@@ -1731,6 +1822,49 @@ export default function MobileBarcodeScannerPage() {
                 </button>
               </div>
             </div>
+
+            {/* Delimiter selector for TXT format */}
+            {exportFormat === 'txt' && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#94a3b8', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
+                  Delimitador de Códigos
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setTxtDelimiter(',')}
+                    style={{
+                      padding: '0.65rem 0.5rem',
+                      borderRadius: '10px',
+                      border: txtDelimiter === ',' ? '2px solid #0284c7' : '1px solid #334155',
+                      backgroundColor: txtDelimiter === ',' ? 'rgba(2,132,199,0.15)' : '#1e293b',
+                      color: txtDelimiter === ',' ? '#38bdf8' : '#94a3b8',
+                      fontSize: '0.78rem',
+                      fontWeight: '850',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Separado por comas (,)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTxtDelimiter('\n')}
+                    style={{
+                      padding: '0.65rem 0.5rem',
+                      borderRadius: '10px',
+                      border: txtDelimiter === '\n' ? '2px solid #0284c7' : '1px solid #334155',
+                      backgroundColor: txtDelimiter === '\n' ? 'rgba(2,132,199,0.15)' : '#1e293b',
+                      color: txtDelimiter === '\n' ? '#38bdf8' : '#94a3b8',
+                      fontSize: '0.78rem',
+                      fontWeight: '850',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Salto de línea (\n)
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Scope selector */}
             <div style={{ marginBottom: '1.25rem' }}>
