@@ -1118,6 +1118,7 @@ export default function AuditManagerDashboard({
       {showFlatFileModal && (
         <AuditFlatFileReconcilerModal
           warehouses={warehouses}
+          categories={categoriesList}
           userEmail={user?.email || 'Sistema'}
           onClose={() => setShowFlatFileModal(false)}
           onSuccess={(newSession) => {

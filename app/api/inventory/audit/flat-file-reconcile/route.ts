@@ -21,6 +21,8 @@ export async function POST(req: Request) {
       locationName,
       rawBarcodes = [],
       scopeMode = 'auto', // 'auto' | 'category' | 'full'
+      selectedCategoryId = null,
+      selectedCategoryName = null,
       selectedCategories = [],
       userEmail,
       notes
@@ -86,36 +88,67 @@ export async function POST(req: Request) {
       // 3. Resolve warehouse expected garments scope
       let expectedGarments: any[] = [];
       const isFullScope = scopeMode === 'full';
+      const isCategoryScope = scopeMode === 'category' || !!selectedCategoryId || (selectedCategories && selectedCategories.length > 0);
+
+      // Resolve category details if selected
+      let resolvedCategory: any = null;
+      if (selectedCategoryId) {
+        const { data: catData } = await supabase
+          .from('categories')
+          .select('id, categoria, cod_categoria')
+          .eq('id', selectedCategoryId)
+          .maybeSingle();
+        resolvedCategory = catData;
+      }
+
+      const effectiveCategoryName = resolvedCategory?.categoria || selectedCategoryName || (selectedCategories?.[0] ?? '');
+
+      // Products associated with this category
+      let catProductIds = new Set<string>();
+      let catProductNames: string[] = [];
+      if (selectedCategoryId || effectiveCategoryName) {
+        let pQuery = supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id, categoria');
+        if (selectedCategoryId && effectiveCategoryName) {
+          pQuery = pQuery.or(`category_id.eq.${selectedCategoryId},categoria.ilike.%${effectiveCategoryName}%`);
+        } else if (selectedCategoryId) {
+          pQuery = pQuery.eq('category_id', selectedCategoryId);
+        } else if (effectiveCategoryName) {
+          pQuery = pQuery.ilike('categoria', `%${effectiveCategoryName}%`);
+        }
+        const { data: catProds } = await pQuery;
+        catProds?.forEach((p: any) => {
+          catProductIds.add(p.id);
+          if (p.nombre_producto) catProductNames.push(p.nombre_producto.toLowerCase().trim());
+        });
+      }
 
       // Determine category / reference filter keywords
+      const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo', 'premium']);
+      let categoryWords: string[] = [];
+      if (effectiveCategoryName) {
+        categoryWords = effectiveCategoryName.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3 && !stopWords.has(w));
+      }
+
       let filterKeywords: string[] = [];
       if (!isFullScope) {
-        if (selectedCategories && selectedCategories.length > 0) {
-          selectedCategories.forEach((cat: string) => {
-            const clean = cat.toLowerCase().trim();
-            clean.split(/\s+/).forEach((w: string) => {
-              if (w.length >= 3 && !filterKeywords.includes(w)) filterKeywords.push(w);
-            });
-          });
+        if (categoryWords.length > 0) {
+          filterKeywords = categoryWords;
         } else if (detectedReferences.length > 0) {
           // Auto mode: use distinct words from detected references in the file
           detectedReferences.forEach(dr => {
             const clean = dr.name.toLowerCase().trim();
             clean.split(/\s+/).forEach((w: string) => {
-              if (w.length >= 3 && !filterKeywords.includes(w)) filterKeywords.push(w);
+              if (w.length >= 3 && !stopWords.has(w) && !filterKeywords.includes(w)) filterKeywords.push(w);
             });
           });
         }
       }
 
-      // Filter out generic stop words
-      const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo', 'premium']);
-      const mainKeywords = filterKeywords.filter(k => !stopWords.has(k));
-      const effectiveKeywords = mainKeywords.length > 0 ? mainKeywords : filterKeywords;
-
       // Query active garments currently in the warehouse
       let page = 0;
       const pageSize = 1000;
+      const isTargetLargo = effectiveCategoryName.toLowerCase().includes('largo');
+
       while (true) {
         let q = supabase
           .from('individual_garments')
@@ -123,19 +156,34 @@ export async function POST(req: Request) {
           .eq('warehouse_id', locationId)
           .eq('status', 'Aprobada');
 
-        if (!isFullScope && effectiveKeywords.length > 0) {
-          q = q.ilike('reference_name', `%${effectiveKeywords[0]}%`);
+        if (!isFullScope && filterKeywords.length > 0) {
+          q = q.ilike('reference_name', `%${filterKeywords[0]}%`);
         }
 
         const { data: chunk, error: gErr } = await q.range(page * pageSize, (page + 1) * pageSize - 1);
         if (gErr || !chunk || chunk.length === 0) break;
 
-        const filteredChunk = (!isFullScope && effectiveKeywords.length > 1)
-          ? chunk.filter((g: any) => {
-              const refLower = (g.reference_name || '').toLowerCase();
-              return effectiveKeywords.every(w => refLower.includes(w));
-            })
-          : chunk;
+        const filteredChunk = chunk.filter((g: any) => {
+          if (isFullScope) return true;
+
+          const refLower = (g.reference_name || '').toLowerCase();
+
+          if (isCategoryScope) {
+            // Respect boundary if target does not have 'largo'
+            if (!isTargetLargo && refLower.includes('largo')) return false;
+
+            if (filterKeywords.length > 0 && filterKeywords.every(w => refLower.includes(w))) return true;
+            if (catProductNames.some(pn => refLower.includes(pn))) return true;
+            return false;
+          }
+
+          // Auto mode based on detected references
+          if (filterKeywords.length > 0) {
+            return filterKeywords.every(w => refLower.includes(w));
+          }
+
+          return true;
+        });
 
         expectedGarments = expectedGarments.concat(filteredChunk);
         if (chunk.length < pageSize) break;
@@ -296,7 +344,9 @@ export async function POST(req: Request) {
           financialMissing,
           financialSurplus,
           financialImpact: financialSurplus - financialMissing,
-          scopeMode,
+          scopeMode: isCategoryScope ? 'category' : (isFullScope ? 'full' : 'auto'),
+          selectedCategoryId: resolvedCategory?.id || selectedCategoryId || null,
+          selectedCategoryName: effectiveCategoryName || null,
           detectedReferences
         },
         items
@@ -321,14 +371,18 @@ export async function POST(req: Request) {
       const totalCounted = conciliados.length + sobrantes.length;
       const reconciliationRate = totalExpected > 0 ? Math.round((conciliados.length / totalExpected) * 100) : 100;
 
+      const chosenCatName = selectedCategoryName || body.selectedCategoryName || (selectedCategories?.[0] ?? '');
+      const catSuffix = chosenCatName ? ` — Categoría: ${chosenCatName}` : '';
+      const auditNotes = notes || `Conciliación y ajuste por carga de plano en ${locationName}${catSuffix} (${cleanedBarcodes.length} códigos procesados)`;
+      const auditType = chosenCatName ? `Plano: ${chosenCatName}` : 'Plano Masivo';
+
       // 1. Create audit session in database
-      const auditNotes = notes || `Conciliación con Archivo Plano en ${locationName} (${cleanedBarcodes.length} códigos procesados)`;
       const { data: session, error: sessErr } = await supabase
         .from('audit_sessions')
         .insert({
           location_id: locationId,
           location_name: locationName,
-          audit_type: 'Plano Masivo',
+          audit_type: auditType,
           sample_percentage: 100,
           status: 'Ajustado',
           created_by: userEmail || 'Sistema',

@@ -1386,10 +1386,30 @@ export default function QualityPage() {
     
     let matchStatus = true;
     if (filterStatus === 'Pendientes de Pago') {
-      matchStatus = i.pago_status === 'Pendiente de aprobación financiera' && i.status !== 'Inhabilitado';
+      matchStatus = (
+        i.pago_status === 'Pendiente de aprobación financiera' ||
+        (i.current_stage === 4 && i.pago_status !== 'Autorizado para Pago' && i.pago_status !== 'Pagado')
+      ) && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Pendiente') {
-      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' || i.sewing_orders?.status === 'Validación Calidad' || i.sewing_orders?.status === 'Terminada' || (i.status === 'Pendiente' && !i.received_at);
-      matchStatus = (i.status === 'Pendiente' || isPendienteRecibo) && i.status !== 'Inhabilitado';
+      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' ||
+                                i.sewing_orders?.status === 'Validación Calidad' ||
+                                i.sewing_orders?.status === 'Terminada' ||
+                                (i.status === 'Pendiente' && !i.received_at);
+      matchStatus = (i.status === 'Pendiente' || isPendienteRecibo || i.current_stage === 1) &&
+                    i.status !== 'Aprobado' &&
+                    i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Aprobado') {
+      matchStatus = (i.status === 'Aprobado' || i.current_stage === 4) && i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Reproceso') {
+      matchStatus = (i.status === 'Reproceso' || i.current_stage === 2) && i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Doblado') {
+      matchStatus = (i.status === 'Doblado' || (i.current_stage === 3 && !i.packaged_at)) && i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Empacado') {
+      matchStatus = (i.status === 'Empacado' || (i.current_stage === 3 && !!i.packaged_at)) && i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Rechazado') {
+      matchStatus = (i.status === 'Rechazado' || (Number(i.items_rejected) > 0 && Number(i.items_approved) === 0)) && i.status !== 'Inhabilitado';
+    } else if (filterStatus === 'Inhabilitado') {
+      matchStatus = i.status === 'Inhabilitado';
     } else if (filterStatus) {
       matchStatus = i.status === filterStatus;
     } else {
@@ -2740,12 +2760,12 @@ export default function QualityPage() {
         <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
             <Search size={16} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input type="text" placeholder="Buscar por orden, cliente o taller..." value={search} onChange={e => setSearch(e.target.value)}
+            <input type="text" placeholder="Buscar por orden, cliente o taller..." value={search} onChange={e => { setSearch(e.target.value); setQualityPage(0); }}
               style={{ width: '100%', padding: '0.65rem 1rem 0.65rem 2.5rem', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.85rem' }} />
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {['', 'Pendientes de Pago', ...STATUS_OPTIONS].map(s => (
-              <button key={s} onClick={() => setFilterStatus(s)} className="btn" style={{
+              <button key={s} onClick={() => { setFilterStatus(s); setQualityPage(0); }} className="btn" style={{
                 fontSize: '0.72rem', fontWeight: '800', padding: '0.5rem 0.875rem',
                 backgroundColor: filterStatus === s ? (s === 'Pendientes de Pago' ? '#d97706' : '#80082E') : 'white',
                 color: filterStatus === s ? 'white' : 'var(--text)',
@@ -2768,8 +2788,12 @@ export default function QualityPage() {
               <p>No hay inspecciones registradas.</p>
             </div>
           ) : (
-            <>
-              {filtered.slice(qualityPage * 10, (qualityPage + 1) * 10).map((item: any) => {
+            (() => {
+              const maxQualityPage = Math.max(0, Math.ceil(filtered.length / 10) - 1);
+              const currentQualityPage = Math.min(qualityPage, maxQualityPage);
+              return (
+                <>
+                  {filtered.slice(currentQualityPage * 10, (currentQualityPage + 1) * 10).map((item: any) => {
             const ordCons = item.orders?.consecutive
               ? `OC-${item.orders.consecutive.toString().padStart(4, '0')}`
               : (item.sewing_orders?.parent_order?.consecutive
@@ -2958,23 +2982,23 @@ export default function QualityPage() {
           {filtered.length > 10 && (
             <div style={{ padding: '0.85rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', borderTop: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600' }}>
-                Mostrando {qualityPage * 10 + 1} - {Math.min((qualityPage + 1) * 10, filtered.length)} de {filtered.length} inspecciones
+                Mostrando {currentQualityPage * 10 + 1} - {Math.min((currentQualityPage + 1) * 10, filtered.length)} de {filtered.length} inspecciones
               </span>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   onClick={() => setQualityPage(p => Math.max(0, p - 1))}
-                  disabled={qualityPage === 0}
-                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: qualityPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: qualityPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  disabled={currentQualityPage === 0}
+                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: currentQualityPage === 0 ? '#f1f5f9' : 'white', color: '#334155', cursor: currentQualityPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
                 >
                   Anterior
                 </button>
                 <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#334155', display: 'flex', alignItems: 'center', padding: '0 0.25rem' }}>
-                  Pág. {qualityPage + 1} de {Math.ceil(filtered.length / 10)}
+                  Pág. {currentQualityPage + 1} de {Math.ceil(filtered.length / 10)}
                 </span>
                 <button
-                  onClick={() => setQualityPage(p => Math.min(Math.ceil(filtered.length / 10) - 1, p + 1))}
-                  disabled={(qualityPage + 1) * 10 >= filtered.length}
-                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (qualityPage + 1) * 10 >= filtered.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (qualityPage + 1) * 10 >= filtered.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
+                  onClick={() => setQualityPage(p => Math.min(maxQualityPage, p + 1))}
+                  disabled={(currentQualityPage + 1) * 10 >= filtered.length}
+                  style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: (currentQualityPage + 1) * 10 >= filtered.length ? '#f1f5f9' : 'white', color: '#334155', cursor: (currentQualityPage + 1) * 10 >= filtered.length ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: '700' }}
                 >
                   Siguiente
                 </button>
@@ -2982,7 +3006,9 @@ export default function QualityPage() {
             </div>
           )}
         </>
-      )}
+      );
+    })()
+  )}
         </div>
       </div>
 

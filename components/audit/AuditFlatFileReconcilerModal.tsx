@@ -1,11 +1,13 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X, UploadCloud, FileText, CheckCircle2, AlertTriangle, ArrowRight,
-  RefreshCw, Search, ShieldCheck, Database, Layers, Download, Check, AlertCircle, FileSpreadsheet
+  RefreshCw, Search, ShieldCheck, Database, Layers, Download, Check, AlertCircle, FileSpreadsheet, Tag
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface AuditFlatFileReconcilerModalProps {
   warehouses: any[];
+  categories?: any[];
   userEmail: string;
   onClose: () => void;
   onSuccess: (session: any) => void;
@@ -15,16 +17,34 @@ type TabType = 'all' | 'conciliados' | 'faltantes' | 'sobrantes' | 'no_registrad
 
 export default function AuditFlatFileReconcilerModal({
   warehouses,
+  categories = [],
   userEmail,
   onClose,
   onSuccess
 }: AuditFlatFileReconcilerModalProps) {
   const [locationId, setLocationId] = useState('');
-  const [scopeMode, setScopeMode] = useState<'auto' | 'full'>('auto');
+  const [categoriesList, setCategoriesList] = useState<any[]>(categories || []);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(''); // '' = auto, '__ALL__' = full warehouse, or uuid
+  const [scopeMode, setScopeMode] = useState<'auto' | 'category' | 'full'>('auto');
   const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
   const [rawText, setRawText] = useState('');
   const [fileName, setFileName] = useState('');
   const [parsedBarcodes, setParsedBarcodes] = useState<string[]>([]);
+
+  // Load categories if not provided
+  useEffect(() => {
+    if (categories && categories.length > 0) {
+      setCategoriesList(categories);
+    } else {
+      supabase
+        .from('categories')
+        .select('*')
+        .order('categoria', { ascending: true })
+        .then(res => {
+          if (res.data) setCategoriesList(res.data);
+        });
+    }
+  }, [categories]);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -114,6 +134,8 @@ export default function AuditFlatFileReconcilerModal({
     try {
       const whObj = warehouses.find(w => w.id === locationId);
       const locationName = whObj?.nombre_bodega || whObj?.name || 'Bodega';
+      const chosenCat = categoriesList.find(c => c.id === selectedCategoryId);
+      const effectiveScope = selectedCategoryId === '__ALL__' ? 'full' : (selectedCategoryId ? 'category' : 'auto');
 
       const res = await fetch('/api/inventory/audit/flat-file-reconcile', {
         method: 'POST',
@@ -123,7 +145,10 @@ export default function AuditFlatFileReconcilerModal({
           locationId,
           locationName,
           rawBarcodes: parsedBarcodes,
-          scopeMode,
+          scopeMode: effectiveScope,
+          selectedCategoryId: chosenCat ? chosenCat.id : null,
+          selectedCategoryName: chosenCat ? (chosenCat.categoria || chosenCat.name) : null,
+          selectedCategories: chosenCat ? [chosenCat.categoria || chosenCat.name] : [],
           userEmail: userEmail || 'Sistema'
         })
       });
@@ -176,11 +201,14 @@ export default function AuditFlatFileReconcilerModal({
     if (!analysisResult) return;
     const whObj = warehouses.find(w => w.id === locationId);
     const locationName = whObj?.nombre_bodega || whObj?.name || 'Bodega';
+    const chosenCat = categoriesList.find(c => c.id === selectedCategoryId);
+    const catLabel = chosenCat ? ` — Categoría: ${chosenCat.categoria}` : '';
     const sum = analysisResult.summary;
 
     const confirmMsg =
       `⚠️ ¿CONFIRMAS APLICAR LA CONCILIACIÓN Y AJUSTE REAL EN BASE DE DATOS?\n\n` +
       `• Bodega: ${locationName}\n` +
+      (chosenCat ? `• Categoría: ${chosenCat.categoria}\n` : '') +
       `• Total leídas en plano: ${sum.totalFileBarcodes} prendas\n` +
       `• Conciliadas (Confirmadas): ${sum.conciliadosCount} prendas\n` +
       `• Faltantes (Dadas de baja): ${sum.faltantesCount} prendas\n` +
@@ -200,8 +228,11 @@ export default function AuditFlatFileReconcilerModal({
           locationName,
           rawBarcodes: parsedBarcodes,
           items: allItems,
+          scopeMode: selectedCategoryId === '__ALL__' ? 'full' : (selectedCategoryId ? 'category' : 'auto'),
+          selectedCategoryId: chosenCat ? chosenCat.id : null,
+          selectedCategoryName: chosenCat ? (chosenCat.categoria || chosenCat.name) : null,
           userEmail: userEmail || 'Sistema',
-          notes: `Conciliación y ajuste por carga de plano en ${locationName} (${fileName || 'Texto pegado'})`
+          notes: `Conciliación y ajuste por carga de plano en ${locationName}${catLabel} (${fileName || 'Texto pegado'})`
         })
       });
 
@@ -320,30 +351,68 @@ export default function AuditFlatFileReconcilerModal({
               </select>
             </div>
 
-            {/* Scope Mode Selector */}
+            {/* Category Selector */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '900', color: '#1e293b', marginBottom: '0.35rem' }}>
-                2. ALCANCE DE CONCILIACIÓN
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: '900', color: '#1e293b', margin: 0 }}>
+                  2. CATEGORÍA A CONCILIAR
+                </label>
+                {selectedCategoryId && selectedCategoryId !== '__ALL__' && (
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedCategoryId(''); setAnalysisResult(null); }}
+                    style={{ background: 'none', border: 'none', color: '#4f46e5', fontSize: '0.7rem', fontWeight: '800', cursor: 'pointer', padding: 0 }}
+                  >
+                    Restablecer a Automático
+                  </button>
+                )}
+              </div>
               <select
-                value={scopeMode}
+                value={selectedCategoryId}
                 onChange={e => {
-                  setScopeMode(e.target.value as any);
+                  setSelectedCategoryId(e.target.value);
                   setAnalysisResult(null);
                 }}
                 style={{
                   width: '100%', padding: '0.75rem', borderRadius: '12px', border: '2px solid #cbd5e1',
-                  fontSize: '0.85rem', fontWeight: '750', color: '#0f172a', backgroundColor: 'white'
+                  fontSize: '0.85rem', fontWeight: '800', color: '#0f172a', backgroundColor: 'white'
                 }}
               >
-                <option value="auto">⭐ Detección Automática por Referencia / Categoría (Recomendado)</option>
-                <option value="full">📦 Inventario Completo de la Bodega (Toda la Bodega)</option>
+                <option value="">⭐ Detección Automática (Inferir de las referencias del plano)</option>
+                <option value="__ALL__">📦 Toda la Bodega Completa (Sin filtro de categoría)</option>
+                <optgroup label="── SELECCIONAR CATEGORÍA ESPECÍFICA ──">
+                  {categoriesList
+                    .slice()
+                    .sort((a, b) => (a.categoria || a.name || '').localeCompare(b.categoria || b.name || ''))
+                    .map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.categoria || cat.name} {cat.cod_categoria ? `(${cat.cod_categoria})` : ''}
+                      </option>
+                    ))}
+                </optgroup>
               </select>
-              <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem', display: 'block' }}>
-                {scopeMode === 'auto'
-                  ? 'Compara únicamente contra las prendas de la bodega que coincidan con las referencias del plano.'
-                  : 'Compara contra todas las prendas activas en la bodega (cualquier prenda no leída será Faltante).'}
-              </span>
+              <div style={{ marginTop: '0.35rem' }}>
+                {selectedCategoryId === '' && (
+                  <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                    💡 Modo Automático: Detectará las referencias en el plano y solo conciliará esas prendas en la bodega.
+                  </span>
+                )}
+                {selectedCategoryId === '__ALL__' && (
+                  <span style={{ fontSize: '0.7rem', color: '#d97706', fontWeight: '750' }}>
+                    ⚠️ Toda la bodega: Toda prenda activa en la bodega que no esté en el plano se marcará como Faltante.
+                  </span>
+                )}
+                {selectedCategoryId && selectedCategoryId !== '__ALL__' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                    <span style={{
+                      backgroundColor: '#eff6ff', color: '#1d4ed8', fontSize: '0.7rem', fontWeight: '900',
+                      padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #bfdbfe'
+                    }}>
+                      🏷️ Filtrando exclusivamente por categoría: {categoriesList.find(c => c.id === selectedCategoryId)?.categoria}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -458,6 +527,27 @@ export default function AuditFlatFileReconcilerModal({
           {/* STEP 2: ANALYSIS RESULTS DASHBOARD */}
           {analysisResult && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginTop: '0.5rem' }}>
+
+              {/* Scope & Category info header */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+                backgroundColor: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #e2e8f0'
+              }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '850', color: '#475569' }}>Alcance:</span>
+                <span style={{
+                  backgroundColor: analysisResult.summary.selectedCategoryName ? '#ede9fe' : '#e0f2fe',
+                  color: analysisResult.summary.selectedCategoryName ? '#6b21a8' : '#0369a1',
+                  border: `1px solid ${analysisResult.summary.selectedCategoryName ? '#c4b5fd' : '#bae6fd'}`,
+                  padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '900'
+                }}>
+                  {analysisResult.summary.selectedCategoryName
+                    ? `🏷️ Categoría: ${analysisResult.summary.selectedCategoryName}`
+                    : (analysisResult.summary.scopeMode === 'full' ? '📦 Toda la Bodega Completa' : '⭐ Detección Automática')}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  • Bodega: <strong>{warehouses.find(w => w.id === locationId)?.nombre_bodega || 'Bodega'}</strong>
+                </span>
+              </div>
               
               {/* Detected References Banner if in Auto Mode */}
               {analysisResult.summary.detectedReferences?.length > 0 && (
