@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck, BarChart3, AlertTriangle, CheckCircle2, TrendingUp, TrendingDown,
   Building2, Package, RefreshCw, Plus, Eye, Play, DollarSign, FileText, Layers, AlertCircle, FileSpreadsheet, Trash2, CheckSquare,
-  Search, Palette, Check
+  Search, Palette, Check, UploadCloud
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import AuditFlatFileReconcilerModal from './AuditFlatFileReconcilerModal';
 
 interface AuditManagerDashboardProps {
   warehouses: any[];
@@ -33,6 +34,7 @@ export default function AuditManagerDashboard({
 
   // Modal Create Audit Session
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showFlatFileModal, setShowFlatFileModal] = useState(false);
   const [newLocationId, setNewLocationId] = useState('');
   const [newAuditType, setNewAuditType] = useState('Completo');
   const [newNotes, setNewNotes] = useState('');
@@ -370,13 +372,22 @@ export default function AuditManagerDashboard({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <button
             onClick={fetchConsistencyData}
             className="btn btn-secondary"
             style={{ padding: '0.75rem 1rem', fontWeight: '850', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#1e293b', color: 'white', border: '1px solid #334155' }}
           >
             <RefreshCw size={16} className={loadingConsistency ? 'animate-spin' : ''} /> Diagnóstico
+          </button>
+          <button
+            onClick={() => setShowFlatFileModal(true)}
+            style={{
+              padding: '0.75rem 1.25rem', fontWeight: '900', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.5rem',
+              backgroundColor: '#059669', color: 'white', border: 'none', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+            }}
+          >
+            <UploadCloud size={18} /> Conciliar con Archivo Plano
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
@@ -1101,6 +1112,22 @@ export default function AuditManagerDashboard({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Flat File Reconciliation Modal */}
+      {showFlatFileModal && (
+        <AuditFlatFileReconcilerModal
+          warehouses={warehouses}
+          userEmail={user?.email || 'Sistema'}
+          onClose={() => setShowFlatFileModal(false)}
+          onSuccess={(newSession) => {
+            setShowFlatFileModal(false);
+            fetchAuditSessions();
+            if (newSession) {
+              onOpenReconciliation(newSession);
+            }
+          }}
+        />
       )}
 
     </div>
