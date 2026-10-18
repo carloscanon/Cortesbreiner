@@ -11,7 +11,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user && pathname !== '/login' && !pathname?.startsWith('/scanner')) {
+    // Completely exempt scanner pages from auth checks and role redirects
+    if (pathname?.startsWith('/scanner') || pathname?.startsWith('/pos/remote-scanner')) {
+      return;
+    }
+
+    if (!loading && !user && pathname !== '/login') {
       router.push('/login');
     }
     if (!loading && user && pathname === '/login') {
@@ -46,7 +51,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const isProfileLoading = user && !profile && loading;
 
-  if (pathname?.startsWith('/scanner')) {
+  if (pathname?.startsWith('/scanner') || pathname?.startsWith('/pos/remote-scanner')) {
     return <>{children}</>;
   }
 

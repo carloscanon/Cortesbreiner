@@ -654,6 +654,54 @@ function RemoteScannerContent() {
           </div>
         )}
 
+        {/* Inactive Camera Gesture Prompt (e.g. for iOS Safari) */}
+        {!isCameraActive && !cameraLoading && !cameraError && (
+          <div style={{
+            position: 'absolute',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '1rem',
+            padding: '1.5rem',
+            textAlign: 'center',
+            zIndex: 10
+          }}>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              backgroundColor: '#80082E',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              boxShadow: '0 4px 16px rgba(128,8,46,0.5)'
+            }}>
+              <Camera size={30} />
+            </div>
+            <button
+              type="button"
+              onClick={() => startCamera(facingMode)}
+              style={{
+                padding: '0.85rem 1.75rem',
+                borderRadius: '14px',
+                backgroundColor: '#80082E',
+                color: 'white',
+                border: 'none',
+                fontWeight: '900',
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(128,8,46,0.4)'
+              }}
+            >
+              📷 Activar Cámara del Celular
+            </button>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              Toca para permitir acceso a la cámara y escanear
+            </span>
+          </div>
+        )}
+
         {/* Loading Spinner */}
         {cameraLoading && (
           <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', color: 'white' }}>

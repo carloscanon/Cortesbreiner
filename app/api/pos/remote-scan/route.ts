@@ -18,15 +18,37 @@ export async function POST(req: Request) {
 
     // Broadcast through Supabase Realtime channel
     const channel = supabaseAdmin.channel(`pos-remote-${cleanChannel}`);
-    
-    await channel.send({
-      type: 'broadcast',
-      event: 'scan',
-      payload: {
-        barcode: cleanBarcode,
-        scannerDevice: scannerDevice || 'Celular Remoto',
-        timestamp: Date.now()
-      }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        try { supabaseAdmin.removeChannel(channel); } catch {}
+        resolve();
+      }, 3000);
+
+      channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          try {
+            await channel.send({
+              type: 'broadcast',
+              event: 'scan',
+              payload: {
+                barcode: cleanBarcode,
+                scannerDevice: scannerDevice || 'Celular Remoto',
+                timestamp: Date.now()
+              }
+            });
+          } catch (e) {
+            console.warn('Channel send error:', e);
+          } finally {
+            clearTimeout(timer);
+            try { supabaseAdmin.removeChannel(channel); } catch {}
+            resolve();
+          }
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          clearTimeout(timer);
+          try { supabaseAdmin.removeChannel(channel); } catch {}
+          resolve();
+        }
+      });
     });
 
     return NextResponse.json({

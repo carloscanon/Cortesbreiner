@@ -14,8 +14,8 @@ export default function AppLayoutWrapper({
 }) {
   const pathname = usePathname();
 
-  // Completely isolate /scanner from the desktop ERP layout, sidebars, and headers
-  if (pathname?.startsWith('/scanner')) {
+  // Completely isolate /scanner and /pos/remote-scanner from the desktop ERP layout, sidebars, and headers
+  if (pathname?.startsWith('/scanner') || pathname?.startsWith('/pos/remote-scanner')) {
     return <>{children}</>;
   }
 
