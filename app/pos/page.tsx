@@ -9,7 +9,8 @@ import {
   DollarSign, FileText, Lock, Unlock, AlertCircle, Sparkles, X, Loader2,
   RefreshCcw, ArrowLeftRight, Clock, MoreHorizontal, XCircle,
   ShoppingBag, Shirt, Users, Receipt, Landmark, BarChart3, Award, Settings,
-  Bell, MessageSquare, Heart, LogOut, Package, Building2, Warehouse
+  Bell, MessageSquare, Heart, LogOut, Package, Building2, Warehouse,
+  Smartphone
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -18,6 +19,7 @@ import POSExchangeModal from '@/components/pos/POSExchangeModal';
 import POSWarehouseStockModal from '@/components/pos/POSWarehouseStockModal';
 import POSReceiptModal, { POSReceiptData } from '@/components/pos/POSReceiptModal';
 import POSCashMovementModal, { POSCashConcept, DEFAULT_CASH_CONCEPTS } from '@/components/pos/POSCashMovementModal';
+import POSCameraScannerModal, { POSScannedItemRecord } from '@/components/pos/POSCameraScannerModal';
 
 const BodysuitIcon = ({ color }: { color: string }) => (
   <svg viewBox="0 0 100 130" style={{ width: '100%', height: '100%', maxHeight: '90px' }} xmlns="http://www.w3.org/2000/svg">
@@ -308,6 +310,12 @@ export default function POSPage() {
   const [scannedGarment, setScannedGarment] = useState<any>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>({ name: 'Cliente General', document: '2222222222' });
   const [currentSessionSalesTotal, setCurrentSessionSalesTotal] = useState(0);
+
+  // Mobile / Camera Barcode Scanning States
+  const [showMobileScannerModal, setShowMobileScannerModal] = useState(false);
+  const [isPhoneScannerConnected, setIsPhoneScannerConnected] = useState(false);
+  const [remoteRecentScans, setRemoteRecentScans] = useState<POSScannedItemRecord[]>([]);
+  const [remoteScanToast, setRemoteScanToast] = useState<{ message: string; success: boolean } | null>(null);
 
   const fetchSessionSalesTotal = async (sessionId: string) => {
     if (!sessionId) return;
@@ -2443,32 +2451,37 @@ export default function POSPage() {
   }, [selectedPriceListId, products, priceListItems, priceLists, cart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0)]);
 
   const doAddToCart = (product: any, colorId: string | null, sizeId: string | null) => {
-    const existingIndex = cart.findIndex(item => item.product_id === product.id && item.size_id === sizeId && item.color_id === colorId && !item.is_return);
-    const simulatedCart = existingIndex > -1
-      ? cart.map((it, i) => i === existingIndex ? { ...it, cantidad: it.cantidad + 1 } : it)
-      : [...cart, { product_id: product.id, cantidad: 1 }];
-    const totalQty = simulatedCart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0);
+    setCart(prevCart => {
+      const existingIndex = prevCart.findIndex(item => item.product_id === product.id && item.size_id === sizeId && item.color_id === colorId && !item.is_return);
+      const simulatedCart = existingIndex > -1
+        ? prevCart.map((it, i) => i === existingIndex ? { ...it, cantidad: it.cantidad + 1 } : it)
+        : [...prevCart, { product_id: product.id, cantidad: 1 }];
+      const totalQty = simulatedCart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0);
 
-    const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems, totalQty);
+      const resolvedPrice = getProductPrice(product, selectedPriceListId, priceListItems, totalQty);
 
-    if (existingIndex > -1) {
-      const newCart = [...cart];
-      newCart[existingIndex].cantidad += 1;
-      newCart[existingIndex].precio = resolvedPrice;
-      setCart(newCart);
-    } else {
-      setCart([...cart, {
-        product_id: product.id,
-        nombre: product.nombre_producto,
-        codigo_referencia: product.codigo_referencia,
-        precio: resolvedPrice,
-        color_id: colorId,
-        size_id: sizeId,
-        cantidad: 1,
-        is_return: false,
-        imagen_url: product.imagen_url
-      }]);
-    }
+      if (existingIndex > -1) {
+        const newCart = [...prevCart];
+        newCart[existingIndex] = {
+          ...newCart[existingIndex],
+          cantidad: newCart[existingIndex].cantidad + 1,
+          precio: resolvedPrice
+        };
+        return newCart;
+      } else {
+        return [...prevCart, {
+          product_id: product.id,
+          nombre: product.nombre_producto,
+          codigo_referencia: product.codigo_referencia,
+          precio: resolvedPrice,
+          color_id: colorId,
+          size_id: sizeId,
+          cantidad: 1,
+          is_return: false,
+          imagen_url: product.imagen_url
+        }];
+      }
+    });
   };
 
   const resolveProductForGarment = (garment: any) => {
@@ -2539,9 +2552,18 @@ export default function POSPage() {
     }) || null;
   };
 
-  const handleScanBarcodeDirect = async (barcodeToScan: string) => {
+  const handleScanBarcodeDirect = async (barcodeToScan: string): Promise<{
+    success: boolean;
+    productName?: string;
+    reference?: string;
+    size?: string;
+    color?: string;
+    price?: number;
+    barcode: string;
+    message: string;
+  }> => {
     const term = barcodeToScan.trim();
-    if (!term) return;
+    if (!term) return { success: false, barcode: '', message: 'Código vacío' };
 
     // 1. Search in individual_garments
     try {
@@ -2584,7 +2606,16 @@ export default function POSPage() {
           setSearchQuery('');
           setScannedGarment(null);
           setResolvedBarcodeRef(null);
-          return;
+          return {
+            success: true,
+            productName: matchedProduct.nombre_producto,
+            reference: matchedProduct.codigo_referencia || garment.reference_name,
+            color: garment.color_name || matchedColor?.nombre_color,
+            size: garment.size_code || matchedSize?.codigo_talla,
+            price: getProductPrice(matchedProduct, selectedPriceListId, priceListItems),
+            barcode: term,
+            message: `Prenda agregada: ${matchedProduct.nombre_producto}`
+          };
         }
       }
     } catch (e) {
@@ -2601,15 +2632,143 @@ export default function POSPage() {
     if (directProd) {
       handleAddToCart(directProd);
       setSearchQuery('');
-      return;
+      return {
+        success: true,
+        productName: directProd.nombre_producto,
+        reference: directProd.codigo_referencia,
+        price: getProductPrice(directProd, selectedPriceListId, priceListItems),
+        barcode: term,
+        message: `Producto agregado: ${directProd.nombre_producto}`
+      };
     }
 
     // 3. Fallback to first filtered product
     if (filteredProducts.length > 0) {
-      handleAddToCart(filteredProducts[0]);
+      const prod = filteredProducts[0];
+      handleAddToCart(prod);
       setSearchQuery('');
+      return {
+        success: true,
+        productName: prod.nombre_producto,
+        reference: prod.codigo_referencia,
+        price: getProductPrice(prod, selectedPriceListId, priceListItems),
+        barcode: term,
+        message: `Producto agregado: ${prod.nombre_producto}`
+      };
     }
+
+    return {
+      success: false,
+      barcode: term,
+      message: `Código "${term}" no encontrado en catálogo ni inventario.`
+    };
   };
+
+  const remoteScannerSessionId = selectedRegister?.id 
+    ? `caja-${selectedRegister.id}`
+    : (selectedStore?.id ? `store-${selectedStore.id}` : 'pos-terminal-1');
+
+  // Supabase Realtime Channel: Listen for barcodes scanned from mobile phone
+  useEffect(() => {
+    if (!remoteScannerSessionId) return;
+
+    const channelName = `pos-remote-${remoteScannerSessionId}`;
+    const channel = supabase.channel(channelName, {
+      config: { broadcast: { self: false } }
+    });
+
+    // When phone connects
+    channel.on('broadcast', { event: 'client-connected' }, () => {
+      setIsPhoneScannerConnected(true);
+      channel.send({
+        type: 'broadcast',
+        event: 'pos-pong',
+        payload: {
+          cartCount: cart.length,
+          timestamp: Date.now()
+        }
+      });
+    });
+
+    // When phone disconnects
+    channel.on('broadcast', { event: 'client-disconnected' }, () => {
+      setIsPhoneScannerConnected(false);
+    });
+
+    // When phone scans a barcode
+    channel.on('broadcast', { event: 'scan' }, async (payload: any) => {
+      const barcode = payload?.payload?.barcode;
+      if (!barcode) return;
+
+      const result = await handleScanBarcodeDirect(barcode);
+      const nowStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      setRemoteRecentScans(prev => [
+        {
+          barcode,
+          name: result?.productName || barcode,
+          time: nowStr,
+          success: result?.success !== false,
+          message: result?.message
+        },
+        ...prev.slice(0, 19)
+      ]);
+
+      setRemoteScanToast({
+        message: result?.success !== false
+          ? `📱 [Celular] Prenda agregada: ${result?.productName || barcode}`
+          : `⚠️ [Celular] Código no encontrado: ${barcode}`,
+        success: result?.success !== false
+      });
+      setTimeout(() => setRemoteScanToast(null), 4000);
+
+      // Play soft POS beep
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(result?.success !== false ? 1760 : 440, ctx.currentTime);
+          gain.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.11);
+        }
+      } catch {}
+
+      // Reply back to phone with product details
+      try {
+        channel.send({
+          type: 'broadcast',
+          event: 'scan-ack',
+          payload: {
+            barcode,
+            success: result?.success !== false,
+            productName: result?.productName,
+            reference: result?.reference,
+            size: result?.size,
+            color: result?.color,
+            price: result?.price,
+            message: result?.message,
+            cartTotalItems: cart.length + (result?.success !== false ? 1 : 0),
+            timestamp: Date.now()
+          }
+        });
+      } catch (err) {
+        console.warn('Error sending scan-ack:', err);
+      }
+    });
+
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [remoteScannerSessionId, products, colors, sizes, selectedPriceListId, priceListItems, cart.length]);
 
   const handleAddToCart = (product: any) => {
     // 1. If scanned barcode is active, match EXACT variant and add immediately
@@ -3476,7 +3635,27 @@ export default function POSPage() {
               <span style={{ position: 'absolute', right: '2.5rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.62rem', fontWeight: '900', color: '#94a3b8', backgroundColor: '#e2e8f0', padding: '0.1rem 0.35rem', borderRadius: '4px' }}>
                 Ctrl+K
               </span>
-              <QrCode size={16} style={{ position: 'absolute', right: '1.15rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', cursor: 'pointer' }} />
+              <span
+                onClick={() => setShowMobileScannerModal(true)}
+                style={{
+                  position: 'absolute',
+                  right: '1.15rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title="Escanear prendas con Celular o Cámara"
+              >
+                <QrCode
+                  size={16}
+                  style={{
+                    color: isPhoneScannerConnected ? '#10b981' : '#80082E'
+                  }}
+                />
+              </span>
 
               {/* Tag / Barcode live detected popup */}
               {scannedGarment && (
@@ -3530,6 +3709,41 @@ export default function POSPage() {
 
             {/* User status widgets */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setShowMobileScannerModal(true)}
+                style={{
+                  backgroundColor: isPhoneScannerConnected ? '#059669' : '#80082E',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  boxShadow: isPhoneScannerConnected ? '0 2px 8px rgba(5,150,105,0.35)' : '0 2px 8px rgba(128,8,46,0.35)',
+                  transition: 'all 0.15s'
+                }}
+                title="Escanear prendas desde el celular con la cámara"
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <Smartphone size={14} />
+                <span>📱 Escanear con Celular</span>
+                {isPhoneScannerConnected && (
+                  <span style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    backgroundColor: '#4ade80',
+                    boxShadow: '0 0 6px #4ade80'
+                  }} />
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowWarehouseStockModal(true)}
@@ -9309,6 +9523,44 @@ export default function POSPage() {
             }
           }}
         />
+      )}
+
+      {/* Remote Mobile / Camera Barcode Scanner Modal */}
+      <POSCameraScannerModal
+        isOpen={showMobileScannerModal}
+        onClose={() => setShowMobileScannerModal(false)}
+        onScan={handleScanBarcodeDirect}
+        remoteSessionId={remoteScannerSessionId}
+        storeName={selectedStore?.nombre || 'Tienda Principal'}
+        registerName={selectedRegister?.codigo_caja || 'Caja 1'}
+        isPhoneConnected={isPhoneScannerConnected}
+        recentScans={remoteRecentScans}
+        cartCount={cart.length}
+      />
+
+      {/* Floating Toast Notification for Remote Phone Scans */}
+      {remoteScanToast && (
+        <div style={{
+          position: 'fixed',
+          top: '24px',
+          right: '24px',
+          zIndex: 10000,
+          backgroundColor: remoteScanToast.success ? '#065f46' : '#991b1b',
+          color: 'white',
+          padding: '0.85rem 1.25rem',
+          borderRadius: '14px',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.65rem',
+          fontSize: '0.82rem',
+          fontWeight: '850',
+          animation: 'fadeIn 0.2s ease-out',
+          border: '1.5px solid rgba(255,255,255,0.2)'
+        }}>
+          {remoteScanToast.success ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          <span>{remoteScanToast.message}</span>
+        </div>
       )}
     </div>
   );
