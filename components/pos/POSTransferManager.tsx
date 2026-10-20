@@ -129,7 +129,7 @@ export default function POSTransferManager({
     if (!originWarehouseId && !originStoreId) return;
     try {
       let query = supabase.from('finished_goods_stock').select(`
-        *,
+        id, warehouse_id, product_id, color_id, size_id, cantidad_disponible,
         products (id, nombre_producto, codigo_referencia, precio),
         colors (id, nombre_color, hex_color),
         sizes (id, codigo_talla)
@@ -138,7 +138,8 @@ export default function POSTransferManager({
       if (originWarehouseId) {
         query = query.eq('warehouse_id', originWarehouseId);
       }
-      const stockRows = await fetchAllPages(query);
+      const { data: stockRows, error } = await query.limit(500);
+      if (error) throw error;
       setManualAvailableStock(stockRows || []);
     } catch (e) {
       console.error('Error fetching origin stock:', e);

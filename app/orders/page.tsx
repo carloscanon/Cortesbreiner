@@ -512,7 +512,8 @@ export default function OrdersPage() {
       let query = supabase
         .from('orders')
         .select(`*, workshops (nombre_taller), cuts (*, cut_sizes(*))`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(300);
 
       if (filterType !== 'all') query = query.eq('status', filterType);
 

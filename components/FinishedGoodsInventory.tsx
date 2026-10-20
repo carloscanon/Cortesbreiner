@@ -1454,17 +1454,16 @@ export default function FinishedGoodsInventory() {
     });
   }, []);
 
-  // Sincronización automática de inventario físico y stock cada 1 minuto (60.000 ms)
+  // Sincronización periódica moderada de stock cuando la pestaña está visible
   useEffect(() => {
     const timer = setInterval(() => {
-      fetchStock();
-      fetchKardex();
-      fetchTransfers();
-      fetchPhysicalWarehouseCounts();
-    }, 60000);
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchStock();
+      }
+    }, 120000);
 
     return () => clearInterval(timer);
-  }, [warehouses]);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'historical_inventory') {
@@ -1647,7 +1646,9 @@ export default function FinishedGoodsInventory() {
         supabase
           .from('finished_goods_stock')
           .select(`
-            *,
+            id, warehouse_id, location_id, product_id, color_id, size_id, fabric_id,
+            cantidad_disponible, cantidad_reservada, cantidad_en_transito, stock_minimo, stock_maximo,
+            created_at, updated_at,
             products (id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories (id, categoria)),
             colors (id, nombre_color, hex_color),
             fabrics:fabric_id (id, nombre_tela, codigo_tela),
@@ -1659,7 +1660,7 @@ export default function FinishedGoodsInventory() {
 
       setStock(stockData || []);
 
-      // Resolver mapeo de Orden de Ingreso limpia por combinación SKU
+      // Resolver mapeo de Orden de Ingreso limpia por combinación SKU (limitado a las 100 más recientes)
       try {
         const { data: garmsData } = await supabase
           .from('individual_garments')
@@ -1672,7 +1673,8 @@ export default function FinishedGoodsInventory() {
             )
           `)
           .not('quality_inspection_id', 'is', null)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(100);
 
         const orderMap: Record<string, string> = {};
 
@@ -1696,7 +1698,7 @@ export default function FinishedGoodsInventory() {
           }
         }
 
-        // Fallback desde Kardex con resolución de ID a código limpio
+        // Fallback desde Kardex reciente con resolución de ID a código limpio (limitado a los 150 más recientes)
         const { data: kardexMovs } = await supabase
           .from('finished_goods_kardex')
           .select(`
@@ -1705,7 +1707,8 @@ export default function FinishedGoodsInventory() {
             colors (nombre_color),
             sizes (codigo_talla)
           `)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(150);
 
         if (kardexMovs) {
           // Extraer IDs de inspecciones para consultar sus códigos limpios
@@ -1770,20 +1773,22 @@ export default function FinishedGoodsInventory() {
 
   const fetchKardex = async () => {
     try {
-      const data = await fetchAllPages(
-        supabase
-          .from('finished_goods_kardex')
-          .select(`
-            *,
-            products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
-            colors (id, nombre_color),
-            fabrics:fabric_id (id, nombre_tela),
-            sizes (id, codigo_talla),
-            warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
-            warehouse_dest:warehouses!finished_goods_kardex_warehouse_dest_id_fkey (nombre_bodega)
-          `)
-          .order('created_at', { ascending: false })
-      );
+      const { data, error } = await supabase
+        .from('finished_goods_kardex')
+        .select(`
+          id, created_at, tipo_movimiento, cantidad, saldo_anterior, saldo_nuevo, documento_origen, usuario, observaciones,
+          product_id, color_id, size_id, warehouse_orig_id, warehouse_dest_id,
+          products (id, nombre_producto, codigo_referencia, categoria, category_id, categories (id, categoria)),
+          colors (id, nombre_color),
+          fabrics:fabric_id (id, nombre_tela),
+          sizes (id, codigo_talla),
+          warehouse_orig:warehouses!finished_goods_kardex_warehouse_orig_id_fkey (nombre_bodega),
+          warehouse_dest:warehouses!finished_goods_kardex_warehouse_dest_id_fkey (nombre_bodega)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(250);
+
+      if (error) throw error;
       setKardex(data || []);
     } catch (err) {
       console.error('Error fetching kardex:', err);
@@ -1805,7 +1810,8 @@ export default function FinishedGoodsInventory() {
             sizes (codigo_talla)
           )
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
       if (error) throw error;
 
       // Extract all barcodes across items to fetch exact reference names from individual_garments

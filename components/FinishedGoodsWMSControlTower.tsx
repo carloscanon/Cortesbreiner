@@ -285,30 +285,33 @@ export default function FinishedGoodsWMSControlTower() {
         }
       };
 
-      const [whRes, stockData, gCountRes, hCountRes, catData, prodData, colData, szData, kardexRes, obsData, pendingTxData] = await Promise.all([
+      // 1. Cargar maestros ligeros primero
+      const [whRes, catData, prodData, colData, szData] = await Promise.all([
         supabase.from('warehouses').select('*').order('nombre_bodega', { ascending: true }),
+        supabase.from('categories').select('*'),
+        supabase.from('products').select('id, nombre_producto, codigo_referencia, precio, precio_costo, categoria, category_id, stock_minimo, stock_maximo').neq('estado', 'inactivo'),
+        supabase.from('colors').select('*'),
+        supabase.from('sizes').select('*')
+      ]);
+
+      // 2. Cargar datos operativos en paralelo moderado
+      const [stockData, kardexRes, obsData, pendingTxData] = await Promise.all([
         fetchAllPages(
           supabase.from('finished_goods_stock').select(`
-            *,
-            products (id, nombre_producto, codigo_referencia, precio, precio_costo, categoria, category_id),
+            id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, stock_minimo, stock_maximo,
+            products (id, nombre_producto, codigo_referencia, precio, precio_costo, categoria, category_id, stock_minimo, stock_maximo),
             colors (id, nombre_color, hex_color),
             sizes (id, codigo_talla),
             warehouses (id, nombre_bodega, responsable)
           `)
         ),
-        supabase.from('individual_garments').select('*', { count: 'exact', head: true }),
-        supabase.from('individual_garments').select('*', { count: 'exact', head: true }).eq('is_historical', true),
-        supabase.from('categories').select('*'),
-        fetchAllPages(supabase.from('products').select('*').neq('estado', 'inactivo')),
-        supabase.from('colors').select('*'),
-        supabase.from('sizes').select('*'),
         supabase.from('finished_goods_kardex').select(`
-          *,
+          id, created_at, tipo_movimiento, cantidad, documento_origen,
           products (codigo_referencia, nombre_producto),
           colors (nombre_color),
           sizes (codigo_talla),
           warehouse_dest:warehouse_dest_id (nombre_bodega)
-        `).order('created_at', { ascending: false }).limit(500),
+        `).order('created_at', { ascending: false }).limit(150),
         fetchObs(),
         fetchTransfers()
       ]);
@@ -317,11 +320,8 @@ export default function FinishedGoodsWMSControlTower() {
       const realWhs: WarehouseItem[] = (whData && whData.length > 0) ? whData : [];
       setWarehouses(realWhs);
 
-      setTotalGarmentsCount(gCountRes.count || 0);
-      setTotalHistGarmentsCount(hCountRes.count || 0);
-
       setCategories((catData as any)?.data || catData || []);
-      setProducts(prodData || []);
+      setProducts((prodData as any)?.data || prodData || []);
       setColors((colData as any)?.data || colData || []);
       setSizes((szData as any)?.data || szData || []);
 

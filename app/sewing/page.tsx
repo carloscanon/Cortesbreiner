@@ -233,9 +233,10 @@ export default function SewingPage() {
         supabase.from('colors').select('*'),
         fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id').neq('estado', 'inactivo').order('nombre_producto')),
         fetchAll(() => supabase.from('product_accessories').select('id, product_id, accessory_id, cantidad, accessories(nombre, unidad_medida)')),
-        fetchAll(() => supabase.from('sewing_orders')
+        supabase.from('sewing_orders')
           .select('id, parent_order_id, confeccion_code, workshop_id, product_id, status, cantidad_planeada, cantidad_confeccionada, tarifa_especial, empaque, lavanderia, workshop_notes, created_at, products(id, nombre_producto, codigo_referencia), workshops(id, nombre_taller, responsable)')
-          .order('created_at', { ascending: false }))
+          .order('created_at', { ascending: false })
+          .limit(600)
       ]);
 
       if (workshopsError) throw workshopsError;
@@ -245,7 +246,8 @@ export default function SewingPage() {
       if (sizesError) throw sizesError;
       if (colorsError) throw colorsError;
 
-      const hydratedSewingOrders = (sewingOrdersData || []).map((so: any) => {
+      const rawSewingList = (sewingOrdersData as any)?.data || sewingOrdersData || [];
+      const hydratedSewingOrders = rawSewingList.map((so: any) => {
         const parent = (ordersData || []).find((o: any) => String(o.id) === String(so.parent_order_id));
         return {
           ...so,

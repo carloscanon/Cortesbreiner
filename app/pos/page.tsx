@@ -587,21 +587,37 @@ export default function POSPage() {
 
   const fetchInlineInventory = async () => {
     try {
-      if (!selectedStore) return;
+      if (!selectedStore?.id) return;
       if (selectedStore.bodega_asociada_id) {
-        const inv = await fetchAllPages(supabase.from('finished_goods_stock').select('*, products(*), sizes(*), colors(*)').eq('warehouse_id', selectedStore.bodega_asociada_id));
+        const inv = await fetchAllPages(
+          supabase
+            .from('finished_goods_stock')
+            .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+            .eq('warehouse_id', selectedStore.bodega_asociada_id)
+        );
         setInventoryList(inv || []);
       } else {
-        const inv = await fetchAllPages(supabase.from('store_inventory').select('*, products(*), sizes(*), colors(*)').eq('store_id', selectedStore.id));
+        const inv = await fetchAllPages(
+          supabase
+            .from('store_inventory')
+            .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+            .eq('store_id', selectedStore.id)
+        );
         setInventoryList(inv || []);
       }
 
-      // Fetch individual garment barcode tags physically in this store or its associated warehouse
+      // Fetch individual garment barcode tags physically in this store or its associated warehouse (solo activas / no vendidas)
       let garmentFilter = `store_id.eq.${selectedStore.id}`;
       if (selectedStore.bodega_asociada_id) {
         garmentFilter += `,warehouse_id.eq.${selectedStore.bodega_asociada_id}`;
       }
-      const garments = await fetchAllPages(supabase.from('individual_garments').select('*').or(garmentFilter).order('created_at', { ascending: false }));
+      const { data: garments } = await supabase
+        .from('individual_garments')
+        .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
+        .or(garmentFilter)
+        .neq('status', 'Vendido')
+        .order('created_at', { ascending: false })
+        .limit(1000);
       setIndividualGarments(garments || []);
     } catch (e) {
       console.error(e);
@@ -610,19 +626,20 @@ export default function POSPage() {
 
   const fetchPendingTransfers = async () => {
     try {
-      if (!selectedStore) return;
+      if (!selectedStore?.id) return;
       
-      let filter = `warehouse_dest_id.eq.${selectedStore.id}`;
+      const destIds = [selectedStore.id];
       if (selectedStore.bodega_asociada_id) {
-        filter += `,warehouse_dest_id.eq.${selectedStore.bodega_asociada_id}`;
+        destIds.push(selectedStore.bodega_asociada_id);
       }
       
       const { data } = await supabase
         .from('finished_goods_transfers')
         .select('*, items:finished_goods_transfer_items(*, product:products(nombre_producto, codigo_referencia))')
-        .or(filter)
+        .in('warehouse_dest_id', destIds)
         .eq('estado', 'Pendiente')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
       setPendingTransfers(data || []);
     } catch (e) {
       console.error(e);
@@ -2218,7 +2235,7 @@ export default function POSPage() {
           await supabase.from('individual_garments')
             .update({ 
               status: 'Vendido', 
-              sold_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
               notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
             })
             .in('id', ids);

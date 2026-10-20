@@ -486,9 +486,14 @@ export default function Dashboard() {
           return allData;
         };
 
-        const sewingOrdersList = await fetchAll(() => supabase.from('sewing_orders')
+        const { data: sewingOrdersDataRes, error: soErr } = await supabase
+          .from('sewing_orders')
           .select('*, products(*), sewing_order_sizes(*, sizes(*))')
-          .order('created_at', { ascending: false }));
+          .order('created_at', { ascending: false })
+          .limit(1000);
+
+        if (soErr) console.error('Error loading sewing_orders:', soErr);
+        const sewingOrdersList = sewingOrdersDataRes || [];
 
         const [
           res1,

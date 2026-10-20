@@ -399,10 +399,12 @@ export default function QualityPage() {
 
   const fetchSewingOrders = async () => {
     try {
-      const data = await fetchAll(() => supabase
+      const { data, error } = await supabase
         .from('sewing_orders')
         .select(`id,confeccion_code,parent_order_id,orders(id,consecutive,internal_code,client_name,brand),workshops(id,nombre_taller)`)
-        .order('created_at', { ascending: false }));
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
       setSewingOrders(data || []);
     } catch (err) {
       console.error('Error fetching sewing orders dropdown:', err);
@@ -1385,21 +1387,20 @@ export default function QualityPage() {
     const matchSearch = !search.trim() || orderCodeStr.toLowerCase().includes(search.toLowerCase());
     
     let matchStatus = true;
-    if (filterStatus === 'Pendientes de Pago') {
-      matchStatus = (
-        i.pago_status === 'Pendiente de aprobación financiera' ||
-        (i.current_stage === 4 && i.pago_status !== 'Autorizado para Pago' && i.pago_status !== 'Pagado')
-      ) && i.status !== 'Inhabilitado';
+    const isVirtual = String(i.id).startsWith('virtual-');
+
+    if (filterStatus === 'Pendientes de Pago' || filterStatus === 'Pendiente para Pago' || filterStatus === 'Pendiente de Pago') {
+      // Solo órdenes reales con prendas aprobadas o en etapa de cierre/pago que aún no están pagadas/autorizadas
+      const hasApprovedOrPayable = (Number(i.items_approved) > 0) || (Number(i.valor_pagar) > 0) || i.current_stage === 4 || i.status === 'Aprobado';
+      const isPendingPayment = i.pago_status !== 'Autorizado para Pago' && i.pago_status !== 'Pagado';
+      matchStatus = !isVirtual && hasApprovedOrPayable && isPendingPayment && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Pendiente') {
-      const isPendienteRecibo = i.sewing_orders?.status === 'Enviado a Calidad' ||
-                                i.sewing_orders?.status === 'Validación Calidad' ||
-                                i.sewing_orders?.status === 'Terminada' ||
-                                (i.status === 'Pendiente' && !i.received_at);
-      matchStatus = (i.status === 'Pendiente' || isPendienteRecibo || i.current_stage === 1) &&
-                    i.status !== 'Aprobado' &&
-                    i.status !== 'Inhabilitado';
+      // Etapa 1: Pendiente de recibo o inspección física inicial
+      const isEarlyStage = (i.current_stage === 1 || !i.current_stage) && i.status !== 'Aprobado' && i.status !== 'Rechazado';
+      const isPendienteRecibo = isVirtual || (i.status === 'Pendiente' && (!i.received_at || (Number(i.items_approved) === 0 && Number(i.items_rejected) === 0)));
+      matchStatus = (isEarlyStage || isPendienteRecibo) && i.current_stage !== 4 && i.status !== 'Aprobado' && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Aprobado') {
-      matchStatus = (i.status === 'Aprobado' || i.current_stage === 4) && i.status !== 'Inhabilitado';
+      matchStatus = (i.status === 'Aprobado' || (i.current_stage === 4 && Number(i.items_approved) > 0)) && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Reproceso') {
       matchStatus = (i.status === 'Reproceso' || i.current_stage === 2) && i.status !== 'Inhabilitado';
     } else if (filterStatus === 'Doblado') {
