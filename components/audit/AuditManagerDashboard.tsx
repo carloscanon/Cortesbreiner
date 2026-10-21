@@ -68,84 +68,20 @@ export default function AuditManagerDashboard({
         let countMap: Record<string, number> = {};
         let colorMap: Record<string, Record<string, number>> = {};
 
-        // 1. Fetch individual garments count by category with pagination
-        let garments: any[] = [];
-        let page = 0;
-        const pageSize = 1000;
-        while (true) {
-          let garmentsQuery = supabase
-            .from('individual_garments')
-            .select('reference_name, color_name')
-            .eq('status', 'Aprobada')
-            .not('warehouse_id', 'is', null);
-
-          if (newLocationId && newLocationId !== 'all') {
-            garmentsQuery = garmentsQuery.eq('warehouse_id', newLocationId);
-          }
-
-          const { data: chunk, error: gErr } = await garmentsQuery.range(page * pageSize, (page + 1) * pageSize - 1);
-          if (gErr || !chunk || chunk.length === 0) break;
-          garments = garments.concat(chunk);
-          if (chunk.length < pageSize) break;
-          page++;
-        }
-
-        // Fetch products & categories to map references
-        const { data: prods } = await supabase
-          .from('products')
-          .select('id, codigo_referencia, nombre_producto, categoria, category_id, categories(categoria)');
-
-        const stopWords = new Set(['top', 'body', 'tipo', 'linea', 'para', 'de', 'la', 'el', 'los', 'las', 'no', 'usar', 'saldo']);
-
-        // Build list of category resolvers
-        const catResolvers: { key: string; name: string; distinctWords: string[] }[] = [];
-        (categoriesList || []).forEach((c: any) => {
-          const catName = typeof c === 'string' ? c : (c.categoria || c.name || '');
-          if (!catName) return;
-          const distinctWords = catName.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3 && !stopWords.has(w));
-          catResolvers.push({
-            key: catName.toLowerCase().trim(),
-            name: catName,
-            distinctWords
-          });
-        });
-
-        if (garments && garments.length > 0) {
-          garments.forEach(g => {
-            const refLower = (g.reference_name || '').toLowerCase().trim();
-            if (!refLower) return;
-
-            // Find matching category resolver
-            let matchedKey = 'sin categoría';
-            for (const cr of catResolvers) {
-              if (cr.distinctWords.length > 0 && cr.distinctWords.every((w: string) => refLower.includes(w))) {
-                matchedKey = cr.key;
-                break;
-              }
-            }
-
-            countMap[matchedKey] = (countMap[matchedKey] || 0) + 1;
-
-            const colName = (g.color_name || 'SIN COLOR').trim().toUpperCase();
-            if (!colorMap[matchedKey]) {
-              colorMap[matchedKey] = {};
-            }
-            colorMap[matchedKey][colName] = (colorMap[matchedKey][colName] || 0) + 1;
-          });
-        }
-
-        // 2. Fetch stock count from finished_goods_stock if not in garments
+        // Consultar directamente existencias desde finished_goods_stock para la bodega seleccionada
         let stockQuery = supabase
           .from('finished_goods_stock')
-          .select('cantidad_disponible, products(nombre_producto, codigo_referencia, categoria, category_id, categories(categoria)), colors(nombre_color)');
+          .select('cantidad_disponible, products(nombre_producto, codigo_referencia, categoria, category_id, categories(categoria)), colors(nombre_color)')
+          .gt('cantidad_disponible', 0);
 
         if (newLocationId && newLocationId !== 'all') {
           stockQuery = stockQuery.eq('warehouse_id', newLocationId);
         }
 
-        const { data: stockItems } = await stockQuery;
+        const { data: stockItems, error: stockErr } = await stockQuery.limit(2000);
+        if (stockErr) throw stockErr;
 
-        if (stockItems && stockItems.length > 0 && (!garments || garments.length === 0)) {
+        if (stockItems && stockItems.length > 0) {
           stockItems.forEach((st: any) => {
             const qty = Number(st.cantidad_disponible || 0);
             if (qty <= 0) return;

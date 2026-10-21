@@ -1611,25 +1611,33 @@ export default function FinishedGoodsInventory() {
   const fetchMasters = async () => {
     setLoading(true);
     try {
-      const [p, c, s, w, loc, fab, cat, st] = await Promise.all([
-        fetchAllPages(supabase.from('products').select('*').neq('estado', 'inactivo')),
-        fetchAllPages(supabase.from('colors').select('*')),
-        fetchAllPages(supabase.from('sizes').select('*').order('orden_visual', { ascending: true })),
-        fetchAllPages(supabase.from('warehouses').select('*').eq('estado', 'activo')),
-        fetchAllPages(supabase.from('warehouse_locations').select('*')),
-        fetchAllPages(supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true })),
-        fetchAllPages(supabase.from('categories').select('*')),
-        fetchAllPages(supabase.from('stores').select('*'))
+      const [p, cRes, sRes, wRes, locRes, fabRes, catRes, stRes] = await Promise.all([
+        fetchAllPages(supabase.from('products').select('id, nombre_producto, codigo_referencia, precio, categoria, category_id').neq('estado', 'inactivo')),
+        supabase.from('colors').select('*'),
+        supabase.from('sizes').select('*').order('orden_visual', { ascending: true }),
+        supabase.from('warehouses').select('*').eq('estado', 'activo'),
+        supabase.from('warehouse_locations').select('*'),
+        supabase.from('fabrics').select('id, nombre_tela, codigo_tela').order('nombre_tela', { ascending: true }),
+        supabase.from('categories').select('*'),
+        supabase.from('stores').select('*')
       ]);
 
+      const c = cRes.data || [];
+      const s = sRes.data || [];
+      const w = wRes.data || [];
+      const loc = locRes.data || [];
+      const fab = fabRes.data || [];
+      const cat = catRes.data || [];
+      const st = stRes.data || [];
+
       setProducts(p || []);
-      setColors(c || []);
-      setSizes(s || []);
-      setWarehouses(w || []);
-      setLocations(loc || []);
-      setFabrics(fab || []);
-      setCategories(cat || []);
-      setStores(st || []);
+      setColors(c);
+      setSizes(s);
+      setWarehouses(w);
+      setLocations(loc);
+      setFabrics(fab);
+      setCategories(cat);
+      setStores(st);
       return { products: p, colors: c, sizes: s, warehouses: w, locations: loc, fabrics: fab, categories: cat, stores: st };
     } catch (err) {
       console.error('Error fetching masters:', err);
