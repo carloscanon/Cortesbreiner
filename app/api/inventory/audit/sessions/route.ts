@@ -134,13 +134,19 @@ export async function POST(req: Request) {
       ? colors.map((c: any) => String(c).trim().toUpperCase()).filter(Boolean)
       : [];
 
+    const ALLOWED_AUDIT_TYPES = ['Completo', 'Parcial', 'Por Categoria', 'Por Referencia', 'Por Ubicacion', 'Muestreo', 'Ciclico'];
+    let safeAuditType = auditType;
+    if (!ALLOWED_AUDIT_TYPES.includes(auditType)) {
+      safeAuditType = targetCategories.length > 0 ? 'Por Categoria' : 'Parcial';
+    }
+
     // 1. Create audit_sessions entry
     const { data: session, error: sessErr } = await supabase
       .from('audit_sessions')
       .insert({
         location_id: locationId,
         location_name: locationName,
-        audit_type: auditType,
+        audit_type: safeAuditType,
         sample_percentage: samplePercentage,
         status: 'En Progreso',
         created_by: userEmail || 'Sistema',

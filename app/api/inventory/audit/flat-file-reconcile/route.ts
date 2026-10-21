@@ -374,7 +374,7 @@ export async function POST(req: Request) {
       const chosenCatName = selectedCategoryName || body.selectedCategoryName || (selectedCategories?.[0] ?? '');
       const catSuffix = chosenCatName ? ` — Categoría: ${chosenCatName}` : '';
       const auditNotes = notes || `Conciliación y ajuste por carga de plano en ${locationName}${catSuffix} (${cleanedBarcodes.length} códigos procesados)`;
-      const auditType = chosenCatName ? `Plano: ${chosenCatName}` : 'Plano Masivo';
+      const auditType = chosenCatName ? 'Por Categoria' : 'Completo';
 
       // 1. Create audit session in database
       const { data: session, error: sessErr } = await supabase

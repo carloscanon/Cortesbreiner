@@ -80,9 +80,9 @@ export default function AuditExcelImporter({
         body: JSON.stringify({
           locationId,
           locationName,
-          auditType: 'Importación Excel',
+          auditType: 'Parcial',
           userEmail: userEmail || 'Sistema',
-          notes: `Carga esperada desde Excel con ${validRows.length} registros`
+          notes: `Carga esperada desde Importación Excel con ${validRows.length} registros`
         })
       });
 
