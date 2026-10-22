@@ -7,7 +7,8 @@ import {
   BarChart3, RefreshCw, Layers, CheckCircle2, XCircle, AlertTriangle,
   FolderOpen, Calendar, DollarSign, Tag, Clock, ArrowRight, UserCheck,
   Loader2, X, Activity, ShoppingBag, CreditCard, ChevronRight, Users,
-  ListPlus, DollarSign as MoneyIcon, Search, Shirt, Package, ShoppingCart, Save
+  ListPlus, DollarSign as MoneyIcon, Search, Shirt, Package, ShoppingCart, Save,
+  Download, FileSpreadsheet, Filter
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -270,6 +271,9 @@ export default function StoreAdminPage() {
 
   // Sales billing console & Credit Notes
   const [selectedSales, setSelectedSales] = useState<string[]>([]);
+  const [billingStartDate, setBillingStartDate] = useState<string>('');
+  const [billingEndDate, setBillingEndDate] = useState<string>('');
+  const [isExportingSales, setIsExportingSales] = useState<boolean>(false);
   const [invoicingMass, setInvoicingMass] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState<any[]>([]);
   const [selectedDocTypeId, setSelectedDocTypeId] = useState<string>('auto');
@@ -539,6 +543,192 @@ export default function StoreAdminPage() {
   const [savingShift, setSavingShift] = useState(false);
   const [savingPriceList, setSavingPriceList] = useState(false);
   const [savingStoreInv, setSavingStoreInv] = useState(false);
+
+  // Descargar informe de ventas con rango de fechas y códigos de barras
+  const exportSalesToCSV = async (customFilteredSales?: any[]) => {
+    try {
+      setIsExportingSales(true);
+      let salesToProcess = customFilteredSales || salesList;
+
+      // If date range is specified, ensure it is filtered
+      if (billingStartDate) {
+        salesToProcess = salesToProcess.filter(s => {
+          const saleDate = new Date(s.created_at).toISOString().slice(0, 10);
+          return saleDate >= billingStartDate;
+        });
+      }
+      if (billingEndDate) {
+        salesToProcess = salesToProcess.filter(s => {
+          const saleDate = new Date(s.created_at).toISOString().slice(0, 10);
+          return saleDate <= billingEndDate;
+        });
+      }
+
+      if (!salesToProcess || salesToProcess.length === 0) {
+        alert('No hay ventas registradas en el rango de fechas seleccionado.');
+        setIsExportingSales(false);
+        return;
+      }
+
+      // Collect all sale IDs
+      const saleIds = salesToProcess.map(s => s.id);
+
+      // Query full items with barcodes or individual_garments notes if needed
+      const { data: fullItems, error: itemsErr } = await supabase
+        .from('pos_sale_items')
+        .select('*, products(nombre_producto, codigo_referencia, categoria), colors(nombre_color), sizes(codigo_talla, nombre_talla)')
+        .in('sale_id', saleIds);
+
+      if (itemsErr) {
+        console.warn('Error fetching sale items for export:', itemsErr);
+      }
+
+      // Also fetch individual garments that were sold associated with these sales or in that date range
+      const { data: soldGarments } = await supabase
+        .from('individual_garments')
+        .select('barcode, reference_name, color_name, size_code, notes, updated_at')
+        .or('status.eq.Vendido,notes.ilike.%POS%,notes.ilike.%Vendido%');
+
+      // Create a map from docRef or ticket number to list of barcodes
+      const barcodesByTicket: Record<string, string[]> = {};
+      (soldGarments || []).forEach(g => {
+        if (g.notes) {
+          const m = g.notes.match(/#([A-Z0-9-]+)/i);
+          if (m && m[1]) {
+            const tKey = m[1].toUpperCase();
+            if (!barcodesByTicket[tKey]) barcodesByTicket[tKey] = [];
+            if (!barcodesByTicket[tKey].includes(g.barcode)) {
+              barcodesByTicket[tKey].push(g.barcode);
+            }
+          }
+        }
+      });
+
+      // Group items by sale_id
+      const itemsBySale: Record<string, any[]> = {};
+      (fullItems || []).forEach(it => {
+        if (!itemsBySale[it.sale_id]) itemsBySale[it.sale_id] = [];
+        itemsBySale[it.sale_id].push(it);
+      });
+
+      // Build CSV Headers
+      const headers = [
+        'Ticket / Consecutivo',
+        'Fecha y Hora',
+        'Tienda / Sucursal',
+        'Vendedor',
+        'Cliente',
+        'Documento Cliente',
+        'Estado Venta',
+        'Concepto',
+        'Metodos de Pago',
+        'Producto',
+        'Referencia / SKU',
+        'Color',
+        'Talla',
+        'Cantidad',
+        'Codigos de Barras (Prendas Físicas)',
+        'Precio Unitario',
+        'Subtotal Item',
+        'Total Venta'
+      ];
+
+      const rows: any[][] = [];
+
+      salesToProcess.forEach(s => {
+        const storeObj = stores.find(st => st.id === s.store_id);
+        const storeName = storeObj?.nombre || s.stores?.nombre || 'Tienda';
+        const prefix = storeName.substring(0, 3).toUpperCase();
+        const ticketRef = `${prefix}-${String(s.consecutive).padStart(4, '0')}`;
+        const createdDate = s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : '';
+        const clientName = s.client_name || 'Cliente General';
+        const clientDoc = s.client_document || '2222222222';
+        const vendedor = s.vendedor || 'Vendedor';
+        const saleStatus = s.estado || 'completada';
+        const concept = getSaleConcept(s);
+        const paymentMethods = (s.pos_payments || []).map((p: any) => `${p.payment_method || 'Pago'}: ${Number(p.amount || 0).toLocaleString('es-CO')}`).join(' | ') || 'Efectivo';
+        const totalSale = Number(s.total || 0);
+
+        const sItems = itemsBySale[s.id] || s.pos_sale_items || [];
+        const matchedBarcodes = barcodesByTicket[ticketRef] || barcodesByTicket[String(s.consecutive)] || [];
+
+        if (sItems.length === 0) {
+          rows.push([
+            `"${ticketRef}"`,
+            `"${createdDate}"`,
+            `"${storeName}"`,
+            `"${vendedor}"`,
+            `"${clientName}"`,
+            `"${clientDoc}"`,
+            `"${saleStatus}"`,
+            `"${concept}"`,
+            `"${paymentMethods}"`,
+            '"Venta General"',
+            '""',
+            '""',
+            '""',
+            1,
+            `"${matchedBarcodes.join(', ')}"`,
+            totalSale,
+            totalSale,
+            totalSale
+          ]);
+        } else {
+          sItems.forEach((it: any) => {
+            const prodName = it.products?.nombre_producto || it.nombre || 'Prenda';
+            const prodRef = it.products?.codigo_referencia || it.codigo_referencia || '';
+            const colName = it.colors?.nombre_color || it.color_name || 'Único';
+            const szName = it.sizes?.codigo_talla || it.sizes?.nombre_talla || it.size_name || 'Única';
+            const qty = Number(it.cantidad || 1);
+            const unitPrice = Number(it.precio_unitario || it.precio || 0);
+            const subtotalItem = Number(it.subtotal || it.total || unitPrice * qty);
+
+            // Filter barcodes that match reference if multiple, otherwise use ticket barcodes
+            const itemBarcodes = matchedBarcodes.length > 0 ? matchedBarcodes.join(', ') : '';
+
+            rows.push([
+              `"${ticketRef}"`,
+              `"${createdDate}"`,
+              `"${storeName}"`,
+              `"${vendedor}"`,
+              `"${clientName}"`,
+              `"${clientDoc}"`,
+              `"${saleStatus}"`,
+              `"${concept}"`,
+              `"${paymentMethods}"`,
+              `"${prodName.replace(/"/g, '""')}"`,
+              `"${prodRef}"`,
+              `"${colName}"`,
+              `"${szName}"`,
+              qty,
+              `"${itemBarcodes}"`,
+              unitPrice,
+              subtotalItem,
+              totalSale
+            ]);
+          });
+        }
+      });
+
+      // Create CSV with BOM for correct Excel Spanish character encoding
+      const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateRangeStr = (billingStartDate && billingEndDate) 
+        ? `${billingStartDate}_a_${billingEndDate}` 
+        : (billingStartDate ? `desde_${billingStartDate}` : (billingEndDate ? `hasta_${billingEndDate}` : 'historico_completo'));
+      a.download = `informe_ventas_pos_${dateRangeStr}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Error al exportar ventas:', err);
+      alert('Error al generar el informe de ventas: ' + err.message);
+    } finally {
+      setIsExportingSales(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -3456,6 +3646,14 @@ export default function StoreAdminPage() {
                       return false;
                     }
                   }
+                  if (billingStartDate) {
+                    const sDate = new Date(s.created_at).toISOString().slice(0, 10);
+                    if (sDate < billingStartDate) return false;
+                  }
+                  if (billingEndDate) {
+                    const sDate = new Date(s.created_at).toISOString().slice(0, 10);
+                    if (sDate > billingEndDate) return false;
+                  }
                   return true;
                 });
 
@@ -3505,6 +3703,85 @@ export default function StoreAdminPage() {
                           </select>
                         </div>
                       </div>
+
+                      {/* Selector de Rango de Fechas */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '0.35rem 0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>
+                        <Calendar size={15} color="#475569" />
+                        <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569' }}>Desde:</span>
+                        <input
+                          type="date"
+                          value={billingStartDate}
+                          onChange={(e) => setBillingStartDate(e.target.value)}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            padding: '0.35rem 0.5rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            backgroundColor: '#ffffff'
+                          }}
+                        />
+                        <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569' }}>Hasta:</span>
+                        <input
+                          type="date"
+                          value={billingEndDate}
+                          onChange={(e) => setBillingEndDate(e.target.value)}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            padding: '0.35rem 0.5rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            backgroundColor: '#ffffff'
+                          }}
+                        />
+                        {(billingStartDate || billingEndDate) && (
+                          <button
+                            type="button"
+                            onClick={() => { setBillingStartDate(''); setBillingEndDate(''); }}
+                            style={{
+                              border: 'none',
+                              backgroundColor: '#fee2e2',
+                              color: '#b91c1c',
+                              borderRadius: '6px',
+                              padding: '0.3rem 0.55rem',
+                              fontSize: '0.72rem',
+                              fontWeight: '800',
+                              cursor: 'pointer'
+                            }}
+                            title="Limpiar rango de fechas"
+                          >
+                            ✕ Limpiar
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Botón Descargar Informe de Ventas Excel/CSV con Códigos de Barras */}
+                      <button
+                        type="button"
+                        onClick={() => exportSalesToCSV(filteredSalesList)}
+                        disabled={isExportingSales}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.625rem 1.15rem',
+                          borderRadius: '10px',
+                          fontWeight: '850',
+                          fontSize: '0.85rem',
+                          backgroundColor: '#059669',
+                          border: 'none',
+                          color: '#ffffff',
+                          cursor: isExportingSales ? 'not-allowed' : 'pointer',
+                          boxShadow: '0 2px 6px rgba(5,150,105,0.25)',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {isExportingSales ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                        {isExportingSales ? 'Generando Informe...' : 'Descargar Ventas (Excel/CSV)'}
+                      </button>
 
                       {/* Botón de Ajustes de Conceptos */}
                       <button
