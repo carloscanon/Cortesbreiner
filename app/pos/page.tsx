@@ -301,6 +301,7 @@ export default function POSPage() {
 
   // Cart & Sales Flow
   const [cart, setCart] = useState<any[]>([]);
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<any>(null);
   const [productVariants, setProductVariants] = useState<any[]>([]);
@@ -1997,6 +1998,23 @@ export default function POSPage() {
     const isDevolucion = qtyToDeduct < 0;
     const movType = isDevolucion ? 'Devolución' : 'Venta POS';
 
+    // Ensure we have the store's associated warehouse ID
+    let whId = store.bodega_asociada_id;
+    if (!whId && store.id) {
+      try {
+        const { data: storeRow } = await supabase
+          .from('stores')
+          .select('bodega_asociada_id')
+          .eq('id', store.id)
+          .maybeSingle();
+        if (storeRow?.bodega_asociada_id) {
+          whId = storeRow.bodega_asociada_id;
+        }
+      } catch (errStoreLookup) {
+        console.warn("Could not fetch store bodega_asociada_id:", errStoreLookup);
+      }
+    }
+
     const productObj = productsList.find(p => p.id === cartItem.product_id) || {
       id: cartItem.product_id,
       nombre_producto: cartItem.nombre,
@@ -2006,8 +2024,7 @@ export default function POSPage() {
     const sizeObj = sizesList.find(s => s.id === cartItem.size_id);
 
     // 1. UPDATE FINISHED_GOODS_STOCK (If store has an associated warehouse)
-    if (store.bodega_asociada_id) {
-      const whId = store.bodega_asociada_id;
+    if (whId) {
       let targetStock: any = null;
 
       // Priority 1: Exact warehouse + product_id + size_id + color_id
@@ -2152,7 +2169,7 @@ export default function POSPage() {
           documento_ref: docRef,
           usuario: vendedor || 'Vendedor'
         }]);
-      } else if (!store.bodega_asociada_id) {
+      } else if (!whId) {
         const newQty = 0 - qtyToDeduct;
         await supabase.from('store_inventory').insert([{
           store_id: store.id,
@@ -2180,68 +2197,86 @@ export default function POSPage() {
       console.warn("store_inventory sync warning:", errStoreInv);
     }
 
-    // 3. FIFO DEDUCTION OF INDIVIDUAL_GARMENTS (Barcode tags)
+    // 3. DEDUCTION OF INDIVIDUAL_GARMENTS (Barcode tags)
     if (qtyToDeduct > 0) {
       try {
-        const refName = productObj?.nombre_producto || productObj?.codigo_referencia || cartItem.nombre;
-        const sizeCode = sizeObj?.codigo_talla;
-        const colorName = colorObj?.nombre_color;
+        const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : [];
+        let remainingQtyToDeduct = qtyToDeduct;
 
-        let gQuery = supabase.from('individual_garments')
-          .select('id, barcode')
-          .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
-
-        if (store.bodega_asociada_id) {
-          gQuery = gQuery.or(`warehouse_id.eq.${store.bodega_asociada_id},store_id.eq.${store.id}`);
-        } else {
-          gQuery = gQuery.eq('store_id', store.id);
-        }
-
-        if (sizeCode) gQuery = gQuery.eq('size_code', sizeCode);
-        if (colorName) gQuery = gQuery.eq('color_name', colorName);
-
-        let { data: localGarms } = await gQuery.limit(qtyToDeduct);
-        let matchedGarments = localGarms || [];
-
-        if (matchedGarments.length < qtyToDeduct && refName) {
-          let gRefQuery = supabase.from('individual_garments')
-            .select('id, barcode')
-            .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
-          if (store.bodega_asociada_id) {
-            gRefQuery = gRefQuery.or(`warehouse_id.eq.${store.bodega_asociada_id},store_id.eq.${store.id}`);
-          } else {
-            gRefQuery = gRefQuery.eq('store_id', store.id);
-          }
-          gRefQuery = gRefQuery.or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`);
-          const { data: refGarms } = await gRefQuery.limit(qtyToDeduct - matchedGarments.length);
-          if (refGarms && refGarms.length > 0) {
-            const existingIds = new Set(matchedGarments.map(g => g.id));
-            refGarms.forEach(g => { if (!existingIds.has(g.id)) matchedGarments.push(g); });
-          }
-        }
-
-        if (matchedGarments.length === 0 && sizeCode && refName) {
-          const { data: globalGarms } = await supabase.from('individual_garments')
-            .select('id, barcode')
-            .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
-            .eq('size_code', sizeCode)
-            .or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`)
-            .limit(qtyToDeduct);
-          matchedGarments = globalGarms || [];
-        }
-
-        if (matchedGarments.length > 0) {
-          const ids = matchedGarments.map(g => g.id);
+        // If specific barcodes were scanned for this cart item, mark them as 'Vendido' directly
+        if (directBarcodes.length > 0) {
           await supabase.from('individual_garments')
             .update({ 
               status: 'Vendido', 
               updated_at: new Date().toISOString(),
               notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
             })
-            .in('id', ids);
+            .in('barcode', directBarcodes);
+          remainingQtyToDeduct = Math.max(0, remainingQtyToDeduct - directBarcodes.length);
+        }
+
+        // If there's still quantity to deduct (e.g. added via catalog, or more units than barcodes)
+        if (remainingQtyToDeduct > 0) {
+          const refName = productObj?.nombre_producto || productObj?.codigo_referencia || cartItem.nombre;
+          const sizeCode = sizeObj?.codigo_talla;
+          const colorName = colorObj?.nombre_color;
+
+          let gQuery = supabase.from('individual_garments')
+            .select('id, barcode')
+            .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
+
+          if (whId) {
+            gQuery = gQuery.or(`warehouse_id.eq.${whId},store_id.eq.${store.id}`);
+          } else {
+            gQuery = gQuery.eq('store_id', store.id);
+          }
+
+          if (sizeCode) gQuery = gQuery.eq('size_code', sizeCode);
+          if (colorName) gQuery = gQuery.eq('color_name', colorName);
+
+          let { data: localGarms } = await gQuery.limit(remainingQtyToDeduct);
+          let matchedGarments = localGarms || [];
+
+          if (matchedGarments.length < remainingQtyToDeduct && refName) {
+            let gRefQuery = supabase.from('individual_garments')
+              .select('id, barcode')
+              .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido']);
+            if (whId) {
+              gRefQuery = gRefQuery.or(`warehouse_id.eq.${whId},store_id.eq.${store.id}`);
+            } else {
+              gRefQuery = gRefQuery.eq('store_id', store.id);
+            }
+            gRefQuery = gRefQuery.or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`);
+            const { data: refGarms } = await gRefQuery.limit(remainingQtyToDeduct - matchedGarments.length);
+            if (refGarms && refGarms.length > 0) {
+              const existingIds = new Set(matchedGarments.map(g => g.id));
+              refGarms.forEach(g => { if (!existingIds.has(g.id)) matchedGarments.push(g); });
+            }
+          }
+
+          if (matchedGarments.length === 0 && sizeCode && refName) {
+            const { data: globalGarms } = await supabase.from('individual_garments')
+              .select('id, barcode')
+              .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido'])
+              .eq('size_code', sizeCode)
+              .or(`reference_name.eq.${refName},reference_name.ilike.%${refName}%`)
+              .limit(remainingQtyToDeduct);
+            matchedGarments = globalGarms || [];
+          }
+
+          if (matchedGarments.length > 0) {
+            const ids = matchedGarments.map(g => g.id);
+            await supabase.from('individual_garments')
+              .update({ 
+                status: 'Vendido', 
+                updated_at: new Date().toISOString(),
+                notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
+              })
+              .in('id', ids);
+          }
         }
       } catch (eGarm) {
-        console.warn("individual_garments FIFO deduction warning:", eGarm);
+        console.warn("individual_garments deduction warning:", eGarm);
       }
     }
   };
@@ -2467,7 +2502,7 @@ export default function POSPage() {
     });
   }, [selectedPriceListId, products, priceListItems, priceLists, cart.reduce((sum, item) => sum + (item.is_return ? 0 : (item.cantidad || 0)), 0)]);
 
-  const doAddToCart = (product: any, colorId: string | null, sizeId: string | null) => {
+  const doAddToCart = (product: any, colorId: string | null, sizeId: string | null, barcode?: string | null) => {
     setCart(prevCart => {
       const existingIndex = prevCart.findIndex(item => item.product_id === product.id && item.size_id === sizeId && item.color_id === colorId && !item.is_return);
       const simulatedCart = existingIndex > -1
@@ -2479,10 +2514,16 @@ export default function POSPage() {
 
       if (existingIndex > -1) {
         const newCart = [...prevCart];
+        const existingItem = newCart[existingIndex];
+        const existingBarcodes = Array.isArray(existingItem.barcodes) ? [...existingItem.barcodes] : [];
+        if (barcode && !existingBarcodes.includes(barcode)) {
+          existingBarcodes.push(barcode);
+        }
         newCart[existingIndex] = {
-          ...newCart[existingIndex],
-          cantidad: newCart[existingIndex].cantidad + 1,
-          precio: resolvedPrice
+          ...existingItem,
+          cantidad: existingItem.cantidad + 1,
+          precio: resolvedPrice,
+          barcodes: existingBarcodes
         };
         return newCart;
       } else {
@@ -2495,7 +2536,8 @@ export default function POSPage() {
           size_id: sizeId,
           cantidad: 1,
           is_return: false,
-          imagen_url: product.imagen_url
+          imagen_url: product.imagen_url,
+          barcodes: barcode ? [barcode] : []
         }];
       }
     });
@@ -2582,6 +2624,18 @@ export default function POSPage() {
     const term = barcodeToScan.trim();
     if (!term) return { success: false, barcode: '', message: 'Código vacío' };
 
+    // Prevent scanning the exact same barcode multiple times in the same sale
+    const isAlreadyInCart = cart.some(item => 
+      Array.isArray(item.barcodes) && item.barcodes.includes(term)
+    );
+    if (isAlreadyInCart) {
+      return {
+        success: false,
+        barcode: term,
+        message: `⚠️ El código "${term}" ya fue escaneado en esta venta actual.`
+      };
+    }
+
     // 1. Search in individual_garments
     try {
       let { data: garment } = await supabase
@@ -2601,6 +2655,16 @@ export default function POSPage() {
       }
 
       if (garment) {
+        const garmentBarcode = garment.barcode || term;
+        // Double-check if the matched garment barcode is already in the cart
+        if (cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(garmentBarcode))) {
+          return {
+            success: false,
+            barcode: garmentBarcode,
+            message: `⚠️ Esta prenda con código "${garmentBarcode}" ya está en el carrito.`
+          };
+        }
+
         let matchedProduct = resolveProductForGarment(garment);
         
         // If not found in loaded products, query Supabase products directly
@@ -2619,7 +2683,7 @@ export default function POSPage() {
           const matchedColor = resolveColorForGarment(garment.color_name || '');
           const matchedSize = resolveSizeForGarment(garment.size_code || '');
 
-          doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null);
+          doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null, garmentBarcode);
           setSearchQuery('');
           setScannedGarment(null);
           setResolvedBarcodeRef(null);
@@ -2630,7 +2694,7 @@ export default function POSPage() {
             color: garment.color_name || matchedColor?.nombre_color,
             size: garment.size_code || matchedSize?.codigo_talla,
             price: getProductPrice(matchedProduct, selectedPriceListId, priceListItems),
-            barcode: term,
+            barcode: garmentBarcode,
             message: `Prenda agregada: ${matchedProduct.nombre_producto}`
           };
         }
@@ -2732,9 +2796,9 @@ export default function POSPage() {
       ]);
 
       setRemoteScanToast({
-        message: result?.success !== false
+        message: result?.message || (result?.success !== false
           ? `📱 [Celular] Prenda agregada: ${result?.productName || barcode}`
-          : `⚠️ [Celular] Código no encontrado: ${barcode}`,
+          : `⚠️ [Celular] Código no encontrado: ${barcode}`),
         success: result?.success !== false
       });
       setTimeout(() => setRemoteScanToast(null), 4000);
@@ -2785,16 +2849,22 @@ export default function POSPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [remoteScannerSessionId, products, colors, sizes, selectedPriceListId, priceListItems, cart.length]);
+  }, [remoteScannerSessionId, products, colors, sizes, selectedPriceListId, priceListItems, cart]);
 
   const handleAddToCart = (product: any) => {
     // 1. If scanned barcode is active, match EXACT variant and add immediately
     if (scannedGarment) {
+      if (scannedGarment.barcode && cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(scannedGarment.barcode))) {
+        alert(`⚠️ Esta prenda con código "${scannedGarment.barcode}" ya fue agregada al carrito.`);
+        setScannedGarment(null);
+        setResolvedBarcodeRef(null);
+        return;
+      }
       const resolved = resolveProductForGarment(scannedGarment);
       if (resolved && (resolved.id === product.id || resolved.nombre_producto === product.nombre_producto)) {
         const matchedColor = resolveColorForGarment(scannedGarment.color_name || '');
         const matchedSize = resolveSizeForGarment(scannedGarment.size_code || '');
-        doAddToCart(product, matchedColor?.id || null, matchedSize?.id || null);
+        doAddToCart(product, matchedColor?.id || null, matchedSize?.id || null, scannedGarment.barcode || null);
         setSearchQuery('');
         setScannedGarment(null);
         setResolvedBarcodeRef(null);
@@ -2828,6 +2898,11 @@ export default function POSPage() {
   };
 
   const handleQuickAddGarmentToCart = (garment: any) => {
+    if (garment?.barcode && cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(garment.barcode))) {
+      alert(`⚠️ Esta prenda con código "${garment.barcode}" ya fue agregada al carrito.`);
+      return;
+    }
+
     // 1. Find product in catalog
     let matchedProduct = resolveProductForGarment(garment);
 
@@ -2840,7 +2915,7 @@ export default function POSPage() {
     const matchedColor = resolveColorForGarment(garment.color_name || '');
     const matchedSize = resolveSizeForGarment(garment.size_code || '');
 
-    doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null);
+    doAddToCart(matchedProduct, matchedColor?.id || null, matchedSize?.id || null, garment.barcode || null);
     setActiveMenuId('pos');
   };
 
@@ -2875,125 +2950,127 @@ export default function POSPage() {
   };
 
   const handleCheckout = async () => {
+    if (isProcessingSale) return;
     if (!currentSession && isOnline) return alert('Debes abrir caja antes de registrar ventas.');
     if (cart.length === 0) return alert('El carrito está vacío.');
 
-    const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
-    
-    const activePromo = promotions.find(p => {
-      if (!p.activo) return false;
-      const startStr = p.fecha_inicio ? p.fecha_inicio.substring(0, 10) : null;
-      const endStr = p.fecha_fin ? p.fecha_fin.substring(0, 10) : null;
-      if (startStr && localDateStr < startStr) return false;
-      if (endStr && localDateStr > endStr) return false;
-      return true;
-    });
-
-    const subtotal = cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-    let discountAmount = 0;
-    if (activePromo && subtotal > 0) {
-      if (activePromo.tipo === 'Porcentaje') {
-        discountAmount = subtotal * (Number(activePromo.valor) / 100);
-      } else if (activePromo.tipo === 'Valor Fijo') {
-        discountAmount = Number(activePromo.valor);
-      }
-    }
-    const total = Math.max(0, subtotal - discountAmount);
-
-    const activeTransferObj = transferMethods.find(m => m.id === selectedTransferMethodId) || transferMethods.find(m => m.activo !== false);
-    let finalObs = cartNotes.trim();
-
-    // Build payment records array
-    const paymentsToInsert: { metodo_pago: string; monto: number }[] = [];
-
-    if (paymentMethod === 'Mixto') {
-      const numCash = Number(mixedCashAmount) || 0;
-      const numCard = Number(mixedCardAmount) || 0;
-      const numTransfer = Number(mixedTransferAmount) || 0;
-      const totalPaid = numCash + numCard + numTransfer;
-
-      if (totalPaid < total) {
-        return alert(`⚠️ En Pago Mixto, el total asignado ($${totalPaid.toLocaleString('es-CO')}) es menor al total a pagar ($${total.toLocaleString('es-CO')}). Faltan $${(total - totalPaid).toLocaleString('es-CO')}.`);
-      }
-
-      if (numCard + numTransfer > total) {
-        return alert(`⚠️ La suma de Tarjeta ($${numCard.toLocaleString('es-CO')}) y Transferencia ($${numTransfer.toLocaleString('es-CO')}) supera el total de la venta ($${total.toLocaleString('es-CO')}). Solo el efectivo admite excedente para vueltos.`);
-      }
-
-      const cashApplied = Math.max(0, total - numCard - numTransfer);
-      const change = Math.max(0, numCash - cashApplied);
-
-      const parts: string[] = [];
-      if (cashApplied > 0) {
-        paymentsToInsert.push({ metodo_pago: 'Efectivo', monto: cashApplied });
-        parts.push(`Efectivo: $${cashApplied.toLocaleString('es-CO')}${change > 0 ? ` (Entregado: $${numCash.toLocaleString('es-CO')}, Vueltos: $${change.toLocaleString('es-CO')})` : ''}`);
-      }
-      if (numCard > 0) {
-        paymentsToInsert.push({ metodo_pago: 'Tarjeta', monto: numCard });
-        parts.push(`Tarjeta: $${numCard.toLocaleString('es-CO')}`);
-      }
-      if (numTransfer > 0) {
-        const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
-        paymentsToInsert.push({ metodo_pago: transferLabel, monto: numTransfer });
-        parts.push(`${transferLabel}: $${numTransfer.toLocaleString('es-CO')}${transferReferenceCode ? ` [Ref: ${transferReferenceCode}]` : ''}`);
-      }
-
-      if (paymentsToInsert.length === 0) {
-        return alert('⚠️ Debes ingresar los montos correspondientes para el pago mixto.');
-      }
-
-      const mixedDetail = `[Pago Mixto: ${parts.join(' + ')}]`;
-      finalObs = finalObs ? `${finalObs} | ${mixedDetail}` : mixedDetail;
-    } else if (paymentMethod === 'Transferencia') {
-      const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
-      const refDetail = `[Transferencia: ${activeTransferObj ? `${activeTransferObj.banco} (${activeTransferObj.tipo_cuenta} #${activeTransferObj.numero_cuenta})` : 'Bancaria'}${transferReferenceCode ? ` - Ref/Aprob: ${transferReferenceCode}` : ''}]`;
-      finalObs = finalObs ? `${finalObs} | ${refDetail}` : refDetail;
-      paymentsToInsert.push({ metodo_pago: transferLabel, monto: total });
-    } else {
-      paymentsToInsert.push({ metodo_pago: paymentMethod, monto: total });
-    }
-
-    const salePayload = {
-      session_id: currentSession?.id || null,
-      store_id: selectedStore?.id || null,
-      client_name: selectedCustomer.name,
-      client_document: selectedCustomer.document,
-      vendedor: profile?.full_name || user?.email || 'Vendedor',
-      subtotal,
-      descuento: discountAmount,
-      impuestos: 0,
-      total,
-      observaciones: finalObs
-    };
-
-    const paymentPayload = paymentsToInsert[0] || {
-      metodo_pago: paymentMethod === 'Transferencia' && activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : paymentMethod,
-      monto: total
-    };
-
-    if (!isOnline) {
-      const newQueueItem = {
-        sale: salePayload,
-        items: cart,
-        payments: paymentsToInsert,
-        payment: paymentPayload,
-        timestamp: new Date().toISOString()
-      };
-      
-      const updatedQueue = [...syncQueue, newQueueItem];
-      setSyncQueue(updatedQueue);
-      localStorage.setItem('pos_sync_queue', JSON.stringify(updatedQueue));
-      alert('⚠️ Sin conexión. Venta guardada en la cola de sincronía del terminal.');
-      setCart([]);
-      setCartNotes('');
-      setTransferReferenceCode('');
-      setMixedCashAmount('');
-      setMixedCardAmount('');
-      setMixedTransferAmount('');
-      return;
-    }
-
+    setIsProcessingSale(true);
     try {
+      const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+      
+      const activePromo = promotions.find(p => {
+        if (!p.activo) return false;
+        const startStr = p.fecha_inicio ? p.fecha_inicio.substring(0, 10) : null;
+        const endStr = p.fecha_fin ? p.fecha_fin.substring(0, 10) : null;
+        if (startStr && localDateStr < startStr) return false;
+        if (endStr && localDateStr > endStr) return false;
+        return true;
+      });
+
+      const subtotal = cart.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
+      let discountAmount = 0;
+      if (activePromo && subtotal > 0) {
+        if (activePromo.tipo === 'Porcentaje') {
+          discountAmount = subtotal * (Number(activePromo.valor) / 100);
+        } else if (activePromo.tipo === 'Valor Fijo') {
+          discountAmount = Number(activePromo.valor);
+        }
+      }
+      const total = Math.max(0, subtotal - discountAmount);
+
+      const activeTransferObj = transferMethods.find(m => m.id === selectedTransferMethodId) || transferMethods.find(m => m.activo !== false);
+      let finalObs = cartNotes.trim();
+
+      // Build payment records array
+      const paymentsToInsert: { metodo_pago: string; monto: number }[] = [];
+
+      if (paymentMethod === 'Mixto') {
+        const numCash = Number(mixedCashAmount) || 0;
+        const numCard = Number(mixedCardAmount) || 0;
+        const numTransfer = Number(mixedTransferAmount) || 0;
+        const totalPaid = numCash + numCard + numTransfer;
+
+        if (totalPaid < total) {
+          return alert(`⚠️ En Pago Mixto, el total asignado ($${totalPaid.toLocaleString('es-CO')}) es menor al total a pagar ($${total.toLocaleString('es-CO')}). Faltan $${(total - totalPaid).toLocaleString('es-CO')}.`);
+        }
+
+        if (numCard + numTransfer > total) {
+          return alert(`⚠️ La suma de Tarjeta ($${numCard.toLocaleString('es-CO')}) y Transferencia ($${numTransfer.toLocaleString('es-CO')}) supera el total de la venta ($${total.toLocaleString('es-CO')}). Solo el efectivo admite excedente para vueltos.`);
+        }
+
+        const cashApplied = Math.max(0, total - numCard - numTransfer);
+        const change = Math.max(0, numCash - cashApplied);
+
+        const parts: string[] = [];
+        if (cashApplied > 0) {
+          paymentsToInsert.push({ metodo_pago: 'Efectivo', monto: cashApplied });
+          parts.push(`Efectivo: $${cashApplied.toLocaleString('es-CO')}${change > 0 ? ` (Entregado: $${numCash.toLocaleString('es-CO')}, Vueltos: $${change.toLocaleString('es-CO')})` : ''}`);
+        }
+        if (numCard > 0) {
+          paymentsToInsert.push({ metodo_pago: 'Tarjeta', monto: numCard });
+          parts.push(`Tarjeta: $${numCard.toLocaleString('es-CO')}`);
+        }
+        if (numTransfer > 0) {
+          const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
+          paymentsToInsert.push({ metodo_pago: transferLabel, monto: numTransfer });
+          parts.push(`${transferLabel}: $${numTransfer.toLocaleString('es-CO')}${transferReferenceCode ? ` [Ref: ${transferReferenceCode}]` : ''}`);
+        }
+
+        if (paymentsToInsert.length === 0) {
+          return alert('⚠️ Debes ingresar los montos correspondientes para el pago mixto.');
+        }
+
+        const mixedDetail = `[Pago Mixto: ${parts.join(' + ')}]`;
+        finalObs = finalObs ? `${finalObs} | ${mixedDetail}` : mixedDetail;
+      } else if (paymentMethod === 'Transferencia') {
+        const transferLabel = activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : 'Transferencia';
+        const refDetail = `[Transferencia: ${activeTransferObj ? `${activeTransferObj.banco} (${activeTransferObj.tipo_cuenta} #${activeTransferObj.numero_cuenta})` : 'Bancaria'}${transferReferenceCode ? ` - Ref/Aprob: ${transferReferenceCode}` : ''}]`;
+        finalObs = finalObs ? `${finalObs} | ${refDetail}` : refDetail;
+        paymentsToInsert.push({ metodo_pago: transferLabel, monto: total });
+      } else {
+        paymentsToInsert.push({ metodo_pago: paymentMethod, monto: total });
+      }
+
+      const salePayload = {
+        session_id: currentSession?.id || null,
+        store_id: selectedStore?.id || null,
+        client_name: selectedCustomer.name,
+        client_document: selectedCustomer.document,
+        vendedor: profile?.full_name || user?.email || 'Vendedor',
+        subtotal,
+        descuento: discountAmount,
+        impuestos: 0,
+        total,
+        observaciones: finalObs
+      };
+
+      const paymentPayload = paymentsToInsert[0] || {
+        metodo_pago: paymentMethod === 'Transferencia' && activeTransferObj ? `Transferencia (${activeTransferObj.banco})` : paymentMethod,
+        monto: total
+      };
+
+      if (!isOnline) {
+        const newQueueItem = {
+          sale: salePayload,
+          items: cart,
+          payments: paymentsToInsert,
+          payment: paymentPayload,
+          timestamp: new Date().toISOString()
+        };
+        
+        const updatedQueue = [...syncQueue, newQueueItem];
+        setSyncQueue(updatedQueue);
+        localStorage.setItem('pos_sync_queue', JSON.stringify(updatedQueue));
+        alert('⚠️ Sin conexión. Venta guardada en la cola de sincronía del terminal.');
+        setCart([]);
+        setCartNotes('');
+        setTransferReferenceCode('');
+        setMixedCashAmount('');
+        setMixedCardAmount('');
+        setMixedTransferAmount('');
+        return;
+      }
+
       const { data: newSale, error: saleErr } = await supabase
         .from('pos_sales')
         .insert([salePayload])
@@ -3081,6 +3158,8 @@ export default function POSPage() {
       fetchInlineSales();
     } catch (err: any) {
       alert('Error guardando venta: ' + err.message);
+    } finally {
+      setIsProcessingSale(false);
     }
   };
 
@@ -8559,29 +8638,39 @@ export default function POSPage() {
                   {/* Action Registrar Venta Trigger Button spanning nearly side-to-side */}
                   <button
                     onClick={handleCheckout}
-                    disabled={(!currentSession && isOnline) || cart.length === 0}
+                    disabled={(!currentSession && isOnline) || cart.length === 0 || isProcessingSale}
                     style={{
                       width: '100%',
                       padding: '0.8rem 1.25rem',
-                      background: `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
+                      background: isProcessingSale 
+                        ? '#94a3b8' 
+                        : `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
                       color: customButtonText,
                       border: 'none',
                       borderRadius: '10px',
                       fontSize: '0.88rem',
                       fontWeight: '900',
-                      cursor: 'pointer',
+                      cursor: isProcessingSale ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.5rem',
                       boxShadow: '0 4px 15px rgba(0,0,0,0.12)',
-                      opacity: cart.length === 0 ? 0.6 : 1,
+                      opacity: (cart.length === 0 || isProcessingSale) ? 0.6 : 1,
                       transition: 'transform 0.2s, box-shadow 0.2s'
                     }}
-                    onMouseEnter={e => { if (cart.length > 0) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)'; } }}
+                    onMouseEnter={e => { if (cart.length > 0 && !isProcessingSale) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)'; } }}
                     onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)'; }}
                   >
-                    <CreditCard size={18} /> Registrar Venta <span style={{ opacity: 0.6, fontSize: '0.7rem', marginLeft: '0.25rem' }}>F2</span> <Lock size={13} style={{ opacity: 0.6, marginLeft: '0.25rem' }} />
+                    {isProcessingSale ? (
+                      <>
+                        <RefreshCw size={18} className="animate-spin" /> Registrando venta...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={18} /> Registrar Venta <span style={{ opacity: 0.6, fontSize: '0.7rem', marginLeft: '0.25rem' }}>F2</span> <Lock size={13} style={{ opacity: 0.6, marginLeft: '0.25rem' }} />
+                      </>
+                    )}
                   </button>
                 </div>
 
