@@ -1473,7 +1473,7 @@ export default function POSPage() {
     setLoading(true);
     try {
       const { data: st } = await supabase.from('stores').select('*').eq('estado', 'activo');
-      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)'));
+      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)').neq('estado', 'inactivo'));
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: promo } = await supabase.from('pos_promotions').select('*').eq('activo', true);
@@ -1998,8 +1998,29 @@ export default function POSPage() {
     const isDevolucion = qtyToDeduct < 0;
     const movType = isDevolucion ? 'Devolución' : 'Venta POS';
 
-    // Ensure we have the store's associated warehouse ID
-    let whId = store.bodega_asociada_id;
+    const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : [];
+    let garmentWarehouseId: string | null = null;
+    let fetchedGarmentsMap: any[] = [];
+
+    // If specific barcodes were attached to this item, inspect their physical warehouse
+    if (directBarcodes.length > 0) {
+      try {
+        const { data: gRows } = await supabase
+          .from('individual_garments')
+          .select('id, barcode, warehouse_id, store_id, status')
+          .in('barcode', directBarcodes);
+        if (gRows && gRows.length > 0) {
+          fetchedGarmentsMap = gRows;
+          const whFound = gRows.find(g => g.warehouse_id)?.warehouse_id;
+          if (whFound) garmentWarehouseId = whFound;
+        }
+      } catch (errG) {
+        console.warn("Could not query garment physical warehouse:", errG);
+      }
+    }
+
+    // Determine target warehouse ID (priority: barcode physical warehouse > store bodega asociada)
+    let whId = garmentWarehouseId || store.bodega_asociada_id;
     if (!whId && store.id) {
       try {
         const { data: storeRow } = await supabase
@@ -2679,6 +2700,14 @@ export default function POSPage() {
           if (dbProd) matchedProduct = dbProd;
         }
 
+        if (matchedProduct && matchedProduct.estado === 'inactivo') {
+          return {
+            success: false,
+            barcode: garmentBarcode,
+            message: `⚠️ El producto "${matchedProduct.nombre_producto}" está inhabilitado/inactivo y no puede ser vendido.`
+          };
+        }
+
         if (matchedProduct) {
           const matchedColor = resolveColorForGarment(garment.color_name || '');
           const matchedSize = resolveSizeForGarment(garment.size_code || '');
@@ -2852,6 +2881,11 @@ export default function POSPage() {
   }, [remoteScannerSessionId, products, colors, sizes, selectedPriceListId, priceListItems, cart]);
 
   const handleAddToCart = (product: any) => {
+    if (!product || product.estado === 'inactivo') {
+      alert(`⚠️ El producto "${product?.nombre_producto || 'seleccionado'}" está inhabilitado/inactivo y no puede ser vendido.`);
+      return;
+    }
+
     // 1. If scanned barcode is active, match EXACT variant and add immediately
     if (scannedGarment) {
       if (scannedGarment.barcode && cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(scannedGarment.barcode))) {
@@ -3235,6 +3269,9 @@ export default function POSPage() {
   }, [searchQuery]);
 
   const filteredProducts = products.filter(p => {
+    // 0. Do not show or sell inactive / disabled products
+    if (p.estado === 'inactivo') return false;
+
     // 1. If a specific individual barcode tag is scanned/detected, return ONLY the exact matched product
     if (scannedGarment) {
       const resolved = resolveProductForGarment(scannedGarment);
@@ -3804,7 +3841,7 @@ export default function POSPage() {
             </div>
 
             {/* User status widgets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', position: 'relative' }}>
               <button
                 type="button"
                 onClick={() => setShowMobileScannerModal(true)}
@@ -3812,30 +3849,30 @@ export default function POSPage() {
                   backgroundColor: isPhoneScannerConnected ? '#059669' : '#80082E',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
+                  padding: '0.3rem 0.65rem',
+                  borderRadius: '7px',
+                  fontSize: '0.72rem',
+                  fontWeight: '800',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: isPhoneScannerConnected ? '0 2px 8px rgba(5,150,105,0.35)' : '0 2px 8px rgba(128,8,46,0.35)',
+                  gap: '0.35rem',
+                  boxShadow: isPhoneScannerConnected ? '0 1px 4px rgba(5,150,105,0.25)' : '0 1px 4px rgba(128,8,46,0.25)',
                   transition: 'all 0.15s'
                 }}
                 title="Escanear prendas desde el celular con la cámara"
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <Smartphone size={14} />
-                <span>📱 Escanear con Celular</span>
+                <Smartphone size={13} />
+                <span>📱 Celular</span>
                 {isPhoneScannerConnected && (
                   <span style={{
-                    width: '7px',
-                    height: '7px',
+                    width: '6px',
+                    height: '6px',
                     borderRadius: '50%',
                     backgroundColor: '#4ade80',
-                    boxShadow: '0 0 6px #4ade80'
+                    boxShadow: '0 0 5px #4ade80'
                   }} />
                 )}
               </button>
@@ -3847,21 +3884,21 @@ export default function POSPage() {
                   backgroundColor: '#3b82f6',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
+                  padding: '0.3rem 0.65rem',
+                  borderRadius: '7px',
+                  fontSize: '0.72rem',
+                  fontWeight: '800',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: '0 2px 8px rgba(59,130,246,0.35)',
+                  gap: '0.35rem',
+                  boxShadow: '0 1px 4px rgba(59,130,246,0.25)',
                   transition: 'all 0.15s'
                 }}
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <Building2 size={14} /> 🏢 Stock en Bodegas
+                <Building2 size={13} /> 🏢 Stock Bodegas
               </button>
 
               <button
@@ -3871,21 +3908,21 @@ export default function POSPage() {
                   backgroundColor: '#ec4899',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
+                  padding: '0.3rem 0.65rem',
+                  borderRadius: '7px',
+                  fontSize: '0.72rem',
+                  fontWeight: '800',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
+                  gap: '0.35rem',
+                  boxShadow: '0 1px 4px rgba(236,72,153,0.25)',
                   transition: 'all 0.15s'
                 }}
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <RefreshCcw size={14} /> Módulo de Cambios
+                <RefreshCcw size={13} /> Cambios
               </button>
 
               {currentSession && (
@@ -3896,22 +3933,22 @@ export default function POSPage() {
                     backgroundColor: '#10b981',
                     color: '#ffffff',
                     border: 'none',
-                    padding: '0.45rem 0.95rem',
-                    borderRadius: '10px',
-                    fontSize: '0.78rem',
-                    fontWeight: '850',
+                    padding: '0.3rem 0.65rem',
+                    borderRadius: '7px',
+                    fontSize: '0.72rem',
+                    fontWeight: '800',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.45rem',
-                    boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
+                    gap: '0.35rem',
+                    boxShadow: '0 1px 4px rgba(16,185,129,0.25)',
                     transition: 'all 0.15s'
                   }}
                   title="Registrar Ingreso o Egreso de efectivo menor (Parqueadero, aseo, sencillo, etc.)"
                   onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                   onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
                 >
-                  <DollarSign size={14} /> 💵 Movimiento Caja
+                  <DollarSign size={13} /> 💵 Mov. Caja
                 </button>
               )}
 
@@ -8862,40 +8899,106 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* SELECTOR DE VARIANTES MODAL */}
+      {/* SELECTOR DE VARIANTES MODAL (THEMED TO POS) */}
       {showVariantModal && selectedProductForVariants && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, backdropFilter: 'blur(6px)' }}>
           <div className="pos-modal" style={{
-            width: '90%',
-            maxWidth: '500px',
-            padding: '2.5rem',
-            background: 'var(--surface, #ffffff)',
-            border: '1px solid var(--border, #cbd5e1)',
+            width: '92%',
+            maxWidth: '520px',
+            padding: '2rem',
+            background: customBg === '#ffffff' ? '#ffffff' : customCards,
+            border: `1.5px solid ${customBorder}`,
             borderRadius: '20px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)',
+            fontFamily: `'${customFontFamily}', sans-serif`,
+            color: customModalText
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: customPrimary }}><Shirt size={22} /> Escoger Variante</h3>
-              <button onClick={() => setShowVariantModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  backgroundColor: `${customPrimary}15`,
+                  color: customPrimary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <Shirt size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontWeight: '950', fontSize: '1.15rem', color: customPrimary, letterSpacing: '-0.02em' }}>
+                    Escoger Variante
+                  </h3>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '600' }}>
+                    Selección de talla y color en tienda
+                  </span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowVariantModal(false)} 
+                style={{ 
+                  border: 'none', 
+                  backgroundColor: '#f1f5f9', 
+                  cursor: 'pointer', 
+                  color: '#64748b',
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+              >
+                <X size={18} />
+              </button>
             </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
-                El producto <strong>{selectedProductForVariants.nombre_producto}</strong> tiene varias combinaciones de talla y color en esta tienda. Selecciona la que deseas vender:
-              </p>
+              <div style={{ 
+                padding: '0.75rem 1rem', 
+                borderRadius: '12px', 
+                backgroundColor: '#f8fafc', 
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.2rem'
+              }}>
+                <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Producto seleccionado</span>
+                <span style={{ fontSize: '0.92rem', fontWeight: '900', color: '#0f172a' }}>{selectedProductForVariants.nombre_producto}</span>
+                {selectedProductForVariants.codigo_referencia && (
+                  <span style={{ fontSize: '0.75rem', color: customPrimary, fontWeight: '750', fontFamily: 'monospace' }}>
+                    Ref: {selectedProductForVariants.codigo_referencia}
+                  </span>
+                )}
+              </div>
 
               <div style={{ position: 'relative', width: '100%' }}>
-                 <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                 <Search size={16} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                  <input
                    type="text"
                    autoFocus
                    placeholder="Buscar por color o talla..."
                    value={variantSearch}
                    onChange={(e) => setVariantSearch(e.target.value)}
-                   style={{ padding: '0.6rem 1rem 0.6rem 2.25rem', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem', width: '100%', outline: 'none' }}
+                   style={{ 
+                     padding: '0.55rem 1rem 0.55rem 2.4rem', 
+                     border: `1.5px solid #cbd5e1`, 
+                     borderRadius: '10px', 
+                     fontSize: '0.82rem', 
+                     width: '100%', 
+                     outline: 'none',
+                     backgroundColor: '#ffffff',
+                     color: '#0f172a'
+                   }}
                  />
               </div>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.25rem' }} className="pos-scrollbar">
                 {productVariants.filter(inv => {
                   if (!variantSearch) return true;
                   const searchUpper = variantSearch.toUpperCase();
@@ -8913,23 +9016,54 @@ export default function POSPage() {
                         setShowVariantModal(false);
                       }}
                       style={{
-                        padding: '1rem',
+                        padding: '0.85rem 1.15rem',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        borderRadius: '10px',
-                        border: '1px solid #e2e8f0',
-                        backgroundColor: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1.5px solid #e2e8f0',
+                        backgroundColor: '#ffffff',
                         cursor: 'pointer',
-                        textAlign: 'left'
+                        textAlign: 'left',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = customPrimary;
+                        e.currentTarget.style.backgroundColor = `${customPrimary}08`;
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                        e.currentTarget.style.backgroundColor = '#ffffff';
+                        e.currentTarget.style.transform = 'translateY(0)';
                       }}
                     >
-                      <div>
-                        <span style={{ display: 'block', fontWeight: '800', color: '#0f172a', fontSize: '0.9rem' }}>Color: {cName}</span>
-                        <span style={{ display: 'block', color: '#64748b', fontSize: '0.8rem', marginTop: '0.2rem' }}>Talla: {sCode}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        <div style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          backgroundColor: inv.colors?.hex_color || '#cbd5e1',
+                          border: '1px solid rgba(0,0,0,0.1)'
+                        }} />
+                        <div>
+                          <span style={{ display: 'block', fontWeight: '850', color: '#0f172a', fontSize: '0.88rem' }}>Color: {cName}</span>
+                          <span style={{ display: 'block', color: '#64748b', fontSize: '0.78rem', marginTop: '0.15rem', fontWeight: '700' }}>Talla: <strong style={{ color: '#0f172a' }}>{sCode}</strong></span>
+                        </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <span style={{ display: 'block', fontWeight: '900', color: '#10b981', fontSize: '0.95rem' }}>Stock: {inv.cantidad_disponible}</span>
+                        <span style={{ 
+                          display: 'inline-block', 
+                          fontWeight: '900', 
+                          color: '#059669', 
+                          fontSize: '0.8rem',
+                          backgroundColor: '#ecfdf5',
+                          padding: '0.2rem 0.6rem',
+                          borderRadius: '6px',
+                          border: '1px solid #a7f3d0'
+                        }}>
+                          Stock: {inv.cantidad_disponible}
+                        </span>
                       </div>
                     </button>
                   );
