@@ -3421,9 +3421,34 @@ export default function FinishedGoodsInventory() {
                             </div>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: '900', backgroundColor: g.status === 'Vendido' ? '#fef2f2' : '#f0fdf4', color: g.status === 'Vendido' ? '#dc2626' : '#16a34a', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
-                              {g.status || 'Disponible'}
-                            </span>
+                            {(() => {
+                              const isSold = 
+                                g.status === 'Vendido' || 
+                                g.status === 'vendido' ||
+                                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
+                                (typeof g.notes === 'string' && g.notes.toLowerCase().includes('vendid')) ||
+                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'));
+                              return (
+                                <>
+                                  <span style={{ 
+                                    fontSize: '0.78rem', 
+                                    fontWeight: '950', 
+                                    backgroundColor: isSold ? '#fef2f2' : '#f0fdf4', 
+                                    color: isSold ? '#dc2626' : '#16a34a', 
+                                    padding: '0.25rem 0.65rem', 
+                                    borderRadius: '6px',
+                                    border: isSold ? '1px solid #fecaca' : '1px solid #bbf7d0'
+                                  }}>
+                                    {isSold ? 'Vendido' : (g.status || 'Disponible')}
+                                  </span>
+                                  {isSold && (
+                                    <span style={{ fontSize: '0.68rem', color: '#b91c1c', fontWeight: '800' }}>
+                                      Fuera de bodega
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700' }}>
                               Ingresó: {new Date(g.created_at).toLocaleDateString()}
                             </span>
@@ -3433,19 +3458,39 @@ export default function FinishedGoodsInventory() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', fontSize: '0.8rem' }}>
                           <div>
                             <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
-                            <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
-                              <Package size={14} style={{ color: '#80082E' }} />
-                              Bodega: {g.warehouses?.nombre_bodega || warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || (g.warehouse_id ? 'Bodega Asignada' : 'Sin Bodega')}
-                            </strong>
-                            {g.store_id && (
-                              <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
-                                <Package size={14} style={{ color: '#0ea5e9' }} />
-                                Local / Tienda: {g.stores?.nombre || stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
-                              </strong>
-                            )}
-                            {!g.warehouse_id && !g.store_id && (
-                              <strong style={{ color: '#94a3b8', display: 'block', marginTop: '0.2rem' }}>En Tránsito / Fábrica</strong>
-                            )}
+                            {(() => {
+                              const isSold = 
+                                g.status === 'Vendido' || 
+                                g.status === 'vendido' ||
+                                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
+                                (typeof g.notes === 'string' && g.notes.toLowerCase().includes('vendid')) ||
+                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'));
+                              if (isSold) {
+                                return (
+                                  <strong style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                                    <Package size={14} style={{ color: '#dc2626' }} />
+                                    Vendido (Cliente / Fuera de bodega)
+                                  </strong>
+                                );
+                              }
+                              return (
+                                <>
+                                  <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                                    <Package size={14} style={{ color: '#80082E' }} />
+                                    Bodega: {g.warehouses?.nombre_bodega || warehouses.find(w => w.id === g.warehouse_id)?.nombre_bodega || (g.warehouse_id ? 'Bodega Asignada' : 'Sin Bodega')}
+                                  </strong>
+                                  {g.store_id && (
+                                    <strong style={{ color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>
+                                      <Package size={14} style={{ color: '#0ea5e9' }} />
+                                      Local / Tienda: {g.stores?.nombre || stores.find(s => s.id === g.store_id)?.nombre || g.store_id}
+                                    </strong>
+                                  )}
+                                  {!g.warehouse_id && !g.store_id && (
+                                    <strong style={{ color: '#94a3b8', display: 'block', marginTop: '0.2rem' }}>En Tránsito / Fábrica</strong>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                           <div>
                             <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Código de Barras / ID Único</span>

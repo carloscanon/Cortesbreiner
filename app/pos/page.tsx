@@ -2677,6 +2677,23 @@ export default function POSPage() {
 
       if (garment) {
         const garmentBarcode = garment.barcode || term;
+
+        // Check if garment is already sold
+        const isAlreadySold = 
+          garment.status === 'Vendido' || 
+          garment.status === 'vendido' ||
+          (garment.defect_checklist && typeof garment.defect_checklist === 'object' && garment.defect_checklist.is_sold === true) ||
+          (typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('vendid')) ||
+          (!garment.warehouse_id && !garment.store_id && typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('pos'));
+
+        if (isAlreadySold) {
+          return {
+            success: false,
+            barcode: garmentBarcode,
+            message: `⚠️ La prenda con código "${garmentBarcode}" ya fue VENDIDA (${garment.notes || 'Estado: Vendido'}). No está disponible en bodega ni tienda.`
+          };
+        }
+
         // Double-check if the matched garment barcode is already in the cart
         if (cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(garmentBarcode))) {
           return {
@@ -2888,6 +2905,10 @@ export default function POSPage() {
 
     // 1. If scanned barcode is active, match EXACT variant and add immediately
     if (scannedGarment) {
+      if (scannedGarment.is_already_sold) {
+        alert(`⚠️ La prenda con código "${scannedGarment.barcode}" ya figura como VENDIDA. No puede venderse nuevamente.`);
+        return;
+      }
       if (scannedGarment.barcode && cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(scannedGarment.barcode))) {
         alert(`⚠️ Esta prenda con código "${scannedGarment.barcode}" ya fue agregada al carrito.`);
         setScannedGarment(null);
@@ -3259,7 +3280,7 @@ export default function POSPage() {
         try {
           let { data } = await supabase
             .from('individual_garments')
-            .select('barcode, reference_name, color_name, size_code, warehouse_id, sewing_orders(product_id)')
+            .select('barcode, reference_name, color_name, size_code, warehouse_id, store_id, status, notes, defect_checklist, sewing_orders(product_id)')
             .eq('barcode', term)
             .limit(1)
             .maybeSingle();
@@ -3267,7 +3288,7 @@ export default function POSPage() {
           if (!data && term.length >= 5) {
             const { data: partial } = await supabase
               .from('individual_garments')
-              .select('barcode, reference_name, color_name, size_code, warehouse_id, sewing_orders(product_id)')
+              .select('barcode, reference_name, color_name, size_code, warehouse_id, store_id, status, notes, defect_checklist, sewing_orders(product_id)')
               .ilike('barcode', `%${term}%`)
               .limit(1)
               .maybeSingle();
@@ -3275,6 +3296,15 @@ export default function POSPage() {
           }
 
           if (data) {
+            const isAlreadySold = 
+              data.status === 'Vendido' || 
+              data.status === 'vendido' ||
+              (data.defect_checklist && typeof data.defect_checklist === 'object' && (data.defect_checklist as any).is_sold === true) ||
+              (typeof data.notes === 'string' && data.notes.toLowerCase().includes('vendid')) ||
+              (!data.warehouse_id && !data.store_id && typeof data.notes === 'string' && data.notes.toLowerCase().includes('pos'));
+
+            (data as any).is_already_sold = isAlreadySold;
+
             setResolvedBarcodeRef(data.reference_name || (data as any).sewing_orders?.product_id || null);
             setScannedGarment(data);
           } else {
@@ -3298,8 +3328,12 @@ export default function POSPage() {
     // 0. Do not show or sell inactive / disabled products
     if (p.estado === 'inactivo') return false;
 
-    // 1. If a specific individual barcode tag is scanned/detected, return ONLY the exact matched product
+    // 1. If a specific individual barcode tag is scanned/detected
     if (scannedGarment) {
+      if (scannedGarment.is_already_sold) {
+        // If the garment is sold, do not show it as available product to buy in catalogue
+        return false;
+      }
       const resolved = resolveProductForGarment(scannedGarment);
       if (resolved) {
         return p.id === resolved.id;
@@ -3825,7 +3859,7 @@ export default function POSPage() {
                   right: 0,
                   zIndex: 1000,
                   backgroundColor: '#ffffff',
-                  border: '1.5px solid #10b981',
+                  border: scannedGarment.is_already_sold ? '1.5px solid #ef4444' : '1.5px solid #10b981',
                   borderRadius: '14px',
                   padding: '0.75rem 1rem',
                   display: 'flex',
@@ -3835,33 +3869,67 @@ export default function POSPage() {
                   animation: 'fadeIn 0.2s ease-out'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <span style={{ backgroundColor: '#ecfdf5', color: '#059669', padding: '0.25rem 0.65rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      🏷️ Etiqueta #{scannedGarment.barcode}
+                    <span style={{ 
+                      backgroundColor: scannedGarment.is_already_sold ? '#fef2f2' : '#ecfdf5', 
+                      color: scannedGarment.is_already_sold ? '#dc2626' : '#059669', 
+                      padding: '0.25rem 0.65rem', 
+                      borderRadius: '8px', 
+                      fontSize: '0.75rem', 
+                      fontWeight: '900', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '0.3rem' 
+                    }}>
+                      {scannedGarment.is_already_sold ? '🔴 VENDIDA' : '🏷️ Etiqueta'} #{scannedGarment.barcode}
                     </span>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#0f172a' }}>{scannedGarment.reference_name}</span>
-                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Color: <strong style={{ color: '#0f172a' }}>{scannedGarment.color_name}</strong> | Talla: <strong style={{ color: '#0f172a' }}>{scannedGarment.size_code}</strong></span>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                        Color: <strong style={{ color: '#0f172a' }}>{scannedGarment.color_name}</strong> | Talla: <strong style={{ color: '#0f172a' }}>{scannedGarment.size_code}</strong>
+                        {scannedGarment.is_already_sold && (
+                          <span style={{ color: '#dc2626', fontWeight: '800', marginLeft: '0.5rem' }}>
+                            (Prenda ya no disponible en bodega ni tienda)
+                          </span>
+                        )}
+                      </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleScanBarcodeDirect(scannedGarment.barcode)}
-                    style={{
-                      backgroundColor: '#10b981',
-                      color: 'white',
-                      border: 'none',
-                      padding: '0.45rem 1rem',
+                  {scannedGarment.is_already_sold ? (
+                    <span style={{
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                      padding: '0.45rem 0.85rem',
                       borderRadius: '8px',
-                      fontSize: '0.78rem',
+                      fontSize: '0.75rem',
                       fontWeight: '850',
-                      cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '0.4rem',
-                      boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
-                    }}
+                      gap: '0.4rem'
+                    }}>
+                      Prenda Vendida
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleScanBarcodeDirect(scannedGarment.barcode)}
+                      style={{
+                        backgroundColor: '#10b981',
+                        color: 'white',
+                        border: 'none',
+                        padding: '0.45rem 1rem',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        fontWeight: '850',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                      }}
                     >
                       <ShoppingCart size={14} /> Agregar
                     </button>
+                  )}
                 </div>
               )}
             </div>
