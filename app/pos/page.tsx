@@ -2752,8 +2752,8 @@ export default function POSPage() {
       };
     }
 
-    // 3. Fallback to first filtered product
-    if (filteredProducts.length > 0) {
+    // 3. Fallback to first filtered product ONLY if not purely numeric barcode
+    if (!/^\d{6,}$/.test(term) && filteredProducts.length > 0) {
       const prod = filteredProducts[0];
       handleAddToCart(prod);
       setSearchQuery('');
@@ -3105,44 +3105,70 @@ export default function POSPage() {
         return;
       }
 
-      const { data: newSale, error: saleErr } = await supabase
-        .from('pos_sales')
-        .insert([salePayload])
-        .select()
-        .single();
+      let newSale: any = null;
 
-      if (saleErr) throw saleErr;
-
-      for (const cartItem of cart) {
-        await supabase.from('pos_sale_items').insert({
-          sale_id: newSale.id,
-          product_id: cartItem.product_id,
-          color_id: cartItem.color_id,
-          size_id: cartItem.size_id,
-          cantidad: cartItem.cantidad,
-          precio_unitario: cartItem.precio,
-          subtotal: cartItem.precio * cartItem.cantidad,
-          total: cartItem.precio * cartItem.cantidad
+      try {
+        const res = await fetch('/api/pos/sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            store: selectedStore,
+            salePayload,
+            cart,
+            paymentsToInsert
+          })
         });
 
-        await deductStockForSaleItem({
-          store: selectedStore,
-          cartItem,
-          consecutive: newSale.consecutive,
-          vendedor: profile?.full_name || user?.email || 'Vendedor',
-          productsList: products,
-          colorsList: colors,
-          sizesList: sizes,
-          inventoryList: inventoryList
-        });
-      }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Error HTTP ${res.status}`);
+        }
 
-      for (const p of paymentsToInsert) {
-        await supabase.from('pos_payments').insert({
-          sale_id: newSale.id,
-          metodo_pago: p.metodo_pago,
-          monto: p.monto
-        });
+        const resData = await res.json();
+        newSale = resData.sale;
+      } catch (apiErr: any) {
+        console.warn('API /api/pos/sales failed, falling back to direct client insertion:', apiErr);
+        // Fallback directly to client if API route fails
+        const { data: clientSale, error: saleErr } = await supabase
+          .from('pos_sales')
+          .insert([salePayload])
+          .select()
+          .single();
+
+        if (saleErr) throw saleErr;
+        newSale = clientSale;
+
+        for (const cartItem of cart) {
+          await supabase.from('pos_sale_items').insert({
+            sale_id: newSale.id,
+            product_id: cartItem.product_id,
+            color_id: cartItem.color_id,
+            size_id: cartItem.size_id,
+            cantidad: cartItem.cantidad,
+            precio_unitario: cartItem.precio,
+            subtotal: cartItem.precio * cartItem.cantidad,
+            total: cartItem.precio * cartItem.cantidad
+          });
+
+          await deductStockForSaleItem({
+            store: selectedStore,
+            cartItem,
+            consecutive: newSale.consecutive,
+            vendedor: profile?.full_name || user?.email || 'Vendedor',
+            productsList: products,
+            colorsList: colors,
+            sizesList: sizes,
+            inventoryList: inventoryList
+          });
+        }
+
+        for (const p of paymentsToInsert) {
+          await supabase.from('pos_payments').insert({
+            sale_id: newSale.id,
+            metodo_pago: p.metodo_pago,
+            monto: p.monto
+          });
+        }
       }
 
       const consecutiveStr = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`;
@@ -3841,7 +3867,7 @@ export default function POSPage() {
             </div>
 
             {/* User status widgets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', position: 'relative' }}>
               <button
                 type="button"
                 onClick={() => setShowMobileScannerModal(true)}
@@ -3849,30 +3875,30 @@ export default function POSPage() {
                   backgroundColor: isPhoneScannerConnected ? '#059669' : '#80082E',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.3rem 0.65rem',
-                  borderRadius: '7px',
-                  fontSize: '0.72rem',
-                  fontWeight: '800',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.35rem',
-                  boxShadow: isPhoneScannerConnected ? '0 1px 4px rgba(5,150,105,0.25)' : '0 1px 4px rgba(128,8,46,0.25)',
+                  gap: '0.45rem',
+                  boxShadow: isPhoneScannerConnected ? '0 2px 8px rgba(5,150,105,0.35)' : '0 2px 8px rgba(128,8,46,0.35)',
                   transition: 'all 0.15s'
                 }}
                 title="Escanear prendas desde el celular con la cámara"
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <Smartphone size={13} />
-                <span>📱 Celular</span>
+                <Smartphone size={15} />
+                <span>Escanear con Celular</span>
                 {isPhoneScannerConnected && (
                   <span style={{
-                    width: '6px',
-                    height: '6px',
+                    width: '7px',
+                    height: '7px',
                     borderRadius: '50%',
                     backgroundColor: '#4ade80',
-                    boxShadow: '0 0 5px #4ade80'
+                    boxShadow: '0 0 6px #4ade80'
                   }} />
                 )}
               </button>
@@ -3884,21 +3910,21 @@ export default function POSPage() {
                   backgroundColor: '#3b82f6',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.3rem 0.65rem',
-                  borderRadius: '7px',
-                  fontSize: '0.72rem',
-                  fontWeight: '800',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.35rem',
-                  boxShadow: '0 1px 4px rgba(59,130,246,0.25)',
+                  gap: '0.45rem',
+                  boxShadow: '0 2px 8px rgba(59,130,246,0.35)',
                   transition: 'all 0.15s'
                 }}
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <Building2 size={13} /> 🏢 Stock Bodegas
+                <Building2 size={15} /> Stock en Bodegas
               </button>
 
               <button
@@ -3908,21 +3934,21 @@ export default function POSPage() {
                   backgroundColor: '#ec4899',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.3rem 0.65rem',
-                  borderRadius: '7px',
-                  fontSize: '0.72rem',
-                  fontWeight: '800',
+                  padding: '0.45rem 0.95rem',
+                  borderRadius: '10px',
+                  fontSize: '0.78rem',
+                  fontWeight: '850',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.35rem',
-                  boxShadow: '0 1px 4px rgba(236,72,153,0.25)',
+                  gap: '0.45rem',
+                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
                   transition: 'all 0.15s'
                 }}
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <RefreshCcw size={13} /> Cambios
+                <RefreshCcw size={15} /> Módulo de Cambios
               </button>
 
               {currentSession && (
@@ -3933,22 +3959,22 @@ export default function POSPage() {
                     backgroundColor: '#10b981',
                     color: '#ffffff',
                     border: 'none',
-                    padding: '0.3rem 0.65rem',
-                    borderRadius: '7px',
-                    fontSize: '0.72rem',
-                    fontWeight: '800',
+                    padding: '0.45rem 0.95rem',
+                    borderRadius: '10px',
+                    fontSize: '0.78rem',
+                    fontWeight: '850',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.35rem',
-                    boxShadow: '0 1px 4px rgba(16,185,129,0.25)',
+                    gap: '0.45rem',
+                    boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
                     transition: 'all 0.15s'
                   }}
                   title="Registrar Ingreso o Egreso de efectivo menor (Parqueadero, aseo, sencillo, etc.)"
                   onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                   onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
                 >
-                  <DollarSign size={13} /> 💵 Mov. Caja
+                  <DollarSign size={15} /> Movimiento Caja
                 </button>
               )}
 
