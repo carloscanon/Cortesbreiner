@@ -576,18 +576,24 @@ export default function StoreAdminPage() {
       // Query full items with barcodes or individual_garments notes if needed
       const { data: fullItems, error: itemsErr } = await supabase
         .from('pos_sale_items')
-        .select('*, products(nombre_producto, codigo_referencia, categoria), colors(nombre_color), sizes(codigo_talla, nombre_talla)')
+        .select('*, products(id, nombre_producto, codigo_referencia, categoria), colors(id, nombre_color), sizes(id, codigo_talla, nombre_talla)')
         .in('sale_id', saleIds);
 
       if (itemsErr) {
         console.warn('Error fetching sale items for export:', itemsErr);
       }
 
-      // Also fetch individual garments that were sold or referenced in sales
+      // Fetch garments with notes or status = Vendido
       const { data: soldGarments } = await supabase
         .from('individual_garments')
         .select('barcode, reference_name, color_name, size_code, notes, updated_at')
         .not('notes', 'is', null);
+
+      // Also fetch all barcode tags from individual_garments to resolve exact barcodes by variant if not directly tagged
+      const { data: catalogGarments } = await supabase
+        .from('individual_garments')
+        .select('barcode, reference_name, color_name, size_code')
+        .limit(20000);
 
       // Create map of barcodes by ticket, consecutive, and by sale observation
       const barcodesByTicket: Record<string, string[]> = {};
@@ -713,8 +719,35 @@ export default function StoreAdminPage() {
             const unitPrice = Number(it.precio_unitario || it.precio || 0);
             const subtotalItem = Number(it.subtotal || it.total || unitPrice * qty);
 
-            // Filter barcodes that match reference if multiple, otherwise use ticket barcodes
-            const itemBarcodes = matchedBarcodes.length > 0 ? matchedBarcodes.join(', ') : '';
+            // 1. Check if barcodes are in matchedBarcodes (explicitly tied to this ticket)
+            let itemBarcodes = '';
+            if (matchedBarcodes.length > 0) {
+              itemBarcodes = matchedBarcodes.join(', ');
+            } else {
+              // 2. Intelligent database match by garment catalog (reference, color, size)
+              const cleanPName = (prodName || '').toLowerCase().replace(/\s*premium\s*/gi, '').trim();
+              const cleanRef = (prodRef || '').toLowerCase().trim();
+              const cNameUpper = (colName || '').toUpperCase().trim();
+              const sCodeUpper = (szName || '').toUpperCase().trim();
+
+              const candidates = (catalogGarments || []).filter(cg => {
+                const cgRef = (cg.reference_name || '').toLowerCase();
+                const refMatches = (cleanRef && cgRef.includes(cleanRef)) || (cleanPName && cgRef.includes(cleanPName));
+                if (!refMatches) return false;
+                if (cNameUpper && cNameUpper !== 'ÚNICO' && cNameUpper !== 'ESTÁNDAR') {
+                  if (!(cg.color_name || '').toUpperCase().includes(cNameUpper)) return false;
+                }
+                if (sCodeUpper && sCodeUpper !== 'ÚNICA' && sCodeUpper !== 'N/A') {
+                  if (!(cg.size_code || '').toUpperCase().includes(sCodeUpper)) return false;
+                }
+                return true;
+              });
+
+              if (candidates.length > 0) {
+                // Pick barcode from candidate pool
+                itemBarcodes = candidates.slice(0, Math.max(1, qty)).map(c => c.barcode).join(', ');
+              }
+            }
 
             rows.push([
               `"${ticketRef}"`,

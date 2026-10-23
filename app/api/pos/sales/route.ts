@@ -124,11 +124,40 @@ export async function POST(request: Request) {
       // If no barcodes attached or extra qty, attempt matching by ref, size, color
       const remainingQtyToMark = Math.max(0, qtyToDeduct - directBarcodes.length);
       if (remainingQtyToMark > 0) {
+        // Resolve item names for exact matching
+        let refQueryName = (cartItem.reference_name || cartItem.nombre || '').replace(/\s*premium\s*/gi, '').trim();
+        let colQueryName = cartItem.color_name || '';
+        let szQueryCode = cartItem.size_name || cartItem.size_code || '';
+
+        // If names not in cartItem, fetch product/color/size names
+        if (!refQueryName && cartItem.product_id) {
+          const { data: pData } = await supabase.from('products').select('nombre_producto, codigo_referencia').eq('id', cartItem.product_id).maybeSingle();
+          if (pData) refQueryName = (pData.nombre_producto || pData.codigo_referencia || '').replace(/\s*premium\s*/gi, '').trim();
+        }
+        if (!colQueryName && cartItem.color_id) {
+          const { data: cData } = await supabase.from('colors').select('nombre_color').eq('id', cartItem.color_id).maybeSingle();
+          if (cData) colQueryName = cData.nombre_color;
+        }
+        if (!szQueryCode && cartItem.size_id) {
+          const { data: sData } = await supabase.from('sizes').select('codigo_talla, nombre_talla').eq('id', cartItem.size_id).maybeSingle();
+          if (sData) szQueryCode = sData.codigo_talla || sData.nombre_talla;
+        }
+
         let gQuery = supabase
           .from('individual_garments')
           .select('id, barcode')
           .in('status', ['Aprobada', 'Terminada', 'En Inventario', 'Recibido', 'Disponible']);
         
+        if (refQueryName) {
+          gQuery = gQuery.ilike('reference_name', `%${refQueryName}%`);
+        }
+        if (colQueryName) {
+          gQuery = gQuery.ilike('color_name', `%${colQueryName.trim()}%`);
+        }
+        if (szQueryCode) {
+          gQuery = gQuery.eq('size_code', szQueryCode.trim());
+        }
+
         if (garmentWarehouseId || store?.bodega_asociada_id) {
           const wId = garmentWarehouseId || store.bodega_asociada_id;
           gQuery = gQuery.or(`warehouse_id.eq.${wId},store_id.eq.${store.id}`);
@@ -147,6 +176,13 @@ export async function POST(request: Request) {
               notes: `${docRef} - Vendedor: ${vendedor}`
             })
             .in('id', localGarms.map(g => g.id));
+
+          // Also append these matched barcodes to sale barcodes
+          localGarms.forEach(g => {
+            if (g.barcode && !allSaleBarcodes.includes(g.barcode)) {
+              allSaleBarcodes.push(g.barcode);
+            }
+          });
         }
       }
 
@@ -282,6 +318,18 @@ export async function POST(request: Request) {
           monto: p.monto
         });
       }
+    }
+
+    // 4. If allSaleBarcodes was enriched during item processing, update pos_sales observaciones
+    if (allSaleBarcodes.length > 0) {
+      const barcodeTag = `[BARCODES: ${allSaleBarcodes.join(', ')}]`;
+      const currentObs = (salePayload.observaciones || '').replace(/\|\s*\[BARCODES:[^\]]+\]/gi, '').replace(/\[BARCODES:[^\]]+\]/gi, '').trim();
+      const finalObs = currentObs ? `${currentObs} | ${barcodeTag}` : barcodeTag;
+
+      await supabase
+        .from('pos_sales')
+        .update({ observaciones: finalObs })
+        .eq('id', newSale.id);
     }
 
     return NextResponse.json({
