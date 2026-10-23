@@ -3036,6 +3036,20 @@ export default function POSPage() {
       const activeTransferObj = transferMethods.find(m => m.id === selectedTransferMethodId) || transferMethods.find(m => m.activo !== false);
       let finalObs = cartNotes.trim();
 
+      // Collect all scanned barcodes from cart items
+      const allScannedBarcodes: string[] = [];
+      cart.forEach(it => {
+        if (Array.isArray(it.barcodes)) {
+          it.barcodes.forEach((b: string) => {
+            if (b && !allScannedBarcodes.includes(b)) allScannedBarcodes.push(b);
+          });
+        }
+      });
+      if (allScannedBarcodes.length > 0) {
+        const barcodesTag = `[BARCODES: ${allScannedBarcodes.join(', ')}]`;
+        finalObs = finalObs ? `${finalObs} | ${barcodesTag}` : barcodesTag;
+      }
+
       // Build payment records array
       const paymentsToInsert: { metodo_pago: string; monto: number }[] = [];
 

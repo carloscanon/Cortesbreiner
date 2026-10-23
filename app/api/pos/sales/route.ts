@@ -46,6 +46,28 @@ export async function POST(request: Request) {
     const docRef = `Venta POS #${prefix}-${String(consecutive).padStart(4, '0')}`;
     const vendedor = salePayload.vendedor || 'Vendedor';
 
+    // Collect all barcodes for this entire sale to store in sale observations
+    const allSaleBarcodes: string[] = [];
+    for (const item of cart) {
+      if (Array.isArray(item.barcodes)) {
+        item.barcodes.forEach((b: string) => {
+          if (b && !allSaleBarcodes.includes(b)) allSaleBarcodes.push(b);
+        });
+      }
+    }
+
+    if (allSaleBarcodes.length > 0) {
+      const barcodeTag = `[BARCODES: ${allSaleBarcodes.join(', ')}]`;
+      const updatedObs = salePayload.observaciones 
+        ? `${salePayload.observaciones} | ${barcodeTag}` 
+        : barcodeTag;
+      
+      await supabase
+        .from('pos_sales')
+        .update({ observaciones: updatedObs })
+        .eq('id', newSale.id);
+    }
+
     // 2. Process each item in cart
     for (const cartItem of cart) {
       // 2.1 Insert pos_sale_items

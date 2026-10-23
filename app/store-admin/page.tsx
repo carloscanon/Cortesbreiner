@@ -583,22 +583,46 @@ export default function StoreAdminPage() {
         console.warn('Error fetching sale items for export:', itemsErr);
       }
 
-      // Also fetch individual garments that were sold associated with these sales or in that date range
+      // Also fetch individual garments that were sold or referenced in sales
       const { data: soldGarments } = await supabase
         .from('individual_garments')
         .select('barcode, reference_name, color_name, size_code, notes, updated_at')
-        .or('status.eq.Vendido,notes.ilike.%POS%,notes.ilike.%Vendido%');
+        .not('notes', 'is', null);
 
-      // Create a map from docRef or ticket number to list of barcodes
+      // Create map of barcodes by ticket, consecutive, and by sale observation
       const barcodesByTicket: Record<string, string[]> = {};
       (soldGarments || []).forEach(g => {
         if (g.notes) {
-          const m = g.notes.match(/#([A-Z0-9-]+)/i);
+          const fullNotes = g.notes.toUpperCase();
+          // Extract prefix-consecutive (e.g. ONL-0202 or ONL-202)
+          const m = fullNotes.match(/#([A-Z0-9-]+)/i);
           if (m && m[1]) {
-            const tKey = m[1].toUpperCase();
+            const tKey = m[1].toUpperCase().trim();
             if (!barcodesByTicket[tKey]) barcodesByTicket[tKey] = [];
-            if (!barcodesByTicket[tKey].includes(g.barcode)) {
-              barcodesByTicket[tKey].push(g.barcode);
+            if (!barcodesByTicket[tKey].includes(g.barcode)) barcodesByTicket[tKey].push(g.barcode);
+            
+            // Also map by purely numeric suffix (e.g. 202 or 0202)
+            const numPart = tKey.replace(/^[A-Z]+-0*/, '');
+            if (numPart) {
+              if (!barcodesByTicket[numPart]) barcodesByTicket[numPart] = [];
+              if (!barcodesByTicket[numPart].includes(g.barcode)) barcodesByTicket[numPart].push(g.barcode);
+            }
+          }
+        }
+      });
+
+      // Also extract barcodes stored directly in sale.observaciones (e.g. [BARCODES: 0081996561, 0081963856])
+      salesToProcess.forEach(s => {
+        if (s.observaciones) {
+          const bMatch = s.observaciones.match(/\[BARCODES:\s*([^\]]+)\]/i);
+          if (bMatch && bMatch[1]) {
+            const foundBcs = bMatch[1].split(',').map((x: string) => x.trim()).filter(Boolean);
+            if (foundBcs.length > 0) {
+              const sKey = String(s.consecutive);
+              if (!barcodesByTicket[sKey]) barcodesByTicket[sKey] = [];
+              foundBcs.forEach((b: string) => {
+                if (!barcodesByTicket[sKey].includes(b)) barcodesByTicket[sKey].push(b);
+              });
             }
           }
         }
@@ -650,7 +674,13 @@ export default function StoreAdminPage() {
         const totalSale = Number(s.total || 0);
 
         const sItems = itemsBySale[s.id] || s.pos_sale_items || [];
-        const matchedBarcodes = barcodesByTicket[ticketRef] || barcodesByTicket[String(s.consecutive)] || [];
+        let matchedBarcodes = barcodesByTicket[ticketRef] || barcodesByTicket[String(s.consecutive)] || barcodesByTicket[String(Number(s.consecutive))] || [];
+        if (matchedBarcodes.length === 0 && s.observaciones) {
+          const bMatch = s.observaciones.match(/\[BARCODES:\s*([^\]]+)\]/i);
+          if (bMatch && bMatch[1]) {
+            matchedBarcodes = bMatch[1].split(',').map((x: string) => x.trim()).filter(Boolean);
+          }
+        }
 
         if (sItems.length === 0) {
           rows.push([
@@ -3477,36 +3507,136 @@ export default function StoreAdminPage() {
           {activeTab === 'sales_billing' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
               
-              {/* Consolidation Cards for Selected Sales */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
+              {/* Consolidation Cards for Selected Sales - Tarjetas Vistosas con Valores Notorios */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem' }}>
                 
-                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)', border: '1px solid #e9d5ff' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Monto Seleccionado</span>
-                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#581c87' }}>
-                    ${salesList.filter(s => selectedSales.includes(s.id)).reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')}
+                <div style={{
+                  padding: '1.6rem',
+                  borderRadius: '18px',
+                  background: 'linear-gradient(135deg, #4c1d95 0%, #6d28d9 50%, #7c3aed 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(109, 40, 217, 0.4), 0 8px 10px -6px rgba(109, 40, 217, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ position: 'absolute', right: '-15px', top: '-15px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#e9d5ff', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Monto Seleccionado
+                    </span>
+                    <span style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.35rem 0.65rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: '850', color: '#ffffff' }}>
+                      {selectedSales.length} {selectedSales.length === 1 ? 'Venta' : 'Ventas'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+                    <span style={{ fontSize: '2.1rem', fontWeight: '950', letterSpacing: '-0.03em', lineHeight: 1.1, color: '#ffffff' }}>
+                      ${salesList.filter(s => selectedSales.includes(s.id)).reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', color: '#ddd6fe', fontWeight: '700', marginTop: '0.6rem' }}>
+                    Total acumulado listo para facturación
                   </span>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: '1px solid #bfdbfe' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Seleccionadas</span>
-                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#1e3a8a' }}>
-                    {selectedSales.length} transacciones
+                <div style={{
+                  padding: '1.6rem',
+                  borderRadius: '18px',
+                  background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 50%, #2563eb 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(29, 78, 216, 0.4), 0 8px 10px -6px rgba(29, 78, 216, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ position: 'absolute', right: '-15px', top: '-15px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#bfdbfe', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Total Ventas POS
+                    </span>
+                    <span style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.35rem 0.65rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: '850', color: '#ffffff' }}>
+                      {salesList.length} Transacciones
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+                    <span style={{ fontSize: '2.1rem', fontWeight: '950', letterSpacing: '-0.03em', lineHeight: 1.1, color: '#ffffff' }}>
+                      ${salesList.reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', color: '#dbeafe', fontWeight: '700', marginTop: '0.6rem' }}>
+                    Ventas globales registradas en el sistema
                   </span>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', border: '1px solid #bbf7d0' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Facturados Exitosos (SIIGO)</span>
-                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#14532d', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <CheckCircle2 size={22} color="#16a34a" />
-                    {salesList.filter(s => s.sincronizado_erp && s.estado !== 'anulada').length}
+                <div style={{
+                  padding: '1.6rem',
+                  borderRadius: '18px',
+                  background: 'linear-gradient(135deg, #065f46 0%, #059669 50%, #10b981 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(5, 150, 105, 0.4), 0 8px 10px -6px rgba(5, 150, 105, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ position: 'absolute', right: '-15px', top: '-15px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Facturados SIIGO
+                    </span>
+                    <CheckCircle2 size={20} color="#6ee7b7" />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '2.2rem', fontWeight: '950', letterSpacing: '-0.03em', lineHeight: 1.1, color: '#ffffff' }}>
+                      {salesList.filter(s => s.sincronizado_erp && s.estado !== 'anulada').length}
+                    </span>
+                    <span style={{ fontSize: '1rem', fontWeight: '850', color: '#d1fae5' }}>
+                      (${salesList.filter(s => s.sincronizado_erp && s.estado !== 'anulada').reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')})
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', color: '#d1fae5', fontWeight: '700', marginTop: '0.6rem' }}>
+                    Comprobantes electrónicos sincronizados con éxito
                   </span>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', background: 'linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)', border: '1px solid #fecdd3' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#9f1239', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pendientes / Con Error</span>
-                  <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#881337', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <AlertTriangle size={22} color="#e11d48" />
-                    {salesList.filter(s => !s.sincronizado_erp && s.estado !== 'anulada').length}
+                <div style={{
+                  padding: '1.6rem',
+                  borderRadius: '18px',
+                  background: 'linear-gradient(135deg, #991b1b 0%, #dc2626 50%, #f43f5e 100%)',
+                  boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.4), 0 8px 10px -6px rgba(220, 38, 38, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ position: 'absolute', right: '-15px', top: '-15px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#fecdd3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Pendientes / Con Error
+                    </span>
+                    <AlertTriangle size={20} color="#fca5a5" />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '2.2rem', fontWeight: '950', letterSpacing: '-0.03em', lineHeight: 1.1, color: '#ffffff' }}>
+                      {salesList.filter(s => !s.sincronizado_erp && s.estado !== 'anulada').length}
+                    </span>
+                    <span style={{ fontSize: '1rem', fontWeight: '850', color: '#ffe4e6' }}>
+                      (${salesList.filter(s => !s.sincronizado_erp && s.estado !== 'anulada').reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')})
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', color: '#ffe4e6', fontWeight: '700', marginTop: '0.6rem' }}>
+                    Por conciliar o reenviar a la DIAN / SIIGO
                   </span>
                 </div>
 
