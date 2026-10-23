@@ -589,11 +589,26 @@ export default function StoreAdminPage() {
         .select('barcode, reference_name, color_name, size_code, notes, updated_at')
         .not('notes', 'is', null);
 
-      // Also fetch all barcode tags from individual_garments to resolve exact barcodes by variant if not directly tagged
-      const { data: catalogGarments } = await supabase
-        .from('individual_garments')
-        .select('barcode, reference_name, color_name, size_code')
-        .limit(20000);
+      // Fetch ALL individual_garments with barcodes to match every sold item accurately
+      let catalogGarments: any[] = [];
+      try {
+        // Fetch in chunks of 1000 up to 40,000 to cover the complete production dataset
+        const chunkPromises = [];
+        for (let i = 0; i < 40; i++) {
+          chunkPromises.push(
+            supabase
+              .from('individual_garments')
+              .select('barcode, reference_name, color_name, size_code')
+              .range(i * 1000, (i + 1) * 1000 - 1)
+          );
+        }
+        const chunkResults = await Promise.all(chunkPromises);
+        chunkResults.forEach(res => {
+          if (res.data) catalogGarments.push(...res.data);
+        });
+      } catch (eGarms) {
+        console.warn('Error fetching full garment catalog:', eGarms);
+      }
 
       // Create map of barcodes by ticket, consecutive, and by sale observation
       const barcodesByTicket: Record<string, string[]> = {};
@@ -719,33 +734,75 @@ export default function StoreAdminPage() {
             const unitPrice = Number(it.precio_unitario || it.precio || 0);
             const subtotalItem = Number(it.subtotal || it.total || unitPrice * qty);
 
-            // 1. Check if barcodes are in matchedBarcodes (explicitly tied to this ticket)
+            // Intelligent Multi-Tier Barcode Resolver:
             let itemBarcodes = '';
+
+            // 1. Check if barcodes are in matchedBarcodes explicitly tied to this ticket
             if (matchedBarcodes.length > 0) {
               itemBarcodes = matchedBarcodes.join(', ');
-            } else {
-              // 2. Intelligent database match by garment catalog (reference, color, size)
-              const cleanPName = (prodName || '').toLowerCase().replace(/\s*premium\s*/gi, '').trim();
+            }
+
+            // 2. If empty, perform hierarchical database match across individual_garments
+            if (!itemBarcodes) {
+              const rawName = (prodName || '').trim();
+              const cleanPName = rawName.toLowerCase().replace(/\s*premium\s*/gi, '').trim();
               const cleanRef = (prodRef || '').toLowerCase().trim();
               const cNameUpper = (colName || '').toUpperCase().trim();
               const sCodeUpper = (szName || '').toUpperCase().trim();
 
-              const candidates = (catalogGarments || []).filter(cg => {
-                const cgRef = (cg.reference_name || '').toLowerCase();
-                const refMatches = (cleanRef && cgRef.includes(cleanRef)) || (cleanPName && cgRef.includes(cleanPName));
-                if (!refMatches) return false;
-                if (cNameUpper && cNameUpper !== 'ÚNICO' && cNameUpper !== 'ESTÁNDAR') {
-                  if (!(cg.color_name || '').toUpperCase().includes(cNameUpper)) return false;
+              // Helper: Check if garment reference matches product
+              const refMatches = (cgRefStr: string) => {
+                if (!cgRefStr) return false;
+                const low = cgRefStr.toLowerCase();
+                if (cleanRef && (low.includes(cleanRef) || cleanRef.includes(low))) return true;
+                if (cleanPName && (low.includes(cleanPName) || cleanPName.includes(low))) return true;
+                return false;
+              };
+
+              // Tier A: Exact Match (Reference + Color + Size)
+              let candidates = (catalogGarments || []).filter(cg => {
+                if (!refMatches(cg.reference_name || '')) return false;
+                if (cNameUpper && cNameUpper !== 'ÚNICO' && cNameUpper !== 'UNDEFINED' && cNameUpper !== 'ESTÁNDAR') {
+                  const cgCol = (cg.color_name || '').toUpperCase();
+                  if (!cgCol.includes(cNameUpper) && !cNameUpper.includes(cgCol)) return false;
                 }
-                if (sCodeUpper && sCodeUpper !== 'ÚNICA' && sCodeUpper !== 'N/A') {
-                  if (!(cg.size_code || '').toUpperCase().includes(sCodeUpper)) return false;
+                if (sCodeUpper && sCodeUpper !== 'ÚNICA' && sCodeUpper !== 'UNDEFINED' && sCodeUpper !== 'N/A') {
+                  const cgSz = (cg.size_code || '').toUpperCase();
+                  if (!cgSz.includes(sCodeUpper) && !sCodeUpper.includes(cgSz)) return false;
                 }
                 return true;
               });
 
+              // Tier B: Match Reference + Color
+              if (candidates.length === 0 && cNameUpper && cNameUpper !== 'ÚNICO' && cNameUpper !== 'UNDEFINED') {
+                candidates = (catalogGarments || []).filter(cg => {
+                  if (!refMatches(cg.reference_name || '')) return false;
+                  const cgCol = (cg.color_name || '').toUpperCase();
+                  return cgCol.includes(cNameUpper) || cNameUpper.includes(cgCol);
+                });
+              }
+
+              // Tier C: Match Reference + Size
+              if (candidates.length === 0 && sCodeUpper && sCodeUpper !== 'ÚNICA' && sCodeUpper !== 'UNDEFINED') {
+                candidates = (catalogGarments || []).filter(cg => {
+                  if (!refMatches(cg.reference_name || '')) return false;
+                  const cgSz = (cg.size_code || '').toUpperCase();
+                  return cgSz.includes(sCodeUpper) || sCodeUpper.includes(cgSz);
+                });
+              }
+
+              // Tier D: Match Reference Name
+              if (candidates.length === 0) {
+                candidates = (catalogGarments || []).filter(cg => refMatches(cg.reference_name || ''));
+              }
+
               if (candidates.length > 0) {
-                // Pick barcode from candidate pool
                 itemBarcodes = candidates.slice(0, Math.max(1, qty)).map(c => c.barcode).join(', ');
+              } else {
+                // Tier E: Fallback to SKU / Reference Code if purely numeric (e.g. 19451, 17111, 27983)
+                if (prodRef && /^\d{4,}$/.test(prodRef.trim())) {
+                  itemBarcodes = prodRef.trim();
+                }
               }
             }
 
