@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Download,
   ShoppingBag,
+  Send,
   ChevronsLeft,
   ChevronsRight,
   ChevronLeft,
@@ -35,6 +36,7 @@ import {
   Tooltip,
   CartesianGrid
 } from 'recharts';
+import AlegraBillingModule from '@/components/financial/AlegraBillingModule';
 
 // ─────── helpers ───────
 const fmt = (n: number) => (Number(n) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -86,7 +88,7 @@ interface Invoice {
 
 // ─────── componente Principal ───────
 export default function FinancialControlCenter() {
-  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites' | 'ventas' | 'ventas_hoy'>('dashboard');
+  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites' | 'ventas' | 'ventas_hoy' | 'alegra'>('dashboard');
 
   // ── Estado de Ventas ──
   const [salesData,      setSalesData]      = useState<Invoice[]>([]);
@@ -422,6 +424,7 @@ export default function FinancialControlCenter() {
           {([
             { key: 'dashboard',    icon: <Activity size={14} />,     label: 'War Room' },
             { key: 'ventas_hoy',   icon: <DollarSign size={14} />,   label: '⚡ Ventas de Hoy' },
+            { key: 'alegra',       icon: <Send size={14} />,         label: '⚡ Facturación ALEGRA' },
             { key: 'ventas',       icon: <ShoppingBag size={14} />,  label: 'Facturación SIIGO' },
             { key: 'crm',          icon: <Users size={14} />,        label: 'CRM Clientes' },
             { key: 'trazabilidad', icon: <FileText size={14} />,     label: 'Trazabilidad 360°' },
@@ -1370,6 +1373,13 @@ export default function FinancialControlCenter() {
                 </ChartCard>
               </div>
             ) : <Spinner label="Calculando márgenes operativos..." />}
+          </div>
+        )}
+
+        {/* ── 5.5 ALEGRA BILLING TAB ── */}
+        {activeMenu === 'alegra' && (
+          <div>
+            <AlegraBillingModule isSuperAdmin={true} />
           </div>
         )}
 
