@@ -1,31 +1,57 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Download, Printer, Filter, Calendar, Search, RefreshCw, 
   CheckCircle2, XCircle, TrendingUp, ShoppingBag, DollarSign, 
-  CreditCard, ChevronLeft, ChevronRight, FileSpreadsheet, Eye, X, Loader2
+  CreditCard, ChevronLeft, ChevronRight, FileSpreadsheet, Eye, X, Loader2,
+  Store, Building2
 } from 'lucide-react';
 
 interface POSReportsManagerProps {
   salesLogs: any[];
-  selectedStore: any;
-  managerShifts: any[];
-  shiftsPage: number;
-  setShiftsPage: React.Dispatch<React.SetStateAction<number>>;
-  onRefreshSales: () => void;
+  selectedStore?: any;
+  stores?: any[];
+  onSelectStore?: (store: any) => void;
+  managerShifts?: any[];
+  shiftsPage?: number;
+  setShiftsPage?: React.Dispatch<React.SetStateAction<number>>;
+  onRefreshSales?: () => void;
   supabase: any;
+  title?: string;
+  isStoreAdminView?: boolean;
 }
 
 export default function POSReportsManager({
-  salesLogs,
-  selectedStore,
-  managerShifts,
-  shiftsPage,
+  salesLogs = [],
+  selectedStore: propSelectedStore,
+  stores = [],
+  onSelectStore,
+  managerShifts = [],
+  shiftsPage = 0,
   setShiftsPage,
   onRefreshSales,
-  supabase
+  supabase,
+  title,
+  isStoreAdminView = false
 }: POSReportsManagerProps) {
+  // Store Selection State (if used in store-admin where user picks from all stores or 'all')
+  const [internalStoreId, setInternalStoreId] = useState<string>(
+    propSelectedStore?.id ? String(propSelectedStore.id) : (stores.length > 0 ? String(stores[0].id) : 'all')
+  );
+
+  useEffect(() => {
+    if (propSelectedStore?.id) {
+      setInternalStoreId(String(propSelectedStore.id));
+    }
+  }, [propSelectedStore]);
+
+  const currentSelectedStore = useMemo(() => {
+    if (propSelectedStore && !isStoreAdminView) return propSelectedStore;
+    if (internalStoreId === 'all') return { id: 'all', nombre: 'Todas las Sucursales' };
+    return stores.find(st => String(st.id) === String(internalStoreId)) || propSelectedStore || { id: 'pos', nombre: 'Punto de Venta' };
+  }, [propSelectedStore, isStoreAdminView, internalStoreId, stores]);
+
   // Navigation Tabs inside Reports Module
   const [activeTab, setActiveTab] = useState<'detalle' | 'kpis' | 'turnos'>('detalle');
 
@@ -71,9 +97,15 @@ export default function POSReportsManager({
     return bcs;
   };
 
-  // Filter sales list based on selected filters
+  // Filter sales list based on store & selected filters
   const filteredSales = useMemo(() => {
     return salesLogs.filter((s: any) => {
+      // 0. Store Filter (if in Store Admin view)
+      if (isStoreAdminView && internalStoreId !== 'all') {
+        const sStoreId = String(s.store_id || s.stores?.id || '');
+        if (sStoreId && sStoreId !== internalStoreId) return false;
+      }
+
       // 1. Date filter
       if (s.created_at) {
         const saleDate = new Date(s.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
@@ -112,11 +144,12 @@ export default function POSReportsManager({
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const ticketNum = String(s.consecutive || '');
-        const ticketStr = `${(selectedStore?.nombre || 'POS').substring(0, 3)}-${ticketNum.padStart(4, '0')}`.toLowerCase();
+        const stName = s.stores?.nombre || currentSelectedStore?.nombre || 'POS';
+        const ticketStr = `${stName.substring(0, 3)}-${ticketNum.padStart(4, '0')}`.toLowerCase();
         const clientName = (s.cliente_nombre || '').toLowerCase();
         const clientDoc = (s.cliente_identificacion || '').toLowerCase();
         const obs = (s.observaciones || '').toLowerCase();
-        const items = s.items || [];
+        const items = s.items || s.pos_sale_items || [];
         const itemMatch = items.some((it: any) => {
           const pName = (it.products?.nombre_producto || it.nombre || '').toLowerCase();
           const pRef = (it.products?.codigo_referencia || '').toLowerCase();
@@ -131,7 +164,7 @@ export default function POSReportsManager({
 
       return true;
     });
-  }, [salesLogs, dateFilterMode, startDate, endDate, todayStr, filterStatus, filterVendedor, filterPayment, searchQuery, selectedStore]);
+  }, [salesLogs, isStoreAdminView, internalStoreId, dateFilterMode, startDate, endDate, todayStr, filterStatus, filterVendedor, filterPayment, searchQuery, currentSelectedStore]);
 
   // Essential summary metrics calculated from filtered sales
   const summaryMetrics = useMemo(() => {
@@ -148,7 +181,7 @@ export default function POSReportsManager({
 
     validSales.forEach(s => {
       // Units sold
-      const items = s.items || [];
+      const items = s.items || s.pos_sale_items || [];
       if (items.length > 0) {
         items.forEach((it: any) => {
           totalPrendas += Number(it.cantidad || 1);
@@ -233,9 +266,9 @@ export default function POSReportsManager({
       const rows: string[][] = [];
 
       filteredSales.forEach(sale => {
-        const ticket = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+        const storeName = sale.stores?.nombre || currentSelectedStore?.nombre || 'Punto de Venta';
+        const ticket = `${storeName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
         const fechaHora = sale.created_at ? new Date(sale.created_at).toLocaleString('es-CO') : '-';
-        const storeName = selectedStore?.nombre || 'Punto de Venta';
         const vendedor = sale.vendedor || sale.usuario_apertura || 'Vendedor';
         const cliente = sale.cliente_nombre || 'Cliente General';
         const docCliente = sale.cliente_identificacion || '222222222222';
@@ -246,7 +279,7 @@ export default function POSReportsManager({
           : (sale.metodo_pago || 'Efectivo');
 
         const saleBarcodes = extractBarcodesFromSale(sale);
-        const items = sale.items || [];
+        const items = sale.items || sale.pos_sale_items || [];
 
         if (items.length === 0) {
           rows.push([
@@ -342,7 +375,8 @@ export default function POSReportsManager({
       const a = document.createElement('a');
       a.href = url;
       const dateTag = dateFilterMode === 'today' ? `hoy_${todayStr}` : `${startDate}_a_${endDate}`;
-      a.download = `control_ventas_${(selectedStore?.nombre || 'pos').toLowerCase().replace(/\s+/g, '_')}_${dateTag}.csv`;
+      const storeTag = (currentSelectedStore?.nombre || 'pos').toLowerCase().replace(/\s+/g, '_');
+      a.download = `control_ventas_${storeTag}_${dateTag}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
@@ -359,7 +393,7 @@ export default function POSReportsManager({
   const totalPages = Math.ceil(filteredSales.length / PAGE_SIZE);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: isStoreAdminView ? '0.5rem 0' : '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: isStoreAdminView ? 'transparent' : '#f8fafc' }} className="pos-scrollbar">
       
       {/* 1. Header with Title & Action Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -367,36 +401,74 @@ export default function POSReportsManager({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <span style={{ fontSize: '1.5rem' }}>📊</span>
             <h2 style={{ fontSize: '1.3rem', fontWeight: '950', color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
-              Control y Discriminación de Ventas
+              {title || 'Control y Discriminación de Ventas'}
             </h2>
           </div>
           <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.25rem 0 0' }}>
-            Auditoría en tiempo real y cierre de caja para <strong>{selectedStore?.nombre || 'Sucursal Principal'}</strong>
+            Auditoría en tiempo real y cierre de caja para <strong>{currentSelectedStore?.nombre || 'Sucursal'}</strong>
           </p>
         </div>
 
-        {/* Action Buttons: Excel & Master PDF */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <button
-            onClick={onRefreshSales}
-            title="Refrescar ventas"
-            style={{
-              padding: '0.55rem 0.85rem',
-              borderRadius: '10px',
-              border: '1.5px solid #cbd5e1',
-              backgroundColor: 'white',
-              color: '#475569',
-              fontWeight: '800',
-              fontSize: '0.78rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            <RefreshCw size={14} /> Refrescar
-          </button>
+        {/* Action Controls: Store Selector (if Admin) + Refresh + Excel + Master PDF */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.65rem' }}>
+          
+          {/* Store Selector (Visible in Store Admin view) */}
+          {isStoreAdminView && stores.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: 'white', padding: '0.2rem 0.6rem', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>
+              <Store size={14} color="#80082E" />
+              <select
+                value={internalStoreId}
+                onChange={e => {
+                  const newId = e.target.value;
+                  setInternalStoreId(newId);
+                  setCurrentPage(0);
+                  if (onSelectStore) {
+                    const st = stores.find(s => String(s.id) === newId);
+                    if (st) onSelectStore(st);
+                  }
+                }}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '0.78rem',
+                  fontWeight: '900',
+                  color: '#0f172a',
+                  backgroundColor: 'transparent',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">🏢 Todas las Sucursales</option>
+                {stores.map(st => (
+                  <option key={st.id} value={st.id}>
+                    📍 {st.nombre} ({st.ciudad || 'Colombia'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {onRefreshSales && (
+            <button
+              onClick={onRefreshSales}
+              title="Refrescar ventas"
+              style={{
+                padding: '0.55rem 0.85rem',
+                borderRadius: '10px',
+                border: '1.5px solid #cbd5e1',
+                backgroundColor: 'white',
+                color: '#475569',
+                fontWeight: '800',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              <RefreshCw size={14} /> Refrescar
+            </button>
+          )}
 
           <button
             onClick={handleExportCSV}
@@ -632,22 +704,24 @@ export default function POSReportsManager({
             >
               🎯 Cumplimiento de Meta & Gráficos
             </button>
-            <button
-              onClick={() => setActiveTab('turnos')}
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '8px',
-                border: 'none',
-                fontWeight: '900',
-                fontSize: '0.78rem',
-                backgroundColor: activeTab === 'turnos' ? '#80082E' : '#f1f5f9',
-                color: activeTab === 'turnos' ? '#ffffff' : '#64748b',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              💼 Turnos de Caja ({managerShifts.length})
-            </button>
+            {managerShifts.length > 0 && (
+              <button
+                onClick={() => setActiveTab('turnos')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontWeight: '900',
+                  fontSize: '0.78rem',
+                  backgroundColor: activeTab === 'turnos' ? '#80082E' : '#f1f5f9',
+                  color: activeTab === 'turnos' ? '#ffffff' : '#64748b',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                💼 Turnos de Caja ({managerShifts.length})
+              </button>
+            )}
           </div>
 
           <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800' }}>
@@ -857,6 +931,7 @@ export default function POSReportsManager({
                 <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #80082E', color: '#475569', textTransform: 'uppercase', fontSize: '0.65rem', fontWeight: '950', letterSpacing: '0.05em' }}>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Ticket / Factura</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Fecha y Hora</th>
+                  <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Punto de Venta</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Cajero / Vendedor</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Cliente / Documento</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Prendas Vendidas & Códigos de Barras</th>
@@ -868,11 +943,11 @@ export default function POSReportsManager({
               </thead>
               <tbody>
                 {paginatedSales.map((sale: any) => {
-                  const ticketStr = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+                  const storeName = sale.stores?.nombre || currentSelectedStore?.nombre || 'POS';
+                  const ticketStr = `${storeName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
                   const isAnulada = sale.estado === 'anulada';
                   const saleBarcodes = extractBarcodesFromSale(sale);
-                  const items = sale.items || [];
-                  const totalUnits = items.reduce((acc: number, it: any) => acc + Number(it.cantidad || 1), 0) || 1;
+                  const items = sale.items || sale.pos_sale_items || [];
 
                   return (
                     <tr key={sale.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isAnulada ? '#fff5f5' : 'white', transition: 'background-color 0.15s' }}>
@@ -885,6 +960,11 @@ export default function POSReportsManager({
                       {/* Date & Time */}
                       <td style={{ padding: '0.85rem 1rem', color: '#64748b', whiteSpace: 'nowrap', fontSize: '0.72rem' }}>
                         {sale.created_at ? new Date(sale.created_at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '-'}
+                      </td>
+
+                      {/* Punto de Venta */}
+                      <td style={{ padding: '0.85rem 1rem', color: '#334155', fontWeight: '800', whiteSpace: 'nowrap' }}>
+                        {storeName}
                       </td>
 
                       {/* Vendedor */}
@@ -1018,11 +1098,11 @@ export default function POSReportsManager({
 
                 {paginatedSales.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                         <span style={{ fontSize: '2rem' }}>🔍</span>
                         <span style={{ fontWeight: '850', color: '#64748b' }}>No se encontraron ventas con los filtros aplicados.</span>
-                        <span style={{ fontSize: '0.75rem' }}>Prueba ampliando el rango de fechas o limpiando el término de búsqueda.</span>
+                        <span style={{ fontSize: '0.75rem' }}>Prueba ampliando el rango de fechas o seleccionando otra sucursal.</span>
                       </div>
                     </td>
                   </tr>
@@ -1085,11 +1165,11 @@ export default function POSReportsManager({
             const rawMonthName = new Date().toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
             const capitalizedMonth = rawMonthName.charAt(0).toUpperCase() + rawMonthName.slice(1);
             
-            const currentMonthSales = salesLogs
+            const currentMonthSales = filteredSales
               .filter((s: any) => s.created_at && s.created_at.includes(currentMonthPrefix) && s.estado !== 'anulada')
               .reduce((sum: number, s: any) => sum + (Number(s.total) || 0), 0);
             
-            const storeMeta = Number(selectedStore?.meta_mensual) || 0;
+            const storeMeta = Number(currentSelectedStore?.meta_mensual) || 0;
             const compliancePercent = storeMeta > 0 ? Math.round((currentMonthSales / storeMeta) * 100) : (currentMonthSales > 0 ? 100 : 0);
             const isGoalReached = storeMeta > 0 && currentMonthSales >= storeMeta;
             const diffGoal = storeMeta - currentMonthSales;
@@ -1122,7 +1202,7 @@ export default function POSReportsManager({
                       </span>
                     </div>
                     <h3 style={{ margin: 0, fontSize: '1.75rem', fontWeight: '950', color: '#ffffff' }}>
-                      {selectedStore?.nombre || 'Punto de Venta'}
+                      {currentSelectedStore?.nombre || 'Punto de Venta'}
                     </h3>
                   </div>
 
@@ -1172,7 +1252,7 @@ export default function POSReportsManager({
       )}
 
       {/* Shifts Log Tab */}
-      {activeTab === 'turnos' && (
+      {activeTab === 'turnos' && managerShifts.length > 0 && (
         <div style={{
           backgroundColor: '#ffffff',
           borderRadius: '16px',
@@ -1260,7 +1340,7 @@ export default function POSReportsManager({
                   📄 Vista Previa de Impresión / Guardar en PDF
                 </h3>
                 <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                  Informe Oficial de Ventas & Cierre · {selectedStore?.nombre || 'Sucursal'}
+                  Informe Oficial de Ventas & Cierre · {currentSelectedStore?.nombre || 'Sucursal'}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -1311,7 +1391,7 @@ export default function POSReportsManager({
                     INFORME GERENCIAL Y CONTROL DE VENTAS POS
                   </p>
                   <p style={{ margin: '0.15rem 0', fontSize: '0.75rem', color: '#475569' }}>
-                    <strong>Sucursal:</strong> {selectedStore?.nombre || 'Sucursal Principal'} · <strong>Ciudad:</strong> {selectedStore?.ciudad || 'Colombia'}
+                    <strong>Sucursal:</strong> {currentSelectedStore?.nombre || 'Sucursal'} · <strong>Ciudad:</strong> {currentSelectedStore?.ciudad || 'Colombia'}
                   </p>
                   <p style={{ margin: '0.15rem 0', fontSize: '0.75rem', color: '#475569' }}>
                     <strong>Período Auditado:</strong> {dateFilterMode === 'today' ? `Ventas de Hoy (${todayStr})` : dateFilterMode === 'custom' ? `Desde ${startDate} hasta ${endDate}` : 'Histórico Completo'}
@@ -1367,6 +1447,7 @@ export default function POSReportsManager({
                   <tr style={{ borderBottom: '2px solid #80082E', backgroundColor: '#f1f5f9', fontWeight: '950', color: '#334155', textTransform: 'uppercase', fontSize: '0.65rem' }}>
                     <th style={{ padding: '0.5rem', textAlign: 'left' }}># Ticket</th>
                     <th style={{ padding: '0.5rem', textAlign: 'left' }}>Fecha/Hora</th>
+                    <th style={{ padding: '0.5rem', textAlign: 'left' }}>Sucursal</th>
                     <th style={{ padding: '0.5rem', textAlign: 'left' }}>Vendedor</th>
                     <th style={{ padding: '0.5rem', textAlign: 'left' }}>Cliente / Doc.</th>
                     <th style={{ padding: '0.5rem', textAlign: 'left' }}>Prendas / Referencias</th>
@@ -1377,9 +1458,10 @@ export default function POSReportsManager({
                 </thead>
                 <tbody>
                   {filteredSales.map((sale: any, idx: number) => {
-                    const ticketStr = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+                    const stName = sale.stores?.nombre || currentSelectedStore?.nombre || 'POS';
+                    const ticketStr = `${stName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
                     const saleBarcodes = extractBarcodesFromSale(sale);
-                    const items = sale.items || [];
+                    const items = sale.items || sale.pos_sale_items || [];
                     const itemsStr = items.map((it: any) => `${it.cantidad || 1}x ${it.products?.nombre_producto || it.nombre || 'Prenda'}`).join(', ') || 'Venta General';
                     const barcodesStr = saleBarcodes.join(', ') || '-';
                     const payStr = (sale.pos_payments && sale.pos_payments.length > 0) ? sale.pos_payments.map((p: any) => p.metodo_pago).join('/') : (sale.metodo_pago || 'Efectivo');
@@ -1388,6 +1470,7 @@ export default function POSReportsManager({
                       <tr key={sale.id || idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
                         <td style={{ padding: '0.5rem', fontWeight: '900', color: '#80082E' }}>{ticketStr}</td>
                         <td style={{ padding: '0.5rem', color: '#64748b', whiteSpace: 'nowrap' }}>{sale.created_at ? new Date(sale.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                        <td style={{ padding: '0.5rem' }}>{stName}</td>
                         <td style={{ padding: '0.5rem' }}>{sale.vendedor || sale.usuario_apertura || 'Vendedor'}</td>
                         <td style={{ padding: '0.5rem' }}>{sale.cliente_nombre || 'Cliente General'} ({sale.cliente_identificacion || '222222222222'})</td>
                         <td style={{ padding: '0.5rem' }}>{itemsStr}</td>
@@ -1442,7 +1525,7 @@ export default function POSReportsManager({
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
               <div>
                 <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: '950', color: '#0f172a' }}>
-                  Ticket {(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(selectedSaleDetail.consecutive || 0).padStart(4, '0')}
+                  Ticket {(selectedSaleDetail.stores?.nombre || currentSelectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(selectedSaleDetail.consecutive || 0).padStart(4, '0')}
                 </h4>
                 <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
                   {selectedSaleDetail.created_at ? new Date(selectedSaleDetail.created_at).toLocaleString('es-CO') : '-'}
@@ -1460,6 +1543,7 @@ export default function POSReportsManager({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.75rem' }}>
                 <div><strong>Vendedor:</strong> {selectedSaleDetail.vendedor || selectedSaleDetail.usuario_apertura || 'Vendedor'}</div>
                 <div><strong>Estado:</strong> {selectedSaleDetail.estado || 'Completada'}</div>
+                <div><strong>Sucursal:</strong> {selectedSaleDetail.stores?.nombre || currentSelectedStore?.nombre || 'Punto de Venta'}</div>
                 <div><strong>Cliente:</strong> {selectedSaleDetail.cliente_nombre || 'Cliente General'}</div>
                 <div><strong>Documento:</strong> {selectedSaleDetail.cliente_identificacion || '222222222222'}</div>
               </div>
@@ -1467,7 +1551,7 @@ export default function POSReportsManager({
               <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '0.75rem' }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: '900', color: '#64748b', textTransform: 'uppercase' }}>Artículos Vendidos:</span>
                 <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {(selectedSaleDetail.items || []).map((it: any, i: number) => (
+                  {((selectedSaleDetail.items || selectedSaleDetail.pos_sale_items) || []).map((it: any, i: number) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', fontSize: '0.75rem' }}>
                       <div>
                         <div style={{ fontWeight: '850', color: '#0f172a' }}>{it.cantidad || 1}x {it.products?.nombre_producto || it.nombre || 'Prenda'}</div>

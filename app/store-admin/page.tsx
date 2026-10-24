@@ -11,6 +11,7 @@ import {
   Download, FileSpreadsheet, Filter
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import POSReportsManager from '@/components/pos/POSReportsManager';
 
 type TabType = 'dashboard' | 'stores' | 'registers' | 'sessions' | 'promotions' | 'inventory_monitoring' | 'shifts' | 'price_lists' | 'sales_billing' | 'ux_manager' | 'chat_erp';
 
@@ -244,6 +245,8 @@ export default function StoreAdminPage() {
   const [profilesList, setProfilesList] = useState<any[]>([]);
   const [salesList, setSalesList] = useState<any[]>([]);
   const [billingSearch, setBillingSearch] = useState('');
+  const [billingSubTab, setBillingSubTab] = useState<'reportes' | 'siigo_masiva'>('reportes');
+  const [selectedReportStoreId, setSelectedReportStoreId] = useState<string>('all');
   const [shifts, setShifts] = useState<any[]>([]);
   const [priceLists, setPriceLists] = useState<any[]>([]);
   const [priceListItems, setPriceListItems] = useState<any[]>([]);
@@ -3596,6 +3599,98 @@ export default function StoreAdminPage() {
           {/* SALES BILLING AND MASSIVE ERP INVOICING TAB */}
           {activeTab === 'sales_billing' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+              {/* Selector de Modo: Reporte Detallado de Ventas POS vs Facturación Electrónica Masiva SIIGO */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem',
+                backgroundColor: '#ffffff',
+                padding: '0.85rem 1.25rem',
+                borderRadius: '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+              }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setBillingSubTab('reportes')}
+                    style={{
+                      padding: '0.6rem 1.15rem',
+                      borderRadius: '10px',
+                      border: 'none',
+                      fontWeight: '950',
+                      fontSize: '0.82rem',
+                      backgroundColor: billingSubTab === 'reportes' ? '#80082E' : '#f1f5f9',
+                      color: billingSubTab === 'reportes' ? '#ffffff' : '#475569',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      boxShadow: billingSubTab === 'reportes' ? '0 2px 8px rgba(128,8,46,0.25)' : 'none',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <span>📊 Reporte y Control de Ventas POS</span>
+                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '6px', backgroundColor: billingSubTab === 'reportes' ? 'rgba(255,255,255,0.25)' : '#e2e8f0' }}>
+                      Excel + PDF
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBillingSubTab('siigo_masiva')}
+                    style={{
+                      padding: '0.6rem 1.15rem',
+                      borderRadius: '10px',
+                      border: 'none',
+                      fontWeight: '950',
+                      fontSize: '0.82rem',
+                      backgroundColor: billingSubTab === 'siigo_masiva' ? '#1e3a8a' : '#f1f5f9',
+                      color: billingSubTab === 'siigo_masiva' ? '#ffffff' : '#475569',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      boxShadow: billingSubTab === 'siigo_masiva' ? '0 2px 8px rgba(30,58,138,0.25)' : 'none',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <span>⚡ Facturación Electrónica Masiva SIIGO</span>
+                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '6px', backgroundColor: billingSubTab === 'siigo_masiva' ? 'rgba(255,255,255,0.25)' : '#e2e8f0' }}>
+                      DIAN ERP
+                    </span>
+                  </button>
+                </div>
+
+                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '750' }}>
+                  Sucursales registradas: <strong>{stores.length}</strong>
+                </div>
+              </div>
+
+              {/* VISTA 1: REPORTE OFICIAL POS (IDÉNTICO AL POS CON SELECCIÓN DE TIENDA, CSV Y PDF MASTER) */}
+              {billingSubTab === 'reportes' && (
+                <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
+                  <POSReportsManager
+                    salesLogs={salesList}
+                    stores={stores}
+                    selectedStore={stores[0]}
+                    managerShifts={shifts}
+                    shiftsPage={0}
+                    setShiftsPage={() => {}}
+                    onRefreshSales={fetchData}
+                    supabase={supabase}
+                    title="Control y Discriminación de Ventas por Sucursal"
+                    isStoreAdminView={true}
+                  />
+                </div>
+              )}
+
+              {/* VISTA 2: FACTURACIÓN ELECTRÓNICA MASIVA SIIGO */}
+              {billingSubTab === 'siigo_masiva' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+
               
               {/* Consolidation Cards for Selected Sales - Tarjetas Vistosas con Valores Notorios */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem' }}>
@@ -3978,30 +4073,7 @@ export default function StoreAdminPage() {
                         )}
                       </div>
 
-                      {/* Botón Descargar Informe de Ventas Excel/CSV con Códigos de Barras */}
-                      <button
-                        type="button"
-                        onClick={() => exportSalesToCSV(filteredSalesList)}
-                        disabled={isExportingSales}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.625rem 1.15rem',
-                          borderRadius: '10px',
-                          fontWeight: '850',
-                          fontSize: '0.85rem',
-                          backgroundColor: '#059669',
-                          border: 'none',
-                          color: '#ffffff',
-                          cursor: isExportingSales ? 'not-allowed' : 'pointer',
-                          boxShadow: '0 2px 6px rgba(5,150,105,0.25)',
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        {isExportingSales ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
-                        {isExportingSales ? 'Generando Informe...' : 'Descargar Ventas (Excel/CSV)'}
-                      </button>
+                      {/* Botón Descargar Informe removido en favor del módulo oficial de Reportes POS */}
 
                       {/* Botón de Ajustes de Conceptos */}
                       <button
@@ -4448,6 +4520,8 @@ export default function StoreAdminPage() {
                 </div>
               </div>
 
+                </div>
+              )}
             </div>
           )}
 
