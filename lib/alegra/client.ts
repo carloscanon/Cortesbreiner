@@ -91,8 +91,9 @@ export class AlegraClient {
   }
 
   // Stamp Electronic Invoice (DIAN)
-  static async stampInvoice(id: string | number) {
-    return this.request('POST', `/invoices/${id}/stamp`);
+  static async stampInvoice(ids: number | number[] | string | string[]) {
+    const idsArray = Array.isArray(ids) ? ids.map(Number) : [Number(ids)];
+    return this.request('POST', '/invoices/stamp', { ids: idsArray });
   }
 
   // Get Contacts / Clients

@@ -1465,68 +1465,12 @@ export default function StoreAdminPage() {
       current: 0,
       total: selectedSales.length,
       currentTicket: '',
-      status: 'Consultando tipos de comprobante y formas de pago en SIIGO...',
+      status: 'Iniciando facturación electrónica con Alegra DIAN...',
       successCount: 0,
       errorCount: 0
     });
 
     try {
-      // 1. Obtain active document type ID, payment type ID, and seller ID from SIIGO
-      let docTypeId = 2430; // default fallback
-      let paymentId = 5636;  // default fallback
-      let sellerId: number | null = null;
-
-      try {
-        if (selectedDocTypeId !== 'auto') {
-          docTypeId = Number(selectedDocTypeId);
-        } else {
-          const docRes = await fetch('/api/siigo/proxy', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: 'GET', endpoint: '/document-types?type=FV' })
-          });
-          const docJson = await docRes.json();
-          const docTypes = docJson.data || docJson;
-          if (Array.isArray(docTypes) && docTypes.length > 0) {
-            // Prioritize document type with code 'FV-10' or name 'FV-10'
-            const fv10Type = docTypes.find((d: any) => d.code === 'FV-10' || (d.name && d.name.includes('FV-10')) || (d.code && d.code.includes('FV-10')));
-            const genericFv = docTypes.find((d: any) => d.type === 'FV' || d.document_type === 'FV' || (d.name && d.name.toLowerCase().includes('factura')));
-            
-            if (fv10Type && fv10Type.id) {
-              docTypeId = fv10Type.id;
-            } else if (genericFv && genericFv.id) {
-              docTypeId = genericFv.id;
-            } else if (docTypes[0].id) {
-              docTypeId = docTypes[0].id;
-            }
-          }
-        }
-
-        const payRes = await fetch('/api/siigo/proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'GET', endpoint: '/payment-types?document_type=FV' })
-        });
-        const payJson = await payRes.json();
-        const payTypes = payJson.data || payJson;
-        if (Array.isArray(payTypes) && payTypes.length > 0 && payTypes[0].id) {
-          paymentId = payTypes[0].id;
-        }
-
-        const userRes = await fetch('/api/siigo/proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'GET', endpoint: '/users' })
-        });
-        const userJson = await userRes.json();
-        const usersList = userJson.data?.results || userJson.results || userJson.data || userJson;
-        if (Array.isArray(usersList) && usersList.length > 0 && usersList[0].id) {
-          sellerId = usersList[0].id;
-        }
-      } catch (e) {
-        console.warn("Could not dynamically resolve doc/payment/seller types, using fallbacks:", e);
-      }
-
       const salesToInvoice = salesList.filter(s => selectedSales.includes(s.id));
       let index = 0;
 
@@ -1536,146 +1480,99 @@ export default function StoreAdminPage() {
           current: index,
           total: salesToInvoice.length,
           currentTicket: `#${sale.consecutive}`,
-          status: `Facturando ticket #${sale.consecutive} (${sale.client_name || 'Cliente'})...`,
+          status: `Emitiendo factura electrónica Alegra para ticket #${sale.consecutive} (${sale.client_name || 'Cliente'})...`,
           successCount,
           errorCount
         });
 
         try {
-          // Format client names properly (First and Last name array for SIIGO)
-          const rawName = (sale.client_name || 'Cliente Mostrador').trim();
-          const nameParts = rawName.split(' ');
-          const firstName = nameParts[0] || 'Cliente';
-          const lastName = nameParts.slice(1).join(' ') || 'Mostrador';
+          const clientName = (sale.client_name || 'Cliente Mostrador').trim();
+          const clientDoc = (sale.client_document || '').trim() || '222222222222';
+          const clientEmail = (sale.client_email || '').trim() || 'facturacion@febrainershop.com';
 
-          // Prepare SIIGO Invoice Payload strictly aligned with exact provided SIIGO documentation
-          const invoicePayload = {
-            document: {
-              id: Number(docTypeId)
-            },
-            date: new Date().toISOString().split('T')[0],
-            customer: {
-              person_type: 'Person',
-              id_type: '13',
-              identification: sale.client_document && sale.client_document.length >= 5 ? sale.client_document.trim() : '209048401',
-              branch_office: 0,
-              name: [firstName, lastName],
-              address: {
-                address: 'Cra. 18 #79A - 42',
-                city: {
-                  country_code: 'Co',
-                  state_code: '11',
-                  city_code: '11001'
-                }
-              },
-              phones: [
-                {
-                  number: sale.client_phone && sale.client_phone.length >= 7 ? sale.client_phone.trim() : '3006003344'
-                }
-              ],
-              contacts: [
-                {
-                  first_name: firstName,
-                  last_name: lastName,
-                  email: sale.client_email && sale.client_email.includes('@') ? sale.client_email.trim() : 'manuel.camacho@contacto.com'
-                }
-              ]
-            },
-            seller: Number(sellerId ? sellerId : 1),
-            observations: `Factura Venta POS Ticket #${sale.consecutive}`,
-            items: sale.pos_sale_items?.length > 0 ? sale.pos_sale_items.map((item: any) => ({
-              code: String(item.products?.codigo_referencia || '1'),
-              description: String(item.products?.nombre_producto || 'Prenda POS'),
-              quantity: Number(item.cantidad) || 1,
-              price: Number(item.precio_unitario) || Number(item.precio) || 0
-            })) : [{
-              code: '1',
-              description: `Venta Ticket #${sale.consecutive}`,
-              quantity: 1,
-              price: Number(sale.total) || 0
-            }],
-            payments: [
-              {
-                id: Number(paymentId),
-                value: Number(sale.total) || 0,
-                due_date: new Date().toISOString().split('T')[0]
-              }
-            ]
-          };
+          // Format items for Alegra
+          const itemsPayload = (sale.pos_sale_items && sale.pos_sale_items.length > 0)
+            ? sale.pos_sale_items.map((item: any) => ({
+                id: 17, // default generic clothing item registered in Alegra
+                name: item.products?.nombre_producto || 'Prenda POS',
+                description: `${item.products?.nombre_producto || 'Prenda'} - Talla ${item.sizes?.codigo_talla || ''}`.trim(),
+                price: Number(item.precio_unitario || item.precio || 0),
+                quantity: Number(item.cantidad || 1),
+                unit: 'unit',
+                tax: [{ id: 4 }] // IVA 19%
+              }))
+            : [{
+                id: 17,
+                name: `Venta Ticket #${sale.consecutive}`,
+                description: `Venta Ticket #${sale.consecutive}`,
+                price: Number(sale.total || 0),
+                quantity: 1,
+                unit: 'unit',
+                tax: [{ id: 4 }]
+              }];
 
-          // Execute real request through proxy
-          const response = await fetch('/api/siigo/proxy', {
+          const invoiceDate = sale.created_at ? new Date(sale.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
+          // Post to Alegra Electronic Invoicing API with automatic Contact resolution & DIAN stamping
+          const response = await fetch('/api/alegra/invoices', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              method: 'POST',
-              endpoint: '/invoices',
-              payload: invoicePayload
+              invoice: {
+                date: invoiceDate,
+                dueDate: invoiceDate,
+                client: {
+                  name: clientName,
+                  identification: clientDoc,
+                  email: clientEmail
+                },
+                items: itemsPayload,
+                paymentForm: 'CASH',
+                paymentMethod: 'CASH',
+                anotation: `Factura POS Ticket #${sale.consecutive} - Tienda ${sale.stores?.nombre || ''}`
+              },
+              autoStamp: true
             })
           });
 
           const resData = await response.json();
 
-          // Strict validation: response must have HTTP 2xx success status or resData.success === true with valid invoice data
-          if (response.ok && resData.success && (resData.data?.id || resData.data?.name || resData.data?.number)) {
+          if (response.ok && resData.success && resData.invoice?.id) {
             successCount++;
-            const siigoInvNumber = resData.data?.name || resData.data?.number || resData.data?.id;
+            const alegraNumber = resData.invoice?.numberTemplate?.fullNumber || `ALEGRA-#${resData.invoice?.id}`;
+            const cufe = resData.invoice?.stamp?.cufe || resData.stamp?.data?.[0]?.emissionStatus || 'TIMBRADA';
+
             await supabase
               .from('pos_sales')
-              .update({ 
+              .update({
                 sincronizado_erp: true,
-                observaciones: `Facturado SIIGO Exitósamente: ${siigoInvNumber}`
+                observaciones: `Facturado ALEGRA DIAN: ${alegraNumber} (${cufe})`
               })
               .eq('id', sale.id);
 
-            // Save success audit log entry
+            // Audit log
             try {
               await supabase.from('siigo_sync_logs').insert([{
                 sale_id: sale.id,
-                endpoint: '/invoices',
+                endpoint: '/alegra/invoices',
                 status: 'success',
-                request_body: invoicePayload,
+                request_body: { client: clientDoc, total: sale.total },
                 response_body: resData,
                 error_message: null
               }]);
             } catch (lErr) {}
           } else {
             errorCount++;
-            let errMsg = 'Error 400 de SIIGO';
-            if (resData.details?.message) errMsg = resData.details.message;
-            else if (resData.error) errMsg = typeof resData.error === 'string' ? resData.error : JSON.stringify(resData.error);
-            else if (resData.message) errMsg = resData.message;
-            else if (resData.data) errMsg = typeof resData.data === 'string' ? resData.data : JSON.stringify(resData.data);
-
-            // Extract nested SIIGO validation errors array if available
-            if (resData.details?.Errors && Array.isArray(resData.details.Errors)) {
-              errMsg += ' — ' + resData.details.Errors.map((e: any) => `${e.Code || ''}: ${e.Message || e.Detail || ''}`).join(' | ');
-            } else if (resData.data?.Errors && Array.isArray(resData.data.Errors)) {
-              errMsg += ' — ' + resData.data.Errors.map((e: any) => `${e.Code || ''}: ${e.Message || e.Detail || ''}`).join(' | ');
-            }
-
+            const errMsg = resData.error || resData.details?.message || 'Error al emitir en Alegra';
             errorsList.push(`Ticket #${sale.consecutive}: ${errMsg}`);
-            
-            // Mark sync status as failed with error details in observations
+
             await supabase
               .from('pos_sales')
-              .update({ 
+              .update({
                 sincronizado_erp: false,
-                observaciones: `Error SIIGO: ${errMsg.substring(0, 200)}`
+                observaciones: `Error ALEGRA: ${String(errMsg).substring(0, 200)}`
               })
               .eq('id', sale.id);
-
-            // Save error audit log entry
-            try {
-              await supabase.from('siigo_sync_logs').insert([{
-                sale_id: sale.id,
-                endpoint: '/invoices',
-                status: 'error',
-                request_body: invoicePayload,
-                response_body: resData,
-                error_message: errMsg
-              }]);
-            } catch (lErr) {}
           }
         } catch (itemErr: any) {
           errorCount++;
@@ -1691,16 +1588,16 @@ export default function StoreAdminPage() {
           errorCount
         });
       }
-      
-      let summaryMsg = `📊 Resumen de Facturación SIIGO:\n\n✅ Exitosas: ${successCount}\n❌ Fallidas: ${errorCount}`;
+
+      let summaryMsg = `⚡ Resumen de Facturación Electrónica ALEGRA:\n\n✅ Exitosas DIAN: ${successCount}\n❌ Con Error: ${errorCount}`;
       if (errorsList.length > 0) {
-        summaryMsg += `\n\nDetalle de errores:\n` + errorsList.join('\n');
+        summaryMsg += `\n\nDetalle de incidencias:\n` + errorsList.join('\n');
       }
       alert(summaryMsg);
       setSelectedSales([]);
       fetchData();
     } catch (err: any) {
-      alert("Error al facturar masivamente: " + err.message);
+      alert("Error al procesar facturación con Alegra: " + err.message);
     } finally {
       setInvoicingMass(false);
       setMassInvoicingProgress(null);
@@ -3657,7 +3554,7 @@ export default function StoreAdminPage() {
                       transition: 'all 0.2s'
                     }}
                   >
-                    <span>⚡ Facturación Electrónica Masiva SIIGO</span>
+                    <span>⚡ Facturación Electrónica Masiva ALEGRA</span>
                     <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '6px', backgroundColor: billingSubTab === 'siigo_masiva' ? 'rgba(255,255,255,0.25)' : '#e2e8f0' }}>
                       DIAN ERP
                     </span>
@@ -3687,7 +3584,7 @@ export default function StoreAdminPage() {
                 </div>
               )}
 
-              {/* VISTA 2: FACTURACIÓN ELECTRÓNICA MASIVA SIIGO */}
+              {/* VISTA 2: FACTURACIÓN ELECTRÓNICA MASIVA ALEGRA */}
               {billingSubTab === 'siigo_masiva' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
@@ -3775,7 +3672,7 @@ export default function StoreAdminPage() {
                   <div style={{ position: 'absolute', right: '-15px', top: '-15px', width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }}></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                      Facturados SIIGO
+                      Facturados ERP / DIAN
                     </span>
                     <CheckCircle2 size={20} color="#6ee7b7" />
                   </div>
@@ -3893,7 +3790,7 @@ export default function StoreAdminPage() {
                     ) : (
                       <CheckCircle2 size={16} />
                     )}
-                    Facturar Masivamente ({selectedSales.length})
+                    Facturar con ALEGRA DIAN ({selectedSales.length})
                   </button>
                 </div>
 
@@ -3915,7 +3812,7 @@ export default function StoreAdminPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <Loader2 size={18} className="animate-spin" color="#38bdf8" />
                       <span style={{ fontWeight: '850', fontSize: '0.9rem', color: '#f8fafc' }}>
-                        Facturando en Vivo con SIIGO: Ticket {massInvoicingProgress.currentTicket} ({massInvoicingProgress.current} de {massInvoicingProgress.total})
+                        Facturando en Vivo con ALEGRA (DIAN): Ticket {massInvoicingProgress.currentTicket} ({massInvoicingProgress.current} de {massInvoicingProgress.total})
                       </span>
                     </div>
                     <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace' }}>

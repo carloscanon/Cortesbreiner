@@ -37,6 +37,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import AlegraBillingModule from '@/components/financial/AlegraBillingModule';
+import { useAuth } from '@/hooks/useAuth';
 
 // ─────── helpers ───────
 const fmt = (n: number) => (Number(n) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -88,7 +89,10 @@ interface Invoice {
 
 // ─────── componente Principal ───────
 export default function FinancialControlCenter() {
-  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites' | 'ventas' | 'ventas_hoy' | 'alegra'>('dashboard');
+  const { profile } = useAuth();
+  const roleName = String(profile?.roles?.name || profile?.role || '').toLowerCase();
+  const isSuperAdmin = roleName.includes('super') || roleName.includes('admin') || roleName.includes('master');
+  const [activeMenu, setActiveMenu] = useState<'dashboard' | 'crm' | 'trazabilidad' | 'costos' | 'satelites' | 'ventas' | 'ventas_hoy' | 'alegra'>('alegra');
 
   // ── Estado de Ventas ──
   const [salesData,      setSalesData]      = useState<Invoice[]>([]);
@@ -357,7 +361,7 @@ export default function FinancialControlCenter() {
     fetchFinancialData();
     fetchCustomers();
     fetchInvoices();
-    fetchTodaySales(false);
+    // fetchTodaySales(false);
     // Validar si ya hay una sync corriendo al montar
     fetch('/api/siigo/financial/sync')
       .then(res => res.json())
@@ -421,23 +425,22 @@ export default function FinancialControlCenter() {
           gap: '0.25rem',
           overflowX: 'auto'
         }}>
-          {([
-            { key: 'dashboard',    icon: <Activity size={14} />,     label: 'War Room' },
-            { key: 'ventas_hoy',   icon: <DollarSign size={14} />,   label: '⚡ Ventas de Hoy' },
-            { key: 'alegra',       icon: <Send size={14} />,         label: '⚡ Facturación ALEGRA' },
-            { key: 'ventas',       icon: <ShoppingBag size={14} />,  label: 'Facturación SIIGO' },
-            { key: 'crm',          icon: <Users size={14} />,        label: 'CRM Clientes' },
-            { key: 'trazabilidad', icon: <FileText size={14} />,     label: 'Trazabilidad 360°' },
-            { key: 'costos',       icon: <BadgePercent size={14} />, label: 'Costos & Utilidad' },
-            { key: 'satelites',    icon: <Scissors size={14} />,     label: 'Satélites' }
-          ] as const).map(({ key, icon, label }) => (
+          {(
+            [
+              { key: 'alegra' as const,       icon: <Send size={14} />,         label: '⚡ Facturación ALEGRA' },
+              ...(isSuperAdmin ? [{ key: 'ventas' as const, icon: <ShoppingBag size={14} />, label: 'Facturación SIIGO (SuperAdmin)' }] : []),
+              { key: 'dashboard' as const,    icon: <Activity size={14} />,     label: 'War Room' },
+              { key: 'crm' as const,          icon: <Users size={14} />,        label: 'CRM Clientes' },
+              { key: 'satelites' as const,    icon: <Scissors size={14} />,     label: 'Satélites' }
+            ]
+          ).map(({ key, icon, label }) => (
             <button
               key={key}
               onClick={() => {
                 setActiveMenu(key);
                 if (key === 'crm') setSelectedClient(null);
                 if (key === 'ventas') fetchSales(salesFilters, 1, salesSort);
-                if (key === 'ventas_hoy') fetchTodaySales();
+                // ventas_hoy retirado
               }}
               style={{
                 display: 'flex',
@@ -555,7 +558,7 @@ export default function FinancialControlCenter() {
                       <tbody>
                         {invoices.slice(0, 8).map((inv) => (
                           <tr key={inv.id} style={{ borderBottom: '1px solid var(--surface)', cursor: 'pointer' }}
-                            onClick={() => { setSelectedInvoice(inv); setActiveMenu('trazabilidad'); }}>
+                            onClick={() => { setSelectedInvoice(inv); if (isSuperAdmin) { setActiveMenu('ventas'); setSalesDetail(inv); } }}>
                             <td style={{ padding: '0.6rem', fontWeight: 700, color: 'var(--primary)' }}>{inv.consecutive}</td>
                             <td style={{ padding: '0.6rem' }}>{inv.date}</td>
                             <td style={{ padding: '0.6rem' }}>{inv.siigo_customers?.name || inv.customer_identification}</td>
@@ -1261,7 +1264,7 @@ export default function FinancialControlCenter() {
                 client={selectedClient}
                 invoices={clientInvoices}
                 onBack={() => { setSelectedClient(null); setClientInvoices([]); }}
-                onViewInvoice={(inv) => { setSelectedInvoice(inv); setActiveMenu('trazabilidad'); }}
+                onViewInvoice={(inv) => { setSelectedInvoice(inv); if (isSuperAdmin) { setActiveMenu('ventas'); setSalesDetail(inv); } }}
               />
             )}
           </div>
@@ -1384,7 +1387,7 @@ export default function FinancialControlCenter() {
         )}
 
         {/* ── 6. VENTAS TAB ── */}
-        {activeMenu === 'ventas' && (
+        {activeMenu === 'ventas' && isSuperAdmin && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
