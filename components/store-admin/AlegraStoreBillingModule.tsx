@@ -65,28 +65,31 @@ export default function AlegraStoreBillingModule({
   // Modal detalle de prendas
   const [selectedSaleForDetails, setSelectedSaleForDetails] = useState<any | null>(null);
 
-  // Modal Nota Crédito / Reversión
-  const [showCreditNoteModal, setShowCreditNoteModal] = useState(false);
-  const [selectedSaleForCN, setSelectedSaleForCN] = useState<any | null>(null);
-  const [creditNoteReason, setCreditNoteReason] = useState('Anulación por devolución de prendas y reversión de inventario');
-  const [processingCN, setProcessingCN] = useState(false);
-
-  // Filtrado según estado principal
+  /**
+   * Determina la categoría de estado de la venta:
+   * 1. 'facturados': Ventas con factura emitida en Alegra (observación contiene 'ALEGRA DIAN', 'FACTURADO ALEGRA', o 'FED100').
+   * 2. 'remisionados': Ventas pasadas a remisión (estado === 'remision' o con registro de remisión en observaciones).
+   * 3. 'por_facturar': TODO lo vendido en los puntos que aún no ha sido facturado ni remisionado (estado !== 'anulada').
+   */
   const getSaleStatusCategory = (s: any): 'facturados' | 'remisionados' | 'por_facturar' => {
     const obs = String(s.observaciones || '').toUpperCase();
     if (s.estado === 'anulada') {
-      return 'por_facturar'; // o estado cerrado
+      return 'por_facturar';
     }
-    if (s.estado === 'remision' || obs.includes('REMISI') || obs.includes('REMISIÓN')) {
+    if (s.estado === 'remision' || obs.includes('REMISIÓN ALEGRA') || obs.includes('REMISI')) {
       return 'remisionados';
     }
-    if (s.sincronizado_erp || obs.includes('FACTURADO') || obs.includes('ALEGRA') || obs.includes('FED100')) {
+    // Facturado específicamente en Alegra
+    if (obs.includes('FACTURADO ALEGRA') || obs.includes('ALEGRA DIAN') || obs.includes('FED100')) {
       return 'facturados';
     }
+    // Todo lo demás vendido en los puntos queda en "Por Facturar"
     return 'por_facturar';
   };
 
   const filteredSales = salesList.filter(sale => {
+    if (sale.estado === 'anulada') return false;
+
     // 1. Estado tab
     const cat = getSaleStatusCategory(sale);
     if (cat !== activeStatusTab) return false;
@@ -124,26 +127,34 @@ export default function AlegraStoreBillingModule({
     return true;
   });
 
-  // Métricas rápidas
-  const countPorFacturar = salesList.filter(s => getSaleStatusCategory(s) === 'por_facturar' && s.estado !== 'anulada').length;
-  const countFacturados = salesList.filter(s => getSaleStatusCategory(s) === 'facturados').length;
-  const countRemisionados = salesList.filter(s => getSaleStatusCategory(s) === 'remisionados').length;
+  // Métricas de ventas reales
+  const countPorFacturar = salesList.filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'por_facturar').length;
+  const countFacturados = salesList.filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'facturados').length;
+  const countRemisionados = salesList.filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'remisionados').length;
 
-  const totalPorFacturar = salesList.filter(s => getSaleStatusCategory(s) === 'por_facturar' && s.estado !== 'anulada').reduce((sum, s) => sum + Number(s.total || 0), 0);
-  const totalFacturados = salesList.filter(s => getSaleStatusCategory(s) === 'facturados').reduce((sum, s) => sum + Number(s.total || 0), 0);
-  const totalRemisionados = salesList.filter(s => getSaleStatusCategory(s) === 'remisionados').reduce((sum, s) => sum + Number(s.total || 0), 0);
+  const totalPorFacturar = salesList
+    .filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'por_facturar')
+    .reduce((sum, s) => sum + Number(s.total || 0), 0);
+
+  const totalFacturados = salesList
+    .filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'facturados')
+    .reduce((sum, s) => sum + Number(s.total || 0), 0);
+
+  const totalRemisionados = salesList
+    .filter(s => s.estado !== 'anulada' && getSaleStatusCategory(s) === 'remisionados')
+    .reduce((sum, s) => sum + Number(s.total || 0), 0);
 
   // Acciones en Lote: Facturar con Alegra
-  const handleMassInvoiceAlegra = async () => {
-    if (selectedSaleIds.length === 0) return alert('Selecciona al menos una venta para facturar con Alegra.');
-    if (!confirm(`¿Deseas emitir ${selectedSaleIds.length} facturas electrónicas oficiales ante la DIAN mediante Alegra?`)) return;
+  const handleMassInvoiceAlegra = async (targetSaleIds = selectedSaleIds) => {
+    if (targetSaleIds.length === 0) return alert('Selecciona al menos una venta para facturar con Alegra.');
+    if (!confirm(`¿Deseas emitir ${targetSaleIds.length} facturas electrónicas oficiales ante la DIAN mediante Alegra?`)) return;
 
     setProcessingAction(true);
     let successCount = 0;
     let errorCount = 0;
     const errorsList: string[] = [];
 
-    const salesToProcess = salesList.filter(s => selectedSaleIds.includes(s.id));
+    const salesToProcess = salesList.filter(s => targetSaleIds.includes(s.id));
     let idx = 0;
 
     for (const sale of salesToProcess) {
@@ -322,7 +333,6 @@ export default function AlegraStoreBillingModule({
             })
             .eq('id', sale.id);
         } else {
-          // Dejar localmente en estado remisión si la API retorna advertencia
           successCount++;
           await supabase
             .from('pos_sales')
@@ -344,48 +354,6 @@ export default function AlegraStoreBillingModule({
     setSelectedSaleIds([]);
     alert(`📦 Proceso de Remisiones Concluido:\n\n✅ Remisionadas: ${successCount}\n❌ Con Error: ${errorCount}`);
     onRefreshSales();
-  };
-
-  // Emitir Nota Crédito y Reversar Inventario
-  const handleExecuteCreditNote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedSaleForCN) return;
-
-    setProcessingCN(true);
-    try {
-      // Intentar extraer ID de factura Alegra de las observaciones si existe
-      let alegraInvId: string | number | undefined = undefined;
-      const obs = selectedSaleForCN.observaciones || '';
-      const matchId = obs.match(/ALEGRA-#(\d+)/i) || obs.match(/FED100(\d+)/i);
-      if (matchId && matchId[1]) {
-        alegraInvId = matchId[1];
-      }
-
-      const res = await fetch('/api/alegra/credit-notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          saleId: selectedSaleForCN.id,
-          alegraInvoiceId: alegraInvId,
-          reason: creditNoteReason,
-          autoStamp: true
-        })
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'No se pudo procesar la Nota Crédito');
-      }
-
-      alert(`✅ Nota Crédito Procesada Exitosamente:\n\n• Venta #${selectedSaleForCN.consecutive} anulada\n• Existencias reincorporadas al inventario de la tienda\n• Prendas y códigos de barra restaurados.`);
-      setShowCreditNoteModal(false);
-      setSelectedSaleForCN(null);
-      onRefreshSales();
-    } catch (err: any) {
-      alert('Error al emitir Nota Crédito: ' + (err.message || String(err)));
-    } finally {
-      setProcessingCN(false);
-    }
   };
 
   return (
@@ -414,7 +382,7 @@ export default function AlegraStoreBillingModule({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
             <span style={{ fontSize: '0.8rem', fontWeight: '900', color: '#fef3c7', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              1. Por Facturar (Pendientes)
+              1. Por Facturar (Ventas en Puntos)
             </span>
             <span style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: '0.35rem 0.65rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: '850' }}>
               {countPorFacturar} Ventas
@@ -424,7 +392,7 @@ export default function AlegraStoreBillingModule({
             ${totalPorFacturar.toLocaleString('es-CO')}
           </div>
           <span style={{ fontSize: '0.75rem', color: '#fef3c7', fontWeight: '700', marginTop: '0.6rem', display: 'block' }}>
-            Pendientes por timbrar DIAN o remisionar
+            Total de ventas realizadas listas para facturar o remisionar
           </span>
         </div>
 
@@ -535,7 +503,7 @@ export default function AlegraStoreBillingModule({
               }}
             >
               <Clock size={16} />
-              <span>Por Facturar</span>
+              <span>1. Por Facturar (Ventas en Puntos)</span>
               <span style={{ backgroundColor: activeStatusTab === 'por_facturar' ? '#fef3c7' : '#e2e8f0', padding: '0.1rem 0.45rem', borderRadius: '6px', fontSize: '0.72rem' }}>
                 {countPorFacturar}
               </span>
@@ -561,7 +529,7 @@ export default function AlegraStoreBillingModule({
               }}
             >
               <FileCheck2 size={16} />
-              <span>Facturados DIAN</span>
+              <span>2. Facturados Alegra</span>
               <span style={{ backgroundColor: activeStatusTab === 'facturados' ? '#d1fae5' : '#e2e8f0', padding: '0.1rem 0.45rem', borderRadius: '6px', fontSize: '0.72rem' }}>
                 {countFacturados}
               </span>
@@ -587,20 +555,20 @@ export default function AlegraStoreBillingModule({
               }}
             >
               <Truck size={16} />
-              <span>En Remisión</span>
+              <span>3. En Remisión</span>
               <span style={{ backgroundColor: activeStatusTab === 'remisionados' ? '#dbeafe' : '#e2e8f0', padding: '0.1rem 0.45rem', borderRadius: '6px', fontSize: '0.72rem' }}>
                 {countRemisionados}
               </span>
             </button>
           </div>
 
-          {/* Botones de acción masiva en la pestaña de pendientes */}
+          {/* Botones de acción masiva en la pestaña de por facturar */}
           {activeStatusTab === 'por_facturar' && selectedSaleIds.length > 0 && (
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 disabled={processingAction}
-                onClick={handleMassInvoiceAlegra}
+                onClick={() => handleMassInvoiceAlegra()}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -763,8 +731,10 @@ export default function AlegraStoreBillingModule({
                 <th style={{ padding: '0.85rem 1rem' }}>Cliente Titular</th>
                 <th style={{ padding: '0.85rem 1rem' }}>Prendas Vendidas</th>
                 <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Total Venta</th>
-                <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Estado en Alegra / DIAN</th>
-                <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Acciones</th>
+                <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Estado</th>
+                {activeStatusTab === 'por_facturar' && (
+                  <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Acciones</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -828,7 +798,7 @@ export default function AlegraStoreBillingModule({
                               backgroundColor: '#f8fafc',
                               color: '#2563eb',
                               fontSize: '0.72rem',
-                              fontWeight: '800',
+                              fontWeight: '850',
                               cursor: 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -845,7 +815,7 @@ export default function AlegraStoreBillingModule({
                         ${Number(sale.total || 0).toLocaleString('es-CO')}
                       </td>
 
-                      {/* Estado en Alegra / DIAN */}
+                      {/* Estado */}
                       <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
                         {activeStatusTab === 'facturados' && (
                           <span style={{
@@ -892,74 +862,42 @@ export default function AlegraStoreBillingModule({
                             gap: '0.3rem'
                           }}>
                             <Clock size={13} />
-                            Pendiente
+                            Por Facturar
                           </span>
                         )}
                         {sale.observaciones && (
-                          <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', marginTop: '0.2rem', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={sale.observaciones}>
+                          <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', marginTop: '0.2rem', maxWidth: '220px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={sale.observaciones}>
                             {sale.observaciones}
                           </span>
                         )}
                       </td>
 
-                      {/* Botones de Acción (Nota Crédito / Reversión) */}
-                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                          {activeStatusTab === 'por_facturar' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedSaleIds([sale.id]);
-                                handleMassInvoiceAlegra();
-                              }}
-                              style={{
-                                padding: '0.35rem 0.65rem',
-                                borderRadius: '6px',
-                                border: 'none',
-                                backgroundColor: '#047857',
-                                color: 'white',
-                                fontSize: '0.74rem',
-                                fontWeight: '850',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.25rem'
-                              }}
-                            >
-                              <Send size={12} />
-                              Facturar
-                            </button>
-                          )}
-
-                          {/* Botón Nota Crédito (Reversión completa de inventario) */}
-                          {sale.estado !== 'anulada' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedSaleForCN(sale);
-                                setShowCreditNoteModal(true);
-                              }}
-                              title="Generar Nota Crédito: anula la venta, descuenta y devuelve las prendas al inventario"
-                              style={{
-                                padding: '0.35rem 0.65rem',
-                                borderRadius: '6px',
-                                border: '1px solid #fca5a5',
-                                backgroundColor: '#fef2f2',
-                                color: '#b91c1c',
-                                fontSize: '0.74rem',
-                                fontWeight: '850',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.25rem'
-                              }}
-                            >
-                              <RotateCcw size={12} />
-                              Nota Crédito
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                      {/* Botón de Facturar puntual en la pestaña de por facturar */}
+                      {activeStatusTab === 'por_facturar' && (
+                        <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleMassInvoiceAlegra([sale.id])}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              borderRadius: '8px',
+                              border: 'none',
+                              backgroundColor: '#047857',
+                              color: 'white',
+                              fontSize: '0.75rem',
+                              fontWeight: '850',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              boxShadow: '0 2px 4px rgba(4, 120, 87, 0.2)'
+                            }}
+                          >
+                            <Send size={12} />
+                            Facturar
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
@@ -1026,89 +964,6 @@ export default function AlegraStoreBillingModule({
                 Cerrar Detalle
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL NOTA CRÉDITO Y REVERSIÓN DE INVENTARIO */}
-      {showCreditNoteModal && selectedSaleForCN && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 120, backdropFilter: 'blur(4px)' }}>
-          <div style={{ width: '90%', maxWidth: '520px', backgroundColor: 'white', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '950', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <RotateCcw size={18} />
-                  Emitir Nota Crédito y Reversar Inventario
-                </h3>
-                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Ticket #{selectedSaleForCN.consecutive} • Total: ${Number(selectedSaleForCN.total || 0).toLocaleString('es-CO')}
-                </span>
-              </div>
-              <button onClick={() => setShowCreditNoteModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Alerta de Reversión */}
-            <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1rem', color: '#991b1b', fontSize: '0.78rem' }}>
-              <strong>⚠️ Impacto de la Nota Crédito:</strong>
-              <ul style={{ margin: '0.35rem 0 0 1.2rem', padding: 0 }}>
-                <li>Se anula la venta o factura electrónica en Alegra y en la DIAN.</li>
-                <li><strong>Las prendas vendidas se devuelven automáticamente al inventario</strong> de la tienda correspondientes.</li>
-                <li>Se reactivan los seriales/códigos de barras individuales.</li>
-              </ul>
-            </div>
-
-            <form onSubmit={handleExecuteCreditNote} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Cliente Titular</label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`${selectedSaleForCN.client_name || 'Cliente Mostrador'} (C.C. ${selectedSaleForCN.client_document || 'N/A'})`}
-                  style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', backgroundColor: '#f8fafc', color: '#334155' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.35rem' }}>Motivo de la Nota Crédito / Devolución</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={creditNoteReason}
-                  onChange={(e) => setCreditNoteReason(e.target.value)}
-                  placeholder="Especifica el motivo de la devolución o reverso..."
-                  style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.82rem', resize: 'vertical' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-                <button type="button" onClick={() => setShowCreditNoteModal(false)} className="btn" style={{ flex: 1, padding: '0.6rem' }}>Cancelar</button>
-                <button
-                  type="submit"
-                  disabled={processingCN}
-                  style={{
-                    flex: 1,
-                    backgroundColor: '#dc2626',
-                    color: 'white',
-                    fontWeight: '850',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '0.6rem',
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.4rem',
-                    boxShadow: '0 4px 12px rgba(220, 38, 38, 0.25)'
-                  }}
-                >
-                  {processingCN ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
-                  Confirmar Nota Crédito
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
