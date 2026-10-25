@@ -118,6 +118,30 @@ export class AlegraClient {
     return this.request('GET', `/items?${qs.toString()}`);
   }
 
+  // Create Remission (Remisión) in Alegra
+  static async createRemission(remissionPayload: any) {
+    return this.request('POST', '/remissions', remissionPayload);
+  }
+
+  // Get Remissions list
+  static async getRemissions(params: { start?: number; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.start !== undefined) qs.set('start', String(params.start));
+    if (params.limit !== undefined) qs.set('limit', String(params.limit || 30));
+    return this.request('GET', `/remissions?${qs.toString()}`);
+  }
+
+  // Create Credit Note (Nota Crédito) in Alegra
+  static async createCreditNote(creditNotePayload: any) {
+    return this.request('POST', '/credit-notes', creditNotePayload);
+  }
+
+  // Stamp Credit Note with DIAN
+  static async stampCreditNote(ids: number | number[] | string | string[]) {
+    const idsArray = Array.isArray(ids) ? ids.map(Number) : [Number(ids)];
+    return this.request('POST', '/credit-notes/stamp', { ids: idsArray });
+  }
+
   // Get Numbering Templates (Resoluciones)
   static async getNumberTemplates() {
     return this.request('GET', '/number-templates');
