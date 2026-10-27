@@ -1802,13 +1802,11 @@ export default function SewingPage() {
     }
   });
 
-  // Deduplicación estricta por (parent_order_id + workshop_id)
+  // Deduplicación estricta por ID único de orden de confección
   const seenKeys = new Set<string>();
   const baseTableList: any[] = [];
   rawTableList.forEach(item => {
-    const pId = item.parent_order_id || item.parent_order?.id || item.id;
-    const wId = item.workshop_id || 'no_ws';
-    const key = `${pId}_${wId}`;
+    const key = String(item.id || item.confeccion_code || `${item.parent_order_id}_${item.workshop_id}`);
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
       baseTableList.push(item);
