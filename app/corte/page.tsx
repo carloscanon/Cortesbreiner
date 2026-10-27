@@ -21,6 +21,26 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+const fetchAll = async (queryFn: () => any) => {
+  let allData: any[] = [];
+  let from = 0;
+  const step = 200;
+  let safetyLimit = 15;
+  while (safetyLimit > 0) {
+    safetyLimit--;
+    const { data, error } = await queryFn().range(from, from + step - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allData = allData.concat(data);
+      if (data.length < step) break;
+      from += step;
+    } else {
+      break;
+    }
+  }
+  return allData;
+};
+
 export default function CorteDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,22 +78,28 @@ export default function CorteDashboard() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const data = await fetchAll(() => supabase
         .from('orders')
         .select('*')
-        .in('status', ['Tendido', 'Cortando', 'Cortado'])
-        .order('created_at', { ascending: false });
+        .in('status', ['Tendido', 'Cortando', 'Cortado', 'En Confección', 'Terminada', 'Enviada', 'Cerrada'])
+        .order('created_at', { ascending: false }));
 
-      if (error) throw error;
       setOrders(data || []);
 
       if (data && data.length > 0) {
+        // Cargar cortes en lotes de order_ids
         const orderIds = data.map(o => o.id);
-        const { data: cutsData } = await supabase
-          .from('cuts')
-          .select('*, cut_sizes(*)')
-          .in('order_id', orderIds);
-        setAllCuts(cutsData || []);
+        const chunkSize = 100;
+        let cutsAcc: any[] = [];
+        for (let i = 0; i < orderIds.length; i += chunkSize) {
+          const chunk = orderIds.slice(i, i + chunkSize);
+          const chunkCuts = await fetchAll(() => supabase
+            .from('cuts')
+            .select('*, cut_sizes(*)')
+            .in('order_id', chunk));
+          cutsAcc = cutsAcc.concat(chunkCuts || []);
+        }
+        setAllCuts(cutsAcc);
       } else {
         setAllCuts([]);
       }
@@ -402,13 +428,13 @@ export default function CorteDashboard() {
               </h3>
             </div>
             
-            {orders.length === 0 ? (
+            {orders.filter(o => o.status === 'Tendido' || o.status === 'Cortando' || o.status === 'Cortado').length === 0 ? (
               <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                 No hay órdenes pendientes de corte en este momento.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {orders.map(order => {
+                {orders.filter(o => o.status === 'Tendido' || o.status === 'Cortando' || o.status === 'Cortado').map(order => {
                   const isFinished = order.status === 'Cortado';
                   const isCutting = order.status === 'Cortando';
                   return (
@@ -792,6 +818,8 @@ export default function CorteDashboard() {
                     <option value="Tendido">Tendido</option>
                     <option value="Cortando">Cortando</option>
                     <option value="Cortado">Cortado</option>
+                    <option value="En Confección">En Confección</option>
+                    <option value="Terminada">Terminada</option>
                   </select>
                 </div>
 
@@ -930,8 +958,8 @@ export default function CorteDashboard() {
                                   fontWeight: '900',
                                   padding: '0.15rem 0.4rem',
                                   borderRadius: '4px',
-                                  backgroundColor: status === 'Cortado' ? '#d1fae5' : status === 'Cortando' ? '#dbeafe' : '#fef3c7',
-                                  color: status === 'Cortado' ? '#065f46' : status === 'Cortando' ? '#1e40af' : '#92400e',
+                                  backgroundColor: status === 'Cortado' ? '#d1fae5' : status === 'En Confección' ? '#ede9fe' : status === 'Terminada' ? '#dcfce7' : status === 'Cortando' ? '#dbeafe' : '#fef3c7',
+                                  color: status === 'Cortado' ? '#065f46' : status === 'En Confección' ? '#6d28d9' : status === 'Terminada' ? '#15803d' : status === 'Cortando' ? '#1e40af' : '#92400e',
                                   textTransform: 'uppercase'
                                 }}>
                                   {status}
