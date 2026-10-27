@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
@@ -302,6 +302,11 @@ export default function POSPage() {
 
   // Cart & Sales Flow
   const [cart, setCart] = useState<any[]>([]);
+  const cartRef = useRef<any[]>([]);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+  const processedScansRef = useRef<Map<string, number>>(new Map());
   const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<any>(null);
@@ -2646,8 +2651,9 @@ export default function POSPage() {
     const term = barcodeToScan.trim();
     if (!term) return { success: false, barcode: '', message: 'Código vacío' };
 
-    // Prevent scanning the exact same barcode multiple times in the same sale
-    const isAlreadyInCart = cart.some(item => 
+    // Prevent scanning the exact same barcode multiple times in the same sale (usando cartRef para consistencia inmediata)
+    const currentCart = cartRef.current;
+    const isAlreadyInCart = currentCart.some(item => 
       Array.isArray(item.barcodes) && item.barcodes.includes(term)
     );
     if (isAlreadyInCart) {
@@ -2696,7 +2702,7 @@ export default function POSPage() {
         }
 
         // Double-check if the matched garment barcode is already in the cart
-        if (cart.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(garmentBarcode))) {
+        if (cartRef.current.some(item => Array.isArray(item.barcodes) && item.barcodes.includes(garmentBarcode))) {
           return {
             success: false,
             barcode: garmentBarcode,
@@ -2825,8 +2831,17 @@ export default function POSPage() {
 
     // When phone scans a barcode
     channel.on('broadcast', { event: 'scan' }, async (payload: any) => {
-      const barcode = payload?.payload?.barcode;
+      const barcode = payload?.payload?.barcode ? String(payload.payload.barcode).trim() : '';
       if (!barcode) return;
+
+      // Deduplicar mensajes idénticos que lleguen por duplicación de red o ráfaga en < 2.5s
+      const now = Date.now();
+      const lastProcessedTime = processedScansRef.current.get(barcode) || 0;
+      if (now - lastProcessedTime < 2500) {
+        console.log('Ignorando escaneo duplicado en ráfaga:', barcode);
+        return;
+      }
+      processedScansRef.current.set(barcode, now);
 
       const result = await handleScanBarcodeDirect(barcode);
       const nowStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });

@@ -86,6 +86,8 @@ function RemoteScannerContent() {
   const scanLoopTimerRef = useRef<any>(null);
   const channelRef = useRef<any>(null);
   const lastScanTimestampRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const scannedBarcodesSetRef = useRef<Set<string>>(new Set());
+  const isTransmittingRef = useRef<boolean>(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Audio Beep
@@ -257,12 +259,31 @@ function RemoteScannerContent() {
     const term = code.trim();
     if (!term) return;
 
+    // Validar si el código ya fue escaneado en esta sesión para evitar duplicados exactos
+    if (scannedBarcodesSetRef.current.has(term)) {
+      triggerHaptic([50, 50, 50]);
+      setActiveFeedback({
+        barcode: term,
+        success: false,
+        message: `⚠️ La prenda "${term}" ya fue escaneada previamente.`
+      });
+      setTimeout(() => setActiveFeedback(null), 2500);
+      return;
+    }
+
+    // Bloquear transmisiones concurrentes para garantizar despacho de a 1 prenda
+    if (isTransmittingRef.current) return;
+    isTransmittingRef.current = true;
+
+    // Registrar en el conjunto de prendas escaneadas
+    scannedBarcodesSetRef.current.add(term);
+
     // Beep & Vibrate
     triggerAudioBeep();
     triggerHaptic(75);
 
     const nowStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const tempId = `scan-${Date.now()}`;
+    const tempId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     // Add to local history immediately with pending status
     setScannedItems(prev => [
@@ -282,39 +303,52 @@ function RemoteScannerContent() {
       message: `Enviando a Caja ${registerName}...`
     });
 
-    // 1. Direct Broadcast through Supabase Realtime channel
-    if (channelRef.current) {
-      try {
-        await channelRef.current.send({
-          type: 'broadcast',
-          event: 'scan',
-          payload: {
-            barcode: term,
-            id: tempId,
-            timestamp: Date.now(),
-            scannerDevice: 'Celular'
-          }
-        });
-      } catch (err) {
-        console.warn('Realtime channel broadcast error:', err);
-      }
-    }
-
-    // 2. Parallel HTTP Fallback guarantee
     try {
-      fetch('/api/pos/remote-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelId: sessionId,
-          barcode: term,
-          scannerDevice: 'Celular Remoto'
-        })
-      }).catch(e => console.warn('HTTP fallback error:', e));
-    } catch {
-      // ignore
+      let sentRealtime = false;
+      // 1. Direct Broadcast through Supabase Realtime channel
+      if (channelRef.current && isConnected) {
+        try {
+          const res = await channelRef.current.send({
+            type: 'broadcast',
+            event: 'scan',
+            payload: {
+              barcode: term,
+              id: tempId,
+              timestamp: Date.now(),
+              scannerDevice: 'Celular'
+            }
+          });
+          if (res === 'ok') {
+            sentRealtime = true;
+          }
+        } catch (err) {
+          console.warn('Realtime channel broadcast error:', err);
+        }
+      }
+
+      // 2. HTTP Fallback ÚNICAMENTE si no se envió por Realtime (evita duplicar eventos)
+      if (!sentRealtime) {
+        try {
+          await fetch('/api/pos/remote-scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              channelId: sessionId,
+              barcode: term,
+              scannerDevice: 'Celular Remoto'
+            })
+          });
+        } catch (e) {
+          console.warn('HTTP fallback error:', e);
+        }
+      }
+    } finally {
+      // Cooldown de 1.2 segundos antes de permitir la siguiente lectura
+      setTimeout(() => {
+        isTransmittingRef.current = false;
+      }, 1200);
     }
-  }, [sessionId, registerName, triggerAudioBeep, triggerHaptic]);
+  }, [sessionId, registerName, triggerAudioBeep, triggerHaptic, isConnected]);
 
   // Camera Barcode Scanning Engine
   const startCamera = async (mode: 'environment' | 'user' = facingMode) => {
@@ -412,7 +446,7 @@ function RemoteScannerContent() {
               if (detected?.length > 0 && detected[0].rawValue) {
                 const code = detected[0].rawValue.trim();
                 const now = Date.now();
-                if (code && (lastScanTimestampRef.current.code !== code || (now - lastScanTimestampRef.current.time) > 2000)) {
+                if (code && (lastScanTimestampRef.current.code !== code || (now - lastScanTimestampRef.current.time) > 2500)) {
                   lastScanTimestampRef.current = { code, time: now };
                   transmitBarcode(code);
                 }
@@ -423,7 +457,7 @@ function RemoteScannerContent() {
                 if (res) {
                   const code = res.getText().trim();
                   const now = Date.now();
-                  if (code && (lastScanTimestampRef.current.code !== code || (now - lastScanTimestampRef.current.time) > 2000)) {
+                  if (code && (lastScanTimestampRef.current.code !== code || (now - lastScanTimestampRef.current.time) > 2500)) {
                     lastScanTimestampRef.current = { code, time: now };
                     transmitBarcode(code);
                   }
