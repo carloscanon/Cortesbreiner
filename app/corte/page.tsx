@@ -521,6 +521,9 @@ export default function CorteDashboard() {
 
       {/* Analytics Dashboard View */}
       {!loading && !selectedOrder && !reconciliationOrder && activeTab === 'analytics' && (() => {
+        const activeCuttingOrders = orders.filter(o => o.status === 'Tendido' || o.status === 'Cortando' || o.status === 'Cortado');
+        const processedOrders = orders.filter(o => o.status === 'En Confección' || o.status === 'Terminada' || o.status === 'Enviada');
+        
         const totalKilos = allCuts.reduce((sum, cut) => sum + (Number(cut.kilos) || 0), 0);
         const totalLayers = allCuts.reduce((sum, cut) => sum + (Number(cut.layers_produced || cut.layers || 0)), 0);
         
@@ -590,9 +593,9 @@ export default function CorteDashboard() {
                   <FileText size={24} />
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Órdenes Pendientes</p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: '800', opacity: 0.85 }}>Órdenes Cortadas / Proceso</p>
                   <h3 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '950' }}>{orders.length}</h3>
-                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>En tendido y corte (Clic detalle)</span>
+                  <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>{activeCuttingOrders.length} en mesa · {processedOrders.length} despachadas</span>
                 </div>
               </div>
 
@@ -685,37 +688,50 @@ export default function CorteDashboard() {
             {/* Status Breakdown Bar */}
             <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderRadius: '16px' }}>
               <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0, textTransform: 'uppercase' }}>
-                Fases de Órdenes en Corte
+                Fases de Órdenes y Ciclo de Corte
               </h3>
-              <div style={{ display: 'flex', width: '100%', height: '24px', backgroundColor: '#f1f5f9', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                {['Tendido', 'Cortando', 'Cortado'].map((status) => {
-                  const count = statusCounts[status] || 0;
+              <div style={{ display: 'flex', width: '100%', height: '26px', backgroundColor: '#f1f5f9', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                {[
+                  { id: 'Tendido', color: '#f59e0b', label: 'Tendido' },
+                  { id: 'Cortando', color: '#3b82f6', label: 'Cortando' },
+                  { id: 'Cortado', color: '#10b981', label: 'Cortado' },
+                  { id: 'En Confección', color: '#8b5cf6', label: 'En Confección' },
+                  { id: 'Terminada', color: '#059669', label: 'Terminada' }
+                ].map((st) => {
+                  const count = statusCounts[st.id] || 0;
                   const pct = orders.length > 0 ? (count / orders.length) * 100 : 0;
-                  if (pct === 0) return null;
+                  if (count === 0) return null;
                   return (
                     <div
-                      key={status}
+                      key={st.id}
                       style={{
                         width: `${pct}%`,
                         height: '100%',
-                        backgroundColor: status === 'Tendido' ? '#f59e0b' : status === 'Cortando' ? '#3b82f6' : '#10b981',
+                        backgroundColor: st.color,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: 'white',
                         fontSize: '0.6875rem',
-                        fontWeight: '900'
+                        fontWeight: '900',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        padding: '0 0.25rem'
                       }}
+                      title={`${st.label}: ${count} (${pct.toFixed(1)}%)`}
                     >
-                      {status}: {count} ({pct.toFixed(0)}%)
+                      {pct > 5 ? `${st.label}: ${count} (${pct.toFixed(0)}%)` : count}
                     </div>
                   );
                 })}
               </div>
-              <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#f59e0b' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#f59e0b', borderRadius: '50%' }}></span>Tendido ({statusCounts['Tendido'] || 0})</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#3b82f6' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#3b82f6', borderRadius: '50%' }}></span>Cortando ({statusCounts['Cortando'] || 0})</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#10b981' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></span>Cortado ({statusCounts['Cortado'] || 0})</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#8b5cf6' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#8b5cf6', borderRadius: '50%' }}></span>En Confección ({statusCounts['En Confección'] || 0})</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#059669' }}><span style={{ display: 'inline-block', width: '8px', height: '8px', backgroundColor: '#059669', borderRadius: '50%' }}></span>Terminada ({statusCounts['Terminada'] || 0})</span>
               </div>
             </div>
 
@@ -1012,14 +1028,16 @@ export default function CorteDashboard() {
         let content: React.ReactNode = null;
 
         if (activeKpiModal === 'orders') {
-          title = 'Detalle de Órdenes Pendientes';
+          title = 'Detalle de Órdenes de Corte';
           modalBg = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
           
           const tendidoCount = orders.filter(o => o.status === 'Tendido').length;
           const cortandoCount = orders.filter(o => o.status === 'Cortando').length;
           const cortadoCount = orders.filter(o => o.status === 'Cortado').length;
+          const confeccionCount = orders.filter(o => o.status === 'En Confección').length;
+          const terminadaCount = orders.filter(o => o.status === 'Terminada').length;
           
-          analysisText = `Actualmente se registran ${orders.length} órdenes en flujo de corte. De ellas, ${tendidoCount} están en tendido inicial, ${cortandoCount} están en proceso activo de corte físico y ${cortadoCount} han finalizado el corte y están listas para envío. El flujo promedio muestra una buena distribución, con un enfoque en finalizar los cortes de lotes pendientes.`;
+          analysisText = `Se registran ${orders.length} órdenes procesadas en el área de corte. En mesa activa: ${tendidoCount} en tendido, ${cortandoCount} cortando y ${cortadoCount} cortadas listas para despacho. Despachadas a taller: ${confeccionCount} en confección y ${terminadaCount} terminadas.`;
           
           content = (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
@@ -1034,8 +1052,8 @@ export default function CorteDashboard() {
                     fontWeight: '900',
                     padding: '0.2rem 0.5rem',
                     borderRadius: '4px',
-                    backgroundColor: o.status === 'Cortado' ? '#d1fae5' : o.status === 'Cortando' ? '#dbeafe' : '#fef3c7',
-                    color: o.status === 'Cortado' ? '#065f46' : o.status === 'Cortando' ? '#1e40af' : '#92400e',
+                    backgroundColor: o.status === 'Cortado' ? '#d1fae5' : o.status === 'En Confección' ? '#ede9fe' : o.status === 'Terminada' ? '#dcfce7' : o.status === 'Cortando' ? '#dbeafe' : '#fef3c7',
+                    color: o.status === 'Cortado' ? '#065f46' : o.status === 'En Confección' ? '#6d28d9' : o.status === 'Terminada' ? '#15803d' : o.status === 'Cortando' ? '#1e40af' : '#92400e',
                     alignSelf: 'center',
                     textTransform: 'uppercase'
                   }}>{o.status}</span>
