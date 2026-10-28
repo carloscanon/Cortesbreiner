@@ -442,6 +442,14 @@ export default function POSPage() {
   const [customTotalLabel, setCustomTotalLabel] = useState('TOTAL A COBRAR');
   const [cartWidth, setCartWidth] = useState(420);
   const [cartItemImageSize, setCartItemImageSize] = useState(42);
+  const [cartTwoStepMode, setCartTwoStepMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pos_cart_two_step');
+      if (saved !== null) return saved === 'true';
+    }
+    return false;
+  });
+  const [cartCurrentStep, setCartCurrentStep] = useState<'cart' | 'payment'>('cart');
   const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [customLogoWidth, setCustomLogoWidth] = useState(38);
   const [customHeaderText, setCustomHeaderText] = useState('Breiner');
@@ -874,6 +882,7 @@ export default function POSPage() {
       if (cat.productPriceFontSize) setProductPriceFontSize(cat.productPriceFontSize);
       if (cat.cartWidth) setCartWidth(Number(cat.cartWidth));
       if (cat.cartItemImageSize) setCartItemImageSize(Number(cat.cartItemImageSize));
+      if (cat.cartTwoStepMode !== undefined) setCartTwoStepMode(!!cat.cartTwoStepMode);
       if (cat.totalLabel) setCustomTotalLabel(cat.totalLabel);
       if (cat.searchWidth) setCustomSearchWidth(Number(cat.searchWidth));
       if (cat.searchHeight) setCustomSearchHeight(Number(cat.searchHeight));
@@ -1007,6 +1016,7 @@ export default function POSPage() {
             productPriceFontSize,
             cartWidth,
             cartItemImageSize,
+            cartTwoStepMode,
             totalLabel: customTotalLabel,
             searchWidth: customSearchWidth,
             searchHeight: customSearchHeight,
@@ -1946,7 +1956,29 @@ export default function POSPage() {
         return sum + cashPays.reduce((acc: number, p: any) => acc + (Number(p.monto) || 0), 0);
       }, 0) || 0;
 
-      const expected = Number(currentSession.monto_apertura) + cashSalesTotal;
+      // Consultar movimientos de caja registrados
+      let netMovements = 0;
+      try {
+        const { data: movs } = await supabase
+          .from('pos_cash_movements')
+          .select('*')
+          .eq('session_id', currentSession.id);
+        if (movs && movs.length > 0) {
+          const ing = movs.filter((m: any) => m.tipo === 'ingreso' || m.tipo === 'Ingreso').reduce((a: number, b: any) => a + Number(b.monto || 0), 0);
+          const eg = movs.filter((m: any) => m.tipo === 'egreso' || m.tipo === 'Egreso').reduce((a: number, b: any) => a + Number(b.monto || 0), 0);
+          netMovements = ing - eg;
+        } else {
+          // Fallback a localStorage ledger
+          const localLedger = JSON.parse(localStorage.getItem(`pos_cash_ledger_${currentSession.id}`) || '[]');
+          const ing = localLedger.filter((m: any) => m.tipo === 'ingreso' || m.tipo === 'Ingreso').reduce((a: number, b: any) => a + Number(b.monto || 0), 0);
+          const eg = localLedger.filter((m: any) => m.tipo === 'egreso' || m.tipo === 'Egreso').reduce((a: number, b: any) => a + Number(b.monto || 0), 0);
+          netMovements = ing - eg;
+        }
+      } catch (e) {
+        console.warn('Error fetching cash movements for closure:', e);
+      }
+
+      const expected = Number(currentSession.monto_apertura) + cashSalesTotal + netMovements;
       const real = Number(closingCashReal);
       const diff = real - expected;
 
@@ -6320,6 +6352,54 @@ export default function POSPage() {
                           <p style={{ fontSize: '0.6rem', color: '#94a3b8', margin: 0 }}>Personaliza el texto que aparece en el renglón del total del carrito</p>
                         </div>
 
+                        {/* Divisi?n de Carrito y Cobro en 2 Tiempos */}
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '1rem',
+                          borderRadius: '12px',
+                          backgroundColor: cartTwoStepMode ? '#fdf2f8' : '#f8fafc',
+                          border: `1.5px solid ${cartTwoStepMode ? '#f472b6' : '#cbd5e1'}`,
+                          gap: '1rem',
+                          transition: 'all 0.2s ease'
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <span style={{ fontSize: '1.1rem' }}>⏱️</span>
+                              <label style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a' }}>
+                                Dividir Carrito y Cobro en 2 Tiempos
+                              </label>
+                            </div>
+                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0, lineHeight: 1.4 }}>
+                              Separa la selección de productos (Tiempo 1) del formulario de pagos y medios (Tiempo 2). Evita que al haber muchas prendas en el carrito se desplace o pierda de vista la zona de cobro.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = !cartTwoStepMode;
+                              setCartTwoStepMode(next);
+                              localStorage.setItem('pos_cart_two_step', String(next));
+                            }}
+                            style={{
+                              padding: '0.45rem 1rem',
+                              borderRadius: '20px',
+                              border: 'none',
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              backgroundColor: cartTwoStepMode ? '#80082E' : '#e2e8f0',
+                              color: cartTwoStepMode ? 'white' : '#64748b',
+                              cursor: 'pointer',
+                              flexShrink: 0,
+                              boxShadow: cartTwoStepMode ? '0 2px 8px rgba(128,8,46,0.3)' : 'none',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {cartTwoStepMode ? '✓ ACTIVADO' : 'DESACTIVADO'}
+                          </button>
+                        </div>
+
                         {/* Search Width Control */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -7494,28 +7574,59 @@ export default function POSPage() {
                 padding: '1.25rem 1.5rem',
                 borderBottom: '1px solid #cbd5e1'
               }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
-                  Carrito de Compra ({cart.length})
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
+                    {cartTwoStepMode 
+                      ? (cartCurrentStep === 'cart' ? `1. Productos (${cart.length})` : '2. Cobro y Pago')
+                      : `Carrito de Compra (${cart.length})`
+                    }
+                  </h3>
+                  {cartTwoStepMode && (
+                    <span style={{ fontSize: '0.62rem', fontWeight: '800', backgroundColor: '#f1f5f9', color: '#64748b', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+                      Paso {cartCurrentStep === 'cart' ? '1 de 2' : '2 de 2'}
+                    </span>
+                  )}
+                </div>
 
-                <button
-                  onClick={() => { setCart([]); setCartNotes(''); }}
-                  style={{
-                    backgroundColor: '#fee2e2',
-                    color: '#dc2626',
-                    border: 'none',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '6px',
-                    fontSize: '0.72rem',
-                    fontWeight: '800',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Vaciar carrito
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  {cartTwoStepMode && cartCurrentStep === 'payment' && (
+                    <button
+                      type="button"
+                      onClick={() => setCartCurrentStep('cart')}
+                      style={{
+                        backgroundColor: '#f1f5f9',
+                        color: '#475569',
+                        border: '1px solid #cbd5e1',
+                        padding: '0.35rem 0.65rem',
+                        borderRadius: '6px',
+                        fontSize: '0.72rem',
+                        fontWeight: '800',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⬅ Volver
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setCart([]); setCartNotes(''); setCartCurrentStep('cart'); }}
+                    style={{
+                      backgroundColor: '#fee2e2',
+                      color: '#dc2626',
+                      border: 'none',
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '6px',
+                      fontSize: '0.72rem',
+                      fontWeight: '800',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Vaciar
+                  </button>
+                </div>
               </div>
 
-              {/* Items in cart list */}
+              {/* Items in cart list (Shown in classic mode OR step 1 in 2-step mode) */}
+              {(!cartTwoStepMode || cartCurrentStep === 'cart') && (
               <div style={{ flex: 1, padding: '1rem 1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.85rem' }} className="pos-scrollbar">
                 {cart.length === 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, color: '#94a3b8', gap: '0.5rem' }}>
@@ -7586,16 +7697,93 @@ export default function POSPage() {
                   ))
                 )}
               </div>
+              )}
 
-              {/* Checkout cost adjustments form layout */}
+              {/* Botón de Continuar al Pago cuando está en Paso 1 (2 tiempos) */}
+              {cartTwoStepMode && cartCurrentStep === 'cart' && (
+                <div style={{
+                  padding: '1rem 1.25rem',
+                  borderTop: '1px solid #cbd5e1',
+                  backgroundColor: '#f8fafc',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.65rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>Prendas en Carrito:</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#0f172a' }}>{cart.reduce((s, it) => s + (it.cantidad || 1), 0)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '900', color: '#0f172a' }}>Subtotal estimado:</span>
+                    <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#80082E', fontFamily: 'monospace' }}>${totalCartPrice.toLocaleString('es-CO')}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (cart.length === 0) {
+                        alert('Agrega al menos un producto al carrito para continuar al cobro.');
+                        return;
+                      }
+                      setCartCurrentStep('payment');
+                    }}
+                    disabled={cart.length === 0}
+                    style={{
+                      width: '100%',
+                      padding: '0.85rem',
+                      background: cart.length === 0 ? '#cbd5e1' : `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)`,
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontSize: '0.88rem',
+                      fontWeight: '900',
+                      cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      boxShadow: cart.length > 0 ? '0 4px 15px rgba(128,8,46,0.25)' : 'none'
+                    }}
+                  >
+                    Proceder al Pago ➔
+                  </button>
+                </div>
+              )}
+
+              {/* Checkout cost adjustments form layout (Shown in classic mode OR step 2 in 2-step mode) */}
+              {(!cartTwoStepMode || cartCurrentStep === 'payment') && (
               <div style={{
                 padding: '0.65rem 0.85rem',
                 borderTop: '1px solid #cbd5e1',
                 backgroundColor: '#f8fafc',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '0.45rem'
-              }}>
+                gap: '0.45rem',
+                flex: cartTwoStepMode ? 1 : 'none',
+                overflowY: cartTwoStepMode ? 'auto' : 'visible'
+              }} className="pos-scrollbar">
+                {/* Resumen rápido de prendas si estamos en tiempo 2 */}
+                {cartTwoStepMode && (
+                  <div style={{
+                    padding: '0.5rem 0.75rem',
+                    backgroundColor: '#f1f5f9',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.7rem'
+                  }}>
+                    <span style={{ fontWeight: '800', color: '#475569' }}>
+                      📦 {cart.length} referencia(s) · {cart.reduce((s, it) => s + (it.cantidad || 1), 0)} prenda(s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCartCurrentStep('cart')}
+                      style={{ border: 'none', background: 'transparent', color: '#80082E', fontWeight: '850', cursor: 'pointer', padding: 0 }}
+                    >
+                      Editar prendas ✏️
+                    </button>
+                  </div>
+                )}
                 {/* Cliente selector card widget */}
                 <div style={{
                   display: 'flex',
@@ -8366,6 +8554,7 @@ export default function POSPage() {
                 </div>
 
               </div>
+              )}
             </div>
 
           </div>
@@ -8847,69 +9036,273 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* CLOSE CASH SESSION MODAL */}
-      {showCloseSessionModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-          <div className="pos-modal" style={{
-            width: '90%',
-            maxWidth: '420px',
-            padding: '2.5rem',
-            background: 'var(--surface, #ffffff)',
-            border: '1px solid var(--border, #cbd5e1)',
-            borderRadius: '24px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontWeight: '900', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626' }}><Lock size={22} /> Cerrar Caja y Arqueo</h3>
-              <button type="button" onClick={() => setShowCloseSessionModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
-            </div>
-            
-            <form onSubmit={handleCloseSession} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
-                Declara el efectivo total que contaste físicamente en caja para realizar el arqueo contra el sistema.
-              </p>
-              
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Efectivo Físico Contado ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={closingCashReal}
-                  onChange={e => setClosingCashReal(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.85rem 1rem',
-                    borderRadius: '10px',
-                    background: 'var(--surface, #ffffff)',
-                    border: '1px solid var(--border, #cbd5e1)',
-                    color: '#0f172a',
-                    fontSize: '0.9rem',
-                    outline: 'none'
-                  }}
-                />
+      {/* CLOSE CASH SESSION MODAL CON RESUMEN DISCRIMINADO */}
+      {showCloseSessionModal && (() => {
+        // Cálculo discriminado de medios de pago para la sesión actual
+        const apertura = Number(currentSession?.monto_apertura || 0);
+
+        let efectivoVentas = 0;
+        let tarjetaVentas = 0;
+        let transferenciaTotal = 0;
+        const transferenciasPorBanco: Record<string, number> = {};
+        let mixtoVentasTotal = 0;
+        let totalFacturado = 0;
+
+        sessionSalesDetails.forEach((sale: any) => {
+          const totalVenta = Number(sale.total || 0);
+          totalFacturado += totalVenta;
+          const pays: any[] = sale.pos_payments && sale.pos_payments.length > 0 ? sale.pos_payments : [];
+          const isMixed = pays.length > 1 || sale.observaciones?.toLowerCase().includes('mixto');
+          if (isMixed) {
+            mixtoVentasTotal += totalVenta;
+          }
+
+          if (pays.length > 0) {
+            pays.forEach((p: any) => {
+              const metodo = (p.metodo_pago || '').toLowerCase();
+              const monto = Number(p.monto || 0);
+              if (metodo.includes('efectivo')) {
+                efectivoVentas += monto;
+              } else if (metodo.includes('tarjeta') || metodo.includes('datafono')) {
+                tarjetaVentas += monto;
+              } else if (metodo.includes('transferencia') || metodo.includes('banco') || metodo.includes('qr')) {
+                transferenciaTotal += monto;
+                // Extraer banco si está especificado
+                let bankName = 'Transferencias / QR';
+                if (sale.observaciones) {
+                  const match = sale.observaciones.match(/Banco:\s*([^|,\n]+)/i);
+                  if (match && match[1]) bankName = match[1].trim();
+                }
+                transferenciasPorBanco[bankName] = (transferenciasPorBanco[bankName] || 0) + monto;
+              }
+            });
+          } else {
+            // Sin desglose pos_payments, usar el método general o asumir efectivo
+            efectivoVentas += totalVenta;
+          }
+        });
+
+        // Movimientos de caja (ingresos y egresos)
+        let totalIngresosCaja = 0;
+        let totalEgresosCaja = 0;
+        try {
+          const localLedger = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem(`pos_cash_ledger_${currentSession?.id}`) || '[]') : [];
+          localLedger.forEach((m: any) => {
+            const t = (m.tipo || '').toLowerCase();
+            const val = Number(m.monto || 0);
+            if (t === 'ingreso') totalIngresosCaja += val;
+            if (t === 'egreso') totalEgresosCaja += val;
+          });
+        } catch (e) {
+          console.warn(e);
+        }
+
+        const efectivoEsperado = apertura + efectivoVentas + totalIngresosCaja - totalEgresosCaja;
+        const real = Number(closingCashReal || 0);
+        const diferencia = closingCashReal !== '' ? real - efectivoEsperado : 0;
+
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)', padding: '1rem' }}>
+            <div className="pos-modal" style={{
+              width: '100%',
+              maxWidth: '560px',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              padding: '2rem',
+              background: 'var(--surface, #ffffff)',
+              border: '1px solid var(--border, #cbd5e1)',
+              borderRadius: '24px',
+              boxShadow: '0 25px 50px rgba(0,0,0,0.15)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontWeight: '950', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626' }}>
+                    <Lock size={22} /> Cerrar Caja y Arqueo de Turno
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>
+                    {selectedStore?.nombre || 'Tienda'} · {selectedRegister?.codigo_caja || 'Caja 1'}
+                  </span>
+                </div>
+                <button type="button" onClick={() => setShowCloseSessionModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
               </div>
 
-              <button
-                type="submit"
-                style={{
-                  width: '100%',
-                  padding: '0.85rem',
-                  backgroundColor: '#dc2626',
-                  border: 'none',
+              {/* RESUMEN DISCRIMINADO DE VENTAS Y MEDIOS */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  📊 Resumen de Ventas por Medios Habilitados
+                </span>
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: '0.65rem'
+                }}>
+                  {/* Base Apertura */}
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '800' }}>BASE APERTURA</span>
+                    <span style={{ fontSize: '0.95rem', fontWeight: '950', color: '#0f172a', fontFamily: 'monospace' }}>${apertura.toLocaleString('es-CO')}</span>
+                  </div>
+
+                  {/* Efectivo en Ventas */}
+                  {efectivoVentas > 0 && (
+                    <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#ecfdf5', border: '1px solid #a7f3d0', display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#065f46', fontWeight: '800' }}>💵 EFECTIVO VENTAS</span>
+                      <span style={{ fontSize: '0.95rem', fontWeight: '950', color: '#047857', fontFamily: 'monospace' }}>${efectivoVentas.toLocaleString('es-CO')}</span>
+                    </div>
+                  )}
+
+                  {/* Tarjetas / Datáfono */}
+                  {tarjetaVentas > 0 && (
+                    <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: '800' }}>💳 TARJETA / DATÁFONO</span>
+                      <span style={{ fontSize: '0.95rem', fontWeight: '950', color: '#1d4ed8', fontFamily: 'monospace' }}>${tarjetaVentas.toLocaleString('es-CO')}</span>
+                    </div>
+                  )}
+
+                  {/* Bancos / Transferencias */}
+                  {transferenciaTotal > 0 && (
+                    <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#fffbeb', border: '1px solid #fde68a', display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#92400e', fontWeight: '800' }}>🏦 BANCOS / TRANSF.</span>
+                      <span style={{ fontSize: '0.95rem', fontWeight: '950', color: '#b45309', fontFamily: 'monospace' }}>${transferenciaTotal.toLocaleString('es-CO')}</span>
+                      {Object.keys(transferenciasPorBanco).length > 0 && (
+                        <div style={{ marginTop: '0.25rem', fontSize: '0.6rem', color: '#78350f', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                          {Object.entries(transferenciasPorBanco).map(([b, val]) => (
+                            <span key={b}>{b}: ${val.toLocaleString('es-CO')}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Pagos Mixtos */}
+                  {mixtoVentasTotal > 0 && (
+                    <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#fdf4ff', border: '1px solid #f5d0fe', display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#86198f', fontWeight: '800' }}>🔀 PAGOS MIXTOS</span>
+                      <span style={{ fontSize: '0.95rem', fontWeight: '950', color: '#a21caf', fontFamily: 'monospace' }}>${mixtoVentasTotal.toLocaleString('es-CO')}</span>
+                    </div>
+                  )}
+
+                  {/* Movimientos de Caja (Ingresos / Egresos) */}
+                  {(totalIngresosCaja > 0 || totalEgresosCaja > 0) && (
+                    <div style={{ padding: '0.75rem', borderRadius: '12px', background: '#f1f5f9', border: '1px solid #cbd5e1', display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#475569', fontWeight: '800' }}>🔄 MOV. DE CAJA</span>
+                      <div style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', color: '#16a34a', fontWeight: '800' }}>
+                        <span>+ Ingresos:</span> <span>${totalIngresosCaja.toLocaleString('es-CO')}</span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', color: '#dc2626', fontWeight: '800' }}>
+                        <span>- Gastos/Egresos:</span> <span>${totalEgresosCaja.toLocaleString('es-CO')}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Total Facturado de la sesión */}
+                <div style={{
+                  padding: '0.65rem 1rem',
                   borderRadius: '10px',
-                  color: 'white',
-                  fontWeight: '800',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.2)'
-                }}
-              >
-                Cerrar Caja
-              </button>
-            </form>
+                  backgroundColor: '#f8fafc',
+                  border: '1.5px solid #cbd5e1',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '900', color: '#475569' }}>Total Facturado en Turno ({sessionSalesDetails.length} ventas):</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: '950', color: '#80082E', fontFamily: 'monospace' }}>${totalFacturado.toLocaleString('es-CO')}</span>
+                </div>
+
+                {/* EFECTIVO ESPERADO EN CAJA */}
+                <div style={{
+                  padding: '0.85rem 1rem',
+                  borderRadius: '12px',
+                  backgroundColor: '#fef3c7',
+                  border: '1.5px solid #f59e0b',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '950', color: '#92400e', display: 'block' }}>EFECTIVO ESPERADO EN CAJA</span>
+                    <span style={{ fontSize: '0.62rem', color: '#b45309' }}>Base + Efectivo Ventas + Ingresos - Egresos</span>
+                  </div>
+                  <span style={{ fontSize: '1.3rem', fontWeight: '950', color: '#92400e', fontFamily: 'monospace' }}>
+                    ${efectivoEsperado.toLocaleString('es-CO')}
+                  </span>
+                </div>
+              </div>
+
+              {/* FORMULARIO DE DECLARACIÓN FÍSICA Y ARQUEO */}
+              <form onSubmit={handleCloseSession} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>
+                    Efectivo Físico Contado en Caja ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    placeholder="Ingresa el monto contado"
+                    value={closingCashReal}
+                    onChange={e => setClosingCashReal(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.85rem 1rem',
+                      borderRadius: '10px',
+                      background: 'var(--surface, #ffffff)',
+                      border: '2px solid #80082E',
+                      color: '#0f172a',
+                      fontSize: '1.1rem',
+                      fontWeight: '900',
+                      outline: 'none',
+                      fontFamily: 'monospace'
+                    }}
+                  />
+                </div>
+
+                {/* DIFERENCIA EN VIVO */}
+                {closingCashReal !== '' && (
+                  <div style={{
+                    padding: '0.65rem 1rem',
+                    borderRadius: '8px',
+                    backgroundColor: diferencia === 0 ? '#f0fdf4' : diferencia > 0 ? '#eff6ff' : '#fef2f2',
+                    border: `1px solid ${diferencia === 0 ? '#86efac' : diferencia > 0 ? '#93c5fd' : '#fca5a5'}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.78rem',
+                    fontWeight: '900'
+                  }}>
+                    <span style={{ color: diferencia === 0 ? '#166534' : diferencia > 0 ? '#1e40af' : '#991b1b' }}>
+                      {diferencia === 0 ? '✓ Arqueo Exacto (Sin diferencias)' : diferencia > 0 ? '▲ Sobrante en Caja:' : '▼ Faltante en Caja:'}
+                    </span>
+                    <span style={{ color: diferencia === 0 ? '#166534' : diferencia > 0 ? '#1e40af' : '#991b1b', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                      ${Math.abs(diferencia).toLocaleString('es-CO')}
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    padding: '0.85rem',
+                    backgroundColor: '#dc2626',
+                    border: 'none',
+                    borderRadius: '10px',
+                    color: 'white',
+                    fontWeight: '900',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(220, 38, 38, 0.25)',
+                    transition: 'background-color 0.2s'
+                  }}
+                >
+                  Confirmar y Cerrar Caja
+                </button>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* WHATSAPP STYLE REALTIME CHAT DRAWER */}
       {showChatModal && (
