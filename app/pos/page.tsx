@@ -621,19 +621,21 @@ export default function POSPage() {
         setInventoryList(inv || []);
       }
 
-      // Fetch individual garment barcode tags physically in this store or its associated warehouse (solo activas / no vendidas)
-      let garmentFilter = `store_id.eq.${selectedStore.id}`;
+      // Fetch individual garment barcode tags physically in this warehouse/store (solo activas / no vendidas)
+      // Si la tienda tiene bodega asociada (ej: Bodega Local 1), el inventario físico 1-a-1 debe coincidir estrictamente con esa bodega
+      let garmentQuery = supabase
+        .from('individual_garments')
+        .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
+        .neq('status', 'Vendido')
+        .order('created_at', { ascending: false });
+
       if (selectedStore.bodega_asociada_id) {
-        garmentFilter += `,warehouse_id.eq.${selectedStore.bodega_asociada_id}`;
+        garmentQuery = garmentQuery.eq('warehouse_id', selectedStore.bodega_asociada_id);
+      } else {
+        garmentQuery = garmentQuery.eq('store_id', selectedStore.id);
       }
-      const garments = await fetchAllPages(
-        supabase
-          .from('individual_garments')
-          .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
-          .or(garmentFilter)
-          .neq('status', 'Vendido')
-          .order('created_at', { ascending: false })
-      );
+
+      const garments = await fetchAllPages(garmentQuery);
       setIndividualGarments(garments || []);
     } catch (e) {
       console.error(e);
