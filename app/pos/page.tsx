@@ -626,13 +626,14 @@ export default function POSPage() {
       if (selectedStore.bodega_asociada_id) {
         garmentFilter += `,warehouse_id.eq.${selectedStore.bodega_asociada_id}`;
       }
-      const { data: garments } = await supabase
-        .from('individual_garments')
-        .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
-        .or(garmentFilter)
-        .neq('status', 'Vendido')
-        .order('created_at', { ascending: false })
-        .limit(1000);
+      const garments = await fetchAllPages(
+        supabase
+          .from('individual_garments')
+          .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
+          .or(garmentFilter)
+          .neq('status', 'Vendido')
+          .order('created_at', { ascending: false })
+      );
       setIndividualGarments(garments || []);
     } catch (e) {
       console.error(e);
