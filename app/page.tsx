@@ -1047,6 +1047,7 @@ export default function Dashboard() {
     let total = 0;
 
     (so.parent_order.cuts || []).forEach((cut: any) => {
+      if (so.product_id && String(cut.product_id) !== String(so.product_id)) return;
       const layersProyec = cut.layers || 1;
       const layersProduced = cut.layers_produced || 0;
 
@@ -4072,7 +4073,7 @@ export default function Dashboard() {
       // Agrupar registros explícitos por parent_order_id + workshop_id
       const explicitSewingOrdersMap = new Map<string, any>();
       explicitSewingOrdersRaw.forEach(so => {
-        const key = `${so.parent_order_id}_${so.workshop_id}`;
+        const key = String(so.id || so.confeccion_code || `${so.parent_order_id}_${so.workshop_id}_${so.product_id}`);
 
         const existing = explicitSewingOrdersMap.get(key);
         if (!existing) {
