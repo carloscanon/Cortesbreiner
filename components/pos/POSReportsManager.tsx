@@ -5,7 +5,7 @@ import {
   Download, Printer, Filter, Calendar, Search, RefreshCw, 
   CheckCircle2, XCircle, TrendingUp, ShoppingBag, DollarSign, 
   CreditCard, ChevronLeft, ChevronRight, FileSpreadsheet, Eye, X, Loader2,
-  Store, Building2
+  Store, Building2, RotateCcw
 } from 'lucide-react';
 
 interface POSReportsManagerProps {
@@ -70,6 +70,68 @@ export default function POSReportsManager({
   const [isExportingCSV, setIsExportingCSV] = useState<boolean>(false);
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
   const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null);
+  const [selectedShiftForModal, setSelectedShiftForModal] = useState<any | null>(null);
+  const [shiftModalSales, setShiftModalSales] = useState<any[]>([]);
+  const [loadingShiftSales, setLoadingShiftSales] = useState<boolean>(false);
+  const [selectedSaleForCreditNote, setSelectedSaleForCreditNote] = useState<any | null>(null);
+  const [creditNoteReason, setCreditNoteReason] = useState<string>('Devolución de prendas / Anulación POS');
+  const [processingCreditNote, setProcessingCreditNote] = useState<boolean>(false);
+
+  // Fetch sales and sold items for shift details modal
+  useEffect(() => {
+    if (!selectedShiftForModal?.id) {
+      setShiftModalSales([]);
+      return;
+    }
+    const fetchShiftData = async () => {
+      setLoadingShiftSales(true);
+      try {
+        const { data, error } = await supabase
+          .from('pos_sales')
+          .select('*, stores(id, codigo, nombre), pos_sale_items(*, products(*), colors(*), sizes(*)), pos_payments(*)')
+          .eq('session_id', selectedShiftForModal.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setShiftModalSales(data || []);
+      } catch (e) {
+        console.warn('Error fetching shift sales from supabase, using salesLogs fallback:', e);
+        const fallback = salesLogs.filter(s => s.session_id === selectedShiftForModal.id);
+        setShiftModalSales(fallback);
+      } finally {
+        setLoadingShiftSales(false);
+      }
+    };
+    fetchShiftData();
+  }, [selectedShiftForModal, supabase, salesLogs]);
+
+  // Execute Credit Note
+  const handleExecuteCreditNote = async () => {
+    if (!selectedSaleForCreditNote) return;
+    setProcessingCreditNote(true);
+    try {
+      const res = await fetch('/api/pos/credit-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          saleId: selectedSaleForCreditNote.id,
+          reason: creditNoteReason,
+          userEmail: 'Administrador'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al procesar la Nota Crédito');
+      }
+      alert(data.message || 'Nota Crédito procesada exitosamente.');
+      setSelectedSaleForCreditNote(null);
+      if (onRefreshSales) onRefreshSales();
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setProcessingCreditNote(false);
+    }
+  };
 
   // Extract unique sellers/cashiers for filter dropdown
   const uniqueSellers = useMemo(() => {
@@ -144,8 +206,8 @@ export default function POSReportsManager({
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const ticketNum = String(s.consecutive || '');
-        const stName = s.stores?.nombre || currentSelectedStore?.nombre || 'POS';
-        const ticketStr = `${stName.substring(0, 3)}-${ticketNum.padStart(4, '0')}`.toLowerCase();
+        const stCode = (s.stores?.codigo || currentSelectedStore?.codigo || (s.stores?.nombre || currentSelectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase();
+        const ticketStr = `${stCode}-${ticketNum.padStart(4, '0')}`.toLowerCase();
         const clientName = (s.cliente_nombre || '').toLowerCase();
         const clientDoc = (s.cliente_identificacion || '').toLowerCase();
         const obs = (s.observaciones || '').toLowerCase();
@@ -267,7 +329,8 @@ export default function POSReportsManager({
 
       filteredSales.forEach(sale => {
         const storeName = sale.stores?.nombre || currentSelectedStore?.nombre || 'Punto de Venta';
-        const ticket = `${storeName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+        const storeCode = (sale.stores?.codigo || currentSelectedStore?.codigo || (sale.stores?.nombre || currentSelectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase();
+        const ticket = `${storeCode}-${String(sale.consecutive || 0).padStart(4, '0')}`;
         const fechaHora = sale.created_at ? new Date(sale.created_at).toLocaleString('es-CO') : '-';
         const vendedor = sale.vendedor || sale.usuario_apertura || 'Vendedor';
         const cliente = sale.cliente_nombre || 'Cliente General';
@@ -944,7 +1007,8 @@ export default function POSReportsManager({
               <tbody>
                 {paginatedSales.map((sale: any) => {
                   const storeName = sale.stores?.nombre || currentSelectedStore?.nombre || 'POS';
-                  const ticketStr = `${storeName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+                  const storeCode = (sale.stores?.codigo || currentSelectedStore?.codigo || storeName.substring(0, 3)).toUpperCase();
+                  const ticketStr = `${storeCode}-${String(sale.consecutive || 0).padStart(4, '0')}`;
                   const isAnulada = sale.estado === 'anulada';
                   const saleBarcodes = extractBarcodesFromSale(sale);
                   const items = sale.items || sale.pos_sale_items || [];
@@ -974,8 +1038,8 @@ export default function POSReportsManager({
 
                       {/* Cliente */}
                       <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: '850', color: '#0f172a' }}>{sale.cliente_nombre || 'Cliente General'}</div>
-                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>{sale.cliente_identificacion || '222222222222'}</div>
+                        <div style={{ fontWeight: '850', color: '#0f172a' }}>{sale.client_name || sale.cliente_nombre || 'Cliente General'}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>C.C. {sale.client_document || sale.cliente_identificacion || '2222222222'}</div>
                       </td>
 
                       {/* Items & Barcodes list */}
@@ -1071,25 +1135,51 @@ export default function POSReportsManager({
 
                       {/* Action */}
                       <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
-                        <button
-                          onClick={() => setSelectedSaleDetail(sale)}
-                          title="Ver detalle del ticket"
-                          style={{
-                            padding: '0.35rem 0.65rem',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            backgroundColor: 'white',
-                            color: '#475569',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.3rem',
-                            fontSize: '0.68rem',
-                            fontWeight: '800'
-                          }}
-                        >
-                          <Eye size={13} /> Ver
-                        </button>
+                        <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                          <button
+                            onClick={() => setSelectedSaleDetail(sale)}
+                            title="Ver detalle del ticket"
+                            style={{
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: 'white',
+                              color: '#475569',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              fontSize: '0.68rem',
+                              fontWeight: '800'
+                            }}
+                          >
+                            <Eye size={13} /> Ver
+                          </button>
+                          {!isAnulada && (
+                            <button
+                              onClick={() => {
+                                setSelectedSaleForCreditNote(sale);
+                                setCreditNoteReason('Devolución de prendas / Nota Crédito');
+                              }}
+                              title="Generar Nota Crédito (Devolver transacción e inventario)"
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '6px',
+                                border: '1px solid #fca5a5',
+                                backgroundColor: '#fef2f2',
+                                color: '#b91c1c',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                fontSize: '0.68rem',
+                                fontWeight: '850'
+                              }}
+                            >
+                              <RotateCcw size={12} /> Nota Crédito
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                     </tr>
@@ -1272,6 +1362,7 @@ export default function POSReportsManager({
                 <th style={{ padding: '0.75rem', textAlign: 'right' }}>Efectivo Real</th>
                 <th style={{ padding: '0.75rem', textAlign: 'right' }}>Diferencia</th>
                 <th style={{ padding: '0.75rem', textAlign: 'center' }}>Estado</th>
+                <th style={{ padding: '0.75rem', textAlign: 'center' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -1280,19 +1371,41 @@ export default function POSReportsManager({
                   <td style={{ padding: '0.75rem', fontWeight: '850' }}>{sh.usuario_apertura}</td>
                   <td style={{ padding: '0.75rem', color: '#64748b' }}>{new Date(sh.fecha_apertura).toLocaleString('es-CO')}</td>
                   <td style={{ padding: '0.75rem', textAlign: 'right' }}>${Number(sh.monto_apertura).toLocaleString('es-CO')}</td>
-                  <td style={{ padding: '0.75rem', textAlign: 'right' }}>{sh.monto_cierre_real != null ? `$${Number(sh.monto_cierre_real).toLocaleString('es-CO')}` : '-'}</td>
+                  <td style={{ padding: '0.75rem', textAlign: 'right' }}>{sh.monto_cierre_real != null ? `${Number(sh.monto_cierre_real).toLocaleString('es-CO')}` : '-'}</td>
                   <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '850', color: Number(sh.diferencia) >= 0 ? '#10b981' : '#ef4444' }}>
-                    {sh.diferencia != null ? `$${Number(sh.diferencia).toLocaleString('es-CO')}` : '-'}
+                    {sh.diferencia != null ? `${Number(sh.diferencia).toLocaleString('es-CO')}` : '-'}
                   </td>
                   <td style={{ padding: '0.75rem', textAlign: 'center' }}>
                     <span style={{ backgroundColor: sh.estado === 'abierta' ? '#dcfce7' : '#f1f5f9', color: sh.estado === 'abierta' ? '#15803d' : '#475569', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '900', textTransform: 'uppercase', fontSize: '0.625rem' }}>
                       {sh.estado}
                     </span>
                   </td>
+                  <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShiftForModal(sh)}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#f8fafc',
+                        color: '#1e293b',
+                        fontWeight: '850',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem'
+                      }}
+                    >
+                      <Eye size={13} style={{ color: '#80082E' }} />
+                      Ver Detalle / Transacciones
+                    </button>
+                  </td>
                 </tr>
               ))}
               {managerShifts.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay turnos registrados.</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No hay turnos registrados.</td></tr>
               )}
             </tbody>
           </table>
@@ -1459,7 +1572,8 @@ export default function POSReportsManager({
                 <tbody>
                   {filteredSales.map((sale: any, idx: number) => {
                     const stName = sale.stores?.nombre || currentSelectedStore?.nombre || 'POS';
-                    const ticketStr = `${stName.substring(0, 3).toUpperCase()}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+                    const stCode = (sale.stores?.codigo || currentSelectedStore?.codigo || stName.substring(0, 3)).toUpperCase();
+                    const ticketStr = `${stCode}-${String(sale.consecutive || 0).padStart(4, '0')}`;
                     const saleBarcodes = extractBarcodesFromSale(sale);
                     const items = sale.items || sale.pos_sale_items || [];
                     const itemsStr = items.map((it: any) => `${it.cantidad || 1}x ${it.products?.nombre_producto || it.nombre || 'Prenda'}`).join(', ') || 'Venta General';
@@ -1498,6 +1612,352 @@ export default function POSReportsManager({
         </div>
       )}
 
+      {/* MODAL DETALLE DE TURNO Y CIERRE DE CAJA */}
+      {selectedShiftForModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '950px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '950', color: '#0f172a' }}>
+                  💼 Detalle del Cierre de Caja · {selectedShiftForModal.usuario_apertura}
+                </h3>
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Apertura: {new Date(selectedShiftForModal.fecha_apertura).toLocaleString('es-CO')} · {selectedShiftForModal.fecha_cierre ? `Cierre: ${new Date(selectedShiftForModal.fecha_cierre).toLocaleString('es-CO')}` : 'Turno Activo'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedShiftForModal(null)}
+                style={{ border: 'none', backgroundColor: '#e2e8f0', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Shift KPI Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
+                <div style={{ backgroundColor: '#f8fafc', padding: '0.85rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Efectivo Inicial</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a' }}>${Number(selectedShiftForModal.monto_apertura || 0).toLocaleString('es-CO')}</div>
+                </div>
+                <div style={{ backgroundColor: '#f0fdf4', padding: '0.85rem', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: '800', textTransform: 'uppercase' }}>Total Ventas Turno</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#15803d' }}>
+                    ${shiftModalSales.filter(s => s.estado !== 'anulada').reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')}
+                  </div>
+                </div>
+                <div style={{ backgroundColor: '#eff6ff', padding: '0.85rem', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: '800', textTransform: 'uppercase' }}>Efectivo Real en Cierre</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#1e3a8a' }}>
+                    {selectedShiftForModal.monto_cierre_real != null ? `${Number(selectedShiftForModal.monto_cierre_real).toLocaleString('es-CO')}` : 'Turno abierto'}
+                  </div>
+                </div>
+                <div style={{ backgroundColor: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#f0fdf4' : '#fef2f2', padding: '0.85rem', borderRadius: '10px', border: `1px solid ${Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#bbf7d0' : '#fca5a5'}` }}>
+                  <span style={{ fontSize: '0.65rem', color: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#166534' : '#991b1b', fontWeight: '800', textTransform: 'uppercase' }}>Diferencia / Cuadre</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#15803d' : '#dc2626' }}>
+                    {selectedShiftForModal.diferencia != null ? `${Number(selectedShiftForModal.diferencia).toLocaleString('es-CO')}` : '-'}
+                  </div>
+                </div>
+              </div>
+
+              {loadingShiftSales ? (
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
+                  <p style={{ fontSize: '0.8rem', color: '#64748b' }}>Cargando transacciones y prendas vendidas...</p>
+                </div>
+              ) : (
+                <>
+                  {/* PRENDAS VENDIDAS EN EL TURNO (AGRUPADAS) */}
+                  <div>
+                    <h4 style={{ margin: '0 0 0.65rem 0', fontSize: '0.85rem', fontWeight: '950', color: '#0f172a' }}>
+                      🏷️ Prendas Vendidas en Este Cierre
+                    </h4>
+                    {(() => {
+                      const itemMap = new Map();
+                      shiftModalSales.filter(s => s.estado !== 'anulada').forEach(s => {
+                        const items = s.pos_sale_items || s.items || [];
+                        items.forEach((it: any) => {
+                          const pName = it.products?.nombre_producto || it.nombre || 'Prenda';
+                          const pRef = it.products?.codigo_referencia || '';
+                          const col = it.colors?.nombre_color || it.color || '';
+                          const sz = it.sizes?.codigo_talla || it.talla || '';
+                          const key = `${pName}_${col}_${sz}`;
+                          const qty = Number(it.cantidad) || 1;
+                          const subtotal = Number(it.subtotal || it.total || (it.precio_unitario * qty) || 0);
+
+                          if (itemMap.has(key)) {
+                            const cur = itemMap.get(key);
+                            cur.cantidad += qty;
+                            cur.total += subtotal;
+                          } else {
+                            itemMap.set(key, {
+                              name: pName,
+                              ref: pRef,
+                              color: col,
+                              size: sz,
+                              cantidad: qty,
+                              total: subtotal
+                            });
+                          }
+                        });
+                      });
+
+                      const groupedItems = Array.from(itemMap.values());
+                      if (groupedItems.length === 0) {
+                        return <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', padding: '0.5rem 0' }}>No se registraron prendas en este turno.</div>;
+                      }
+
+                      return (
+                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: '850', textAlign: 'left' }}>
+                                <th style={{ padding: '0.55rem 0.75rem' }}>Prenda / Referencia</th>
+                                <th style={{ padding: '0.55rem 0.75rem' }}>Color & Talla</th>
+                                <th style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>Unidades</th>
+                                <th style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {groupedItems.map((gi: any, gIdx: number) => (
+                                <tr key={gIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.55rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>
+                                    {gi.name} {gi.ref ? `· Ref: ${gi.ref}` : ''}
+                                  </td>
+                                  <td style={{ padding: '0.55rem 0.75rem', color: '#475569' }}>
+                                    {gi.color || 'Standard'} / {gi.size || 'U'}
+                                  </td>
+                                  <td style={{ padding: '0.55rem 0.75rem', textAlign: 'center', fontWeight: '900', color: '#80082E' }}>
+                                    {gi.cantidad}
+                                  </td>
+                                  <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: '850', color: '#0f172a' }}>
+                                    ${gi.total.toLocaleString('es-CO')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* LISTADO DE TRANSACCIONES / VENTAS DEL TURNO */}
+                  <div>
+                    <h4 style={{ margin: '0 0 0.65rem 0', fontSize: '0.85rem', fontWeight: '950', color: '#0f172a' }}>
+                      🧾 Transacciones Realizadas ({shiftModalSales.length})
+                    </h4>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: '850', textAlign: 'left' }}>
+                            <th style={{ padding: '0.55rem 0.75rem' }}>Ticket</th>
+                            <th style={{ padding: '0.55rem 0.75rem' }}>Hora</th>
+                            <th style={{ padding: '0.55rem 0.75rem' }}>Cliente Titular</th>
+                            <th style={{ padding: '0.55rem 0.75rem' }}>Medio de Pago</th>
+                            <th style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>Total</th>
+                            <th style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shiftModalSales.map((s: any) => {
+                            const sCode = (s.stores?.codigo || currentSelectedStore?.codigo || (s.stores?.nombre || 'POS').substring(0, 3)).toUpperCase();
+                            const sTicket = `${sCode}-${String(s.consecutive || 0).padStart(4, '0')}`;
+                            const isAnulada = s.estado === 'anulada';
+
+                            return (
+                              <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isAnulada ? '#fff5f5' : 'white' }}>
+                                <td style={{ padding: '0.55rem 0.75rem', fontWeight: '900', color: isAnulada ? '#991b1b' : '#80082E' }}>
+                                  {sTicket}
+                                </td>
+                                <td style={{ padding: '0.55rem 0.75rem', color: '#64748b' }}>
+                                  {s.created_at ? new Date(s.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                </td>
+                                <td style={{ padding: '0.55rem 0.75rem' }}>
+                                  <span style={{ fontWeight: '800', color: '#0f172a', display: 'block' }}>{s.client_name || s.cliente_nombre || 'Cliente General'}</span>
+                                  <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>C.C. {s.client_document || s.cliente_identificacion || '2222222222'}</span>
+                                </td>
+                                <td style={{ padding: '0.55rem 0.75rem' }}>
+                                  {s.pos_payments && s.pos_payments.length > 0 ? (
+                                    s.pos_payments.map((p: any, pIdx: number) => (
+                                      <span key={pIdx} style={{ fontSize: '0.65rem', backgroundColor: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: '4px', marginRight: '0.2rem' }}>
+                                        {p.metodo_pago}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{s.metodo_pago || 'Efectivo'}</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: '900', color: isAnulada ? '#991b1b' : '#0f172a' }}>
+                                  ${Number(s.total || 0).toLocaleString('es-CO')}
+                                </td>
+                                <td style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>
+                                  <span style={{
+                                    fontSize: '0.62rem',
+                                    fontWeight: '900',
+                                    padding: '0.15rem 0.45rem',
+                                    borderRadius: '4px',
+                                    backgroundColor: isAnulada ? '#fee2e2' : '#dcfce7',
+                                    color: isAnulada ? '#dc2626' : '#15803d'
+                                  }}>
+                                    {isAnulada ? 'Anulada' : 'Completada'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#f8fafc' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedShiftForModal(null)}
+                style={{ padding: '0.5rem 1.25rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: 'white', color: '#475569', fontWeight: '800', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GENERAR NOTA CRÉDITO POS */}
+      {selectedSaleForCreditNote && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            overflow: 'hidden'
+          }}>
+            <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#fef2f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RotateCcw size={18} style={{ color: '#b91c1c' }} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '950', color: '#991b1b' }}>
+                  Generar Nota Crédito / Devolución
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSaleForCreditNote(null)}
+                style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.75rem' }}>
+                <div><strong>Ticket:</strong> {(selectedSaleForCreditNote.stores?.codigo || 'POS').toUpperCase()}-{String(selectedSaleForCreditNote.consecutive || 0).padStart(4, '0')}</div>
+                <div><strong>Cliente:</strong> {selectedSaleForCreditNote.client_name || selectedSaleForCreditNote.cliente_nombre || 'Cliente General'}</div>
+                <div><strong>Total Transacción:</strong> ${Number(selectedSaleForCreditNote.total || 0).toLocaleString('es-CO')}</div>
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: '#475569' }}>
+                <p style={{ margin: '0 0 0.5rem 0', fontWeight: '750' }}>Esta acción realizará lo siguiente:</p>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <li>Marcar la venta como <strong>ANULADA</strong>.</li>
+                  <li><strong>Restaurar el inventario físico</strong> y las prendas serializadas a la bodega asignada al punto de venta.</li>
+                  <li>Generar el movimiento de entrada en el Kardex de inventario.</li>
+                </ul>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                  Motivo de la Nota Crédito:
+                </label>
+                <select
+                  value={creditNoteReason}
+                  onChange={(e) => setCreditNoteReason(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}
+                >
+                  <option value="Devolución de prendas / Inconformidad">Devolución de prendas / Inconformidad</option>
+                  <option value="Cambio de talla / Referencia">Cambio de talla / Referencia</option>
+                  <option value="Error en registro de factura o cobro">Error en registro de factura o cobro</option>
+                  <option value="Prenda defectuosa / Garantía">Prenda defectuosa / Garantía</option>
+                  <option value="Cancelación de pedido">Cancelación de pedido</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSaleForCreditNote(null)}
+                  disabled={processingCreditNote}
+                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCreditNote}
+                  disabled={processingCreditNote}
+                  style={{ flex: 1.5, padding: '0.65rem', borderRadius: '8px', border: 'none', backgroundColor: '#b91c1c', color: 'white', fontWeight: '850', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                >
+                  {processingCreditNote ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                  {processingCreditNote ? 'Procesando...' : 'Confirmar y Restaurar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 6. Detail View Modal for a Single Sale */}
       {selectedSaleDetail && (
         <div style={{
@@ -1525,7 +1985,7 @@ export default function POSReportsManager({
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
               <div>
                 <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: '950', color: '#0f172a' }}>
-                  Ticket {(selectedSaleDetail.stores?.nombre || currentSelectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(selectedSaleDetail.consecutive || 0).padStart(4, '0')}
+                  Ticket {(selectedSaleDetail.stores?.codigo || currentSelectedStore?.codigo || (selectedSaleDetail.stores?.nombre || currentSelectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase()}-{String(selectedSaleDetail.consecutive || 0).padStart(4, '0')}
                 </h4>
                 <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
                   {selectedSaleDetail.created_at ? new Date(selectedSaleDetail.created_at).toLocaleString('es-CO') : '-'}

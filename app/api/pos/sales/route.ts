@@ -28,6 +28,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Datos de venta o carrito inválidos' }, { status: 400 });
     }
 
+    // Validar restricción estricta de bodega asignada al POS
+    const targetWhId = store?.bodega_asociada_id;
+    const directBarcodesToValidate: string[] = [];
+    for (const item of cart) {
+      if (Array.isArray(item.barcodes)) {
+        item.barcodes.forEach((b: string) => {
+          if (b && !directBarcodesToValidate.includes(b)) directBarcodesToValidate.push(b);
+        });
+      }
+    }
+
+    if (targetWhId && directBarcodesToValidate.length > 0) {
+      const { data: garmentCheck } = await supabase
+        .from('individual_garments')
+        .select('id, barcode, warehouse_id, store_id')
+        .in('barcode', directBarcodesToValidate);
+
+      if (garmentCheck && garmentCheck.length > 0) {
+        for (const g of garmentCheck) {
+          const isAssigned = (g.warehouse_id === targetWhId) || (g.store_id && store?.id && g.store_id === store.id);
+          if (!isAssigned) {
+            return NextResponse.json({
+              error: `La prenda con código "${g.barcode}" pertenece a otra bodega y no puede venderse en esta sucursal.`
+            }, { status: 400 });
+          }
+        }
+      }
+    }
+
     // 1. Insert pos_sales row
     const { data: newSale, error: saleErr } = await supabase
       .from('pos_sales')
@@ -41,9 +70,8 @@ export async function POST(request: Request) {
     }
 
     const consecutive = newSale.consecutive;
-    const storeName = store?.nombre || 'POS';
-    const prefix = storeName.substring(0, 3).toUpperCase();
-    const docRef = `Venta POS #${prefix}-${String(consecutive).padStart(4, '0')}`;
+    const storeCode = (store?.codigo || (store?.nombre || 'POS').substring(0, 3)).toUpperCase();
+    const docRef = `Venta POS #${storeCode}-${String(consecutive).padStart(4, '0')}`;
     const vendedor = salePayload.vendedor || 'Vendedor';
 
     // Collect all barcodes for this entire sale to store in sale observations

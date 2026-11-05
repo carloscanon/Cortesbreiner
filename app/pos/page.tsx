@@ -2720,6 +2720,20 @@ export default function POSPage() {
       if (garment) {
         const garmentBarcode = garment.barcode || term;
 
+        // Restricción estricta de Bodega: la prenda debe pertenecer a la bodega asignada a este POS
+        if (selectedStore?.bodega_asociada_id) {
+          const isAssignedToThisBodega = 
+            (garment.warehouse_id === selectedStore.bodega_asociada_id) || 
+            (garment.store_id && garment.store_id === selectedStore.id);
+          if (!isAssignedToThisBodega) {
+            return {
+              success: false,
+              barcode: garmentBarcode,
+              message: `⚠️ La prenda con código "${garmentBarcode}" pertenece a otra bodega o sucursal y no está asignada a la bodega de este punto de venta.`
+            };
+          }
+        }
+
         // Check if garment is already sold
         const isAlreadySold = 
           garment.status === 'Vendido' || 
@@ -2836,6 +2850,37 @@ export default function POSPage() {
   const remoteScannerSessionId = selectedRegister?.id 
     ? `caja-${selectedRegister.id}`
     : (selectedStore?.id ? `store-${selectedStore.id}` : 'pos-terminal-1');
+
+  // Broadcast active barcodes in cart to mobile remote scanner whenever cart changes
+  useEffect(() => {
+    if (!remoteScannerSessionId) return;
+    const channelName = `pos-remote-${remoteScannerSessionId}`;
+    const activeBarcodes: string[] = [];
+    cart.forEach(item => {
+      if (Array.isArray(item.barcodes)) {
+        item.barcodes.forEach((b: string) => {
+          if (b && !activeBarcodes.includes(b)) activeBarcodes.push(b);
+        });
+      }
+    });
+
+    // Clear deleted items from processedScansRef so they can be re-scanned
+    for (const [scannedKey] of processedScansRef.current.entries()) {
+      if (!activeBarcodes.includes(scannedKey)) {
+        processedScansRef.current.delete(scannedKey);
+      }
+    }
+
+    const channel = supabase.channel(channelName);
+    channel.send({
+      type: 'broadcast',
+      event: 'cart-sync',
+      payload: {
+        activeBarcodes,
+        cartCount: cart.length
+      }
+    }).catch(() => {});
+  }, [cart, remoteScannerSessionId]);
 
   // Supabase Realtime Channel: Listen for barcodes scanned from mobile phone
   useEffect(() => {
@@ -2994,6 +3039,12 @@ export default function POSPage() {
       setProductVariants(inStockItems);
       setVariantSearch('');
       setShowVariantModal(true);
+      return;
+    }
+
+    // Restricción estricta de Bodega: Bloquear venta de productos sin existencias en la bodega asignada
+    if (selectedStore?.bodega_asociada_id) {
+      alert(`⚠️ No hay existencias disponibles del producto "${product.nombre_producto}" en la bodega asignada a esta sucursal (${selectedStore.nombre || 'Tienda'}).`);
       return;
     }
 
@@ -3257,7 +3308,8 @@ export default function POSPage() {
         }
       }
 
-      const consecutiveStr = `${(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-${String(newSale.consecutive).padStart(4, '0')}`;
+      const storeCode = (selectedStore?.codigo || (selectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase();
+      const consecutiveStr = `${storeCode}-${String(newSale.consecutive).padStart(4, '0')}`;
       
       const receiptPayload: POSReceiptData = {
         storeName: selectedStore?.nombre || 'TIENDA PRINCIPAL',
@@ -3290,6 +3342,7 @@ export default function POSPage() {
       setLastReceiptData(receiptPayload);
       setShowReceiptModal(true);
 
+      setSelectedCustomer({ name: 'Cliente General', document: '2222222222' });
       setCart([]);
       setCartNotes('');
       setTransferReferenceCode('');
@@ -5148,7 +5201,7 @@ export default function POSPage() {
                           {filteredSales.slice(salesPage * 10, (salesPage + 1) * 10).map((s, idx) => (
                             <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '0.75rem', fontWeight: '800', color: '#80082E' }}>
-                                {(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(s.consecutive || 0).padStart(4, '0')}
+                                {(selectedStore?.codigo || (selectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase()}-{String(s.consecutive || 0).padStart(4, '0')}
                               </td>
                               <td style={{ padding: '0.75rem', color: '#64748b' }}>{s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : '-'}</td>
                               <td style={{ padding: '0.75rem' }}>{s.vendedor || s.usuario_apertura || '-'}</td>
@@ -7791,32 +7844,64 @@ export default function POSPage() {
                 <div style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '0.45rem',
+                  gap: '0.5rem',
                   backgroundColor: 'white',
                   border: '1.5px solid #cbd5e1',
                   borderRadius: '10px',
-                  padding: '0.6rem 0.75rem'
+                  padding: '0.65rem 0.75rem'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <User size={16} style={{ color: '#80082E', flexShrink: 0 }} />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase' }}>CLIENTE</span>
-                        <span style={{ fontSize: '0.78rem', fontWeight: '900', color: '#0f172a' }}>{selectedCustomer.name}</span>
-                      </div>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                      <User size={15} style={{ color: '#80082E', flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '850', textTransform: 'uppercase' }}>DATOS DEL CLIENTE / FACTURA</span>
                     </div>
-                    <button onClick={() => setShowPosClientModal(true)} style={{
+                    <button type="button" onClick={() => setShowPosClientModal(true)} style={{
                       backgroundColor: '#fff0f3',
                       color: '#80082E',
                       border: 'none',
-                      padding: '0.25rem 0.65rem',
+                      padding: '0.2rem 0.5rem',
                       borderRadius: '6px',
-                      fontSize: '0.7rem',
+                      fontSize: '0.65rem',
                       fontWeight: '850',
                       cursor: 'pointer'
                     }}>
-                      Cambiar
+                      🔍 CRM
                     </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '0.4rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.58rem', color: '#64748b', fontWeight: '750', display: 'block', marginBottom: '0.15rem' }}>Cédula / Documento:</span>
+                      <input
+                        type="text"
+                        placeholder="Ej: 1144206792"
+                        value={selectedCustomer.document === '2222222222' ? '' : selectedCustomer.document}
+                        onChange={(e) => {
+                          const docVal = e.target.value.trim();
+                          const matched = crmCustomers.find(c => c.identification === docVal);
+                          if (matched) {
+                            setSelectedCustomer({ name: matched.name, document: docVal });
+                            if (matched.price_list_id) setSelectedPriceListId(matched.price_list_id);
+                          } else {
+                            setSelectedCustomer((prev: any) => ({ ...prev, document: docVal || '2222222222' }));
+                          }
+                        }}
+                        style={{ width: '100%', padding: '0.3rem 0.45rem', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '0.72rem', fontWeight: '750' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.58rem', color: '#64748b', fontWeight: '750', display: 'block', marginBottom: '0.15rem' }}>Nombre / Razón Social:</span>
+                      <input
+                        type="text"
+                        placeholder="Cliente Mostrador"
+                        value={selectedCustomer.name === 'Cliente General' ? '' : selectedCustomer.name}
+                        onChange={(e) => {
+                          const nameVal = e.target.value;
+                          setSelectedCustomer((prev: any) => ({ ...prev, name: nameVal || 'Cliente General' }));
+                        }}
+                        style={{ width: '100%', padding: '0.3rem 0.45rem', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '0.72rem', fontWeight: '750' }}
+                      />
+                    </div>
                   </div>
 
                   {/* Price list selector & rule evaluation badge */}
@@ -9708,7 +9793,7 @@ export default function POSPage() {
                       return (
                         <tr key={sale.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '0.65rem 0.85rem', fontWeight: '900', color: '#0f172a', fontFamily: 'monospace' }}>
-                            #{(selectedStore?.nombre || 'POS').substring(0, 3).toUpperCase()}-{String(sale.consecutive).padStart(4, '0')}
+                            #{(selectedStore?.codigo || (selectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase()}-{String(sale.consecutive).padStart(4, '0')}
                           </td>
                           <td style={{ padding: '0.65rem 0.85rem', color: '#64748b' }}>
                             {new Date(sale.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true })}

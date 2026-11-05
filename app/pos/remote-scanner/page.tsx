@@ -177,6 +177,11 @@ function RemoteScannerContent() {
         setCartCount(data.cartTotalItems);
       }
 
+      // Si el escaneo falló en caja (ej: no pertenece a la bodega o ya estaba vendido), permitir re-escanear
+      if (data.success === false && data.barcode) {
+        scannedBarcodesSetRef.current.delete(data.barcode);
+      }
+
       setActiveFeedback({
         barcode: data.barcode,
         productName: data.productName,
@@ -215,6 +220,17 @@ function RemoteScannerContent() {
       setIsConnected(true);
       if (payload?.payload?.cartCount !== undefined) {
         setCartCount(payload.payload.cartCount);
+      }
+    });
+
+    // POS cart sync: actualiza las prendas vivas en el carrito para permitir re-escanear si se eliminó una
+    channel.on('broadcast', { event: 'cart-sync' }, (payload: any) => {
+      if (payload?.payload?.cartCount !== undefined) {
+        setCartCount(payload.payload.cartCount);
+      }
+      if (Array.isArray(payload?.payload?.activeBarcodes)) {
+        scannedBarcodesSetRef.current = new Set(payload.payload.activeBarcodes);
+        setScannedItems(prev => prev.filter(item => payload.payload.activeBarcodes.includes(item.barcode)));
       }
     });
 

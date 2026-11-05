@@ -65,6 +65,69 @@ export default function AlegraStoreBillingModule({
   // Modal detalle de prendas
   const [selectedSaleForDetails, setSelectedSaleForDetails] = useState<any | null>(null);
 
+  // Modal editar cliente titular para DIAN
+  const [editingClientSale, setEditingClientSale] = useState<any | null>(null);
+  const [editClientName, setEditClientName] = useState('');
+  const [editClientDoc, setEditClientDoc] = useState('');
+  const [editClientEmail, setEditClientEmail] = useState('');
+  const [savingClient, setSavingClient] = useState(false);
+
+  // Modal Nota Crédito
+  const [selectedSaleForCN, setSelectedSaleForCN] = useState<any | null>(null);
+  const [creditNoteReason, setCreditNoteReason] = useState('Devolución de prendas / Nota Crédito');
+  const [processingCreditNote, setProcessingCreditNote] = useState(false);
+
+  const handleSaveEditedClient = async () => {
+    if (!editingClientSale) return;
+    setSavingClient(true);
+    try {
+      const { error } = await supabase
+        .from('pos_sales')
+        .update({
+          client_name: editClientName.trim() || 'Cliente Mostrador',
+          client_document: editClientDoc.trim() || '222222222222',
+          client_email: editClientEmail.trim() || null
+        })
+        .eq('id', editingClientSale.id);
+
+      if (error) throw error;
+      alert('✓ Datos del cliente actualizados exitosamente para la venta.');
+      setEditingClientSale(null);
+      onRefreshSales();
+    } catch (e: any) {
+      alert('Error al actualizar cliente: ' + (e.message || String(e)));
+    } finally {
+      setSavingClient(false);
+    }
+  };
+
+  const handleExecuteCreditNote = async () => {
+    if (!selectedSaleForCN) return;
+    setProcessingCreditNote(true);
+    try {
+      const res = await fetch('/api/pos/credit-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          saleId: selectedSaleForCN.id,
+          reason: creditNoteReason,
+          userEmail: 'Administrador'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error al procesar la Nota Crédito');
+      }
+      alert(data.message || 'Nota Crédito procesada exitosamente.');
+      setSelectedSaleForCN(null);
+      onRefreshSales();
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setProcessingCreditNote(false);
+    }
+  };
+
   /**
    * Determina la categoría de estado de la venta:
    * 1. 'facturados': Ventas con factura emitida en Alegra (observación contiene 'ALEGRA DIAN', 'FACTURADO ALEGRA', o 'FED100').
@@ -765,7 +828,7 @@ export default function AlegraStoreBillingModule({
                         </td>
                       )}
                       <td style={{ padding: '0.85rem 1rem', fontWeight: '900', color: '#0f172a' }}>
-                        #{sale.consecutive}
+                        {(sale.stores?.codigo || 'POS').toUpperCase()}-{String(sale.consecutive || 0).padStart(4, '0')}
                       </td>
                       <td style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', color: '#475569' }}>
                         {new Date(sale.created_at).toLocaleDateString('es-CO')}
@@ -774,8 +837,34 @@ export default function AlegraStoreBillingModule({
                         {sale.stores?.nombre || 'Sucursal Principal'}
                       </td>
                       <td style={{ padding: '0.85rem 1rem' }}>
-                        <span style={{ display: 'block', fontWeight: '850', color: '#0f172a' }}>{sale.client_name || 'Cliente Mostrador'}</span>
-                        <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>C.C. {sale.client_document || 'N/A'}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                          <div>
+                            <span style={{ display: 'block', fontWeight: '850', color: '#0f172a' }}>{sale.client_name || 'Cliente Mostrador'}</span>
+                            <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>C.C. {sale.client_document || '2222222222'}</span>
+                          </div>
+                          <button
+                            type="button"
+                            title="Editar cliente para facturación DIAN"
+                            onClick={() => {
+                              setEditingClientSale(sale);
+                              setEditClientName(sale.client_name || '');
+                              setEditClientDoc(sale.client_document || '');
+                              setEditClientEmail(sale.client_email || '');
+                            }}
+                            style={{
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: '#f8fafc',
+                              color: '#475569',
+                              padding: '0.2rem 0.45rem',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '0.68rem',
+                              fontWeight: '800'
+                            }}
+                          >
+                            ✏️ Editar
+                          </button>
+                        </div>
                       </td>
 
                       {/* Columna Detalle Prendas con botón de Ver Detalle */}
@@ -808,6 +897,32 @@ export default function AlegraStoreBillingModule({
                             <Eye size={12} />
                             Ver Prendas ({itemsCount})
                           </button>
+                          {sale.estado !== 'anulada' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSaleForCN(sale);
+                                setCreditNoteReason('Devolución de prendas / Nota Crédito');
+                              }}
+                              title="Generar Nota Crédito y restaurar inventario"
+                              style={{
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '6px',
+                                border: '1px solid #fca5a5',
+                                backgroundColor: '#fef2f2',
+                                color: '#b91c1c',
+                                fontSize: '0.72rem',
+                                fontWeight: '850',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem'
+                              }}
+                            >
+                              <RotateCcw size={12} />
+                              Nota Crédito
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -906,6 +1021,199 @@ export default function AlegraStoreBillingModule({
           </table>
         </div>
       </div>
+
+      {/* MODAL EDITAR CLIENTE TITULAR PARA FACTURACIÓN DIAN */}
+      {editingClientSale && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            maxWidth: '480px',
+            width: '100%',
+            overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '950', color: '#0f172a' }}>
+                  ✏️ Editar Datos del Cliente para Factura
+                </h3>
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Ticket: {(editingClientSale.stores?.codigo || 'POS').toUpperCase()}-{String(editingClientSale.consecutive || 0).padStart(4, '0')}
+                </span>
+              </div>
+              <button onClick={() => setEditingClientSale(null)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                  Cédula / Documento / NIT:
+                </label>
+                <input
+                  type="text"
+                  value={editClientDoc}
+                  onChange={(e) => setEditClientDoc(e.target.value)}
+                  placeholder="Ej: 1144206792"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '750' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                  Nombre Completo / Razón Social:
+                </label>
+                <input
+                  type="text"
+                  value={editClientName}
+                  onChange={(e) => setEditClientName(e.target.value)}
+                  placeholder="Ej: Valentina Salcedo Pinzon"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '750' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                  Correo Electrónico (Para envío de factura DIAN):
+                </label>
+                <input
+                  type="email"
+                  value={editClientEmail}
+                  onChange={(e) => setEditClientEmail(e.target.value)}
+                  placeholder="facturacion@ejemplo.com"
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '750' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingClientSale(null)}
+                  disabled={savingClient}
+                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditedClient}
+                  disabled={savingClient}
+                  style={{ flex: 1.5, padding: '0.65rem', borderRadius: '8px', border: 'none', backgroundColor: '#047857', color: 'white', fontWeight: '850', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                >
+                  {savingClient ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                  {savingClient ? 'Guardando...' : 'Guardar Datos'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NOTA CRÉDITO POS */}
+      {selectedSaleForCN && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '16px',
+            maxWidth: '500px',
+            width: '100%',
+            overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', backgroundColor: '#fef2f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RotateCcw size={18} style={{ color: '#b91c1c' }} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '950', color: '#991b1b' }}>
+                  Generar Nota Crédito / Devolución
+                </h3>
+              </div>
+              <button onClick={() => setSelectedSaleForCN(null)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.75rem' }}>
+                <div><strong>Ticket:</strong> {(selectedSaleForCN.stores?.codigo || 'POS').toUpperCase()}-{String(selectedSaleForCN.consecutive || 0).padStart(4, '0')}</div>
+                <div><strong>Cliente:</strong> {selectedSaleForCN.client_name || 'Cliente Mostrador'} (C.C. {selectedSaleForCN.client_document || 'N/A'})</div>
+                <div><strong>Total:</strong> ${Number(selectedSaleForCN.total || 0).toLocaleString('es-CO')}</div>
+              </div>
+
+              <div style={{ fontSize: '0.72rem', color: '#475569' }}>
+                <p style={{ margin: '0 0 0.35rem 0', fontWeight: '750' }}>Esta acción devolverá la transacción y actualizará el inventario:</p>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                  <li>Marca la venta como <strong>ANULADA</strong>.</li>
+                  <li>Reingresa las prendas físicas a la <strong>bodega asignada</strong> al punto de venta.</li>
+                  <li>Registra el movimiento en el Kardex.</li>
+                </ul>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.72rem', fontWeight: '800', color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                  Motivo:
+                </label>
+                <select
+                  value={creditNoteReason}
+                  onChange={(e) => setCreditNoteReason(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', backgroundColor: 'white' }}
+                >
+                  <option value="Devolución de prendas / Inconformidad">Devolución de prendas / Inconformidad</option>
+                  <option value="Cambio de talla / Referencia">Cambio de talla / Referencia</option>
+                  <option value="Error en registro de factura o cobro">Error en registro de factura o cobro</option>
+                  <option value="Prenda defectuosa / Garantía">Prenda defectuosa / Garantía</option>
+                  <option value="Cancelación de pedido">Cancelación de pedido</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSaleForCN(null)}
+                  disabled={processingCreditNote}
+                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCreditNote}
+                  disabled={processingCreditNote}
+                  style={{ flex: 1.5, padding: '0.65rem', borderRadius: '8px', border: 'none', backgroundColor: '#b91c1c', color: 'white', fontWeight: '850', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                >
+                  {processingCreditNote ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                  {processingCreditNote ? 'Procesando...' : 'Confirmar y Restaurar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DETALLE DE PRENDAS FACTURADAS */}
       {selectedSaleForDetails && (

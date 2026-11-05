@@ -687,8 +687,8 @@ export default function StoreAdminPage() {
       salesToProcess.forEach(s => {
         const storeObj = stores.find(st => st.id === s.store_id);
         const storeName = storeObj?.nombre || s.stores?.nombre || 'Tienda';
-        const prefix = storeName.substring(0, 3).toUpperCase();
-        const ticketRef = `${prefix}-${String(s.consecutive).padStart(4, '0')}`;
+        const storeCode = (storeObj?.codigo || s.stores?.codigo || storeName.substring(0, 3)).toUpperCase();
+        const ticketRef = `${storeCode}-${String(s.consecutive).padStart(4, '0')}`;
         const createdDate = s.created_at ? new Date(s.created_at).toLocaleString('es-CO') : '';
         const clientName = s.client_name || 'Cliente General';
         const clientDoc = s.client_document || '2222222222';
@@ -1643,16 +1643,28 @@ export default function StoreAdminPage() {
 
       const resData = await response.json();
 
-      // 3. Mark sale as 'anulada' / credited in Supabase database
-      const { error: dbErr } = await supabase
-        .from('pos_sales')
-        .update({
-          estado: 'anulada',
-          observaciones: `Nota Crédito generada: ${creditNoteReason} (Respuesta SIIGO: ${resData.success ? 'Exitosa' : resData.error || 'Procesado local'})`
-        })
-        .eq('id', selectedSaleForCN.id);
-
-      if (dbErr) throw dbErr;
+      // 3. Process inventory and transaction restoration via /api/pos/credit-note
+      try {
+        await fetch('/api/pos/credit-note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            saleId: selectedSaleForCN.id,
+            reason: `${creditNoteReason} (SIIGO: ${resData.success ? 'Exitosa' : resData.error || 'Local'})`,
+            userEmail: profile?.full_name || profile?.email || 'Admin'
+          })
+        });
+      } catch (cnApiErr) {
+        console.warn('Error calling /api/pos/credit-note, falling back to direct db update:', cnApiErr);
+        const { error: dbErr } = await supabase
+          .from('pos_sales')
+          .update({
+            estado: 'anulada',
+            observaciones: `Nota Crédito generada: ${creditNoteReason} (Respuesta SIIGO: ${resData.success ? 'Exitosa' : resData.error || 'Procesado local'})`
+          })
+          .eq('id', selectedSaleForCN.id);
+        if (dbErr) throw dbErr;
+      }
 
       // 4. Record entry in SIIGO sync log
       try {
