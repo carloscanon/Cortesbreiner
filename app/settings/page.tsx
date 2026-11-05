@@ -172,26 +172,30 @@ export default function SettingsPage() {
 
         // Lista COMPLETA de todos los módulos del sistema — se sincroniza automáticamente con la BD
         const expectedModules = [
-          { module: 'dashboard',          name: 'Dashboard',                    description: 'Vista principal de indicadores clave' },
-          { module: 'orders',             name: 'Órdenes',                      description: 'Gestión de órdenes de producción' },
-          { module: 'cutting',            name: 'Mesa de Corte / Proceso Corte',description: 'Gestión de tendidos, cortes y trazos' },
-          { module: 'sewing',             name: 'Confección',                   description: 'Envío, recepción y gestión de órdenes a talleres' },
-          { module: 'quality',            name: 'Calidad',                      description: 'Control de calidad e inspección de prendas' },
-          { module: 'payments',           name: 'Pagos Talleres',               description: 'Liquidación y comprobantes de pago a talleres satélite' },
-          { module: 'inventory',          name: 'Inventario General',           description: 'Control de stock de telas, rollos e insumos' },
-          { module: 'inventory_finished', name: 'Inventario P. Terminado',      description: 'Inventario de prendas confeccionadas aprobadas en calidad' },
-          { module: 'workshops',          name: 'Talleres Satélite',            description: 'Gestión de talleres, tarifas y costos especiales' },
-          { module: 'masters',            name: 'Maestros',                     description: 'Configuración de telas, colores, tallas y categorías' },
-          { module: 'costs',              name: 'Costos',                       description: 'Módulo de costeo y análisis de márgenes de producción' },
-          { module: 'tracking',           name: 'Seguimiento',                  description: 'Trazabilidad y estado de envíos a talleres' },
-          { module: 'analytics',          name: 'Analítica',                    description: 'Reportes y análisis de datos de producción' },
-          { module: 'financial',          name: 'Módulo Financiero',            description: 'Gestión financiera, contable y de facturación' },
-          { module: 'siigo',              name: 'Integración Siigo',            description: 'Facturación electrónica e integración con Siigo' },
-          { module: 'pos',                name: 'Punto de Venta (POS)',         description: 'Terminal de facturación táctil offline/online' },
-          { module: 'store_admin',        name: 'Administración de Tiendas',    description: 'Gestión de sucursales, cajas y promociones' },
-          { module: 'settings',           name: 'Ajustes',                      description: 'Configuración general del sistema' },
-          { module: 'super_admin',        name: 'Super Admin',                  description: 'Acceso completo de administración del sistema' },
-          { module: 'help',               name: 'Ayuda',                        description: 'Documentación y soporte' },
+          { module: 'dashboard',          name: 'Dashboard',                          description: 'Vista principal de indicadores clave' },
+          { module: 'orders',             name: 'Órdenes de Producción',              description: 'Gestión de órdenes de producción y cortes' },
+          { module: 'orders_design',      name: 'Ficha Técnica y Diseño',             description: 'Diseño, especificaciones y fichas técnicas' },
+          { module: 'cutting',            name: 'Mesa de Tendido / Trazo',            description: 'Gestión de tendidos, trazos y consumo de tela' },
+          { module: 'corte',              name: 'Proceso de Corte',                   description: 'Control de cortes de prendas y piezas' },
+          { module: 'sewing',             name: 'Confección',                         description: 'Envío, recepción y gestión de órdenes a talleres' },
+          { module: 'quality',            name: 'Control de Calidad',                 description: 'Inspección de prendas, aprobación y rechazo' },
+          { module: 'rejections',         name: 'Bodega de Rechazos',                 description: 'Gestión y clasificación de prendas con defecto' },
+          { module: 'payments',           name: 'Pagos Talleres',                     description: 'Liquidación y comprobantes de pago a talleres satélite' },
+          { module: 'inventory',          name: 'Inventario General',                 description: 'Control de stock de telas, rollos e insumos' },
+          { module: 'inventory_finished', name: 'Inventario & Bodegas WMS',           description: 'Inventario de prendas confeccionadas aprobadas en calidad' },
+          { module: 'workshops',          name: 'Talleres Satélite',                  description: 'Gestión de talleres, tarifas y costos especiales' },
+          { module: 'masters',            name: 'Maestros del Sistema',               description: 'Configuración de telas, colores, tallas y categorías' },
+          { module: 'costs',              name: 'Costos y Márgenes',                  description: 'Módulo de costeo y análisis de márgenes de producción' },
+          { module: 'tracking',           name: 'Seguimiento y Trazabilidad',         description: 'Trazabilidad y estado de envíos a talleres' },
+          { module: 'analytics',          name: 'Analítica y Métricas',               description: 'Reportes y análisis de datos de producción' },
+          { module: 'financial',          name: 'Módulo Financiero',                  description: 'Gestión financiera, contable y de facturación' },
+          { module: 'siigo',              name: 'Integración Siigo',                  description: 'Facturación electrónica e integración con Siigo' },
+          { module: 'pos',                name: 'Punto de Venta (POS)',               description: 'Terminal de facturación táctil offline/online' },
+          { module: 'store_admin',        name: 'Administración de Tiendas POS',      description: 'Gestión de sucursales, cajas y promociones' },
+          { module: 'service_desk',       name: 'Central de Atención y Casos',        description: 'Soporte técnico, mesa de ayuda y tickets internos' },
+          { module: 'settings',           name: 'Ajustes y Parámetros',               description: 'Configuración general del sistema' },
+          { module: 'super_admin',        name: 'Super Admin',                        description: 'Acceso completo de administración del sistema' },
+          { module: 'help',               name: 'Ayuda y Manuales',                   description: 'Documentación y soporte' },
         ];
 
         // Upsert completo: inserta nuevos y actualiza nombre/descripción de existentes
@@ -291,41 +295,32 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     const formData = new FormData(e.target as HTMLFormElement);
-    const roleData = {
-      name: formData.get('name'),
-      description: formData.get('description'),
-    };
+    const name = formData.get('name') as string;
+    const description = (formData.get('description') as string) || '';
 
     try {
-      let roleId = editingRole?.id;
+      const res = await fetch('/api/roles/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingRole?.id,
+          name,
+          description,
+          permissions: selectedPermissions
+        })
+      });
 
-      if (editingRole) {
-        const { error } = await supabase.from('roles').update(roleData).eq('id', editingRole.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from('roles').insert([roleData]).select();
-        if (error) throw error;
-        roleId = data[0].id;
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al guardar rol y permisos');
+
+      // Notificar a componentes en tiempo real (Sidebar, Navbar, etc.)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('roles-permissions-updated'));
+        window.localStorage.setItem('last_role_perms_update', Date.now().toString());
       }
 
-      // Update role permissions
-      // 1. Delete existing
-      await supabase.from('role_permissions').delete().eq('role_id', roleId);
-      
-      // 2. Insert new ones
-      if (selectedPermissions.length > 0) {
-        const newPerms = selectedPermissions.map(pId => ({
-          role_id: roleId,
-          permission_id: pId
-        }));
-        const { error: permError } = await supabase.from('role_permissions').insert(newPerms);
-        if (permError) throw permError;
-      }
-
-      // Esperar que los datos se recarguen ANTES de cerrar el modal
-      // para que al reabrirlo los permisos ya estÃ©n actualizados
+      // Esperar que los datos se recarguen
       await fetchData();
-      // Refresca la navegaciÃ³n/sidebar para reflejar los nuevos mÃ³dulos del rol
       await refreshConfig();
 
       setShowRoleModal(false);
@@ -2767,7 +2762,7 @@ export default function SettingsPage() {
       {/* Role & Permissions Modal */}
       {showRoleModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '2rem' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
               <h2 style={{ margin: 0 }}>{editingRole ? 'Editar Rol' : 'Nuevo Rol'}</h2>
               <button className="btn-icon" onClick={() => setShowRoleModal(false)}><X size={28} /></button>
@@ -2788,7 +2783,25 @@ export default function SettingsPage() {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <h4 style={{ borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>Accesos al MenÃº</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--primary-lighter)', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h4 style={{ margin: 0 }}>Accesos a Módulos ({selectedPermissions.length}/{permissions.length})</h4>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => setSelectedPermissions(permissions.map(p => p.id))}
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem', fontWeight: '800', background: '#e0e7ff', color: '#4338ca', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                      >
+                        ✓ Todos
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => setSelectedPermissions([])}
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem', fontWeight: '800', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                      >
+                        ✗ Ninguno
+                      </button>
+                    </div>
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     {permissions.map(perm => (
                       <label key={perm.id} style={{ 

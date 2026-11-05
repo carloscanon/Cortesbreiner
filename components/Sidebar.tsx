@@ -21,28 +21,35 @@ import {
   CreditCard,
   Building2,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  ShoppingBag
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 const allMenuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/', module: 'dashboard' },
   { icon: Scissors, label: 'Órdenes', href: '/orders', module: 'orders' },
+  { icon: Layers, label: 'Ficha Técnica y Diseño', href: '/orders/design', module: 'orders_design' },
   { icon: Layers, label: 'Mesa de Tendido', href: '/cutting', module: 'cutting' },
-  { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'cutting' },
+  { icon: Scissors, label: 'Proceso de Corte', href: '/corte', module: 'corte' },
   { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: Package, label: 'Inventario General', href: '/inventory', module: 'inventory' },
-  { icon: Building2, label: 'Inventario & Bodegas WMS', href: '/inventory-finished', module: 'inventory' },
-  { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
-  { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
+  { icon: Building2, label: 'Inventario & Bodegas WMS', href: '/inventory-finished', module: 'inventory_finished' },
+  { icon: AlertTriangle, label: 'Bodega de Rechazos', href: '/inventory/rejections', module: 'rejections' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
-  { icon: AlertTriangle, label: 'Bodega de Rechazos', href: '/inventory/rejections', module: 'quality' },
   { icon: CreditCard, label: 'Pagos Talleres', href: '/payments', module: 'payments' },
   { icon: DollarSign, label: 'Módulo Financiero', href: '/financial', module: 'financial' },
+  { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
+  { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
+  { icon: Database, label: 'Maestros', href: '/masters', module: 'masters' },
+  { icon: Factory, label: 'Talleres Satélite', href: '/workshops', module: 'workshops' },
+  { icon: Building2, label: 'Administración de Tiendas', href: '/store-admin', module: 'store_admin' },
+  { icon: ShoppingBag, label: 'Punto de Venta (POS)', href: '/pos', module: 'pos' },
+  { icon: Activity, label: 'Integración Siigo', href: '/siigo', module: 'siigo' },
 ];
 
 const allBottomItems = [
-  { icon: Activity, label: 'Central de Atención y Casos', href: '/service-desk', module: 'quality' },
+  { icon: Activity, label: 'Central de Atención y Casos', href: '/service-desk', module: 'service_desk' },
   { icon: Settings, label: 'Ajustes', href: '/settings', module: 'settings' },
   { icon: ShieldCheck, label: 'Super Admin', href: '/super-admin', module: 'super_admin' },
   { icon: HelpCircle, label: 'Ayuda', href: '/help', module: 'help' },
@@ -73,6 +80,16 @@ export default function Sidebar() {
     };
 
     fetchPermissions();
+
+    const handleRoleUpdate = () => {
+      fetchPermissions();
+    };
+    window.addEventListener('roles-permissions-updated', handleRoleUpdate);
+    window.addEventListener('storage', handleRoleUpdate);
+    return () => {
+      window.removeEventListener('roles-permissions-updated', handleRoleUpdate);
+      window.removeEventListener('storage', handleRoleUpdate);
+    };
   }, [profile]);
 
   const isTaller = profile?.roles?.name === 'Taller';
@@ -98,24 +115,27 @@ export default function Sidebar() {
     { icon: Database, label: 'Inventario de Tienda', href: '/store-admin', module: 'store_admin' },
   ];
 
-  const filteredMenuItems = isTaller
-    ? tallerMenuItems
-    : isPOS
-      ? posMenuItems
-      : isSuperAdmin
-        ? allMenuItems
-        : allMenuItems.filter(item => {
-            if (item.module === 'inventory') {
-              return allowedModules.includes('inventory') || allowedModules.includes('inventory_finished');
-            }
-            return allowedModules.includes(item.module) || item.module === 'dashboard';
-          });
+  const filteredMenuItems = isSuperAdmin
+    ? allMenuItems
+    : isTaller
+      ? tallerMenuItems
+      : allMenuItems.filter(item => {
+          if (item.module === 'dashboard') return true;
+          // Compatibilidad de submódulos agrupados
+          if (item.module === 'corte' && allowedModules.includes('cutting')) return true;
+          if (item.module === 'inventory_finished' && allowedModules.includes('inventory')) return true;
+          if (item.module === 'rejections' && (allowedModules.includes('quality') || allowedModules.includes('inventory'))) return true;
+          if (item.module === 'orders_design' && allowedModules.includes('orders')) return true;
+          return allowedModules.includes(item.module);
+        });
 
   const filteredBottomItems = allBottomItems.filter(item => {
     if (item.module === 'super_admin') return isSuperAdmin;
     if (isTaller) return item.module === 'help';
     if (isSuperAdmin) return true;
-    return allowedModules.includes(item.module) || item.module === 'help';
+    if (item.module === 'help') return true;
+    if (item.module === 'service_desk' && allowedModules.includes('quality')) return true;
+    return allowedModules.includes(item.module);
   });
 
   const logoUrl = config?.logo_url || '';

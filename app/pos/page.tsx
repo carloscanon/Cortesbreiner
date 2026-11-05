@@ -567,8 +567,8 @@ export default function POSPage() {
                      profile?.roles?.name?.toLowerCase().includes('punto');
                      
   const allowedPOSModules = isPOSAdmin 
-    ? ['pos', 'traslados', 'clientes', 'ventas', 'reportes', 'promociones', 'ajustes'] 
-    : (currentUserPOSRole?.permissions ? [...currentUserPOSRole.permissions, 'traslados'] : ['pos', 'traslados']);
+    ? ['pos', 'traslados', 'clientes', 'ventas', 'personal', 'reportes', 'promociones', 'ajustes'] 
+    : (currentUserPOSRole?.permissions ? currentUserPOSRole.permissions : ['pos']);
 
   const mainItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingBag, module: 'pos' },
@@ -578,14 +578,13 @@ export default function POSPage() {
     { id: 'clientes', label: 'Clientes', icon: Users, module: 'clientes' },
     { id: 'ventas', label: 'Ventas', icon: Receipt, module: 'ventas' },
     { id: 'cambios', label: '🔄 Cambios / Devolución', icon: RefreshCcw, module: 'pos' },
-    { id: 'cotizaciones', label: 'Cotizaciones', icon: FileText, module: 'pos' },
     { id: 'cajas', label: 'Cajas', icon: Landmark, module: 'pos' },
   ].filter(item => allowedPOSModules.includes(item.module));
 
   const managementItems = [
     { id: 'reportes', label: 'Reportes', icon: BarChart3, module: 'reportes', show: allowedPOSModules.includes('reportes') },
     { id: 'promociones', label: 'Promociones', icon: Award, module: 'promociones', show: allowedPOSModules.includes('promociones') },
-    { id: 'personal', label: 'Personal', icon: Users, module: 'personal', show: isPOSAdmin },
+    { id: 'personal', label: 'Personal', icon: Users, module: 'personal', show: isPOSAdmin || allowedPOSModules.includes('personal') },
     { id: 'ajustes', label: 'Ajustes / UX', icon: Settings, module: 'ajustes', show: allowedPOSModules.includes('ajustes') }
   ].filter(item => item.show !== false);
 
@@ -1065,10 +1064,13 @@ export default function POSPage() {
           pos_staff_assignments: targetAssignments
         }
       };
-      const { error } = await supabase
-        .from('pos_themes')
-        .upsert(payload, { onConflict: 'name' });
-      if (error) throw error;
+      const themeRes = await fetch('/api/pos/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const themeResult = await themeRes.json();
+      if (!themeRes.ok) throw new Error(themeResult.error || 'Error al persistir el tema');
       setThemeSaved(true);
       setTimeout(() => setThemeSaved(false), 3000);
       
@@ -1326,7 +1328,20 @@ export default function POSPage() {
   const loadTheme = async () => {
     try {
       let activeStoreId = typeof window !== 'undefined' ? localStorage.getItem('pos_selected_store_id') : null;
-      const { data: themes } = await supabase.from('pos_themes').select('*');
+      let themes: any[] = [];
+      const { data: themesData } = await supabase.from('pos_themes').select('*');
+      if (themesData && themesData.length > 0) {
+        themes = themesData;
+      } else {
+        try {
+          const apiRes = await fetch('/api/pos/theme');
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData.theme) themes = [apiData.theme];
+          }
+        } catch (e) {}
+      }
+
       if (themes && themes.length > 0) {
         const now = new Date();
 
@@ -5605,10 +5620,13 @@ export default function POSPage() {
                               </div>
                               <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                                 {[
-                                  { module: 'pos', name: 'Punto de Venta (Ventas/Caja)' },
+                                  { module: 'pos', name: 'Punto de Venta (Caja / Facturación)' },
+                                  { module: 'traslados', name: '🚚📦 Traslados de Tienda / Bodega' },
                                   { module: 'clientes', name: 'CRM (Gestión de Clientes)' },
-                                  { module: 'reportes', name: 'Módulo de Reportes' },
-                                  { module: 'promociones', name: 'Promociones' },
+                                  { module: 'ventas', name: 'Historial de Ventas / Bitácora' },
+                                  { module: 'personal', name: 'Gestión de Personal y Turnos' },
+                                  { module: 'reportes', name: 'Módulo de Reportes y Cierres' },
+                                  { module: 'promociones', name: 'Promociones y Descuentos' },
                                   { module: 'ajustes', name: 'Ajustes UX / Temas' }
                                 ].map(m => {
                                   const matchesPerm = rolePermissions.includes(m.module);
