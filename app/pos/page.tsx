@@ -10,7 +10,7 @@ import {
   RefreshCcw, ArrowLeftRight, Clock, MoreHorizontal, XCircle,
   ShoppingBag, Shirt, Users, Receipt, Landmark, BarChart3, Award, Settings,
   Bell, MessageSquare, Heart, LogOut, Package, Building2, Warehouse,
-  Smartphone
+  Smartphone, Menu, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import * as Icons from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -314,6 +314,32 @@ export default function POSPage() {
   const [variantSearch, setVariantSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [resolvedBarcodeRef, setResolvedBarcodeRef] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-collapse sidebar on smaller laptop viewports
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1280) {
+      setIsSidebarCollapsed(true);
+    }
+  }, []);
+
+  // Global Ctrl+K / Ctrl+B shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setIsSidebarCollapsed(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   const [scannedGarment, setScannedGarment] = useState<any>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<any>({ name: 'Cliente General', document: '2222222222' });
   const [currentSessionSalesTotal, setCurrentSessionSalesTotal] = useState(0);
@@ -3524,6 +3550,54 @@ export default function POSPage() {
         .pos-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
         }
+        .pos-header-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+          padding: 0.42rem 0.85rem;
+          border-radius: 10px;
+          font-size: 0.78rem;
+          font-weight: 850;
+          cursor: pointer;
+          white-space: nowrap;
+          transition: all 0.15s;
+        }
+        @media (max-width: 1366px) {
+          .pos-header-btn-text {
+            display: none !important;
+          }
+          .pos-header-btn {
+            padding: 0.45rem 0.65rem !important;
+          }
+          .pos-cart-panel {
+            width: 330px !important;
+          }
+          .pos-catalog-grid {
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
+            gap: 0.85rem !important;
+          }
+        }
+        @media (max-width: 1024px) {
+          .pos-erp-badge-text {
+            display: none !important;
+          }
+        }
+        @media (max-height: 800px) {
+          .pos-sidebar {
+            padding: 0.65rem 0.4rem !important;
+          }
+          .pos-sidebar-item {
+            padding: 0.45rem 0.6rem !important;
+            font-size: 0.72rem !important;
+          }
+          .pos-sidebar-logo {
+            margin-bottom: 0.75rem !important;
+          }
+          .pos-sidebar-shift {
+            padding: 0.5rem !important;
+            margin-top: 0.35rem !important;
+          }
+        }
         @media (max-width: 768px) {
           .pos-sidebar {
             display: none !important;
@@ -3533,29 +3607,33 @@ export default function POSPage() {
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left Sidebar (Wine Burgundy theme) */}
-        <div className="pos-sidebar" style={{
-          width: '240px',
+        <div className="pos-sidebar pos-scrollbar" style={{
+          width: isSidebarCollapsed ? '68px' : '230px',
           background: `linear-gradient(180deg, ${customPrimary} 0%, #1a0008 100%)`,
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          padding: '1.5rem 0.75rem',
+          padding: isSidebarCollapsed ? '0.75rem 0.35rem' : '1.25rem 0.75rem',
           height: '100%',
+          maxHeight: '100vh',
           flexShrink: 0,
           color: 'white',
-          boxShadow: '4px 0 20px rgba(0,0,0,0.15)'
+          boxShadow: '4px 0 20px rgba(0,0,0,0.15)',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease'
         }}>
           {/* Logo & Branding */}
           <div>
-            <div style={{ 
+            <div className="pos-sidebar-logo" style={{ 
               display: 'flex', 
               alignItems: 'center', 
-              flexDirection: customHeaderTextPlacement === 'left' ? 'row-reverse' : 'row',
-              justifyContent: customHeaderTextPlacement === 'left' ? 'flex-end' : 'flex-start',
-              gap: '0.75rem', 
-              marginBottom: '2rem', 
-              paddingLeft: '0.5rem' 
+              justifyContent: isSidebarCollapsed ? 'center' : (customHeaderTextPlacement === 'left' ? 'flex-end' : 'space-between'),
+              gap: '0.5rem', 
+              marginBottom: '1.25rem', 
+              paddingLeft: isSidebarCollapsed ? 0 : '0.4rem' 
             }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
               {customLogoUrl || config?.logo_url ? (
                 <div style={{
                   width: `${customLogoWidth}px`,
@@ -3603,8 +3681,8 @@ export default function POSPage() {
                   </div>
                   <div style={{ 
                     fontWeight: '600', 
-                    fontSize: '0.625rem', 
-                    letterSpacing: '0.15em', 
+                    fontSize: '0.58rem', 
+                    letterSpacing: '0.12em', 
                     opacity: 0.8,
                     color: customHeaderTextColor || '#80082E'
                   }}>
@@ -3612,81 +3690,123 @@ export default function POSPage() {
                   </div>
                 </div>
               )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                title={isSidebarCollapsed ? "Expandir menú lateral (Ctrl+B)" : "Colapsar menú lateral (Ctrl+B)"}
+                style={{
+                  border: 'none',
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  color: 'white',
+                  borderRadius: '6px',
+                  width: '24px',
+                  height: '24px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s',
+                  padding: 0
+                }}
+              >
+                {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+              </button>
             </div>
 
           {/* Navigation links list */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
             {/* Section label */}
-            <div style={{ fontSize: '0.55rem', fontWeight: '900', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', padding: '0.5rem 1rem 0.4rem', marginBottom: '0.1rem' }}>
-              MENÚ PRINCIPAL
-            </div>
+            {!isSidebarCollapsed && (
+              <div style={{ fontSize: '0.55rem', fontWeight: '900', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', padding: '0.35rem 0.75rem 0.2rem', marginBottom: '0.1rem' }}>
+                MENÚ PRINCIPAL
+              </div>
+            )}
             {mainItems.map(item => {
               const isActive = activeMenuId === item.id || (item.id === 'pos' && (activeMenuId === 'devoluciones' || activeMenuId === 'cambios'));
               return (
-                <div key={item.id} onClick={() => {
-                  if (item.id === 'stock_bodegas') {
-                    setShowWarehouseStockModal(true);
-                  } else if (item.id === 'cambios' || item.id === 'devoluciones') {
-                    setShowExchangeModal(true);
-                  } else {
-                    setActiveMenuId(item.id);
-                    if (item.id === 'clientes') fetchCrmCustomers();
-                    if (item.id === 'productos') { fetchInlineInventory(); fetchPendingTransfers(); }
-                    if (item.id === 'ventas') { fetchInlineSales(); fetchManagerShifts(); }
-                  }
-                }}
+                <div key={item.id}
+                  title={isSidebarCollapsed ? item.label : undefined}
+                  onClick={() => {
+                    if (item.id === 'stock_bodegas') {
+                      setShowWarehouseStockModal(true);
+                    } else if (item.id === 'cambios' || item.id === 'devoluciones') {
+                      setShowExchangeModal(true);
+                    } else {
+                      setActiveMenuId(item.id);
+                      if (item.id === 'clientes') fetchCrmCustomers();
+                      if (item.id === 'productos') { fetchInlineInventory(); fetchPendingTransfers(); }
+                      if (item.id === 'ventas') { fetchInlineSales(); fetchManagerShifts(); }
+                    }
+                  }}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '0.75rem',
-                    padding: '0.6rem 0.75rem 0.6rem 1rem',
-                    borderRadius: '10px', cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    gap: isSidebarCollapsed ? 0 : '0.65rem',
+                    padding: isSidebarCollapsed ? '0.55rem 0' : '0.48rem 0.75rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
                     background: isActive ? `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)` : 'transparent',
-                    color: customSidebarText, fontWeight: isActive ? '900' : '600', 
-                    fontSize: customSidebarFontSize,
+                    color: customSidebarText,
+                    fontWeight: isActive ? '900' : '600', 
+                    fontSize: isSidebarCollapsed ? '0.75rem' : customSidebarFontSize,
                     fontFamily: customSidebarFontFamily,
                     boxShadow: isActive ? '0 4px 16px rgba(0,0,0,0.3)' : 'none',
                     border: isActive ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
-                    borderLeft: isActive ? '3px solid rgba(255,255,255,0.6)' : '3px solid transparent',
-                    opacity: isActive ? 1 : 0.72, transition: 'all 0.2s'
+                    borderLeft: (!isSidebarCollapsed && isActive) ? '3px solid rgba(255,255,255,0.6)' : '1px solid transparent',
+                    opacity: isActive ? 1 : 0.75,
+                    transition: 'all 0.15s'
                   }}
-                  onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderLeft = '3px solid rgba(255,255,255,0.25)'; } }}
-                  onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = '0.72'; e.currentTarget.style.borderLeft = '3px solid transparent'; } }}
+                  onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.opacity = '1'; } }}
+                  onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = '0.75'; } }}
                 >
                   <item.icon size={16} strokeWidth={2.2} style={{ flexShrink: 0 }} />
-                  <span style={{ letterSpacing: '0.01em' }}>{item.label}</span>
+                  {!isSidebarCollapsed && <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
                 </div>
               );
             })}
 
             {/* Separator */}
-            <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '0.5rem 1rem' }} />
-            <div style={{ fontSize: '0.55rem', fontWeight: '900', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', padding: '0.1rem 1rem 0.4rem' }}>
-              GESTIÓN
-            </div>
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '0.35rem 0.5rem' }} />
+            {!isSidebarCollapsed && (
+              <div style={{ fontSize: '0.55rem', fontWeight: '900', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', padding: '0.1rem 0.75rem 0.2rem' }}>
+                GESTIÓN
+              </div>
+            )}
             {managementItems.map(item => {
               const isActive = activeMenuId === item.id;
               return (
-                <div key={item.id} onClick={() => {
-                  setActiveMenuId(item.id);
-                  if (item.id === 'reportes') { fetchInlineSales(); fetchManagerShifts(); }
-                }}
+                <div key={item.id}
+                  title={isSidebarCollapsed ? item.label : undefined}
+                  onClick={() => {
+                    setActiveMenuId(item.id);
+                    if (item.id === 'reportes') { fetchInlineSales(); fetchManagerShifts(); }
+                  }}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '0.75rem',
-                    padding: '0.6rem 0.75rem 0.6rem 1rem',
-                    borderRadius: '10px', cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                    gap: isSidebarCollapsed ? 0 : '0.65rem',
+                    padding: isSidebarCollapsed ? '0.55rem 0' : '0.48rem 0.75rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
                     background: isActive ? `linear-gradient(90deg, ${customPrimary} 0%, ${customSecondary} 100%)` : 'transparent',
-                    color: customSidebarText, fontWeight: isActive ? '900' : '600', 
-                    fontSize: customSidebarFontSize,
+                    color: customSidebarText,
+                    fontWeight: isActive ? '900' : '600', 
+                    fontSize: isSidebarCollapsed ? '0.75rem' : customSidebarFontSize,
                     fontFamily: customSidebarFontFamily,
                     boxShadow: isActive ? '0 4px 16px rgba(0,0,0,0.3)' : 'none',
                     border: isActive ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
-                    borderLeft: isActive ? '3px solid rgba(255,255,255,0.6)' : '3px solid transparent',
-                    opacity: isActive ? 1 : 0.72, transition: 'all 0.2s'
+                    borderLeft: (!isSidebarCollapsed && isActive) ? '3px solid rgba(255,255,255,0.6)' : '1px solid transparent',
+                    opacity: isActive ? 1 : 0.75,
+                    transition: 'all 0.15s'
                   }}
-                  onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.opacity = '1'; e.currentTarget.style.borderLeft = '3px solid rgba(255,255,255,0.25)'; } }}
-                  onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = '0.72'; e.currentTarget.style.borderLeft = '3px solid transparent'; } }}
+                  onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.opacity = '1'; } }}
+                  onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = '0.75'; } }}
                 >
                   <item.icon size={16} strokeWidth={2.2} style={{ flexShrink: 0 }} />
-                  <span style={{ letterSpacing: '0.01em' }}>{item.label}</span>
+                  {!isSidebarCollapsed && <span style={{ letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
                 </div>
               );
             })}
@@ -3695,7 +3815,30 @@ export default function POSPage() {
 
           {/* Active Shift Details Box — Premium Dark Card */}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {isSidebarCollapsed ? (
+            <div style={{ marginTop: 'auto', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => currentSession ? setShowCloseSessionModal(true) : setShowOpenSessionModal(true)}
+                title={currentSession ? `Turno Abierto (${currentSessionSalesTotal.toLocaleString('es-CO')}) - Clic para cerrar` : "Abrir Turno"}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  border: currentSession ? '1px solid #10b981' : '1px solid #ec4899',
+                  backgroundColor: currentSession ? 'rgba(16,185,129,0.2)' : 'rgba(236,72,153,0.2)',
+                  color: currentSession ? '#34d399' : '#f472b6',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {currentSession ? <Lock size={16} /> : <Unlock size={16} />}
+              </button>
+            </div>
+          ) : (
+          <div className="pos-sidebar-shift" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             <div style={{
               background: 'linear-gradient(145deg, rgba(15,10,40,0.85) 0%, rgba(40,15,60,0.7) 100%)',
               borderRadius: '16px',
@@ -3878,6 +4021,7 @@ export default function POSPage() {
               </button>
             )}
           </div>
+          )}
 
         </div>
 
@@ -3885,39 +4029,64 @@ export default function POSPage() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: `'${customFontFamily}', sans-serif`, fontSize: customFontSize }}>
           
           {/* Top Header */}
-          <div style={{
-            height: '65px',
+          <div className="pos-header" style={{
+            minHeight: '60px',
+            height: 'auto',
             backgroundColor: 'white',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0 1.5rem',
-            flexShrink: 0
+            padding: '0.45rem 1rem',
+            gap: '0.65rem',
+            flexShrink: 0,
+            flexWrap: 'nowrap'
           }}>
-            {/* Connection Status Badge */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              backgroundColor: '#f1f5f9',
-              padding: '0.45rem 1rem',
-              borderRadius: '20px',
-              fontSize: '0.72rem',
-              fontWeight: '800',
-              border: '1px solid #e2e8f0'
-            }}>
-              <span>ERP CENTRAL</span>
-              <span style={{ display: 'inline-block', width: '6px', height: '6px', backgroundColor: isOnline ? '#22c55e' : '#ef4444', borderRadius: '50%' }} />
-              <span style={{ color: '#64748b' }}>{isOnline ? 'Conectado' : 'Sin conexión'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                title={isSidebarCollapsed ? "Expandir menú lateral (Ctrl+B)" : "Colapsar menú lateral (Ctrl+B)"}
+                style={{
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#f8fafc',
+                  color: '#475569',
+                  borderRadius: '8px',
+                  padding: '0.45rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <Menu size={18} />
+              </button>
+
+              {/* Connection Status Badge */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                backgroundColor: '#f1f5f9',
+                padding: '0.4rem 0.75rem',
+                borderRadius: '18px',
+                fontSize: '0.7rem',
+                fontWeight: '800',
+                border: '1px solid #e2e8f0'
+              }}>
+                <span className="pos-erp-badge-text">ERP CENTRAL</span>
+                <span style={{ display: 'inline-block', width: '6px', height: '6px', backgroundColor: isOnline ? '#22c55e' : '#ef4444', borderRadius: '50%' }} />
+                <span style={{ color: '#64748b' }}>{isOnline ? 'Conectado' : 'Offline'}</span>
+              </div>
             </div>
 
             {/* Centralized Search Bar */}
-            <div style={{ position: 'relative', width: `${customSearchWidth}%`, transition: 'all 0.2s ease' }}>
+            <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: '440px', minWidth: '160px', transition: 'all 0.2s ease' }}>
               <Search size={16} style={{ position: 'absolute', left: '1.15rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="Buscar por etiqueta, código de barras, nombre o referencia..."
+                placeholder="Buscar código, referencia o nombre (Ctrl+K)..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => {
@@ -4053,35 +4222,27 @@ export default function POSPage() {
             </div>
 
             {/* User status widgets */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', position: 'relative', flexShrink: 0 }}>
               <button
                 type="button"
+                className="pos-header-btn"
                 onClick={() => setShowMobileScannerModal(true)}
                 style={{
                   backgroundColor: isPhoneScannerConnected ? '#059669' : '#80082E',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: isPhoneScannerConnected ? '0 2px 8px rgba(5,150,105,0.35)' : '0 2px 8px rgba(128,8,46,0.35)',
-                  transition: 'all 0.15s'
+                  boxShadow: isPhoneScannerConnected ? '0 2px 8px rgba(5,150,105,0.35)' : '0 2px 8px rgba(128,8,46,0.35)'
                 }}
                 title="Escanear prendas desde el celular con la cámara"
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
                 <Smartphone size={15} />
-                <span>Escanear con Celular</span>
+                <span className="pos-header-btn-text">Escanear Celular</span>
                 {isPhoneScannerConnected && (
                   <span style={{
-                    width: '7px',
-                    height: '7px',
+                    width: '6px',
+                    height: '6px',
                     borderRadius: '50%',
                     backgroundColor: '#4ade80',
                     boxShadow: '0 0 6px #4ade80'
@@ -4091,76 +4252,57 @@ export default function POSPage() {
 
               <button
                 type="button"
+                className="pos-header-btn"
                 onClick={() => setShowWarehouseStockModal(true)}
                 style={{
                   backgroundColor: '#3b82f6',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: '0 2px 8px rgba(59,130,246,0.35)',
-                  transition: 'all 0.15s'
+                  boxShadow: '0 2px 8px rgba(59,130,246,0.35)'
                 }}
+                title="Consultar Stock en Otras Bodegas"
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <Building2 size={15} /> Stock en Bodegas
+                <Building2 size={15} />
+                <span className="pos-header-btn-text">Stock Bodegas</span>
               </button>
 
               <button
                 type="button"
+                className="pos-header-btn"
                 onClick={() => setShowExchangeModal(true)}
                 style={{
                   backgroundColor: '#ec4899',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '0.45rem 0.95rem',
-                  borderRadius: '10px',
-                  fontSize: '0.78rem',
-                  fontWeight: '850',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
-                  transition: 'all 0.15s'
+                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)'
                 }}
+                title="Módulo de Cambios y Devoluciones"
                 onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <RefreshCcw size={15} /> Módulo de Cambios
+                <RefreshCcw size={15} />
+                <span className="pos-header-btn-text">Cambios</span>
               </button>
 
               {currentSession && (
                 <button
                   type="button"
+                  className="pos-header-btn"
                   onClick={() => setShowCashMovementModal(true)}
                   style={{
                     backgroundColor: '#10b981',
                     color: '#ffffff',
                     border: 'none',
-                    padding: '0.45rem 0.95rem',
-                    borderRadius: '10px',
-                    fontSize: '0.78rem',
-                    fontWeight: '850',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.45rem',
-                    boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
-                    transition: 'all 0.15s'
+                    boxShadow: '0 2px 8px rgba(16,185,129,0.35)'
                   }}
                   title="Registrar Ingreso o Egreso de efectivo menor (Parqueadero, aseo, sencillo, etc.)"
                   onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
                   onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
                 >
-                  <DollarSign size={15} /> Movimiento Caja
+                  <DollarSign size={15} />
+                  <span className="pos-header-btn-text">Caja Menor</span>
                 </button>
               )}
 
@@ -7613,7 +7755,7 @@ export default function POSPage() {
             )}
 
             {/* Shopping Cart & Billing panel view column (Right column) */}
-            <div style={{
+            <div className="pos-cart-panel" style={{
               width: `${cartWidth}px`,
               backgroundColor: 'white',
               borderLeft: '1px solid #cbd5e1',
