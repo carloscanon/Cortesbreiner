@@ -176,7 +176,9 @@ export async function POST(request: Request) {
       const movType = isDevolucion ? 'Devolución' : 'Venta POS';
 
       // 2.2 Identify physical warehouse and garment tags from barcodes
-      const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : [];
+      const directBarcodes: string[] = Array.isArray(cartItem.barcodes) 
+        ? cartItem.barcodes.filter(Boolean) 
+        : (cartItem.barcode ? [cartItem.barcode] : []);
       let garmentWarehouseId: string | null = null;
       let matchedGarmentRows: any[] = [];
 
@@ -253,9 +255,9 @@ export async function POST(request: Request) {
           gQuery = gQuery.eq('size_code', szQueryCode.trim());
         }
 
-        if (garmentWarehouseId || store?.bodega_asociada_id) {
-          const wId = garmentWarehouseId || store.bodega_asociada_id;
-          gQuery = gQuery.or(`warehouse_id.eq.${wId},store_id.eq.${store.id}`);
+        const targetWh = store?.bodega_asociada_id || garmentWarehouseId;
+        if (targetWh) {
+          gQuery = gQuery.or(`warehouse_id.eq.${targetWh},store_id.eq.${store.id}`);
         } else if (store?.id) {
           gQuery = gQuery.eq('store_id', store.id);
         }
@@ -267,6 +269,13 @@ export async function POST(request: Request) {
             .update({
               warehouse_id: null,
               store_id: null,
+              defect_checklist: {
+                is_sold: true,
+                sale_id: newSale.id,
+                consecutive: newSale.consecutive,
+                doc_ref: docRef,
+                sold_at: new Date().toISOString()
+              },
               updated_at: new Date().toISOString(),
               notes: `${docRef} - Vendedor: ${vendedor}`
             })
@@ -281,8 +290,8 @@ export async function POST(request: Request) {
         }
       }
 
-      // 2.3 Resolve target warehouse for finished_goods_stock
-      let whId = garmentWarehouseId || store?.bodega_asociada_id;
+      // 2.3 Resolve target warehouse for finished_goods_stock: Priority is ALWAYS the POS store's associated warehouse
+      let whId = store?.bodega_asociada_id;
       if (!whId && store?.id) {
         const { data: storeRow } = await supabase
           .from('stores')
@@ -291,6 +300,7 @@ export async function POST(request: Request) {
           .maybeSingle();
         if (storeRow?.bodega_asociada_id) whId = storeRow.bodega_asociada_id;
       }
+      if (!whId) whId = garmentWarehouseId;
 
       // 2.4 Deduct finished_goods_stock & finished_goods_kardex
       if (whId) {
