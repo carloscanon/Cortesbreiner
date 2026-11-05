@@ -222,6 +222,22 @@ export default function AlegraStoreBillingModule({
 
     for (const sale of salesToProcess) {
       idx++;
+
+      // Prevenir facturar electrónicamente una venta ya facturada previamente ante la DIAN
+      const isAlreadyInvoiced = 
+        sale.sincronizado_erp || 
+        (typeof sale.observaciones === 'string' && (
+          sale.observaciones.includes('Facturado ALEGRA DIAN') ||
+          sale.observaciones.includes('TIMBRADA') ||
+          sale.observaciones.includes('FED')
+        ));
+
+      if (isAlreadyInvoiced) {
+        errorsList.push(`Ticket #${sale.consecutive}: Ya cuenta con Factura Electrónica en Alegra previamente. No se puede volver a facturar.`);
+        errorCount++;
+        continue;
+      }
+
       setProgressState({
         current: idx,
         total: salesToProcess.length,

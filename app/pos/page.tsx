@@ -3152,6 +3152,56 @@ export default function POSPage() {
     if (!currentSession && isOnline) return alert('Debes abrir caja antes de registrar ventas.');
     if (cart.length === 0) return alert('El carrito está vacío.');
 
+    // 0. Pre-validación local en carrito: detectar prendas duplicadas
+    const seenBarcodes = new Set<string>();
+    const dupes: string[] = [];
+    const barcodesToCheck: string[] = [];
+
+    for (const item of cart) {
+      if (Array.isArray(item.barcodes)) {
+        for (const b of item.barcodes) {
+          if (b && typeof b === 'string') {
+            const cleanB = b.trim();
+            if (seenBarcodes.has(cleanB)) {
+              dupes.push(cleanB);
+            } else {
+              seenBarcodes.add(cleanB);
+              barcodesToCheck.push(cleanB);
+            }
+          }
+        }
+      }
+    }
+
+    if (dupes.length > 0) {
+      return alert(`⛔ El carrito contiene prendas duplicadas con el mismo código de barras: [${dupes.join(', ')}]. Cada prenda física solo puede ser vendida una sola vez.`);
+    }
+
+    // 0.1 Pre-validar en servidor antes de procesar pago
+    if (isOnline && barcodesToCheck.length > 0) {
+      try {
+        const { data: gCheck } = await supabase
+          .from('individual_garments')
+          .select('barcode, warehouse_id, store_id, notes, defect_checklist')
+          .in('barcode', barcodesToCheck);
+
+        if (gCheck && gCheck.length > 0) {
+          for (const g of gCheck) {
+            const isSold = 
+              (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
+              (typeof g.notes === 'string' && (g.notes.toLowerCase().includes('venta pos') || g.notes.toLowerCase().includes('vendid') || g.notes.toLowerCase().includes('factur'))) ||
+              (!g.warehouse_id && !g.store_id);
+
+            if (isSold) {
+              return alert(`⛔ La prenda con código "${g.barcode}" ya figura como FACTURADA / VENDIDA (${g.notes || 'No disponible en bodega'}). No se puede volver a facturar.`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Error pre-validating garments in client:', e);
+      }
+    }
+
     setIsProcessingSale(true);
     try {
       const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
@@ -3297,56 +3347,21 @@ export default function POSPage() {
           })
         });
 
+        const resData = await res.json().catch(() => ({}));
+
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Error HTTP ${res.status}`);
+          // Bloqueo estricto: SI LA VALIDACIÓN FALLA (prenda ya vendida, bodega incorrecta o duplicados), NO PERMITIR VENDER
+          alert(resData.error || `Error procesando la venta (Código HTTP ${res.status}).`);
+          setIsProcessingSale(false);
+          return;
         }
 
-        const resData = await res.json();
         newSale = resData.sale;
-      } catch (apiErr: any) {
-        console.warn('API /api/pos/sales failed, falling back to direct client insertion:', apiErr);
-        // Fallback directly to client if API route fails
-        const { data: clientSale, error: saleErr } = await supabase
-          .from('pos_sales')
-          .insert([salePayload])
-          .select()
-          .single();
-
-        if (saleErr) throw saleErr;
-        newSale = clientSale;
-
-        for (const cartItem of cart) {
-          await supabase.from('pos_sale_items').insert({
-            sale_id: newSale.id,
-            product_id: cartItem.product_id,
-            color_id: cartItem.color_id,
-            size_id: cartItem.size_id,
-            cantidad: cartItem.cantidad,
-            precio_unitario: cartItem.precio,
-            subtotal: cartItem.precio * cartItem.cantidad,
-            total: cartItem.precio * cartItem.cantidad
-          });
-
-          await deductStockForSaleItem({
-            store: selectedStore,
-            cartItem,
-            consecutive: newSale.consecutive,
-            vendedor: profile?.full_name || user?.email || 'Vendedor',
-            productsList: products,
-            colorsList: colors,
-            sizesList: sizes,
-            inventoryList: inventoryList
-          });
-        }
-
-        for (const p of paymentsToInsert) {
-          await supabase.from('pos_payments').insert({
-            sale_id: newSale.id,
-            metodo_pago: p.metodo_pago,
-            monto: p.monto
-          });
-        }
+      } catch (networkErr: any) {
+        console.error('Network error during checkout:', networkErr);
+        alert(`Error de conexión al procesar la venta: ${networkErr.message}. La venta no fue registrada.`);
+        setIsProcessingSale(false);
+        return;
       }
 
       const storeCode = (selectedStore?.codigo || (selectedStore?.nombre || 'POS').substring(0, 3)).toUpperCase();

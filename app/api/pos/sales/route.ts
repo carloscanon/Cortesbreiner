@@ -28,31 +28,92 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Datos de venta o carrito inválidos' }, { status: 400 });
     }
 
-    // Validar restricción estricta de bodega asignada al POS
+    // =========================================================================
+    // VALIDACIÓN ESTRICTA: PREVENCIÓN DE FACTURAS DUPLICADAS Y PRENDAS YA VENDIDAS
+    // =========================================================================
     const targetWhId = store?.bodega_asociada_id;
     const directBarcodesToValidate: string[] = [];
+    const seenBarcodes = new Set<string>();
+    const duplicateInCart: string[] = [];
+
+    // 1. Validar que no hayan códigos duplicados en el mismo carrito
     for (const item of cart) {
       if (Array.isArray(item.barcodes)) {
-        item.barcodes.forEach((b: string) => {
-          if (b && !directBarcodesToValidate.includes(b)) directBarcodesToValidate.push(b);
-        });
+        for (const b of item.barcodes) {
+          if (b && typeof b === 'string') {
+            const cleanB = b.trim();
+            if (cleanB) {
+              if (seenBarcodes.has(cleanB)) {
+                duplicateInCart.push(cleanB);
+              } else {
+                seenBarcodes.add(cleanB);
+                directBarcodesToValidate.push(cleanB);
+              }
+            }
+          }
+        }
       }
     }
 
-    if (targetWhId && directBarcodesToValidate.length > 0) {
-      const { data: garmentCheck } = await supabase
+    if (duplicateInCart.length > 0) {
+      return NextResponse.json({
+        error: `⛔ El carrito contiene prendas duplicadas con el mismo código de barras: [${duplicateInCart.join(', ')}]. Cada prenda física solo puede ser vendida una sola vez.`
+      }, { status: 400 });
+    }
+
+    // 2. Validar contra individual_garments: comprobar si la prenda ya fue vendida o pertenece a otra bodega
+    if (directBarcodesToValidate.length > 0) {
+      const { data: garmentCheck, error: gCheckErr } = await supabase
         .from('individual_garments')
-        .select('id, barcode, warehouse_id, store_id')
+        .select('id, barcode, warehouse_id, store_id, notes, defect_checklist, status, reference_name, color_name, size_code')
         .in('barcode', directBarcodesToValidate);
 
-      if (garmentCheck && garmentCheck.length > 0) {
+      if (gCheckErr) {
+        console.error('Error consultando individual_garments en validación:', gCheckErr);
+      } else if (garmentCheck && garmentCheck.length > 0) {
         for (const g of garmentCheck) {
-          const isAssigned = (g.warehouse_id === targetWhId) || (g.store_id && store?.id && g.store_id === store.id);
-          if (!isAssigned) {
+          // Verificar si ya fue vendida o facturada
+          const isAlreadySold = 
+            (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
+            (typeof g.notes === 'string' && (
+              g.notes.toLowerCase().includes('venta pos') || 
+              g.notes.toLowerCase().includes('vendid') || 
+              g.notes.toLowerCase().includes('factur')
+            )) ||
+            (!g.warehouse_id && !g.store_id);
+
+          if (isAlreadySold) {
             return NextResponse.json({
-              error: `La prenda con código "${g.barcode}" pertenece a otra bodega y no puede venderse en esta sucursal.`
+              error: `⛔ La prenda con código "${g.barcode}" (${g.reference_name || ''} ${g.color_name || ''} ${g.size_code || ''}) ya figura como FACTURADA / VENDIDA previamente. Detalle: ${g.notes || 'No se encuentra en stock disponible'}. No se puede volver a facturar.`
             }, { status: 400 });
           }
+
+          // Verificar restricción estricta de bodega
+          if (targetWhId) {
+            const isAssigned = (g.warehouse_id === targetWhId) || (g.store_id && store?.id && g.store_id === store.id);
+            if (!isAssigned) {
+              return NextResponse.json({
+                error: `⛔ La prenda con código "${g.barcode}" pertenece a otra bodega o sucursal y no puede venderse en esta tienda.`
+              }, { status: 400 });
+            }
+          }
+        }
+      }
+
+      // 3. Validar contra ventas históricas confirmadas en pos_sales
+      for (const bc of directBarcodesToValidate) {
+        const { data: pastSales } = await supabase
+          .from('pos_sales')
+          .select('id, consecutive, created_at, client_name, observaciones, estado')
+          .ilike('observaciones', `%${bc}%`)
+          .neq('estado', 'anulada')
+          .limit(1);
+
+        if (pastSales && pastSales.length > 0) {
+          const past = pastSales[0];
+          return NextResponse.json({
+            error: `⛔ La prenda con código "${bc}" ya fue facturada en la Venta #${past.consecutive || past.id} (Fecha: ${new Date(past.created_at).toLocaleString('es-CO')}). No se puede volver a facturar.`
+          }, { status: 400 });
         }
       }
     }
@@ -132,13 +193,19 @@ export async function POST(request: Request) {
         }
 
         // DIRECTLY UPDATE INDIVIDUAL_GARMENTS: Disassociate warehouse and store upon sale
-        // Note: individual_garments has a check constraint (Pendiente, Aprobada, Reproceso, Rechazada)
-        // Disassociating warehouse_id and store_id immediately removes it from warehouse and POS inventory views.
+        // Store is_sold tag in defect_checklist JSONB to guarantee absolute uniqueness on future sales
         const { error: updErr } = await supabase
           .from('individual_garments')
           .update({
             warehouse_id: null,
             store_id: null,
+            defect_checklist: {
+              is_sold: true,
+              sale_id: newSale.id,
+              consecutive: newSale.consecutive,
+              doc_ref: docRef,
+              sold_at: new Date().toISOString()
+            },
             updated_at: new Date().toISOString(),
             notes: `${docRef} - Vendedor: ${vendedor}`
           })
