@@ -559,33 +559,74 @@ export default function POSPage() {
     }
   };
 
+  // List of all 12 discrete POS modules available in the system
+  const ALL_POS_MODULES = [
+    { module: 'pos',           name: '🛍️ Punto de Venta (Caja)',       description: 'Facturación y escaneo de prendas' },
+    { module: 'productos',     name: '📦 Inventario y Recepción',      description: 'Stock por referencia y etiquetas' },
+    { module: 'stock_bodegas', name: '🏢 Stock por Bodega',            description: 'Consulta de existencias en bodegas' },
+    { module: 'traslados',     name: '🚚 Traslados de Tienda',         description: 'Recepción y envío de traslados' },
+    { module: 'clientes',      name: '👥 Clientes y CRM',              description: 'Gestión y registro de clientes' },
+    { module: 'ventas',        name: '🧾 Historial de Ventas',         description: 'Bitácora y detalle de transacciones' },
+    { module: 'cambios',       name: '🔄 Cambios y Devoluciones',      description: 'Gestión de cambios y notas crédito' },
+    { module: 'cajas',         name: '🏦 Control de Cajas',            description: 'Apertura y cierre de turnos' },
+    { module: 'reportes',      name: '📊 Reportes y Cierres',          description: 'Métricas y cierres X/Z' },
+    { module: 'promociones',   name: '🏷️ Promociones',                 description: 'Descuentos por volumen y promociones' },
+    { module: 'personal',      name: '👤 Personal y Turnos',           description: 'Vendedores y configurador de permisos' },
+    { module: 'ajustes',       name: '⚙️ Ajustes UX y Temas',          description: 'Personalización de colores y diseño' },
+  ];
+
+  const [previewPOSRoleId, setPreviewPOSRoleId] = useState<string | null>(null);
+
   // Compute allowed modules for POS sidebar
-  const currentUserAssignment = staffAssignments.find(a => a.userId === profile?.id);
-  const currentUserPOSRole = staffRoles.find(r => r.id === currentUserAssignment?.posRoleId);
   const isPOSAdmin = profile?.roles?.name?.toLowerCase().includes('admin') || 
                      profile?.roles?.name?.toLowerCase().includes('tienda') || 
                      profile?.roles?.name?.toLowerCase().includes('punto');
-                     
-  const allowedPOSModules = isPOSAdmin 
-    ? ['pos', 'traslados', 'clientes', 'ventas', 'personal', 'reportes', 'promociones', 'ajustes'] 
-    : (currentUserPOSRole?.permissions ? currentUserPOSRole.permissions : ['pos']);
+
+  // Match active POS role for current user
+  const currentUserAssignment = staffAssignments.find(a => 
+    a.userId === (profile?.id || user?.id) && (!selectedStore?.id || a.storeId === selectedStore.id)
+  ) || staffAssignments.find(a => a.userId === (profile?.id || user?.id));
+
+  let activePOSRole = previewPOSRoleId 
+    ? staffRoles.find(r => r.id === previewPOSRoleId)
+    : (currentUserAssignment?.posRoleId 
+        ? staffRoles.find(r => r.id === currentUserAssignment.posRoleId)
+        : null);
+
+  if (!activePOSRole) {
+    if (isPOSAdmin) {
+      activePOSRole = staffRoles.find(r => r.id === 'pos-admin') || staffRoles.find(r => r.id === 'pos-supervisor') || {
+        id: 'pos-admin',
+        name: 'Administrador de Tienda',
+        permissions: ALL_POS_MODULES.map(m => m.module)
+      };
+    } else {
+      activePOSRole = staffRoles.find(r => r.id === 'pos-vendedor') || staffRoles[0] || {
+        id: 'pos-vendedor',
+        name: 'Vendedor',
+        permissions: ['pos', 'productos', 'stock_bodegas', 'clientes', 'ventas']
+      };
+    }
+  }
+
+  const allowedPOSModules: string[] = Array.isArray(activePOSRole?.permissions) ? activePOSRole.permissions : ALL_POS_MODULES.map(m => m.module);
 
   const mainItems = [
-    { id: 'pos', label: 'Punto de Venta', icon: ShoppingBag, module: 'pos' },
-    { id: 'stock_bodegas', label: '🏢 Stock por Bodega', icon: Building2, module: 'pos' },
-    { id: 'traslados', label: '🚚📦 Traslados', icon: ArrowLeftRight, module: 'traslados' },
-    { id: 'productos', label: 'Productos', icon: Shirt, module: 'pos' },
-    { id: 'clientes', label: 'Clientes', icon: Users, module: 'clientes' },
-    { id: 'ventas', label: 'Ventas', icon: Receipt, module: 'ventas' },
-    { id: 'cambios', label: '🔄 Cambios / Devolución', icon: RefreshCcw, module: 'pos' },
-    { id: 'cajas', label: 'Cajas', icon: Landmark, module: 'pos' },
+    { id: 'pos',           label: 'Punto de Venta',          icon: ShoppingBag,    module: 'pos' },
+    { id: 'stock_bodegas', label: '🏢 Stock por Bodega',     icon: Building2,      module: 'stock_bodegas' },
+    { id: 'traslados',     label: '🚚📦 Traslados',          icon: ArrowLeftRight, module: 'traslados' },
+    { id: 'productos',     label: 'Productos / Inventario',  icon: Shirt,          module: 'productos' },
+    { id: 'clientes',      label: 'Clientes',                icon: Users,          module: 'clientes' },
+    { id: 'ventas',        label: 'Ventas',                  icon: Receipt,        module: 'ventas' },
+    { id: 'cambios',       label: '🔄 Cambios / Devolución', icon: RefreshCcw,     module: 'cambios' },
+    { id: 'cajas',         label: 'Cajas',                   icon: Landmark,       module: 'cajas' },
   ].filter(item => allowedPOSModules.includes(item.module));
 
   const managementItems = [
-    { id: 'reportes', label: 'Reportes', icon: BarChart3, module: 'reportes', show: allowedPOSModules.includes('reportes') },
-    { id: 'promociones', label: 'Promociones', icon: Award, module: 'promociones', show: allowedPOSModules.includes('promociones') },
-    { id: 'personal', label: 'Personal', icon: Users, module: 'personal', show: isPOSAdmin || allowedPOSModules.includes('personal') },
-    { id: 'ajustes', label: 'Ajustes / UX', icon: Settings, module: 'ajustes', show: allowedPOSModules.includes('ajustes') }
+    { id: 'reportes',    label: 'Reportes',     icon: BarChart3, module: 'reportes',    show: allowedPOSModules.includes('reportes') },
+    { id: 'promociones', label: 'Promociones',  icon: Award,     module: 'promociones', show: allowedPOSModules.includes('promociones') },
+    { id: 'personal',    label: 'Personal',     icon: Users,     module: 'personal',    show: isPOSAdmin || allowedPOSModules.includes('personal') },
+    { id: 'ajustes',     label: 'Ajustes / UX', icon: Settings,  module: 'ajustes',     show: isPOSAdmin || allowedPOSModules.includes('ajustes') }
   ].filter(item => item.show !== false);
 
   // Load shifts for managerial report
@@ -628,42 +669,47 @@ export default function POSPage() {
   const fetchInlineInventory = async () => {
     try {
       if (!selectedStore?.id) return;
-      if (selectedStore.bodega_asociada_id) {
-        const inv = await fetchAllPages(
-          supabase
-            .from('finished_goods_stock')
-            .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
-            .eq('warehouse_id', selectedStore.bodega_asociada_id)
-        );
-        setInventoryList(inv || []);
-      } else {
-        const inv = await fetchAllPages(
-          supabase
-            .from('store_inventory')
-            .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
-            .eq('store_id', selectedStore.id)
-        );
-        setInventoryList(inv || []);
-      }
 
-      // Fetch individual garment barcode tags physically in this warehouse/store (solo activas / no vendidas)
-      // Si la tienda tiene bodega asociada (ej: Bodega Local 1), el inventario físico 1-a-1 debe coincidir estrictamente con esa bodega
-      let garmentQuery = supabase
-        .from('individual_garments')
-        .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
-        .neq('status', 'Vendido')
-        .order('created_at', { ascending: false });
+      const stockPromise = (async () => {
+        if (selectedStore.bodega_asociada_id) {
+          return await fetchAllPages(
+            supabase
+              .from('finished_goods_stock')
+              .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .eq('warehouse_id', selectedStore.bodega_asociada_id)
+          );
+        } else {
+          return await fetchAllPages(
+            supabase
+              .from('store_inventory')
+              .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .eq('store_id', selectedStore.id)
+          );
+        }
+      })();
 
-      if (selectedStore.bodega_asociada_id) {
-        garmentQuery = garmentQuery.eq('warehouse_id', selectedStore.bodega_asociada_id);
-      } else {
-        garmentQuery = garmentQuery.eq('store_id', selectedStore.id);
-      }
+      const garmentPromise = (async () => {
+        let garmentQuery = supabase
+          .from('individual_garments')
+          .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
+          .neq('status', 'Vendido')
+          .not('notes', 'ilike', '%Venta POS%')
+          .order('created_at', { ascending: false });
 
-      const garments = await fetchAllPages(garmentQuery);
-      setIndividualGarments(garments || []);
+        if (selectedStore.bodega_asociada_id) {
+          garmentQuery = garmentQuery.eq('warehouse_id', selectedStore.bodega_asociada_id);
+        } else {
+          garmentQuery = garmentQuery.eq('store_id', selectedStore.id);
+        }
+
+        return await fetchAllPages(garmentQuery);
+      })();
+
+      const [inv, garments] = await Promise.all([stockPromise, garmentPromise]);
+      if (inv) setInventoryList(inv);
+      if (garments) setIndividualGarments(garments);
     } catch (e) {
-      console.error(e);
+      console.error('Error in fetchInlineInventory:', e);
     }
   };
 
@@ -941,12 +987,21 @@ export default function POSPage() {
       setCustomHeaderTextPlacement(log.headerTextPlacement || 'right');
     }
     // Load custom POS roles and permissions
-    if (activeTheme?.styles?.pos_roles_config) {
-      setStaffRoles(activeTheme.styles.pos_roles_config);
+    if (activeTheme?.styles?.pos_roles_config && Array.isArray(activeTheme.styles.pos_roles_config)) {
+      const existingRoles = [...activeTheme.styles.pos_roles_config];
+      if (!existingRoles.some(r => r.id === 'pos-admin')) {
+        existingRoles.unshift({
+          id: 'pos-admin',
+          name: 'Administrador de Tienda',
+          permissions: ALL_POS_MODULES.map(m => m.module)
+        });
+      }
+      setStaffRoles(existingRoles);
     } else {
       setStaffRoles([
-        { id: 'pos-vendedor', name: 'Vendedor', permissions: ['pos', 'clientes'] },
-        { id: 'pos-supervisor', name: 'Supervisor', permissions: ['pos', 'clientes', 'ventas', 'reportes', 'promociones'] }
+        { id: 'pos-admin', name: 'Administrador de Tienda', permissions: ALL_POS_MODULES.map(m => m.module) },
+        { id: 'pos-supervisor', name: 'Supervisor', permissions: ['pos', 'productos', 'stock_bodegas', 'clientes', 'ventas', 'cambios', 'cajas', 'reportes', 'promociones'] },
+        { id: 'pos-vendedor', name: 'Vendedor', permissions: ['pos', 'productos', 'stock_bodegas', 'clientes', 'ventas'] }
       ]);
     }
     // Load custom POS staff assignments (linking users to store + role)
@@ -1415,12 +1470,65 @@ export default function POSPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedStore) {
-      fetchInlineInventory();
-      fetchPendingTransfers();
-      fetchCrmCustomers();
+    if (!selectedStore) return;
+
+    fetchInlineInventory();
+    fetchPendingTransfers();
+    fetchCrmCustomers();
+
+    let debounceTimer: any = null;
+    const triggerInventoryRefresh = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchInlineInventory();
+      }, 400);
+    };
+
+    const channelName = `pos_live_stock_${selectedStore.id}_${Date.now()}`;
+    const liveStockChannel = supabase.channel(channelName);
+
+    if (selectedStore.bodega_asociada_id) {
+      liveStockChannel
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'finished_goods_stock',
+          filter: `warehouse_id=eq.${selectedStore.bodega_asociada_id}`
+        }, triggerInventoryRefresh)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'individual_garments',
+          filter: `warehouse_id=eq.${selectedStore.bodega_asociada_id}`
+        }, triggerInventoryRefresh);
+    } else {
+      liveStockChannel
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'store_inventory',
+          filter: `store_id=eq.${selectedStore.id}`
+        }, triggerInventoryRefresh);
     }
-  }, [selectedStore]);
+
+    liveStockChannel
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'pos_sales',
+        filter: `store_id=eq.${selectedStore.id}`
+      }, () => {
+        triggerInventoryRefresh();
+        fetchInlineSales();
+        if (currentSession) fetchSessionSalesTotal(currentSession.id);
+      })
+      .subscribe();
+
+    return () => {
+      clearTimeout(debounceTimer);
+      supabase.removeChannel(liveStockChannel);
+    };
+  }, [selectedStore?.id, selectedStore?.bodega_asociada_id]);
 
     useEffect(() => {
     if ((!profile?.id && !user?.id) || stores.length === 0) return;
@@ -1719,7 +1827,7 @@ export default function POSPage() {
     e.preventDefault();
     if (!newRoleName.trim()) return;
     const newId = 'pos-role-' + Date.now();
-    const newRole = { id: newId, name: newRoleName.trim(), permissions: ['pos'] };
+    const newRole = { id: newId, name: newRoleName.trim(), permissions: ['pos', 'productos', 'clientes', 'ventas'] };
     const updatedRoles = [...staffRoles, newRole];
     setStaffRoles(updatedRoles);
     setNewRoleName('');
@@ -1727,8 +1835,8 @@ export default function POSPage() {
   };
 
   const handleDeletePOSRole = async (id: string) => {
-    if (id === 'pos-vendedor' || id === 'pos-supervisor') {
-      alert('Los roles base "Vendedor" y "Supervisor" no pueden eliminarse.');
+    if (id === 'pos-vendedor' || id === 'pos-supervisor' || id === 'pos-admin') {
+      alert('Los roles base ("Administrador de Tienda", "Supervisor" y "Vendedor") no pueden eliminarse.');
       return;
     }
     if (!confirm('¿Seguro que deseas eliminar este rol del POS?')) return;
@@ -1745,6 +1853,20 @@ export default function POSPage() {
         return {
           ...r,
           permissions: hasIt ? perms.filter((p: string) => p !== moduleName) : [...perms, moduleName]
+        };
+      }
+      return r;
+    });
+    setStaffRoles(updatedRoles);
+    await saveCustomTheme(updatedRoles);
+  };
+
+  const handleSelectAllPOSPermissions = async (roleId: string, selectAll: boolean) => {
+    const updatedRoles = staffRoles.map(r => {
+      if (r.id === roleId) {
+        return {
+          ...r,
+          permissions: selectAll ? ALL_POS_MODULES.map(m => m.module) : []
         };
       }
       return r;
@@ -2101,8 +2223,8 @@ export default function POSPage() {
       }
     }
 
-    // Determine target warehouse ID (priority: barcode physical warehouse > store bodega asociada)
-    let whId = garmentWarehouseId || store.bodega_asociada_id;
+    // Determine target warehouse ID: Priority is ALWAYS the store's associated warehouse
+    let whId = store.bodega_asociada_id;
     if (!whId && store.id) {
       try {
         const { data: storeRow } = await supabase
@@ -2117,6 +2239,7 @@ export default function POSPage() {
         console.warn("Could not fetch store bodega_asociada_id:", errStoreLookup);
       }
     }
+    if (!whId) whId = garmentWarehouseId;
 
     const productObj = productsList.find(p => p.id === cartItem.product_id) || {
       id: cartItem.product_id,
@@ -2303,14 +2426,20 @@ export default function POSPage() {
     // 3. DEDUCTION OF INDIVIDUAL_GARMENTS (Barcode tags)
     if (qtyToDeduct > 0) {
       try {
-        const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : [];
+        const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : (cartItem.barcode ? [cartItem.barcode] : []);
         let remainingQtyToDeduct = qtyToDeduct;
 
-        // If specific barcodes were scanned for this cart item, mark them as 'Vendido' directly
+        // If specific barcodes were scanned for this cart item, disassociate them from warehouse and tag as sold
         if (directBarcodes.length > 0) {
           await supabase.from('individual_garments')
             .update({ 
-              status: 'Vendido', 
+              warehouse_id: null,
+              store_id: null,
+              defect_checklist: {
+                is_sold: true,
+                doc_ref: docRef,
+                sold_at: new Date().toISOString()
+              },
               updated_at: new Date().toISOString(),
               notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
             })
@@ -2371,7 +2500,13 @@ export default function POSPage() {
             const ids = matchedGarments.map(g => g.id);
             await supabase.from('individual_garments')
               .update({ 
-                status: 'Vendido', 
+                warehouse_id: null,
+                store_id: null,
+                defect_checklist: {
+                  is_sold: true,
+                  doc_ref: docRef,
+                  sold_at: new Date().toISOString()
+                },
                 updated_at: new Date().toISOString(),
                 notes: `${docRef} - Vendedor: ${vendedor || 'Vendedor'}` 
               })
@@ -2380,6 +2515,28 @@ export default function POSPage() {
         }
       } catch (eGarm) {
         console.warn("individual_garments deduction warning:", eGarm);
+      }
+    } else if (qtyToDeduct < 0) {
+      // Return / Devolución: Restore garments back to this store's warehouse
+      try {
+        const directBarcodes: string[] = Array.isArray(cartItem.barcodes) ? cartItem.barcodes.filter(Boolean) : (cartItem.barcode ? [cartItem.barcode] : []);
+        if (directBarcodes.length > 0) {
+          await supabase.from('individual_garments')
+            .update({
+              warehouse_id: whId || null,
+              store_id: store?.id || null,
+              defect_checklist: {
+                is_sold: false,
+                restored_at: new Date().toISOString(),
+                doc_ref: docRef
+              },
+              updated_at: new Date().toISOString(),
+              notes: `${docRef} - Reingreso Devolución`
+            })
+            .in('barcode', directBarcodes);
+        }
+      } catch (eDev) {
+        console.warn("Garment restock error:", eDev);
       }
     }
   };
@@ -3334,6 +3491,7 @@ export default function POSPage() {
       }
 
       let newSale: any = null;
+      let resData: any = {};
 
       try {
         const res = await fetch('/api/pos/sales', {
@@ -3347,7 +3505,7 @@ export default function POSPage() {
           })
         });
 
-        const resData = await res.json().catch(() => ({}));
+        resData = await res.json().catch(() => ({}));
 
         if (!res.ok) {
           // Bloqueo estricto: SI LA VALIDACIÓN FALLA (prenda ya vendida, bodega incorrecta o duplicados), NO PERMITIR VENDER
@@ -3398,6 +3556,53 @@ export default function POSPage() {
       setLastReceiptData(receiptPayload);
       setShowReceiptModal(true);
 
+      // Instant dynamic inventory state deduction (optimistic update)
+      const directBarcodesSold = cart.flatMap(it => Array.isArray(it.barcodes) ? it.barcodes : (it.barcode ? [it.barcode] : []));
+      const allBarcodesToDeduct = Array.from(new Set([
+        ...(resData?.soldBarcodes || []),
+        ...directBarcodesSold
+      ]));
+
+      setIndividualGarments(prev => {
+        let updated = prev.filter(g => !allBarcodesToDeduct.includes(g.barcode));
+        for (const item of cart) {
+          const itemBcs = Array.isArray(item.barcodes) ? item.barcodes : (item.barcode ? [item.barcode] : []);
+          const extraQty = Math.max(0, (Number(item.cantidad) || 1) - itemBcs.length);
+          if (extraQty > 0) {
+            let removed = 0;
+            updated = updated.filter(g => {
+              if (removed >= extraQty) return true;
+              const matchRef = (!item.codigo_referencia || (g.reference_name || '').toLowerCase().includes(item.codigo_referencia.toLowerCase())) ||
+                               (item.nombre && (g.reference_name || '').toLowerCase().includes(item.nombre.toLowerCase()));
+              if (matchRef) {
+                removed++;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
+        return updated;
+      });
+
+      setInventoryList(prev => {
+        return prev.map(inv => {
+          const matches = cart.filter(it => 
+            it.product_id === inv.product_id &&
+            (!it.size_id || it.size_id === inv.size_id) &&
+            (!it.color_id || it.color_id === inv.color_id)
+          );
+          if (matches.length > 0) {
+            const soldQty = matches.reduce((sum, m) => sum + (Number(m.cantidad) || 1), 0);
+            return {
+              ...inv,
+              cantidad_disponible: Math.max(0, (Number(inv.cantidad_disponible) || 0) - soldQty)
+            };
+          }
+          return inv;
+        });
+      });
+
       setSelectedCustomer({ name: 'Cliente General', document: '2222222222' });
       setCart([]);
       setCartNotes('');
@@ -3409,7 +3614,7 @@ export default function POSPage() {
         fetchSessionSalesTotal(currentSession.id);
         fetchSessionSalesDetails(currentSession.id);
       }
-      fetchInlineInventory();
+      await fetchInlineInventory();
       fetchInlineSales();
     } catch (err: any) {
       alert('Error guardando venta: ' + err.message);
@@ -3762,6 +3967,12 @@ export default function POSPage() {
                       setShowWarehouseStockModal(true);
                     } else if (item.id === 'cambios' || item.id === 'devoluciones') {
                       setShowExchangeModal(true);
+                    } else if (item.id === 'cajas') {
+                      if (currentSession) {
+                        setShowCloseSessionModal(true);
+                      } else {
+                        setShowOpenSessionModal(true);
+                      }
                     } else {
                       setActiveMenuId(item.id);
                       if (item.id === 'clientes') fetchCrmCustomers();
@@ -5617,44 +5828,150 @@ export default function POSPage() {
                     </div>
 
                     <div style={{ padding: '1.25rem', background: 'white', borderRadius: '16px', border: '1px solid #cbd5e1' }}>
-                      <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.5rem' }}>Configurador de Permisos del POS</h3>
-                      <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 1.25rem' }}>Asigna los módulos del POS a los que cada rol tiene acceso de visualización y ejecución en la tienda:</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div>
+                          <h3 style={{ fontSize: '0.95rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.25rem' }}>Configurador de Permisos del POS</h3>
+                          <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Quita o asigna los módulos que cada rol puede ver y operar en el menú del terminal en tiempo real:</p>
+                        </div>
+                        {previewPOSRoleId && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#fef3c7', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#92400e' }}>
+                              👁️ Vista previa activa: {staffRoles.find(r => r.id === previewPOSRoleId)?.name}
+                            </span>
+                            <button
+                              onClick={() => setPreviewPOSRoleId(null)}
+                              style={{ border: 'none', background: '#92400e', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.65rem', fontWeight: '800', cursor: 'pointer' }}
+                            >
+                              Restaurar
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                         {staffRoles.map(role => {
                           const rolePermissions = role.permissions || [];
+                          const isPreviewingThisRole = previewPOSRoleId === role.id;
+
                           return (
-                            <div key={role.id} style={{ padding: '1rem', borderRadius: '12px', background: '#f8fafc', border: '1px solid #f1f5f9' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                <h4 style={{ margin: 0, fontSize: '0.82rem', fontWeight: '900', color: '#80082E', textTransform: 'uppercase' }}>Rol: {role.name}</h4>
-                                {role.id !== 'pos-vendedor' && role.id !== 'pos-supervisor' && (
-                                  <button onClick={() => handleDeletePOSRole(role.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '800' }}>
-                                    Eliminar Rol
+                            <div key={role.id} style={{ padding: '1.15rem', borderRadius: '14px', background: isPreviewingThisRole ? '#fdf4f6' : '#f8fafc', border: isPreviewingThisRole ? '2px solid #80082E' : '1px solid #e2e8f0' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                  <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: '950', color: '#80082E', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                                    Rol: {role.name}
+                                  </h4>
+                                  <span style={{
+                                    fontSize: '0.68rem',
+                                    fontWeight: '800',
+                                    padding: '0.2rem 0.6rem',
+                                    borderRadius: '12px',
+                                    backgroundColor: rolePermissions.length > 0 ? '#ecfdf5' : '#fef2f2',
+                                    color: rolePermissions.length > 0 ? '#059669' : '#dc2626',
+                                    border: `1px solid ${rolePermissions.length > 0 ? '#a7f3d0' : '#fecaca'}`
+                                  }}>
+                                    {rolePermissions.length} de {ALL_POS_MODULES.length} módulos permitidos
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectAllPOSPermissions(role.id, true)}
+                                    style={{
+                                      padding: '0.3rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #10b981',
+                                      backgroundColor: '#ecfdf5',
+                                      color: '#059669',
+                                      fontSize: '0.7rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    ✓ Todos
                                   </button>
-                                )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectAllPOSPermissions(role.id, false)}
+                                    style={{
+                                      padding: '0.3rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #ef4444',
+                                      backgroundColor: '#fef2f2',
+                                      color: '#dc2626',
+                                      fontSize: '0.7rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    ✗ Ninguno
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewPOSRoleId(isPreviewingThisRole ? null : role.id)}
+                                    style={{
+                                      padding: '0.3rem 0.65rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid #80082E',
+                                      backgroundColor: isPreviewingThisRole ? '#80082E' : '#ffffff',
+                                      color: isPreviewingThisRole ? '#ffffff' : '#80082E',
+                                      fontSize: '0.7rem',
+                                      fontWeight: '800',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {isPreviewingThisRole ? '✓ Vista activa' : '👁️ Probar menú'}
+                                  </button>
+
+                                  {role.id !== 'pos-vendedor' && role.id !== 'pos-supervisor' && role.id !== 'pos-admin' && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => handleDeletePOSRole(role.id)} 
+                                      style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', fontSize: '0.72rem', fontWeight: '800', padding: '0.3rem 0.5rem' }}
+                                    >
+                                      Eliminar
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                {[
-                                  { module: 'pos', name: 'Punto de Venta (Caja / Facturación)' },
-                                  { module: 'traslados', name: '🚚📦 Traslados de Tienda / Bodega' },
-                                  { module: 'clientes', name: 'CRM (Gestión de Clientes)' },
-                                  { module: 'ventas', name: 'Historial de Ventas / Bitácora' },
-                                  { module: 'personal', name: 'Gestión de Personal y Turnos' },
-                                  { module: 'reportes', name: 'Módulo de Reportes y Cierres' },
-                                  { module: 'promociones', name: 'Promociones y Descuentos' },
-                                  { module: 'ajustes', name: 'Ajustes UX / Temas' }
-                                ].map(m => {
+
+                              {/* All 12 Modules Checklist Grid */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '0.65rem' }}>
+                                {ALL_POS_MODULES.map(m => {
                                   const matchesPerm = rolePermissions.includes(m.module);
                                   return (
-                                    <label key={m.module} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', fontWeight: '750', color: '#334155', cursor: 'pointer', background: 'white', padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                                    <div
+                                      key={m.module}
+                                      onClick={() => handleTogglePOSPermission(role.id, m.module)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.65rem',
+                                        padding: '0.6rem 0.85rem',
+                                        borderRadius: '10px',
+                                        background: matchesPerm ? '#ffffff' : '#f1f5f9',
+                                        border: matchesPerm ? '1.5px solid #80082E' : '1px solid #cbd5e1',
+                                        boxShadow: matchesPerm ? '0 2px 6px rgba(128, 8, 46, 0.08)' : 'none',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
                                       <input
                                         type="checkbox"
                                         checked={matchesPerm}
-                                        onChange={() => handleTogglePOSPermission(role.id, m.module)}
-                                        style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: '#80082E' }}
+                                        onChange={() => {}} // Controlled by container onClick
+                                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#80082E', flexShrink: 0 }}
                                       />
-                                      {m.name}
-                                    </label>
+                                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: '0.76rem', fontWeight: matchesPerm ? '900' : '700', color: matchesPerm ? '#0f172a' : '#64748b' }}>
+                                          {m.name}
+                                        </span>
+                                        <span style={{ fontSize: '0.64rem', color: matchesPerm ? '#80082E' : '#94a3b8' }}>
+                                          {m.description}
+                                        </span>
+                                      </div>
+                                    </div>
                                   );
                                 })}
                               </div>
