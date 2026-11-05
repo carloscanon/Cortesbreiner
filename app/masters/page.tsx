@@ -475,11 +475,24 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
         payload.name = payload.nombre_taller;
       }
 
+      // Sincronizar nombre de categoría en productos
+      if (activeTab === 'products') {
+        if (payload.category_id) {
+          const matchedCat = categories.find(c => String(c.id).toLowerCase() === String(payload.category_id).toLowerCase());
+          if (matchedCat) {
+            payload.categoria = matchedCat.categoria;
+          }
+        }
+      }
+
       let categoryId = editingId;
       let productId = editingId;
       if (editingId) {
         const { error } = await supabase.from(config.table).update(payload).eq('id', editingId);
         if (error) throw error;
+        if (activeTab === 'categories' && payload.categoria) {
+          await supabase.from('products').update({ categoria: payload.categoria }).eq('category_id', editingId);
+        }
       } else {
         if (activeTab === 'categories') {
           const { data: newCat, error: catErr } = await supabase.from(config.table).insert([payload]).select().single();
@@ -495,6 +508,7 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
               nombre_producto: newCat.categoria,
               codigo_referencia: refCode,
               category_id: newCat.id,
+              categoria: newCat.categoria,
               genero: 'F',
               iva: iva,
               precio: 0,
@@ -1004,8 +1018,8 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                             let displayVal = val;
 
                             if (fieldKey === 'category_id') {
-                              const cat = categories.find(c => c.id === val);
-                              displayVal = cat ? cat.categoria : 'Sin Categoría';
+                              const cat = categories.find(c => String(c.id).toLowerCase() === String(val).toLowerCase());
+                              displayVal = cat ? cat.categoria : (item.categoria || 'Sin Categoría');
                               label = 'Categoría';
                             }
                             if (fieldKey === 'valor' || fieldKey === 'precio' || fieldKey === 'precio_con_iva' || fieldKey === 'costo_con_iva') {

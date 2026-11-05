@@ -112,6 +112,49 @@ export default function OrdersPage() {
   };
   
   const updateMatrixCol = (id: number, field: string, value: string) => {
+    // Si se seleccionó una categoría que aún no tiene producto base creado, resolver o crear en caliente
+    if (field === 'product_id' && value.startsWith('cat_')) {
+      const catId = value.replace('cat_', '');
+      const catObj = categories.find(c => String(c.id).toLowerCase() === String(catId).toLowerCase());
+      if (catObj) {
+        const existing = products.find(p => 
+          (p.category_id && String(p.category_id).toLowerCase() === String(catId).toLowerCase()) ||
+          (p.categoria && p.categoria.toLowerCase() === catObj.categoria.toLowerCase())
+        );
+        if (existing) {
+          value = existing.id;
+        } else {
+          (async () => {
+            try {
+              const { count } = await supabase.from('products').select('*', { count: 'exact', head: true });
+              const refCode = `REF-${String((count || 0) + 1).padStart(4, '0')}`;
+              const { data: newProd, error } = await supabase.from('products').insert([{
+                nombre_producto: catObj.categoria,
+                codigo_referencia: refCode,
+                category_id: catObj.id,
+                categoria: catObj.categoria,
+                genero: 'F',
+                iva: 19,
+                precio: 0,
+                precio_con_iva: 0,
+                estado: 'activo'
+              }]).select().single();
+              if (!error && newProd) {
+                setProducts(prev => [...prev, newProd]);
+                setMatrixCols(prev => prev.map(c => c.id === id ? { ...c, product_id: newProd.id } : c));
+                setCortesAdicionales(prev => prev.map(corte => ({
+                  ...corte,
+                  matrixCols: corte.matrixCols.map((col: any) => col.id === id ? { ...col, product_id: newProd.id } : col)
+                })));
+              }
+            } catch (e) {
+              console.error('Error auto-creando producto base:', e);
+            }
+          })();
+        }
+      }
+    }
+
     setMatrixCols(matrixCols.map(c => c.id === id ? { ...c, [field]: value } : c));
     
     // Auto-calculate quantities when marker changes: value = layers × marker
@@ -318,6 +361,53 @@ export default function OrdersPage() {
   };
 
   const updateCorteMatrixCol = (corteId: number, colId: number, field: string, value: string) => {
+    // Si se seleccionó una categoría que aún no tiene producto base creado, resolver o crear en caliente
+    if (field === 'product_id' && value.startsWith('cat_')) {
+      const catId = value.replace('cat_', '');
+      const catObj = categories.find(c => String(c.id).toLowerCase() === String(catId).toLowerCase());
+      if (catObj) {
+        const existing = products.find(p => 
+          (p.category_id && String(p.category_id).toLowerCase() === String(catId).toLowerCase()) ||
+          (p.categoria && p.categoria.toLowerCase() === catObj.categoria.toLowerCase())
+        );
+        if (existing) {
+          value = existing.id;
+        } else {
+          (async () => {
+            try {
+              const { count } = await supabase.from('products').select('*', { count: 'exact', head: true });
+              const refCode = `REF-${String((count || 0) + 1).padStart(4, '0')}`;
+              const { data: newProd, error } = await supabase.from('products').insert([{
+                nombre_producto: catObj.categoria,
+                codigo_referencia: refCode,
+                category_id: catObj.id,
+                categoria: catObj.categoria,
+                genero: 'F',
+                iva: 19,
+                precio: 0,
+                precio_con_iva: 0,
+                estado: 'activo'
+              }]).select().single();
+              if (!error && newProd) {
+                setProducts(prev => [...prev, newProd]);
+                setCortesAdicionales(prev => prev.map(c => {
+                  if (c.id === corteId) {
+                    return {
+                      ...c,
+                      matrixCols: c.matrixCols.map((col: any) => col.id === colId ? { ...col, product_id: newProd.id } : col)
+                    };
+                  }
+                  return c;
+                }));
+              }
+            } catch (e) {
+              console.error('Error auto-creando producto base para corte:', e);
+            }
+          })();
+        }
+      }
+    }
+
     setCortesAdicionales(prev => prev.map(c => {
       if (c.id === corteId) {
         const updatedCols = c.matrixCols.map((col: any) => col.id === colId ? { ...col, [field]: value } : col);
@@ -2118,9 +2208,9 @@ export default function OrdersPage() {
                 const catMap: Record<string, { nombre: string; units: number; cuts: number }> = {};
                 viewCuts.forEach((cut: any) => {
                   const prod = products.find((p: any) => String(p.id) === String(cut.product_id));
-                  const cat = prod ? categories.find((c: any) => String(c.id) === String(prod.category_id)) : null;
-                  const catKey = cat?.id || 'sin_categoria';
-                  const catNombre = cat?.categoria || 'Sin Categoría';
+                  const cat = prod ? categories.find((c: any) => String(c.id).toLowerCase() === String(prod.category_id).toLowerCase()) : null;
+                  const catKey = cat?.id || prod?.category_id || 'sin_categoria';
+                  const catNombre = cat?.categoria || prod?.categoria || 'Sin Categoría';
                   const totalQty = (cut.cut_sizes || []).reduce((s: number, cs: any) => s + (Number(cs.quantity) || 0), 0);
                   if (!catMap[catKey]) catMap[catKey] = { nombre: catNombre, units: 0, cuts: 0 };
                   catMap[catKey].units += totalQty;
@@ -2866,13 +2956,44 @@ export default function OrdersPage() {
                                 <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateMatrixCol(col.id, 'product_id', e.target.value)}>
                                   <option value="">Seleccionar Referencia...</option>
                                   {categories.map(cat => {
-                                    const matchingProd = products.find(p => String(p.category_id) === String(cat.id));
+                                    const catProds = products.filter(p => 
+                                      (p.category_id && String(p.category_id).toLowerCase() === String(cat.id).toLowerCase()) ||
+                                      (p.categoria && p.categoria.toLowerCase() === cat.categoria.toLowerCase())
+                                    );
+                                    if (catProds.length === 0) {
+                                      return (
+                                        <optgroup key={cat.id} label={`📁 ${cat.categoria}`}>
+                                          <option value={`cat_${cat.id}`}>
+                                            {cat.categoria} (Crear Referencia Base)
+                                          </option>
+                                        </optgroup>
+                                      );
+                                    }
                                     return (
-                                      <option key={cat.id} value={matchingProd ? matchingProd.id : `cat_${cat.id}`} disabled={!matchingProd}>
-                                        {cat.categoria} {!matchingProd ? '(Sin Producto)' : ''}
-                                      </option>
+                                      <optgroup key={cat.id} label={`📁 ${cat.categoria} (${catProds.length})`}>
+                                        {catProds.map(prod => (
+                                          <option key={prod.id} value={prod.id}>
+                                            {prod.codigo_referencia ? `[${prod.codigo_referencia}] ` : ''}{prod.nombre_producto || cat.categoria}
+                                          </option>
+                                        ))}
+                                      </optgroup>
                                     );
                                   })}
+                                  {(() => {
+                                    const uncategorized = products.filter(p => 
+                                      !p.category_id && (!p.categoria || !categories.some(c => c.categoria.toLowerCase() === p.categoria.toLowerCase()))
+                                    );
+                                    if (uncategorized.length === 0) return null;
+                                    return (
+                                      <optgroup label={`📁 Otras Referencias (${uncategorized.length})`}>
+                                        {uncategorized.map(prod => (
+                                          <option key={prod.id} value={prod.id}>
+                                            {prod.codigo_referencia ? `[${prod.codigo_referencia}] ` : ''}{prod.nombre_producto || 'Sin Nombre'}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    );
+                                  })()}
                                 </select>
                                 {matrixCols.length > 1 && (
                                   <button onClick={() => removeMatrixCol(col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -3028,13 +3149,44 @@ export default function OrdersPage() {
                                           <select style={{ width: '100%', padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: '900', fontSize: '0.875rem' }} value={col.product_id} onChange={e => updateCorteMatrixCol(corte.id, col.id, 'product_id', e.target.value)}>
                                             <option value="">Seleccionar Referencia...</option>
                                             {categories.map(cat => {
-                                              const matchingProd = products.find(p => String(p.category_id) === String(cat.id));
+                                              const catProds = products.filter(p => 
+                                                (p.category_id && String(p.category_id).toLowerCase() === String(cat.id).toLowerCase()) ||
+                                                (p.categoria && p.categoria.toLowerCase() === cat.categoria.toLowerCase())
+                                              );
+                                              if (catProds.length === 0) {
+                                                return (
+                                                  <optgroup key={cat.id} label={`📁 ${cat.categoria}`}>
+                                                    <option value={`cat_${cat.id}`}>
+                                                      {cat.categoria} (Crear Referencia Base)
+                                                    </option>
+                                                  </optgroup>
+                                                );
+                                              }
                                               return (
-                                                <option key={cat.id} value={matchingProd ? matchingProd.id : `cat_${cat.id}`} disabled={!matchingProd}>
-                                                  {cat.categoria} {!matchingProd ? '(Sin Producto)' : ''}
-                                                </option>
+                                                <optgroup key={cat.id} label={`📁 ${cat.categoria} (${catProds.length})`}>
+                                                  {catProds.map(prod => (
+                                                    <option key={prod.id} value={prod.id}>
+                                                      {prod.codigo_referencia ? `[${prod.codigo_referencia}] ` : ''}{prod.nombre_producto || cat.categoria}
+                                                    </option>
+                                                  ))}
+                                                </optgroup>
                                               );
                                             })}
+                                            {(() => {
+                                              const uncategorized = products.filter(p => 
+                                                !p.category_id && (!p.categoria || !categories.some(c => c.categoria.toLowerCase() === p.categoria.toLowerCase()))
+                                              );
+                                              if (uncategorized.length === 0) return null;
+                                              return (
+                                                <optgroup label={`📁 Otras Referencias (${uncategorized.length})`}>
+                                                  {uncategorized.map(prod => (
+                                                    <option key={prod.id} value={prod.id}>
+                                                      {prod.codigo_referencia ? `[${prod.codigo_referencia}] ` : ''}{prod.nombre_producto || 'Sin Nombre'}
+                                                    </option>
+                                                  ))}
+                                                </optgroup>
+                                              );
+                                            })()}
                                           </select>
                                           {corte.matrixCols.length > 1 && (
                                             <button type="button" onClick={() => removeCorteMatrixCol(corte.id, col.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}><X size={16}/></button>
@@ -3332,8 +3484,11 @@ export default function OrdersPage() {
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem', fontWeight: '700' }}>
                                 {(() => {
                                   const prod = products.find(p => String(p.id) === String(item.product_id));
-                                  const cat = prod ? categories.find(c => String(c.id) === String(prod.category_id)) : null;
-                                  return cat ? cat.categoria : (prod ? (prod.codigo_referencia || prod.nombre_producto) : '---');
+                                  const cat = prod ? categories.find(c => String(c.id).toLowerCase() === String(prod.category_id).toLowerCase()) : null;
+                                  const catName = cat?.categoria || prod?.categoria || '';
+                                  const refOrName = prod?.codigo_referencia ? `[${prod.codigo_referencia}] ${prod.nombre_producto || ''}` : (prod?.nombre_producto || '');
+                                  if (catName && refOrName) return `${catName} — ${refOrName}`;
+                                  return catName || refOrName || '---';
                                 })()}
                               </td>
                               <td style={{ border: '1px solid #e2e8f0', padding: '0.5rem', fontSize: '0.8rem' }}>{item.nombre_tela || '---'}</td>

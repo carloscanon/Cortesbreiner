@@ -675,14 +675,14 @@ export default function POSPage() {
           return await fetchAllPages(
             supabase
               .from('finished_goods_stock')
-              .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
               .eq('warehouse_id', selectedStore.bodega_asociada_id)
           );
         } else {
           return await fetchAllPages(
             supabase
               .from('store_inventory')
-              .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
               .eq('store_id', selectedStore.id)
           );
         }
@@ -5179,22 +5179,6 @@ export default function POSPage() {
                   </>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ fontSize: '1.4rem' }}>🚚📦</span>
-                        <div>
-                          <div style={{ fontSize: '0.85rem', fontWeight: '900', color: '#80082E' }}>Módulo Completo de Traslados entre Tiendas y Bodegas</div>
-                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Despacha y recibe mercancía con pistola de código de barras, comprobantes y conciliación de faltantes en tiempo real.</div>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setActiveMenuId('traslados')} 
-                        style={{ backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', padding: '0.5rem 1rem', fontSize: '0.78rem', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                      >
-                        Abrir Módulo de Traslados →
-                      </button>
-                    </div>
-
                     <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
                     {/* Lista de traslados */}
                     <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
