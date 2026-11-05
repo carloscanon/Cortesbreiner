@@ -288,10 +288,14 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
   const [categoryAccessoriesList, setCategoryAccessoriesList] = useState<any[]>([]);
   const [productAccessoriesList, setProductAccessoriesList] = useState<any[]>([]);
   const [selectedProductAccessories, setSelectedProductAccessories] = useState<{ accessory_id: string; cantidad: number }[]>([]);
+  const [allProductsList, setAllProductsList] = useState<any[]>([]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setSearch('');
     setCurrentPage(1);
+    setSelectedCategoryFilter('');
     fetchData();
     const fetchMasters = async () => {
       try {
@@ -310,6 +314,9 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
 
         const allProductAccs = await fetchAll(() => supabase.from('product_accessories').select('*, accessories(nombre, unidad_medida)'));
         if (allProductAccs) setProductAccessoriesList(allProductAccs || []);
+
+        const prodData = await fetchAll(() => supabase.from('products').select('id, nombre_producto, codigo_referencia, category_id, categoria, estado, precio').order('nombre_producto'));
+        if (prodData) setAllProductsList(prodData || []);
       } catch (err) {
         console.error('Error fetching categories/accessories/products:', err);
       }
@@ -793,14 +800,29 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
              </div>
 
              {activeTab === 'products' && (
-               <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#f1f5f9', padding: '0.25rem', borderRadius: '10px' }}>
-                 {(['todos', 'habilitados', 'inhabilitados'] as const).map(f => (
-                   <button
-                     key={f}
-                     onClick={() => { setProductFilter(f); setCurrentPage(1); }}
-                     style={{
-                       padding: '0.5rem 1rem',
-                       borderRadius: '8px',
+               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                 <select
+                   value={selectedCategoryFilter}
+                   onChange={(e) => {
+                     setSelectedCategoryFilter(e.target.value);
+                     setCurrentPage(1);
+                   }}
+                   style={{ padding: '0.5rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: '750', backgroundColor: 'white', color: '#0f172a' }}
+                 >
+                   <option value="">📁 Todas las Categorías ({categories.length})</option>
+                   {categories.map((c: any) => (
+                     <option key={c.id} value={c.id}>📁 {c.categoria}</option>
+                   ))}
+                 </select>
+
+                 <div style={{ display: 'flex', gap: '0.5rem', backgroundColor: '#f1f5f9', padding: '0.25rem', borderRadius: '10px' }}>
+                   {(['todos', 'habilitados', 'inhabilitados'] as const).map(f => (
+                     <button
+                       key={f}
+                       onClick={() => { setProductFilter(f); setCurrentPage(1); }}
+                       style={{
+                         padding: '0.5rem 1rem',
+                         borderRadius: '8px',
                          border: 'none',
                          fontSize: '0.8rem',
                          fontWeight: productFilter === f ? '800' : '600',
@@ -810,11 +832,12 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                          cursor: 'pointer',
                          textTransform: 'capitalize',
                          transition: 'all 0.2s ease'
-                     }}
-                   >
-                     {f}
-                   </button>
-                 ))}
+                       }}
+                     >
+                       {f}
+                     </button>
+                   ))}
+                 </div>
                </div>
              )}
           </div>
@@ -826,12 +849,36 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                   const status = item.estado || 'activo';
                   if (productFilter === 'habilitados' && status === 'inactivo') return false;
                   if (productFilter === 'inhabilitados' && status !== 'inactivo') return false;
+
+                  if (selectedCategoryFilter) {
+                    const matchesCat = String(item.category_id).toLowerCase() === String(selectedCategoryFilter).toLowerCase() ||
+                      (item.categoria && item.categoria.toLowerCase() === categories.find(c => String(c.id).toLowerCase() === String(selectedCategoryFilter).toLowerCase())?.categoria?.toLowerCase());
+                    if (!matchesCat) return false;
+                  }
                 }
                 
                 if (!search) return true;
                 const s = search.toLowerCase();
+
+                // Para categorías, también buscar si coincide con alguno de sus productos asignados
+                if (activeTab === 'categories') {
+                  const catProducts = allProductsList.filter(p => 
+                    (p.category_id && String(p.category_id).toLowerCase() === String(item.id).toLowerCase()) ||
+                    (p.categoria && p.categoria.toLowerCase() === item.categoria?.toLowerCase())
+                  );
+                  const matchesAnyProduct = catProducts.some(p => 
+                    (p.nombre_producto && p.nombre_producto.toLowerCase().includes(s)) ||
+                    (p.codigo_referencia && p.codigo_referencia.toLowerCase().includes(s))
+                  );
+                  if (matchesAnyProduct) return true;
+                }
+
+                const resolvedCatName = activeTab === 'products'
+                  ? (categories.find(c => String(c.id).toLowerCase() === String(item.category_id).toLowerCase())?.categoria || item.categoria || '')
+                  : (item.categoria || '');
+
                 const fieldsToSearch = [
-                  item.categoria, item.nombre_tela, item.nombre_color, item.nombre_talla, item.nombre_producto,
+                  item.categoria, resolvedCatName, item.nombre_tela, item.nombre_color, item.nombre_talla, item.nombre_producto,
                   item.nombre_taller, item.razon_social, item.nombre_bodega, item.nombre,
                   item.descripcion, item.concepto, item.empresa_nombre, item.nombre_estado,
                   item.cod_novedad, item.codigo_tela, item.codigo_color, item.codigo_talla,
@@ -911,6 +958,67 @@ export default function MastersPage({ isEmbed = false }: { isEmbed?: boolean }) 
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                           {activeTab === 'categories' && (
                             <>
+                              {/* Referencias y Productos asignados a esta categoría */}
+                              {(() => {
+                                const catProducts = allProductsList.filter(p => 
+                                  (p.category_id && String(p.category_id).toLowerCase() === String(item.id).toLowerCase()) ||
+                                  (p.categoria && p.categoria.toLowerCase() === item.categoria?.toLowerCase())
+                                );
+                                const isExpanded = expandedCategories[item.id] || false;
+                                const visibleProducts = isExpanded ? catProducts : catProducts.slice(0, 4);
+
+                                return (
+                                  <div style={{ width: '100%', marginTop: '0.4rem', marginBottom: '0.5rem', padding: '0.65rem 0.85rem', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                        🛍️ Prendas y Referencias asignadas ({catProducts.length}):
+                                      </span>
+                                      {catProducts.length > 4 && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setExpandedCategories(prev => ({ ...prev, [item.id]: !isExpanded }));
+                                          }}
+                                          style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer', padding: '0.1rem 0.3rem' }}
+                                        >
+                                          {isExpanded ? 'Ver menos ▲' : `Ver todos (${catProducts.length}) ▼`}
+                                        </button>
+                                      )}
+                                    </div>
+                                    {catProducts.length === 0 ? (
+                                      <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.72rem' }}>
+                                        No hay productos asignados a esta categoría todavía.
+                                      </span>
+                                    ) : (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                                        {visibleProducts.map(p => (
+                                          <span
+                                            key={p.id}
+                                            style={{
+                                              backgroundColor: 'white',
+                                              color: '#0f172a',
+                                              padding: '0.2rem 0.5rem',
+                                              borderRadius: '6px',
+                                              fontWeight: '700',
+                                              border: '1px solid #cbd5e1',
+                                              fontSize: '0.72rem',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '0.25rem',
+                                              boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                                            }}
+                                          >
+                                            <span style={{ color: '#0284c7', fontWeight: '800' }}>[{p.codigo_referencia || 'REF'}]</span>
+                                            <span>{p.nombre_producto || item.categoria}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap', width: '100%', marginBottom: '0.25rem' }}>
                                 <span style={{ fontWeight: '600' }}>Insumos por defecto:</span>
                                 {(() => {

@@ -545,7 +545,7 @@ export default function FinishedGoodsInventory() {
       const prod = st.products;
       const refCode = (prod?.codigo_referencia || 'SIN-REF').toUpperCase().trim();
       const prodName = prod?.nombre_producto || refCode;
-      const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+      const catName = prod?.categories?.categoria || prod?.categoria || categories.find(c => String(c.id).toLowerCase() === String(prod?.category_id).toLowerCase())?.categoria || 'Sin Categoría';
       const price = prod?.precio || 0;
       const qty = Number(st.cantidad_disponible || 0);
 
@@ -1106,7 +1106,7 @@ export default function FinishedGoodsInventory() {
           const prod = st.products;
           const refCode = prod?.codigo_referencia || '';
           const prodName = prod?.nombre_producto || refCode || 'Producto';
-          const catName = prod?.categories?.categoria || prod?.categoria || 'Sin Categoría';
+          const catName = prod?.categories?.categoria || prod?.categoria || categories.find(c => String(c.id).toLowerCase() === String(prod?.category_id).toLowerCase())?.categoria || 'Sin Categoría';
           const key = `${st.product_id}_${st.color_id || 'null'}_${st.size_id}`;
           const canalIngreso = originSourceMap[key] || 'Ingreso Regular / Calidad';
           const totalQty = Math.max(0, Number(st.cantidad_disponible || 0));
@@ -1973,7 +1973,7 @@ export default function FinishedGoodsInventory() {
   const filteredStock = stock.filter(item => {
     const ref = item.products?.codigo_referencia || '';
     const name = item.products?.nombre_producto || '';
-    const cat = (item.products?.categories?.categoria || item.products?.categoria || '');
+    const cat = (item.products?.categories?.categoria || item.products?.categoria || categories.find(c => String(c.id).toLowerCase() === String(item.products?.category_id).toLowerCase())?.categoria || '');
     const color = item.colors?.nombre_color || '';
     const size = item.sizes?.codigo_talla || '';
     const wh = item.warehouses?.nombre_bodega || '';

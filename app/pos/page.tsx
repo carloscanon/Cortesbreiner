@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
@@ -288,6 +288,15 @@ export default function POSPage() {
   const [stores, setStores] = useState<any[]>([]);
   const [registers, setRegisters] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [posSelectedCategory, setPosSelectedCategory] = useState<string>('todos');
+  const posCategoryList = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => {
+      const c = (p.categories?.categoria || p.categoria || '').trim();
+      if (c) set.add(c);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [products]);
   const [colors, setColors] = useState<any[]>([]);
   const [sizes, setSizes] = useState<any[]>([]);
   const [promotions, setPromotions] = useState<any[]>([]);
@@ -3707,6 +3716,12 @@ export default function POSPage() {
     // 0. Do not show or sell inactive / disabled products
     if (p.estado === 'inactivo') return false;
 
+    // Filtro por categoría seleccionada en slider
+    if (posSelectedCategory && posSelectedCategory !== 'todos') {
+      const pCat = (p.categories?.categoria || p.categoria || '').trim().toLowerCase();
+      if (pCat !== posSelectedCategory.toLowerCase()) return false;
+    }
+
     // 1. If a specific individual barcode tag is scanned/detected
     if (scannedGarment) {
       if (scannedGarment.is_already_sold) {
@@ -3731,7 +3746,7 @@ export default function POSPage() {
 
     const matchesName = p.nombre_producto?.toLowerCase().includes(sq);
     const matchesCode = p.codigo_referencia?.toLowerCase().includes(sq);
-    const matchesCategory = p.categories?.categoria?.toLowerCase().includes(sq);
+    const matchesCategory = (p.categories?.categoria?.toLowerCase() || p.categoria?.toLowerCase() || '').includes(sq);
 
     return matchesName || matchesCode || matchesCategory;
   });
@@ -7880,36 +7895,54 @@ export default function POSPage() {
 
               {/* Tag/Categories Filter Slider */}
               <div style={{ display: 'flex', gap: '0.65rem', overflowX: 'auto', paddingBottom: '0.35rem', flexShrink: 0 }} className="pos-scrollbar">
-                {[
-                  { label: 'Todos', active: true, icon: Sparkles },
-                  { label: 'Camisetas', active: false, icon: Shirt },
-                  { label: 'Camisas', active: false, icon: Shirt },
-                  { label: 'Pantalones', active: false, icon: Shirt },
-                  { label: 'Chaquetas', active: false, icon: Shirt },
-                  { label: 'Vestidos', active: false, icon: Shirt },
-                  { label: 'Shorts', active: false, icon: Shirt },
-                  { label: 'Accesorios', active: false, icon: Shirt },
-                  { label: 'Más...', active: false, icon: MoreHorizontal }
-                ].map((cat, idx) => (
-                  <div key={idx} style={{
+                <div
+                  onClick={() => setPosSelectedCategory('todos')}
+                  style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.45rem',
                     padding: '0.45rem 1rem',
                     borderRadius: '30px',
                     cursor: 'pointer',
-                    backgroundColor: cat.active ? '#80082E' : 'white',
-                    color: cat.active ? 'white' : '#64748b',
-                    border: cat.active ? 'none' : '1px solid #cbd5e1',
+                    backgroundColor: posSelectedCategory === 'todos' ? '#80082E' : 'white',
+                    color: posSelectedCategory === 'todos' ? 'white' : '#64748b',
+                    border: posSelectedCategory === 'todos' ? 'none' : '1px solid #cbd5e1',
                     fontSize: '0.78rem',
                     fontWeight: '800',
                     transition: 'all 0.15s',
                     whiteSpace: 'nowrap'
-                  }}>
-                    <cat.icon size={13} />
-                    <span>{cat.label}</span>
-                  </div>
-                ))}
+                  }}
+                >
+                  <Sparkles size={13} />
+                  <span>Todos</span>
+                </div>
+                {posCategoryList.map((catName) => {
+                  const isActive = posSelectedCategory.toLowerCase() === catName.toLowerCase();
+                  return (
+                    <div
+                      key={catName}
+                      onClick={() => setPosSelectedCategory(isActive ? 'todos' : catName)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        padding: '0.45rem 1rem',
+                        borderRadius: '30px',
+                        cursor: 'pointer',
+                        backgroundColor: isActive ? '#80082E' : 'white',
+                        color: isActive ? 'white' : '#64748b',
+                        border: isActive ? 'none' : '1px solid #cbd5e1',
+                        fontSize: '0.78rem',
+                        fontWeight: '800',
+                        transition: 'all 0.15s',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <Shirt size={13} />
+                      <span>{catName}</span>
+                    </div>
+                  );
+                })}
               </div>
 
                {/* Redesigned Card Catalog Grid layout with media queries */}

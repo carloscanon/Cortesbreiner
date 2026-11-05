@@ -344,10 +344,21 @@ export default function WorkshopsPage() {
         }
       }
 
+      // Cargar productos completos sin límite de 1000
+      let allProducts: any[] = [];
+      let pPage = 0;
+      while (true) {
+        const { data: pBatch, error: pErr } = await supabase.from('products').select('*').order('nombre_producto', { ascending: true }).range(pPage * 1000, (pPage + 1) * 1000 - 1);
+        if (pErr || !pBatch || pBatch.length === 0) break;
+        allProducts = allProducts.concat(pBatch);
+        if (pBatch.length < 1000) break;
+        pPage++;
+      }
+
       setWorkshops(wData || []);
       setCategories(cData || []);
       setWorkshopRates(rData || []);
-      setProductsList(pData || []);
+      setProductsList(allProducts.length > 0 ? allProducts : (pData || []));
       setSpecialCosts(specCostsData || []);
       
       if (wData && wData.length > 0 && !selectedRateWorkshopId) {
@@ -1475,16 +1486,18 @@ export default function WorkshopsPage() {
                 {/* Listado por Categoría con Referencias Individuales */}
                 {categories.map(cat => {
                   const productsInCat = productsList.filter(p => {
-                    const matchesCat = String(p.category_id) === String(cat.id);
+                    const matchesCat = (p.category_id && String(p.category_id).toLowerCase() === String(cat.id).toLowerCase()) ||
+                      (p.categoria && p.categoria.toLowerCase() === cat.categoria?.toLowerCase());
                     if (!matchesCat) return false;
                     if (!specialSearch.trim()) return true;
                     const searchLower = specialSearch.toLowerCase().trim();
                     const nameMatch = (p.nombre_producto || p.name || '').toLowerCase().includes(searchLower);
                     const codeMatch = (p.codigo_referencia || p.reference_code || '').toLowerCase().includes(searchLower);
-                    return nameMatch || codeMatch;
+                    const catMatch = (cat.categoria || '').toLowerCase().includes(searchLower);
+                    return nameMatch || codeMatch || catMatch;
                   });
 
-                  if (specialSearch.trim() && productsInCat.length === 0) return null;
+                  if (specialSearch.trim() && productsInCat.length === 0 && !(cat.categoria || '').toLowerCase().includes(specialSearch.toLowerCase().trim())) return null;
 
                   return (
                     <div key={cat.id} style={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1rem 1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
