@@ -2825,7 +2825,7 @@ export default function Dashboard() {
           </div>
           <div>
             <h3 style={{ fontSize: '1.05rem', fontWeight: '900', color: '#0f172a', marginBottom: '1rem' }}>🏭 Estado y Detalle de Mis Talleres</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '1.25rem' }}>
               {finalWorkshopsList.filter(w => activeWorkshopId === 'all' || String(w.id) === String(activeWorkshopId)).map(w => {
                 // Filtrar las órdenes de confección asignadas a este taller
                 const wsSewingOrders = sewingOrdersList.filter(so => 
@@ -3290,7 +3290,7 @@ export default function Dashboard() {
           </div>
 
           {/* 3. Sección de Analítica y Gráficos Corporativos */}
-          <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem' }}>
+          <div className="responsive-split-grid" style={{ gap: '1.5rem' }}>
             
             {/* Gráfico de Producción Real vs. Planeada por Taller (Drill Down en Click) */}
             <div style={{
@@ -3501,7 +3501,7 @@ export default function Dashboard() {
           {/* 4. Acordeón / Estado Detallado por Taller */}
 
           {/* Main Layout: 70% Columns & 30% Right Panel */}
-          <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem', alignItems: 'start' }}>
+          <div className="responsive-split-grid" style={{ gap: '1.5rem', alignItems: 'start' }}>
             
             {/* Left Content Area */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
@@ -5199,7 +5199,7 @@ export default function Dashboard() {
           </div>
 
           {/* KPI Summary Header Cards para Control de Entregas y Pagos */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '1rem' }}>
             {(() => {
               const totalInspectedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_inspected) || 0), 0);
               const totalApprovedSum = workshopInspections.reduce((s, i) => s + (Number(i.items_approved) || 0), 0);
@@ -5448,7 +5448,7 @@ export default function Dashboard() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ marginBottom: '0.25rem' }}>Panel de Control</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
@@ -5463,7 +5463,7 @@ export default function Dashboard() {
       </div>
 
       {/* Selector de Pestañas Premium */}
-      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '2px solid var(--border)', paddingBottom: '0.5rem', marginTop: '-0.5rem' }}>
+      <div className="tabs-scrollable-container" style={{ borderBottom: '2px solid var(--border)', marginTop: '-0.5rem' }}>
         <button
           onClick={() => setAdminTab('overview')}
           style={{
@@ -5662,7 +5662,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* 3. Sección de Analítica y Distribución Corporativa */}
-                <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '2rem' }}>
+                <div className="responsive-split-grid" style={{ gap: '1.5rem' }}>
                   
                   {/* Gráfico Bar Chart de Órdenes por Mes */}
                   <div style={{
@@ -6078,7 +6078,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Gráficas Comparativas */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1.5rem', marginTop: '0.5rem' }}>
                   {/* Gráfica de barras de Referencias */}
                   <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
                     <div style={{ marginBottom: '1.5rem' }}>
@@ -6121,7 +6121,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Sección de Tops 10 */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: '1.5rem' }}>
                   {/* Top 10 Categorías de Producto */}
                   <div className="card" style={{ borderRadius: '18px', padding: '1.5rem' }}>
                     <h3 style={{ margin: '0 0 1.25rem 0', fontSize: '0.95rem', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -6652,7 +6652,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* ── Graphic Comparison and Filters ── */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem', alignItems: 'stretch' }}>
+                <div className="responsive-consolidation-grid" style={{ gap: '1.5rem', alignItems: 'stretch' }}>
                   {/* Recharts Bar Chart */}
                   <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '350px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

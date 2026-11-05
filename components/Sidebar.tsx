@@ -22,7 +22,8 @@ import {
   Building2,
   Activity,
   AlertTriangle,
-  ShoppingBag
+  ShoppingBag,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -57,8 +58,25 @@ const allBottomItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { signOut, user, profile, config } = useAuth();
   const [allowedModules, setAllowedModules] = useState<string[]>([]);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    const handleToggle = () => setMobileOpen(prev => !prev);
+    const handleClose = () => setMobileOpen(false);
+    window.addEventListener('toggle-mobile-sidebar', handleToggle);
+    window.addEventListener('close-mobile-sidebar', handleClose);
+    return () => {
+      window.removeEventListener('toggle-mobile-sidebar', handleToggle);
+      window.removeEventListener('close-mobile-sidebar', handleClose);
+    };
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname, searchParams]);
 
   useEffect(() => {
     const fetchPermissions = async () => {
@@ -142,52 +160,68 @@ export default function Sidebar() {
   const logoWidth = config?.logo_width || '150';
   const mobileAppImg = config?.mobile_app_image_url || '';
 
-  const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab') || 'dashboard';
 
   if (pathname?.startsWith('/pos') || pathname?.startsWith('/scanner')) return null;
 
   return (
-    <aside className="sidebar">
-      <div style={{ 
-        marginBottom: '2.5rem', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        minHeight: '80px',
-        width: '100%'
-      }}>
-        {logoUrl ? (
+    <>
+      {mobileOpen && (
+        <div 
+          className="sidebar-backdrop" 
+          onClick={() => setMobileOpen(false)} 
+        />
+      )}
+      <aside className={`sidebar ${mobileOpen ? 'sidebar-mobile-open' : ''}`}>
+        <div style={{ 
+          marginBottom: '2rem', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          minHeight: '70px',
+          width: '100%',
+          position: 'relative'
+        }}>
           <div style={{ 
-            width: '100%', 
+            flex: 1, 
             display: 'flex', 
             justifyContent: 'center',
-            padding: '0 1rem'
+            alignItems: 'center'
           }}>
-            <img 
-              src={logoUrl} 
-              alt="Logo" 
-              style={{ 
-                maxWidth: '100%', 
-                maxHeight: '120px', 
-                width: `${logoWidth}px`,
-                height: 'auto', 
-                objectFit: 'contain',
-                transition: 'width 0.3s ease'
-              }} 
-            />
+            {logoUrl ? (
+              <img 
+                src={logoUrl} 
+                alt="Logo" 
+                style={{ 
+                  maxWidth: '100%', 
+                  maxHeight: '100px', 
+                  width: `${logoWidth}px`,
+                  height: 'auto', 
+                  objectFit: 'contain',
+                  transition: 'width 0.3s ease'
+                }} 
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ 
+                  width: '40px', height: '40px', backgroundColor: 'var(--primary)', 
+                  borderRadius: '8px', display: 'flex', alignItems: 'center', 
+                  justifyContent: 'center', color: 'white', fontWeight: '700' 
+                }}>B</div>
+                <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '700' }}>Breiner</h2>
+              </div>
+            )}
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ 
-              width: '40px', height: '40px', backgroundColor: 'var(--primary)', 
-              borderRadius: '8px', display: 'flex', alignItems: 'center', 
-              justifyContent: 'center', color: 'white', fontWeight: '700' 
-            }}>B</div>
-            <h2 style={{ fontSize: '1.25rem', color: 'var(--primary)', fontWeight: '700' }}>Breiner</h2>
-          </div>
-        )}
-      </div>
+          <button
+            type="button"
+            className="sidebar-mobile-close-btn"
+            onClick={() => setMobileOpen(false)}
+            title="Cerrar menú"
+            aria-label="Cerrar menú"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
       <nav style={{ flex: 1 }}>
         <p style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Menú</p>
@@ -205,6 +239,7 @@ export default function Sidebar() {
               <li key={item.label}>
                 <Link 
                   href={item.href}
+                  onClick={() => setMobileOpen(false)}
                   className="btn"
                   style={{ 
                     width: '100%', 
@@ -241,6 +276,7 @@ export default function Sidebar() {
             <li key={item.label}>
               <Link 
                 href={item.href}
+                onClick={() => setMobileOpen(false)}
                 className="btn"
                 style={{ 
                   width: '100%', 
@@ -256,7 +292,7 @@ export default function Sidebar() {
           ))}
           <li>
             <button 
-              onClick={() => signOut()}
+              onClick={() => { setMobileOpen(false); signOut(); }}
               className="btn"
               style={{ 
                 width: '100%', 
@@ -312,5 +348,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

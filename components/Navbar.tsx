@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, Bell, Mail, User, Loader2, Store, Settings, Factory } from 'lucide-react';
+import { Search, Bell, Mail, User, Loader2, Store, Settings, Factory, Menu } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -143,50 +143,65 @@ export default function Navbar() {
       display: 'flex', 
       alignItems: 'center', 
       justifyContent: 'space-between', 
-      padding: '1rem 0',
-      marginBottom: '2rem'
+      padding: '0.75rem 0',
+      marginBottom: '1.75rem',
+      flexWrap: 'wrap',
+      gap: '1rem',
+      width: '100%'
     }}>
-      <div style={{ position: 'relative', width: '400px' }}>
-        <Search 
-          size={18} 
-          style={{ 
-            position: 'absolute', 
-            left: '1rem', 
-            top: '50%', 
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: '1 1 280px', maxWidth: '440px' }}>
+        <button
+          type="button"
+          className="mobile-sidebar-toggle-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('toggle-mobile-sidebar'))}
+          title="Abrir menú"
+          aria-label="Abrir menú"
+        >
+          <Menu size={22} />
+        </button>
+        <div style={{ position: 'relative', width: '100%' }}>
+          <Search 
+            size={18} 
+            style={{ 
+              position: 'absolute', 
+              left: '1rem', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }} 
+          />
+          <input 
+            type="text" 
+            placeholder="Buscar orden, tela..." 
+            style={{ 
+              width: '100%',
+              padding: '0.75rem 1rem 0.75rem 3rem',
+              borderRadius: '12px',
+              border: '1px solid var(--border)',
+              fontSize: '0.875rem',
+              outline: 'none',
+              transition: 'border-color 0.2s',
+              backgroundColor: 'var(--surface)'
+            }}
+            onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
+            onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+          />
+          <div style={{
+            position: 'absolute',
+            right: '1rem',
+            top: '50%',
             transform: 'translateY(-50%)',
-            color: 'var(--text-muted)'
-          }} 
-        />
-        <input 
-          type="text" 
-          placeholder="Buscar orden, tela..." 
-          style={{ 
-            width: '100%',
-            padding: '0.75rem 1rem 0.75rem 3rem',
-            borderRadius: '12px',
-            border: '1px solid var(--border)',
-            fontSize: '0.875rem',
-            outline: 'none',
-            transition: 'border-color 0.2s'
-          }}
-          onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-          onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
-        />
-        <div style={{
-          position: 'absolute',
-          right: '1rem',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          backgroundColor: '#f1f5f9',
-          padding: '2px 6px',
-          borderRadius: '4px',
-          fontSize: '0.625rem',
-          color: 'var(--text-muted)',
-          fontWeight: '700'
-        }}>⌘ K</div>
+            backgroundColor: '#f1f5f9',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontSize: '0.625rem',
+            color: 'var(--text-muted)',
+            fontWeight: '700'
+          }}>⌘ K</div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', justifyContent: 'flex-end', flex: '1 0 auto' }}>
         {(() => {
           const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
           const isSuperAdmin = roleNameLower.includes('super');
