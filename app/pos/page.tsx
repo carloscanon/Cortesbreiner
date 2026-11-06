@@ -96,8 +96,18 @@ export function isBodyProduct(product: any): boolean {
   return name.includes('body') || cat.includes('body') || ref.includes('body') || desc.includes('body');
 }
 
+export function isCropTopProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('crop') || cat.includes('crop') || ref.includes('crop') || desc.includes('crop');
+}
+
 export function isTopProduct(product: any): boolean {
   if (!product) return false;
+  if (isCropTopProduct(product)) return false;
   const name = (product.nombre_producto || '').toLowerCase();
   const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
   const ref = (product.codigo_referencia || '').toLowerCase();
@@ -113,6 +123,8 @@ export function parsePriceListRules(pl: any) {
   let body_discount_val: number | string = '';
   let top_discount_type = 'precio_fijo';
   let top_discount_val: number | string = '';
+  let croptop_discount_type = 'precio_fijo';
+  let croptop_discount_val: number | string = '';
   let userDesc = pl?.descripcion || '';
 
   if (userDesc) {
@@ -135,6 +147,8 @@ export function parsePriceListRules(pl: any) {
         if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
         if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
         if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
+        if (parsed.croptop_discount_type) croptop_discount_type = parsed.croptop_discount_type;
+        if (parsed.croptop_discount_val !== undefined && parsed.croptop_discount_val !== null) croptop_discount_val = parsed.croptop_discount_val;
       } catch (e) {
         console.warn('Error parsing Base64 rules in POS:', e);
       }
@@ -160,6 +174,8 @@ export function parsePriceListRules(pl: any) {
           if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
           if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
           if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
+          if (parsed.croptop_discount_type) croptop_discount_type = parsed.croptop_discount_type;
+          if (parsed.croptop_discount_val !== undefined && parsed.croptop_discount_val !== null) croptop_discount_val = parsed.croptop_discount_val;
         } catch (e) {
           console.warn('Error parsing legacy rules JSON in POS:', e);
         }
@@ -191,6 +207,8 @@ export function parsePriceListRules(pl: any) {
     body_discount_val,
     top_discount_type,
     top_discount_val,
+    croptop_discount_type,
+    croptop_discount_val,
     userDesc
   };
 }
@@ -2703,8 +2721,24 @@ export default function POSPage() {
       }
     }
 
-    // Regla 5: Precios / Descuentos por Tipo de Prenda: BODY y TOP
-    if (isBodyProduct(product)) {
+    // Regla 5: Precios / Descuentos por Tipo de Prenda: CROP TOP, BODY y TOP
+    if (isCropTopProduct(product)) {
+      const cropTopItem = customItems.find(item => item.price_list_id === priceListId && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toLowerCase() === 'crop top' || item.categoria?.toLowerCase() === 'crop-top'));
+      const cropTopVal = cropTopItem?.valor_descuento !== undefined && cropTopItem?.valor_descuento !== null
+        ? Number(cropTopItem.valor_descuento)
+        : (rules.croptop_discount_val !== '' && rules.croptop_discount_val !== undefined ? Number(rules.croptop_discount_val) : null);
+      const cropTopType = cropTopItem?.tipo_descuento || rules.croptop_discount_type || 'precio_fijo';
+      
+      if (cropTopVal !== null && !isNaN(cropTopVal) && cropTopVal > 0) {
+        if (cropTopType === 'precio_fijo') {
+          return Math.max(0, cropTopVal);
+        } else if (cropTopType === 'porcentaje') {
+          return Math.max(0, basePrice - (basePrice * (cropTopVal / 100)));
+        } else {
+          return Math.max(0, basePrice - cropTopVal);
+        }
+      }
+    } else if (isBodyProduct(product)) {
       const bodyItem = customItems.find(item => item.price_list_id === priceListId && item.categoria?.toUpperCase() === 'BODY');
       const bodyVal = bodyItem?.valor_descuento !== undefined && bodyItem?.valor_descuento !== null
         ? Number(bodyItem.valor_descuento)
@@ -8487,12 +8521,15 @@ export default function POSPage() {
                           {(() => {
                             const existBody = priceListItems.find(item => item.price_list_id === activePL.id && item.categoria?.toUpperCase() === 'BODY');
                             const existTop = priceListItems.find(item => item.price_list_id === activePL.id && item.categoria?.toUpperCase() === 'TOP');
+                            const existCropTop = priceListItems.find(item => item.price_list_id === activePL.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toLowerCase() === 'crop top' || item.categoria?.toLowerCase() === 'crop-top'));
                             const bodyVal = existBody?.valor_descuento || plRules.body_discount_val;
                             const bodyType = existBody?.tipo_descuento || plRules.body_discount_type || 'precio_fijo';
                             const topVal = existTop?.valor_descuento || plRules.top_discount_val;
                             const topType = existTop?.tipo_descuento || plRules.top_discount_type || 'precio_fijo';
+                            const cropTopVal = existCropTop?.valor_descuento || plRules.croptop_discount_val;
+                            const cropTopType = existCropTop?.tipo_descuento || plRules.croptop_discount_type || 'precio_fijo';
 
-                            if (!bodyVal && !topVal) return null;
+                            if (!bodyVal && !topVal && !cropTopVal) return null;
 
                             return (
                               <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.15rem' }}>
@@ -8503,7 +8540,12 @@ export default function POSPage() {
                                 ) : null}
                                 {topVal && Number(topVal) > 0 ? (
                                   <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: '4px', fontWeight: '800', fontSize: '0.6rem', border: '1px solid #bae6fd' }}>
-                                    👚 Top: {topType === 'precio_fijo' ? `$${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-$${Number(topVal).toLocaleString('es-CO')}`}
+                                    👚 Top: {topType === 'precio_fijo' ? `${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-${Number(topVal).toLocaleString('es-CO')}`}
+                                  </span>
+                                ) : null}
+                                {cropTopVal && Number(cropTopVal) > 0 ? (
+                                  <span style={{ backgroundColor: '#fef3c7', color: '#b45309', padding: '1px 5px', borderRadius: '4px', fontWeight: '800', fontSize: '0.6rem', border: '1px solid #fde68a' }}>
+                                    ✨ Crop Top: {cropTopType === 'precio_fijo' ? `${Number(cropTopVal).toLocaleString('es-CO')}` : cropTopType === 'porcentaje' ? `${cropTopVal}% OFF` : `-${Number(cropTopVal).toLocaleString('es-CO')}`}
                                   </span>
                                 ) : null}
                               </div>

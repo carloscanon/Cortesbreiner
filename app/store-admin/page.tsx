@@ -58,8 +58,18 @@ export function isBodyProduct(product: any): boolean {
   return name.includes('body') || cat.includes('body') || ref.includes('body') || desc.includes('body');
 }
 
+export function isCropTopProduct(product: any): boolean {
+  if (!product) return false;
+  const name = (product.nombre_producto || '').toLowerCase();
+  const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
+  const ref = (product.codigo_referencia || '').toLowerCase();
+  const desc = (product.descripcion || '').toLowerCase();
+  return name.includes('crop') || cat.includes('crop') || ref.includes('crop') || desc.includes('crop');
+}
+
 export function isTopProduct(product: any): boolean {
   if (!product) return false;
+  if (isCropTopProduct(product)) return false;
   const name = (product.nombre_producto || '').toLowerCase();
   const cat = (product.categories?.categoria || product.categoria || '').toLowerCase();
   const ref = (product.codigo_referencia || '').toLowerCase();
@@ -75,6 +85,8 @@ export function parsePriceListRules(pl: any) {
   let body_discount_val: number | string = '';
   let top_discount_type = 'precio_fijo';
   let top_discount_val: number | string = '';
+  let croptop_discount_type = 'precio_fijo';
+  let croptop_discount_val: number | string = '';
   let userDesc = pl?.descripcion || '';
 
   if (userDesc) {
@@ -97,6 +109,8 @@ export function parsePriceListRules(pl: any) {
         if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
         if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
         if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
+        if (parsed.croptop_discount_type) croptop_discount_type = parsed.croptop_discount_type;
+        if (parsed.croptop_discount_val !== undefined && parsed.croptop_discount_val !== null) croptop_discount_val = parsed.croptop_discount_val;
       } catch (e) {
         console.warn('Error parsing Base64 rules in store admin:', e);
       }
@@ -122,6 +136,8 @@ export function parsePriceListRules(pl: any) {
           if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
           if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
           if (parsed.top_discount_val !== undefined && parsed.top_discount_val !== null) top_discount_val = parsed.top_discount_val;
+          if (parsed.croptop_discount_type) croptop_discount_type = parsed.croptop_discount_type;
+          if (parsed.croptop_discount_val !== undefined && parsed.croptop_discount_val !== null) croptop_discount_val = parsed.croptop_discount_val;
         } catch (e) {
           console.warn('Error parsing legacy rules JSON:', e);
         }
@@ -153,6 +169,8 @@ export function parsePriceListRules(pl: any) {
     body_discount_val,
     top_discount_type,
     top_discount_val,
+    croptop_discount_type,
+    croptop_discount_val,
     userDesc
   };
 }
@@ -537,7 +555,9 @@ export default function StoreAdminPage() {
     body_discount_type: 'precio_fijo',
     body_discount_val: '',
     top_discount_type: 'precio_fijo',
-    top_discount_val: ''
+    top_discount_val: '',
+    croptop_discount_type: 'precio_fijo',
+    croptop_discount_val: ''
   });
   const [storeInvForm, setStoreInvForm] = useState({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
 
@@ -1242,7 +1262,9 @@ export default function StoreAdminPage() {
         body_discount_type: priceListForm.body_discount_type || 'precio_fijo',
         body_discount_val: priceListForm.body_discount_val,
         top_discount_type: priceListForm.top_discount_type || 'precio_fijo',
-        top_discount_val: priceListForm.top_discount_val
+        top_discount_val: priceListForm.top_discount_val,
+        croptop_discount_type: priceListForm.croptop_discount_type || 'precio_fijo',
+        croptop_discount_val: priceListForm.croptop_discount_val
       };
 
       const cleanedDesc = (priceListForm.descripcion || '')
@@ -1317,6 +1339,27 @@ export default function StoreAdminPage() {
         } else if (existingTop) {
           await supabase.from('pos_price_list_items').delete().eq('id', existingTop.id);
         }
+
+        // Upsert/clean CROP TOP item rule in pos_price_list_items
+        const croptopVal = Number(priceListForm.croptop_discount_val);
+        const existingCropTop = priceListItems.find(item => item.price_list_id === targetListId && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
+        if (!isNaN(croptopVal) && croptopVal > 0) {
+          if (existingCropTop) {
+            await supabase.from('pos_price_list_items').update({
+              tipo_descuento: priceListForm.croptop_discount_type || 'precio_fijo',
+              valor_descuento: croptopVal
+            }).eq('id', existingCropTop.id);
+          } else {
+            await supabase.from('pos_price_list_items').insert([{
+              price_list_id: targetListId,
+              categoria: 'CROP TOP',
+              tipo_descuento: priceListForm.croptop_discount_type || 'precio_fijo',
+              valor_descuento: croptopVal
+            }]);
+          }
+        } else if (existingCropTop) {
+          await supabase.from('pos_price_list_items').delete().eq('id', existingCropTop.id);
+        }
       }
 
       setShowPriceListModal(false);
@@ -1333,7 +1376,9 @@ export default function StoreAdminPage() {
         body_discount_type: 'precio_fijo',
         body_discount_val: '',
         top_discount_type: 'precio_fijo',
-        top_discount_val: ''
+        top_discount_val: '',
+        croptop_discount_type: 'precio_fijo',
+        croptop_discount_val: ''
       });
       await fetchData();
       alert('✓ Lista de precios y reglas para Body y Top guardadas exitosamente.');
@@ -2095,7 +2140,7 @@ export default function StoreAdminPage() {
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
               else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [], body_discount_type: 'precio_fijo', body_discount_val: '', top_discount_type: 'precio_fijo', top_discount_val: '' });
+              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [], body_discount_type: 'precio_fijo', body_discount_val: '', top_discount_type: 'precio_fijo', top_discount_val: '', croptop_discount_type: 'precio_fijo', croptop_discount_val: '' });
               else if (activeTab === 'inventory_monitoring') setStoreInvForm({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
               
               if (activeTab === 'stores') setShowStoreModal(true);
@@ -2487,10 +2532,13 @@ export default function StoreAdminPage() {
                             
                             const existingBodyItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
                             const existingTopItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                            const existingCropTopItem = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
                             const bodyVal = existingBodyItem?.valor_descuento || rules.body_discount_val;
                             const bodyType = existingBodyItem?.tipo_descuento || rules.body_discount_type || 'precio_fijo';
                             const topVal = existingTopItem?.valor_descuento || rules.top_discount_val;
                             const topType = existingTopItem?.tipo_descuento || rules.top_discount_type || 'precio_fijo';
+                            const cropTopVal = existingCropTopItem?.valor_descuento || rules.croptop_discount_val;
+                            const cropTopType = existingCropTopItem?.tipo_descuento || rules.croptop_discount_type || 'precio_fijo';
 
                             return (
                               <tr key={pl.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -2541,7 +2589,22 @@ export default function StoreAdminPage() {
                                           color: '#0369a1',
                                           border: '1px solid #bae6fd'
                                         }}>
-                                          👚 TOP: {topType === 'precio_fijo' ? `$${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-$${Number(topVal).toLocaleString('es-CO')}`}
+                                          👚 TOP: {topType === 'precio_fijo' ? `${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-${Number(topVal).toLocaleString('es-CO')}`}
+                                        </span>
+                                      ) : null}
+
+                                      {/* CROP TOP Rule Badge */}
+                                      {cropTopVal && Number(cropTopVal) > 0 ? (
+                                        <span style={{
+                                          padding: '0.2rem 0.55rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: '850',
+                                          backgroundColor: '#fef3c7',
+                                          color: '#b45309',
+                                          border: '1px solid #fde68a'
+                                        }}>
+                                          ✨ CROP TOP: {cropTopType === 'precio_fijo' ? `${Number(cropTopVal).toLocaleString('es-CO')}` : cropTopType === 'porcentaje' ? `${cropTopVal}% OFF` : `-${Number(cropTopVal).toLocaleString('es-CO')}`}
                                         </span>
                                       ) : null}
                                       
@@ -2598,10 +2661,13 @@ export default function StoreAdminPage() {
                                         const parsedRules = parsePriceListRules(pl);
                                         const existBody = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
                                         const existTop = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                                        const existCropTop = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
                                         const bType = existBody?.tipo_descuento || parsedRules.body_discount_type || 'precio_fijo';
                                         const bVal = existBody ? String(existBody.valor_descuento) : (parsedRules.body_discount_val !== '' && parsedRules.body_discount_val !== undefined ? String(parsedRules.body_discount_val) : '');
                                         const tType = existTop?.tipo_descuento || parsedRules.top_discount_type || 'precio_fijo';
                                         const tVal = existTop ? String(existTop.valor_descuento) : (parsedRules.top_discount_val !== '' && parsedRules.top_discount_val !== undefined ? String(parsedRules.top_discount_val) : '');
+                                        const ctType = existCropTop?.tipo_descuento || parsedRules.croptop_discount_type || 'precio_fijo';
+                                        const ctVal = existCropTop ? String(existCropTop.valor_descuento) : (parsedRules.croptop_discount_val !== '' && parsedRules.croptop_discount_val !== undefined ? String(parsedRules.croptop_discount_val) : '');
 
                                         setPriceListForm({
                                           id: pl.id,
@@ -2616,7 +2682,9 @@ export default function StoreAdminPage() {
                                           body_discount_type: bType,
                                           body_discount_val: bVal,
                                           top_discount_type: tType,
-                                          top_discount_val: tVal
+                                          top_discount_val: tVal,
+                                          croptop_discount_type: ctType,
+                                          croptop_discount_val: ctVal
                                         });
                                         setShowPriceListModal(true);
                                       }}
@@ -4464,18 +4532,18 @@ export default function StoreAdminPage() {
                 </p>
               </div>
 
-              {/* REGLA PRINCIPAL: PRECIOS Y DESCUENTOS PARA BODY Y TOP */}
+              {/* REGLA PRINCIPAL: PRECIOS Y DESCUENTOS PARA BODY, TOP Y CROP TOP */}
               <div style={{ backgroundColor: '#fdf2f8', padding: '1rem', borderRadius: '12px', border: '1.5px solid #fbcfe8', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div>
                   <label style={{ fontSize: '0.82rem', fontWeight: '900', color: '#9d174d', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                    👗 Parametrización Clave: BODY y TOP
+                    👗 Parametrización Clave: BODY, TOP y CROP TOP
                   </label>
                   <p style={{ fontSize: '0.72rem', color: '#831843', margin: '0.2rem 0 0', opacity: 0.9 }}>
-                    Estipula el precio fijo o descuento automático según si la prenda es un <strong>Body</strong> o un <strong>Top</strong>.
+                    Estipula el precio fijo o descuento automático según si la prenda es un <strong>Body</strong>, un <strong>Top</strong> o un <strong>Crop Top</strong>.
                   </p>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
                   {/* Card BODY */}
                   <div style={{ backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1.5px solid #f472b6', display: 'flex', flexDirection: 'column', gap: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -4536,6 +4604,38 @@ export default function StoreAdminPage() {
                         value={priceListForm.top_discount_val}
                         onChange={e => setPriceListForm({ ...priceListForm, top_discount_val: e.target.value })}
                         style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #bae6fd', fontSize: '0.85rem', fontWeight: '900', color: '#0369a1' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Card CROP TOP */}
+                  <div style={{ backgroundColor: 'white', padding: '0.85rem', borderRadius: '10px', border: '1.5px solid #f59e0b', display: 'flex', flexDirection: 'column', gap: '0.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '950', color: '#b45309' }}>✨ CROP TOP</span>
+                      <span style={{ fontSize: '0.65rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>Todos los Crop Tops</span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Modalidad</label>
+                      <select
+                        value={priceListForm.croptop_discount_type}
+                        onChange={e => setPriceListForm({ ...priceListForm, croptop_discount_type: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: '750', backgroundColor: '#fff' }}
+                      >
+                        <option value="precio_fijo">Precio Fijo Especial ($)</option>
+                        <option value="porcentaje">Porcentaje Descuento (%)</option>
+                        <option value="valor">Monto Fijo a Descontar ($)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: '750', color: '#64748b', marginBottom: '0.15rem' }}>Valor a Aplicar</label>
+                      <input
+                        type="number"
+                        placeholder={priceListForm.croptop_discount_type === 'precio_fijo' ? 'Ej: 22000' : priceListForm.croptop_discount_type === 'porcentaje' ? 'Ej: 15' : 'Ej: 5000'}
+                        value={priceListForm.croptop_discount_val}
+                        onChange={e => setPriceListForm({ ...priceListForm, croptop_discount_val: e.target.value })}
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', borderRadius: '6px', border: '1.5px solid #fde68a', fontSize: '0.85rem', fontWeight: '900', color: '#b45309' }}
                       />
                     </div>
                   </div>
