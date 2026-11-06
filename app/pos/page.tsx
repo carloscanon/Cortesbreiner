@@ -115,6 +115,16 @@ export function isTopProduct(product: any): boolean {
   return name.includes('top') || cat.includes('top') || ref.includes('top') || desc.includes('top');
 }
 
+export function cleanPriceListDesc(rawDesc?: string | null): string {
+  if (!rawDesc) return '';
+  let str = String(rawDesc);
+  str = str.replace(/\[?[A-Za-z0-9_]*R?E?GLAS_B64:[^\]\r\n]+\]?/gi, '');
+  str = str.replace(/\[?REGLAS:[^\]\r\n]+\]?/gi, '');
+  str = str.replace(/\{[^}]*cantidad_minima[^}]*\}/gi, '');
+  str = str.replace(/[\[\]\{\}]/g, '');
+  return str.replace(/\s+/g, ' ').trim();
+}
+
 export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
@@ -125,11 +135,11 @@ export function parsePriceListRules(pl: any) {
   let top_discount_val: number | string = '';
   let croptop_discount_type = 'precio_fijo';
   let croptop_discount_val: number | string = '';
-  let userDesc = pl?.descripcion || '';
+  const rawDesc = pl?.descripcion || '';
 
-  if (userDesc) {
-    // 1. Check for Base64 format: [REGLAS_B64:...]
-    const b64Match = userDesc.match(/\[REGLAS_B64:([A-Za-z0-9+/=]+)\]/);
+  if (rawDesc) {
+    // 1. Check for Base64 format: [REGLAS_B64:...] or GLAS_B64:...
+    const b64Match = rawDesc.match(/\[?[A-Za-z0-9_]*R?E?GLAS_B64:([A-Za-z0-9+/=]+)\]?/i);
     if (b64Match && b64Match[1]) {
       try {
         const decoded = typeof atob === 'function' ? atob(b64Match[1]) : Buffer.from(b64Match[1], 'base64').toString('utf-8');
@@ -154,9 +164,9 @@ export function parsePriceListRules(pl: any) {
       }
     } else {
       // 2. Fallback to legacy [REGLAS:{...}] format
-      const idx = userDesc.indexOf('[REGLAS:');
+      const idx = rawDesc.indexOf('[REGLAS:');
       if (idx !== -1) {
-        const rawJsonPart = userDesc.substring(idx + 8);
+        const rawJsonPart = rawDesc.substring(idx + 8);
         const lastBracket = rawJsonPart.lastIndexOf(']');
         const jsonStr = lastBracket !== -1 ? rawJsonPart.substring(0, lastBracket) : rawJsonPart;
         try {
@@ -193,11 +203,7 @@ export function parsePriceListRules(pl: any) {
     categorias_permitidas = pl.categorias_permitidas;
   }
 
-  userDesc = userDesc
-    .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
-    .replace(/\[REGLAS:[\s\S]*$/g, '')
-    .replace(/\s*\}\]\}\]\s*/g, '')
-    .trim();
+  const userDesc = cleanPriceListDesc(rawDesc);
 
   return {
     cantidad_minima,

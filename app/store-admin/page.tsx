@@ -77,6 +77,21 @@ export function isTopProduct(product: any): boolean {
   return name.includes('top') || cat.includes('top') || ref.includes('top') || desc.includes('top');
 }
 
+export function cleanPriceListDesc(rawDesc?: string | null): string {
+  if (!rawDesc) return '';
+  let str = String(rawDesc);
+  // Strip Base64 tags: [REGLAS_B64:...], REGLAS_B64:..., GLAS_B64:..., etc.
+  str = str.replace(/\[?[A-Za-z0-9_]*R?E?GLAS_B64:[^\]\r\n]+\]?/gi, '');
+  // Strip legacy JSON tags: [REGLAS:...]
+  str = str.replace(/\[?REGLAS:[^\]\r\n]+\]?/gi, '');
+  // Strip leaked JSON rule fragments
+  str = str.replace(/\{[^}]*cantidad_minima[^}]*\}/gi, '');
+  // Strip leftover brackets or braces from truncated tags
+  str = str.replace(/[\[\]\{\}]/g, '');
+  // Normalize whitespace
+  return str.replace(/\s+/g, ' ').trim();
+}
+
 export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
@@ -87,11 +102,11 @@ export function parsePriceListRules(pl: any) {
   let top_discount_val: number | string = '';
   let croptop_discount_type = 'precio_fijo';
   let croptop_discount_val: number | string = '';
-  let userDesc = pl?.descripcion || '';
+  const rawDesc = pl?.descripcion || '';
 
-  if (userDesc) {
-    // 1. Check for Base64 format: [REGLAS_B64:...]
-    const b64Match = userDesc.match(/\[REGLAS_B64:([A-Za-z0-9+/=]+)\]/);
+  if (rawDesc) {
+    // 1. Check for Base64 format: [REGLAS_B64:...] or GLAS_B64:...
+    const b64Match = rawDesc.match(/\[?[A-Za-z0-9_]*R?E?GLAS_B64:([A-Za-z0-9+/=]+)\]?/i);
     if (b64Match && b64Match[1]) {
       try {
         const decoded = typeof atob === 'function' ? atob(b64Match[1]) : Buffer.from(b64Match[1], 'base64').toString('utf-8');
@@ -116,9 +131,9 @@ export function parsePriceListRules(pl: any) {
       }
     } else {
       // 2. Fallback to legacy [REGLAS:{...}] format
-      const idx = userDesc.indexOf('[REGLAS:');
+      const idx = rawDesc.indexOf('[REGLAS:');
       if (idx !== -1) {
-        const rawJsonPart = userDesc.substring(idx + 8);
+        const rawJsonPart = rawDesc.substring(idx + 8);
         const lastBracket = rawJsonPart.lastIndexOf(']');
         const jsonStr = lastBracket !== -1 ? rawJsonPart.substring(0, lastBracket) : rawJsonPart;
         try {
@@ -155,11 +170,7 @@ export function parsePriceListRules(pl: any) {
     categorias_permitidas = pl.categorias_permitidas;
   }
 
-  userDesc = userDesc
-    .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
-    .replace(/\[REGLAS:[\s\S]*$/g, '')
-    .replace(/\s*\}\]\}\]\s*/g, '')
-    .trim();
+  const userDesc = cleanPriceListDesc(rawDesc);
 
   return {
     cantidad_minima,
@@ -269,6 +280,7 @@ export default function StoreAdminPage() {
   const [shifts, setShifts] = useState<any[]>([]);
   const [priceLists, setPriceLists] = useState<any[]>([]);
   const [priceListItems, setPriceListItems] = useState<any[]>([]);
+  const [priceListSearch, setPriceListSearch] = useState('');
 
   // Inventory Monitoring States
   const [invSearchQuery, setInvSearchQuery] = useState('');
@@ -1267,11 +1279,7 @@ export default function StoreAdminPage() {
         croptop_discount_val: priceListForm.croptop_discount_val
       };
 
-      const cleanedDesc = (priceListForm.descripcion || '')
-        .replace(/\[REGLAS_B64:[A-Za-z0-9+/=]+\]/g, '')
-        .replace(/\[REGLAS:[\s\S]*$/g, '')
-        .replace(/\s*\}\]\}\]\s*/g, '')
-        .trim();
+      const cleanedDesc = cleanPriceListDesc(priceListForm.descripcion || '');
 
       const b64Rules = typeof btoa === 'function'
         ? btoa(unescape(encodeURIComponent(JSON.stringify(rulesData))))
@@ -2504,207 +2512,417 @@ export default function StoreAdminPage() {
 
               {!selectedPriceListPricing ? (
                 /* Master Price Lists Table */
-                <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
+                <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                  
+                  {/* Top Search and Quick Access Toolbar */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '1rem 1.25rem',
+                    borderBottom: '1px solid var(--border)',
+                    backgroundColor: '#fafafa',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '240px', maxWidth: '420px', backgroundColor: 'white', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.45rem 0.75rem' }}>
+                      <Search size={16} style={{ color: '#94a3b8' }} />
+                      <input
+                        type="text"
+                        placeholder="Buscar por nombre o descripción..."
+                        value={priceListSearch}
+                        onChange={(e) => setPriceListSearch(e.target.value)}
+                        style={{ border: 'none', outline: 'none', fontSize: '0.82rem', width: '100%', backgroundColor: 'transparent' }}
+                      />
+                      {priceListSearch && (
+                        <button onClick={() => setPriceListSearch('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', padding: 0 }}>
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '750', backgroundColor: '#f1f5f9', padding: '0.3rem 0.65rem', borderRadius: '8px' }}>
+                        {priceLists.filter(pl => {
+                          if (!priceListSearch.trim()) return true;
+                          const q = priceListSearch.toLowerCase().trim();
+                          const cDesc = cleanPriceListDesc(pl.descripcion).toLowerCase();
+                          return pl.nombre?.toLowerCase().includes(q) || cDesc.includes(q);
+                        }).length} de {priceLists.length} listas
+                      </span>
+                      <button
+                        onClick={() => {
+                          setPriceListForm({
+                            id: '',
+                            nombre: '',
+                            descripcion: '',
+                            activo: true,
+                            tipo_descuento_global: 'porcentaje',
+                            valor_descuento_global: '',
+                            cantidad_minima: '1',
+                            aplica_todas_categorias: true,
+                            categorias_permitidas: [],
+                            body_discount_type: 'precio_fijo',
+                            body_discount_val: '',
+                            top_discount_type: 'precio_fijo',
+                            top_discount_val: '',
+                            croptop_discount_type: 'precio_fijo',
+                            croptop_discount_val: ''
+                          });
+                          setShowPriceListModal(true);
+                        }}
+                        className="btn btn-primary"
+                        style={{ fontSize: '0.78rem', fontWeight: '850', display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.95rem', borderRadius: '8px' }}
+                      >
+                        <Plus size={15} />
+                        Nueva Lista
+                      </button>
+                    </div>
+                  </div>
+
                   {priceLists.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                      <ListPlus size={48} style={{ strokeWidth: 1, marginBottom: '1rem' }} />
-                      <h4 style={{ margin: 0, fontWeight: '800' }}>No hay listas de precios especiales</h4>
-                      <p style={{ fontSize: '0.8rem', marginTop: '0.25rem', textAlign: 'center' }}>Crea listas de precios (Mayoristas, Convenios, Escuelas, etc.) para que se puedan utilizar en caja.</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '3.5rem 2rem', color: 'var(--text-muted)' }}>
+                      <ListPlus size={52} style={{ strokeWidth: 1.2, marginBottom: '1rem', color: '#94a3b8' }} />
+                      <h4 style={{ margin: 0, fontWeight: '850', color: '#1e293b' }}>No hay listas de precios especiales</h4>
+                      <p style={{ fontSize: '0.82rem', marginTop: '0.35rem', textAlign: 'center', maxWidth: '420px', color: '#64748b' }}>
+                        Crea listas de precios (Mayoristas, Convenios, Escuelas, etc.) para que se puedan activar automáticamente en caja.
+                      </p>
                     </div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
                         <thead>
-                          <tr style={{ borderBottom: '2.5px solid var(--border)', textAlign: 'left', backgroundColor: '#f8fafc' }}>
-                            <th style={{ padding: '1rem' }}>Nombre de Lista</th>
-                            <th style={{ padding: '1rem' }}>Descripción / Canal</th>
-                            <th style={{ padding: '1rem' }}>Reglas de Negocio</th>
-                            <th style={{ padding: '1rem' }}>Precios Configurados</th>
-                            <th style={{ padding: '1rem' }}>Estado</th>
-                            <th style={{ padding: '1rem', textAlign: 'center' }}>Acciones</th>
+                          <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left', backgroundColor: '#f8fafc', color: '#475569', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            <th style={{ padding: '0.9rem 1.1rem', fontWeight: '850' }}>Lista de Precios</th>
+                            <th style={{ padding: '0.9rem 1rem', fontWeight: '850' }}>Descripción / Canal</th>
+                            <th style={{ padding: '0.9rem 1rem', fontWeight: '850' }}>Reglas Clave (Prendas)</th>
+                            <th style={{ padding: '0.9rem 1rem', fontWeight: '850' }}>Alcance / Ítems</th>
+                            <th style={{ padding: '0.9rem 1rem', fontWeight: '850' }}>Estado</th>
+                            <th style={{ padding: '0.9rem 1.1rem', textAlign: 'right', fontWeight: '850' }}>Accesos y Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {priceLists.map((pl) => {
-                            const customPricesCount = priceListItems.filter(item => item.price_list_id === pl.id).length;
-                            const rules = parsePriceListRules(pl);
-                            const hasGlobalDiscount = pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0;
-                            
-                            const existingBodyItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
-                            const existingTopItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
-                            const existingCropTopItem = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
-                            const bodyVal = existingBodyItem?.valor_descuento || rules.body_discount_val;
-                            const bodyType = existingBodyItem?.tipo_descuento || rules.body_discount_type || 'precio_fijo';
-                            const topVal = existingTopItem?.valor_descuento || rules.top_discount_val;
-                            const topType = existingTopItem?.tipo_descuento || rules.top_discount_type || 'precio_fijo';
-                            const cropTopVal = existingCropTopItem?.valor_descuento || rules.croptop_discount_val;
-                            const cropTopType = existingCropTopItem?.tipo_descuento || rules.croptop_discount_type || 'precio_fijo';
+                          {priceLists
+                            .filter(pl => {
+                              if (!priceListSearch.trim()) return true;
+                              const q = priceListSearch.toLowerCase().trim();
+                              const cDesc = cleanPriceListDesc(pl.descripcion).toLowerCase();
+                              return pl.nombre?.toLowerCase().includes(q) || cDesc.includes(q);
+                            })
+                            .map((pl) => {
+                              const customPricesCount = priceListItems.filter(item => item.price_list_id === pl.id).length;
+                              const rules = parsePriceListRules(pl);
+                              const cleanDesc = cleanPriceListDesc(rules.userDesc || pl.descripcion);
+                              const hasGlobalDiscount = pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined && Number(pl.valor_descuento_global) > 0;
+                              
+                              const existingBodyItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
+                              const existingTopItem = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                              const existingCropTopItem = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
+                              const bodyVal = existingBodyItem?.valor_descuento || rules.body_discount_val;
+                              const bodyType = existingBodyItem?.tipo_descuento || rules.body_discount_type || 'precio_fijo';
+                              const topVal = existingTopItem?.valor_descuento || rules.top_discount_val;
+                              const topType = existingTopItem?.tipo_descuento || rules.top_discount_type || 'precio_fijo';
+                              const cropTopVal = existingCropTopItem?.valor_descuento || rules.croptop_discount_val;
+                              const cropTopType = existingCropTopItem?.tipo_descuento || rules.croptop_discount_type || 'precio_fijo';
 
-                            return (
-                              <tr key={pl.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '1rem', fontWeight: '800', color: '#0f172a' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <Tag size={16} style={{ color: 'var(--primary)' }} />
-                                    <span>{pl.nombre}</span>
-                                  </div>
-                                </td>
-                                <td style={{ padding: '1rem', color: '#475569' }}>{rules.userDesc || pl.descripcion || '—'}</td>
-                                <td style={{ padding: '1rem' }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                    <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                      <span style={{
-                                        padding: '0.2rem 0.55rem',
-                                        borderRadius: '6px',
-                                        fontSize: '0.72rem',
-                                        fontWeight: '800',
-                                        backgroundColor: '#eff6ff',
-                                        color: '#1d4ed8'
+                              return (
+                                <tr
+                                  key={pl.id}
+                                  style={{
+                                    borderBottom: '1px solid #f1f5f9',
+                                    transition: 'background-color 0.15s ease'
+                                  }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fafafa')}
+                                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                >
+                                  {/* Col 1: Lista de Precios */}
+                                  <td style={{ padding: '0.9rem 1.1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                      <div style={{
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '10px',
+                                        backgroundColor: '#fff1f2',
+                                        border: '1px solid #ffe4e6',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: 'var(--primary)',
+                                        flexShrink: 0
                                       }}>
-                                        📦 Mín. {rules.cantidad_minima} prenda{rules.cantidad_minima > 1 ? 's' : ''}
+                                        <Tag size={18} />
+                                      </div>
+                                      <div>
+                                        <div style={{ fontWeight: '850', color: '#0f172a', fontSize: '0.88rem', lineHeight: '1.2' }}>
+                                          {pl.nombre}
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.2rem', fontFamily: 'monospace' }}>
+                                          ID: {pl.id ? pl.id.substring(0, 8) : '—'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Col 2: Descripción limpia (Puntual y sin Base64) */}
+                                  <td style={{ padding: '0.9rem 1rem', maxWidth: '240px' }}>
+                                    {cleanDesc ? (
+                                      <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: '600', lineHeight: '1.35', wordBreak: 'break-word' }}>
+                                        {cleanDesc}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                                        Sin notas adicionales
                                       </span>
+                                    )}
+                                  </td>
 
-                                      {/* BODY Rule Badge */}
-                                      {bodyVal && Number(bodyVal) > 0 ? (
-                                        <span style={{
-                                          padding: '0.2rem 0.55rem',
-                                          borderRadius: '6px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: '850',
-                                          backgroundColor: '#fce7f3',
-                                          color: '#be185d',
-                                          border: '1px solid #fbcfe8'
-                                        }}>
-                                          👗 BODY: {bodyType === 'precio_fijo' ? `$${Number(bodyVal).toLocaleString('es-CO')}` : bodyType === 'porcentaje' ? `${bodyVal}% OFF` : `-$${Number(bodyVal).toLocaleString('es-CO')}`}
-                                        </span>
-                                      ) : null}
-
-                                      {/* TOP Rule Badge */}
-                                      {topVal && Number(topVal) > 0 ? (
-                                        <span style={{
-                                          padding: '0.2rem 0.55rem',
-                                          borderRadius: '6px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: '850',
-                                          backgroundColor: '#e0f2fe',
-                                          color: '#0369a1',
-                                          border: '1px solid #bae6fd'
-                                        }}>
-                                          👚 TOP: {topType === 'precio_fijo' ? `${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-${Number(topVal).toLocaleString('es-CO')}`}
-                                        </span>
-                                      ) : null}
-
-                                      {/* CROP TOP Rule Badge */}
-                                      {cropTopVal && Number(cropTopVal) > 0 ? (
-                                        <span style={{
-                                          padding: '0.2rem 0.55rem',
-                                          borderRadius: '6px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: '850',
-                                          backgroundColor: '#fef3c7',
-                                          color: '#b45309',
-                                          border: '1px solid #fde68a'
-                                        }}>
-                                          ✨ CROP TOP: {cropTopType === 'precio_fijo' ? `${Number(cropTopVal).toLocaleString('es-CO')}` : cropTopType === 'porcentaje' ? `${cropTopVal}% OFF` : `-${Number(cropTopVal).toLocaleString('es-CO')}`}
-                                        </span>
-                                      ) : null}
-                                      
-                                      {hasGlobalDiscount ? (
+                                  {/* Col 3: Reglas Clave Visuales */}
+                                  <td style={{ padding: '0.9rem 1rem' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                        {/* Min Prenda Badge */}
                                         <span style={{
                                           padding: '0.2rem 0.55rem',
                                           borderRadius: '6px',
                                           fontSize: '0.72rem',
                                           fontWeight: '800',
-                                          backgroundColor: '#ecfdf5',
-                                          color: '#065f46'
+                                          backgroundColor: '#eff6ff',
+                                          color: '#1d4ed8',
+                                          border: '1px solid #dbeafe',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem'
                                         }}>
-                                          {pl.tipo_descuento_global === 'porcentaje' ? `${pl.valor_descuento_global}% Base` : `$${Number(pl.valor_descuento_global).toLocaleString('es-CO')} Base`}
+                                          📦 Mín. {rules.cantidad_minima} {rules.cantidad_minima === 1 ? 'prenda' : 'prendas'}
                                         </span>
-                                      ) : null}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: rules.aplica_todas_categorias ? '#059669' : '#b45309', fontWeight: '750' }}>
-                                      {rules.aplica_todas_categorias ? '✓ Aplica a todo el catálogo' : `⚡ Solo ${rules.categorias_permitidas.length} categoría(s)`}
-                                    </div>
-                                  </div>
-                                </td>
-                                <td style={{ padding: '1rem', fontWeight: '700', color: customPricesCount > 0 ? 'var(--primary)' : '#94a3b8' }}>
-                                  {customPricesCount > 0 ? `${customPricesCount} regla(s) de precios/categorías` : 'Precio base general'}
-                                </td>
-                                <td style={{ padding: '1rem' }}>
-                                  <span style={{
-                                    padding: '0.25rem 0.6rem',
-                                    borderRadius: '12px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: '800',
-                                    backgroundColor: pl.activo ? '#dcfce7' : '#fee2e2',
-                                    color: pl.activo ? '#166534' : '#991b1b'
-                                  }}>{pl.activo ? 'Activa' : 'Inactiva'}</span>
-                                </td>
-                                <td style={{ padding: '1rem', textAlign: 'center' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                                    <button
-                                      onClick={() => setSelectedPriceListPricing(pl)}
-                                      style={{
-                                        padding: '0.4rem 0.85rem',
-                                        borderRadius: '8px',
-                                        backgroundColor: 'var(--primary)',
-                                        color: 'white',
-                                        border: 'none',
-                                        fontWeight: '800',
-                                        fontSize: '0.75rem',
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      Precios por Categoría
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const parsedRules = parsePriceListRules(pl);
-                                        const existBody = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
-                                        const existTop = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
-                                        const existCropTop = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
-                                        const bType = existBody?.tipo_descuento || parsedRules.body_discount_type || 'precio_fijo';
-                                        const bVal = existBody ? String(existBody.valor_descuento) : (parsedRules.body_discount_val !== '' && parsedRules.body_discount_val !== undefined ? String(parsedRules.body_discount_val) : '');
-                                        const tType = existTop?.tipo_descuento || parsedRules.top_discount_type || 'precio_fijo';
-                                        const tVal = existTop ? String(existTop.valor_descuento) : (parsedRules.top_discount_val !== '' && parsedRules.top_discount_val !== undefined ? String(parsedRules.top_discount_val) : '');
-                                        const ctType = existCropTop?.tipo_descuento || parsedRules.croptop_discount_type || 'precio_fijo';
-                                        const ctVal = existCropTop ? String(existCropTop.valor_descuento) : (parsedRules.croptop_discount_val !== '' && parsedRules.croptop_discount_val !== undefined ? String(parsedRules.croptop_discount_val) : '');
 
-                                        setPriceListForm({
-                                          id: pl.id,
-                                          nombre: pl.nombre,
-                                          descripcion: parsedRules.userDesc,
-                                          activo: pl.activo !== false,
-                                          tipo_descuento_global: pl.tipo_descuento_global || 'porcentaje',
-                                          valor_descuento_global: pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined ? String(pl.valor_descuento_global) : '',
-                                          cantidad_minima: String(parsedRules.cantidad_minima || 1),
-                                          aplica_todas_categorias: parsedRules.aplica_todas_categorias !== false,
-                                          categorias_permitidas: parsedRules.categorias_permitidas || [],
-                                          body_discount_type: bType,
-                                          body_discount_val: bVal,
-                                          top_discount_type: tType,
-                                          top_discount_val: tVal,
-                                          croptop_discount_type: ctType,
-                                          croptop_discount_val: ctVal
-                                        });
-                                        setShowPriceListModal(true);
-                                      }}
-                                      title="Editar lista y reglas"
-                                      style={{ padding: '0.4rem', border: '1px solid #cbd5e1', borderRadius: '6px', backgroundColor: '#f8fafc', cursor: 'pointer', color: '#475569' }}
-                                    >
-                                      <Edit3 size={15} />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeletePriceList(pl.id, pl.nombre)}
-                                      title="Eliminar lista de precios"
-                                      style={{ padding: '0.4rem', border: '1px solid #fee2e2', borderRadius: '6px', backgroundColor: '#fff5f5', cursor: 'pointer', color: '#dc2626' }}
-                                    >
-                                      <Trash2 size={15} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                        {/* BODY Rule Badge */}
+                                        {bodyVal && Number(bodyVal) > 0 ? (
+                                          <span style={{
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: '850',
+                                            backgroundColor: '#fdf2f8',
+                                            color: '#be185d',
+                                            border: '1px solid #fce7f3',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.25rem'
+                                          }}>
+                                            👗 BODY: {bodyType === 'precio_fijo' ? `$${Number(bodyVal).toLocaleString('es-CO')}` : bodyType === 'porcentaje' ? `${bodyVal}% OFF` : `-$${Number(bodyVal).toLocaleString('es-CO')}`}
+                                          </span>
+                                        ) : null}
+
+                                        {/* TOP Rule Badge */}
+                                        {topVal && Number(topVal) > 0 ? (
+                                          <span style={{
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: '850',
+                                            backgroundColor: '#f0f9ff',
+                                            color: '#0284c7',
+                                            border: '1px solid #e0f2fe',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.25rem'
+                                          }}>
+                                            👚 TOP: {topType === 'precio_fijo' ? `$${Number(topVal).toLocaleString('es-CO')}` : topType === 'porcentaje' ? `${topVal}% OFF` : `-$${Number(topVal).toLocaleString('es-CO')}`}
+                                          </span>
+                                        ) : null}
+
+                                        {/* CROP TOP Rule Badge */}
+                                        {cropTopVal && Number(cropTopVal) > 0 ? (
+                                          <span style={{
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: '850',
+                                            backgroundColor: '#fffbeb',
+                                            color: '#b45309',
+                                            border: '1px solid #fef3c7',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.25rem'
+                                          }}>
+                                            ✨ CROP TOP: {cropTopType === 'precio_fijo' ? `$${Number(cropTopVal).toLocaleString('es-CO')}` : cropTopType === 'porcentaje' ? `${cropTopVal}% OFF` : `-$${Number(cropTopVal).toLocaleString('es-CO')}`}
+                                          </span>
+                                        ) : null}
+                                        
+                                        {/* Base Global Discount */}
+                                        {hasGlobalDiscount ? (
+                                          <span style={{
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: '800',
+                                            backgroundColor: '#ecfdf5',
+                                            color: '#065f46',
+                                            border: '1px solid #a7f3d0'
+                                          }}>
+                                            🌐 Base: {pl.tipo_descuento_global === 'porcentaje' ? `${pl.valor_descuento_global}%` : `$${Number(pl.valor_descuento_global).toLocaleString('es-CO')}`}
+                                          </span>
+                                        ) : null}
+
+                                        {!bodyVal && !topVal && !cropTopVal && !hasGlobalDiscount ? (
+                                          <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                                            Sin prendas parametrizadas
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Col 4: Alcance y Reglas de Categoría */}
+                                  <td style={{ padding: '0.9rem 1rem' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                      <div style={{
+                                        fontSize: '0.74rem',
+                                        fontWeight: '800',
+                                        color: rules.aplica_todas_categorias ? '#059669' : '#b45309',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.3rem'
+                                      }}>
+                                        {rules.aplica_todas_categorias ? (
+                                          <>
+                                            <CheckCircle2 size={13} style={{ color: '#10b981' }} />
+                                            <span>Todo el catálogo</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Layers size={13} style={{ color: '#f59e0b' }} />
+                                            <span>{rules.categorias_permitidas.length} categoría(s)</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      <div style={{ fontSize: '0.72rem', color: customPricesCount > 0 ? 'var(--primary)' : '#94a3b8', fontWeight: customPricesCount > 0 ? '750' : '500' }}>
+                                        {customPricesCount > 0 ? `${customPricesCount} regla(s) de categoría` : 'Sin reglas extra'}
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Col 5: Estado */}
+                                  <td style={{ padding: '0.9rem 1rem' }}>
+                                    <span style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.35rem',
+                                      padding: '0.25rem 0.65rem',
+                                      borderRadius: '999px',
+                                      fontSize: '0.72rem',
+                                      fontWeight: '850',
+                                      backgroundColor: pl.activo ? '#dcfce7' : '#fee2e2',
+                                      color: pl.activo ? '#15803d' : '#991b1b',
+                                      border: pl.activo ? '1px solid #bbf7d0' : '1px solid #fecaca'
+                                    }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: pl.activo ? '#16a34a' : '#ef4444' }}></span>
+                                      {pl.activo ? 'Activa' : 'Inactiva'}
+                                    </span>
+                                  </td>
+
+                                  {/* Col 6: Accesos Simples */}
+                                  <td style={{ padding: '0.9rem 1.1rem', textAlign: 'right' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.45rem' }}>
+                                      {/* Acceso 1: Precios por Categoría */}
+                                      <button
+                                        onClick={() => setSelectedPriceListPricing(pl)}
+                                        style={{
+                                          padding: '0.42rem 0.85rem',
+                                          borderRadius: '8px',
+                                          backgroundColor: 'var(--primary)',
+                                          color: 'white',
+                                          border: 'none',
+                                          fontWeight: '800',
+                                          fontSize: '0.75rem',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.35rem',
+                                          boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                                          transition: 'all 0.15s ease'
+                                        }}
+                                        title="Configurar precios y descuentos por categoría"
+                                      >
+                                        <Layers size={13} />
+                                        <span>Precios por Categoría</span>
+                                      </button>
+
+                                      {/* Acceso 2: Editar Reglas */}
+                                      <button
+                                        onClick={() => {
+                                          const parsedRules = parsePriceListRules(pl);
+                                          const existBody = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'BODY');
+                                          const existTop = priceListItems.find(item => item.price_list_id === pl.id && item.categoria?.toUpperCase() === 'TOP');
+                                          const existCropTop = priceListItems.find(item => item.price_list_id === pl.id && (item.categoria?.toUpperCase().includes('CROP') || item.categoria?.toUpperCase() === 'CROP TOP' || item.categoria?.toUpperCase() === 'CROP-TOP'));
+                                          const bType = existBody?.tipo_descuento || parsedRules.body_discount_type || 'precio_fijo';
+                                          const bVal = existBody ? String(existBody.valor_descuento) : (parsedRules.body_discount_val !== '' && parsedRules.body_discount_val !== undefined ? String(parsedRules.body_discount_val) : '');
+                                          const tType = existTop?.tipo_descuento || parsedRules.top_discount_type || 'precio_fijo';
+                                          const tVal = existTop ? String(existTop.valor_descuento) : (parsedRules.top_discount_val !== '' && parsedRules.top_discount_val !== undefined ? String(parsedRules.top_discount_val) : '');
+                                          const ctType = existCropTop?.tipo_descuento || parsedRules.croptop_discount_type || 'precio_fijo';
+                                          const ctVal = existCropTop ? String(existCropTop.valor_descuento) : (parsedRules.croptop_discount_val !== '' && parsedRules.croptop_discount_val !== undefined ? String(parsedRules.croptop_discount_val) : '');
+
+                                          setPriceListForm({
+                                            id: pl.id,
+                                            nombre: pl.nombre,
+                                            descripcion: cleanPriceListDesc(parsedRules.userDesc),
+                                            activo: pl.activo !== false,
+                                            tipo_descuento_global: pl.tipo_descuento_global || 'porcentaje',
+                                            valor_descuento_global: pl.valor_descuento_global !== null && pl.valor_descuento_global !== undefined ? String(pl.valor_descuento_global) : '',
+                                            cantidad_minima: String(parsedRules.cantidad_minima || 1),
+                                            aplica_todas_categorias: parsedRules.aplica_todas_categorias !== false,
+                                            categorias_permitidas: parsedRules.categorias_permitidas || [],
+                                            body_discount_type: bType,
+                                            body_discount_val: bVal,
+                                            top_discount_type: tType,
+                                            top_discount_val: tVal,
+                                            croptop_discount_type: ctType,
+                                            croptop_discount_val: ctVal
+                                          });
+                                          setShowPriceListModal(true);
+                                        }}
+                                        title="Editar lista y reglas clave"
+                                        style={{
+                                          padding: '0.42rem 0.65rem',
+                                          border: '1.5px solid #cbd5e1',
+                                          borderRadius: '8px',
+                                          backgroundColor: '#f8fafc',
+                                          cursor: 'pointer',
+                                          color: '#334155',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.25rem',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '750'
+                                        }}
+                                      >
+                                        <Edit3 size={14} />
+                                        <span>Editar</span>
+                                      </button>
+
+                                      {/* Acceso 3: Eliminar */}
+                                      <button
+                                        onClick={() => handleDeletePriceList(pl.id, pl.nombre)}
+                                        title="Eliminar lista de precios"
+                                        style={{
+                                          padding: '0.42rem 0.55rem',
+                                          border: '1.5px solid #fee2e2',
+                                          borderRadius: '8px',
+                                          backgroundColor: '#fff5f5',
+                                          cursor: 'pointer',
+                                          color: '#dc2626',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center'
+                                        }}
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
