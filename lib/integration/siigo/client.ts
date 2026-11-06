@@ -174,7 +174,7 @@ export class SiigoClient {
           return responseData;
         }
 
-        // Manejar expiración de token en caliente (401)
+        // Manejar expiración de token en caliente (401) - Máximo 1 reintento para evitar bucles infinitos
         if (response.status === 401 && !isAuthRequest) {
           console.warn('SIIGO Token expirado o inválido (401). Refrescando...');
           // Forzar renovación
@@ -182,10 +182,11 @@ export class SiigoClient {
           const newToken = await siigoTokenManager.getToken();
           if (newToken) {
             headers['Authorization'] = `Bearer ${newToken}`;
+            isAuthRequest = true; // Prevenir segundo intento si sigue dando 401
+            continue;
+          } else {
+            throw ErpException.fromHttpCode(401, 'No se pudo autenticar con SIIGO (credenciales inválidas o faltantes).', responseData);
           }
-          // Resetear intento y reintentar de inmediato
-          attempt = 0;
-          continue;
         }
 
         // Si falló y no es reintentable de inmediato, lanzar error
