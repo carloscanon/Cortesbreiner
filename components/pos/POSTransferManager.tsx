@@ -423,7 +423,7 @@ export default function POSTransferManager({
 
     setIsProcessingDispatch(true);
     try {
-      // 1. Obtener consecutivo siguiente
+      // 1. Obtener consecutivo sugerido
       const { data: lastTx } = await supabase
         .from('finished_goods_transfers')
         .select('consecutive')
@@ -432,21 +432,47 @@ export default function POSTransferManager({
 
       const nextConsecutive = ((lastTx?.[0]?.consecutive) || 0) + 1;
 
-      // 2. Crear registro de traslado (Estado: Pendiente / En Tránsito)
-      const { data: newTransfer, error: txError } = await supabase
+      // 2. Crear registro de traslado (Estado: Pendiente / En Tránsito) con resolución segura de colisiones
+      const dispatchPayload: any = {
+        consecutive: nextConsecutive,
+        warehouse_orig_id: originWarehouseId,
+        warehouse_dest_id: resolvedDestWhId,
+        estado: 'Pendiente',
+        usuario: profile?.full_name || user?.email || 'Vendedor POS',
+        observaciones: `Despacho POS desde ${currentStore?.nombre || 'Tienda'}. ${dispatchNotes ? `Nota: ${dispatchNotes}` : ''}`
+      };
+
+      let newTransfer: any = null;
+      const { data: createdTx, error: txError } = await supabase
         .from('finished_goods_transfers')
-        .insert({
-          consecutive: nextConsecutive,
-          warehouse_orig_id: originWarehouseId,
-          warehouse_dest_id: resolvedDestWhId,
-          estado: 'Pendiente',
-          usuario: profile?.full_name || user?.email || 'Vendedor POS',
-          observaciones: `Despacho POS desde ${currentStore?.nombre || 'Tienda'}. ${dispatchNotes ? `Nota: ${dispatchNotes}` : ''}`
-        })
+        .insert(dispatchPayload)
         .select()
         .single();
 
-      if (txError) throw txError;
+      if (txError) {
+        if (txError.code === '23505' || txError.message?.includes('consecutive') || txError.details?.includes('consecutive')) {
+          console.warn('Colisión detectada en consecutive POS. Resolviendo consecutivo más alto y reintentando...');
+          const { data: retryLastTx } = await supabase
+            .from('finished_goods_transfers')
+            .select('consecutive')
+            .order('consecutive', { ascending: false })
+            .limit(1);
+
+          const safeConsecutive = ((retryLastTx?.[0]?.consecutive) || nextConsecutive) + 1;
+          const { data: retryTx, error: retryErr } = await supabase
+            .from('finished_goods_transfers')
+            .insert({ ...dispatchPayload, consecutive: safeConsecutive })
+            .select()
+            .single();
+
+          if (retryErr) throw retryErr;
+          newTransfer = retryTx;
+        } else {
+          throw txError;
+        }
+      } else {
+        newTransfer = createdTx;
+      }
 
       // 3. Insertar items del traslado
       const transferItemsPayload = dispatchItems.map(it => ({
@@ -547,7 +573,7 @@ export default function POSTransferManager({
       // Preparar datos de comprobante
       const voucherData = {
         ...newTransfer,
-        consecutiveFormatted: `TR-${String(nextConsecutive).padStart(4, '0')}`,
+        consecutiveFormatted: `TR-${String(newTransfer?.consecutive || nextConsecutive).padStart(4, '0')}`,
         originName: currentStore?.nombre || 'Tienda Origen',
         destName,
         items: dispatchItems,

@@ -2136,20 +2136,47 @@ export default function FinishedGoodsInventory() {
     if (transferForm.items.length === 0) return alert('Debes agregar al menos una referencia para transferir.');
     setSavingTransfer(true);
     try {
-      // 1. Create transfer record in Pendiente state
-      const { data: newTransfer, error: txErr } = await supabase
+      // 1. Create transfer record in Pendiente state with collision-safe consecutive resolution
+      let newTransfer: any = null;
+      const initialPayload: any = {
+        warehouse_orig_id: transferForm.warehouse_orig_id,
+        warehouse_dest_id: transferForm.warehouse_dest_id,
+        estado: 'Pendiente', // Starts as Pendiente (Requesting)
+        usuario: user?.email || 'Usuario',
+        observaciones: transferForm.observaciones
+      };
+
+      const { data: createdTx, error: txErr } = await supabase
         .from('finished_goods_transfers')
-        .insert([{
-          warehouse_orig_id: transferForm.warehouse_orig_id,
-          warehouse_dest_id: transferForm.warehouse_dest_id,
-          estado: 'Pendiente', // Starts as Pendiente (Requesting)
-          usuario: user?.email || 'Usuario',
-          observaciones: transferForm.observaciones
-        }])
+        .insert([initialPayload])
         .select()
         .single();
 
-      if (txErr) throw txErr;
+      if (txErr) {
+        // If unique constraint violation on consecutive (e.g. sequence lagged behind manual inserts)
+        if (txErr.code === '23505' || txErr.message?.includes('consecutive') || txErr.details?.includes('consecutive')) {
+          console.warn('Colisión detectada en consecutive de transferencias. Resolviendo consecutivo más alto y reintentando...');
+          const { data: maxRow } = await supabase
+            .from('finished_goods_transfers')
+            .select('consecutive')
+            .order('consecutive', { ascending: false })
+            .limit(1);
+
+          const safeConsecutive = ((maxRow?.[0]?.consecutive) || 0) + 1;
+          const { data: retryTx, error: retryErr } = await supabase
+            .from('finished_goods_transfers')
+            .insert([{ ...initialPayload, consecutive: safeConsecutive }])
+            .select()
+            .single();
+
+          if (retryErr) throw retryErr;
+          newTransfer = retryTx;
+        } else {
+          throw txErr;
+        }
+      } else {
+        newTransfer = createdTx;
+      }
 
       // 2. Register items & update origin stock (deducting origin immediately)
       for (const item of transferForm.items) {
