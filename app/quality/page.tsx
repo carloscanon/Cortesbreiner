@@ -6,8 +6,10 @@ import { syncQualityApprovalToInventory, revertQualityApprovalFromInventory } fr
 import Link from 'next/link';
 import {
   CheckCircle2, XCircle, AlertCircle, Search, ClipboardCheck,
-  Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity, AlertTriangle
+  Plus, X, Loader2, ClipboardList, Package, Bell, QrCode, Award, Star, Activity, AlertTriangle,
+  FileText, Printer
 } from 'lucide-react';
+import { generateApprovedSummaryPdfHtml } from '@/lib/approved-order-pdf';
 
 const STATUS_OPTIONS = ['Pendiente', 'Aprobado', 'Doblado', 'Empacado', 'Reproceso', 'Rechazado', 'Inhabilitado'];
 const DEFECT_CHECKLIST_OPTIONS = [
@@ -1325,6 +1327,128 @@ export default function QualityPage() {
     setActiveStage(item.current_stage || stageMap[item.status] || 1);
     setShowModal(true);
     await fetchOrderDetail(item.sewing_order_id || item.order_id, !!item.sewing_order_id);
+  };
+
+  const handlePrintApprovedPdf = async (item: any) => {
+    try {
+      const inspectionId = item.id;
+      const sewingId = item.sewing_order_id || item.sewing_orders?.id;
+      const orderId = item.order_id || item.orders?.id;
+
+      // 1. Obtener prendas físicas aprobadas asociadas a esta inspección
+      let garments: any[] = [];
+      if (inspectionId && !String(inspectionId).startsWith('virtual-')) {
+        const { data } = await supabase
+          .from('individual_garments')
+          .select('id, barcode, reference_name, color_name, size_code, status')
+          .eq('quality_inspection_id', inspectionId)
+          .eq('status', 'Aprobada')
+          .order('reference_name', { ascending: true });
+        garments = data || [];
+      }
+
+      if (garments.length === 0 && sewingId) {
+        const { data } = await supabase
+          .from('individual_garments')
+          .select('id, barcode, reference_name, color_name, size_code, status')
+          .eq('sewing_order_id', sewingId)
+          .eq('status', 'Aprobada')
+          .order('reference_name', { ascending: true });
+        garments = data || [];
+      }
+
+      if (garments.length === 0 && orderId) {
+        const { data } = await supabase
+          .from('individual_garments')
+          .select('id, barcode, reference_name, color_name, size_code, status')
+          .eq('order_id', orderId)
+          .eq('status', 'Aprobada')
+          .order('reference_name', { ascending: true });
+        garments = data || [];
+      }
+
+      // Agrupar por Referencia, Color y Talla
+      let itemsList: { reference: string; color: string; size: string; count: number }[] = [];
+
+      if (garments.length > 0) {
+        const grouped: Record<string, { reference: string; color: string; size: string; count: number }> = {};
+        for (const g of garments) {
+          const ref = (g.reference_name || 'Sin Referencia').trim();
+          const color = (g.color_name || '—').trim();
+          const size = (g.size_code || '—').trim();
+          const key = `${ref}__${color}__${size}`;
+          if (!grouped[key]) {
+            grouped[key] = { reference: ref, color, size, count: 0 };
+          }
+          grouped[key].count++;
+        }
+        itemsList = Object.values(grouped).sort((a, b) =>
+          a.reference.localeCompare(b.reference) || a.color.localeCompare(b.color) || a.size.localeCompare(b.size)
+        );
+      } else {
+        // Fallback: si no hay prendas en individual_garments, consultar cortes de la orden
+        const targetSewingId = sewingId;
+        if (targetSewingId) {
+          const { data: sewOrder } = await supabase
+            .from('sewing_orders')
+            .select(`
+              confeccion_code,
+              cuts (
+                product_id,
+                products ( nombre_producto, codigo_referencia ),
+                colors ( nombre_color ),
+                cut_sizes ( size_id, requested_units, real_units, sizes ( codigo_talla ) )
+              )
+            `)
+            .eq('id', targetSewingId)
+            .single();
+
+          if (sewOrder?.cuts && (sewOrder.cuts as any[]).length > 0) {
+            for (const c of (sewOrder.cuts as any[])) {
+              const ref = c.products?.nombre_producto || c.products?.codigo_referencia || 'Referencia de Corte';
+              const col = c.colors?.nombre_color || '—';
+              for (const cs of (c.cut_sizes || [])) {
+                const sz = cs.sizes?.codigo_talla || '—';
+                const qty = Number(cs.real_units || cs.requested_units || 0);
+                if (qty > 0) {
+                  itemsList.push({ reference: ref, color: col, size: sz, count: qty });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (itemsList.length === 0 && Number(item.items_approved || 0) > 0) {
+        itemsList.push({
+          reference: item.reference_name || 'Prendas del Lote',
+          color: item.color_name || 'Surtido',
+          size: item.size_code || 'Surtido',
+          count: Number(item.items_approved || 0)
+        });
+      }
+
+      const totalApprovedQty = itemsList.reduce((acc, curr) => acc + curr.count, 0) || Number(item.items_approved || 0);
+      const orderCode = item.sewing_orders?.confeccion_code || (item.orders?.consecutive ? `OC-${item.orders.consecutive}` : (item.workshop_name || 'Orden Aprobada'));
+      const workshopName = item.workshop_name || item.sewing_orders?.workshops?.nombre_taller || item.orders?.workshops?.nombre_taller || 'Taller Confección';
+      const approvalDate = item.closed_at || item.updated_at || new Date().toISOString();
+      const formattedDate = new Date(approvalDate).toLocaleDateString('es-CO', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      const inspector = item.operator_name || 'Control de Calidad';
+
+      generateApprovedSummaryPdfHtml({
+        orderCode,
+        workshopName,
+        inspector,
+        formattedDate,
+        totalApprovedQty,
+        items: itemsList
+      });
+    } catch (err: any) {
+      console.error('Error generando PDF de aprobación:', err);
+      alert('Error al generar el PDF de prendas aprobadas: ' + err.message);
+    }
   };
 
   const printLabelsForInspection = async (item: any) => {
@@ -2955,6 +3079,14 @@ export default function QualityPage() {
                           style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                           onClick={() => printLabelsForInspection(item)}>🖨️ Etiquetas</button>
                       )}
+                      {(item.status === 'Aprobado' || item.closed_at || item.current_stage === 4) && (
+                        <button className="btn"
+                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                          onClick={() => handlePrintApprovedPdf(item)}
+                          title="Imprimir Acta / Listado PDF de prendas aprobadas (Referencia, Color y Talla)">
+                          <FileText size={14} /> PDF Aprobado
+                        </button>
+                      )}
                       <button className="btn"
                         style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#80082E', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
                         onClick={() => openReview(item)}>Revisar</button>
@@ -3027,6 +3159,14 @@ export default function QualityPage() {
                 </h2>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {(form.status === 'Aprobado' || form.closed_at || form.current_stage === 4) && (
+                  <button className="btn"
+                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                    onClick={() => handlePrintApprovedPdf({ ...form, id: editingId, sewing_orders: orderDetail })}
+                    title="Imprimir acta / listado PDF de prendas aprobadas">
+                    <FileText size={14} /> PDF Aprobado
+                  </button>
+                )}
                 {isSuperAdmin && editingId && (
                   <button className="btn"
                     style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', fontWeight: '900', backgroundColor: '#dc2626', color: 'white', border: '1px solid #991b1b', borderRadius: '8px', cursor: 'pointer' }}
@@ -3821,6 +3961,13 @@ export default function QualityPage() {
                           style={{ width: '100%', padding: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', fontSize: '0.9rem', fontWeight: '950', backgroundColor: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}>
                           {saving ? <Loader2 className="animate-spin" size={18} /> : <><CheckCircle2 size={18} /> CERRAR Y FINALIZAR LOTE</>}
                         </button>
+                        {(form.status === 'Aprobado' || form.closed_at || form.current_stage === 4) && (
+                          <button type="button" className="btn"
+                            onClick={() => handlePrintApprovedPdf({ ...form, id: editingId, sewing_orders: orderDetail })}
+                            style={{ width: '100%', padding: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', fontSize: '0.85rem', fontWeight: '900', backgroundColor: '#1e40af', color: 'white', border: 'none', cursor: 'pointer', marginTop: '0.4rem' }}>
+                            <Printer size={16} /> 📄 IMPRIMIR PDF PRENDAS APROBADAS (REF, COLOR, TALLA)
+                          </button>
+                        )}
                         <button onClick={() => setActiveStage(3)} style={{ padding: '0.45rem', fontSize: '0.78rem', backgroundColor: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>← Atrás</button>
                       </div>
                     );
