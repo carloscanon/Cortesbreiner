@@ -339,32 +339,59 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       }
     }
 
-    // 5. Asignar bodega principal a las prendas físicas individuales aprobadas
+    // 5. Asignar bodega principal a las prendas físicas individuales aprobadas que aún siguen en Tránsito
+    const BODEGA_TRANSITO_ID = 'a7de052c-cff0-46a4-989d-ed6eaab21a0e';
     if (garments && garments.length > 0) {
-      const barcodeIds = garments.map(g => g.id);
-      await supabase
-        .from('individual_garments')
-        .update({
-          warehouse_id: defaultWarehouse.id
-        })
-        .in('id', barcodeIds);
-      console.log(`Asignada bodega principal a ${barcodeIds.length} prendas individuales.`);
+      // Filtrar únicamente prendas que NO han sido vendidas y que siguen en Tránsito o sin bodega
+      const garmentsToMove = garments.filter(g => {
+        const isSold = (g.defect_checklist && (g.defect_checklist as any).is_sold) || (g.notes && g.notes.toLowerCase().includes('venta pos')) || g.status === 'Vendida' || g.status === 'vendido';
+        if (isSold) return false;
+        return g.warehouse_id === BODEGA_TRANSITO_ID || !g.warehouse_id;
+      });
+
+      if (garmentsToMove.length > 0) {
+        const barcodeIds = garmentsToMove.map(g => g.id);
+        await supabase
+          .from('individual_garments')
+          .update({
+            warehouse_id: defaultWarehouse.id,
+            status: 'Aprobada'
+          })
+          .in('id', barcodeIds);
+        console.log(`Asignada bodega principal a ${barcodeIds.length} prendas individuales (omitidas ${garments.length - barcodeIds.length} que ya estaban en tiendas o vendidas).`);
+      }
+
+      // Asegurar que las prendas vendidas permanezcan fuera de bodega
+      const garmentsSold = garments.filter(g => {
+        return (g.defect_checklist && (g.defect_checklist as any).is_sold) || (g.notes && g.notes.toLowerCase().includes('venta pos'));
+      });
+      if (garmentsSold.length > 0) {
+        const soldIds = garmentsSold.map(g => g.id);
+        await supabase
+          .from('individual_garments')
+          .update({ warehouse_id: null, store_id: null })
+          .in('id', soldIds);
+        console.log(`Aseguradas ${garmentsSold.length} prendas vendidas fuera de bodega.`);
+      }
     }
 
-    // 6. Asignar bodega de rechazos a las prendas rechazadas (si existen)
+    // 6. Asignar bodega de rechazos a las prendas rechazadas (si siguen en Tránsito)
     const { data: rejectedGarments } = await supabase
       .from('individual_garments')
-      .select('id')
+      .select('id, warehouse_id')
       .eq('quality_inspection_id', inspectionId)
       .eq('status', 'Rechazada');
 
     const BODEGA_RECHAZOS_ID = '710e4d52-771c-4ca5-a24b-83ba1aa9dc04';
     if (rejectedGarments && rejectedGarments.length > 0) {
-      await supabase
-        .from('individual_garments')
-        .update({ warehouse_id: BODEGA_RECHAZOS_ID })
-        .in('id', rejectedGarments.map(g => g.id));
-      console.log(`Asignada Bodega Rechazos a ${rejectedGarments.length} prendas rechazadas.`);
+      const rejToMove = rejectedGarments.filter(g => g.warehouse_id === BODEGA_TRANSITO_ID || !g.warehouse_id);
+      if (rejToMove.length > 0) {
+        await supabase
+          .from('individual_garments')
+          .update({ warehouse_id: BODEGA_RECHAZOS_ID })
+          .in('id', rejToMove.map(g => g.id));
+        console.log(`Asignada Bodega Rechazos a ${rejToMove.length} prendas rechazadas.`);
+      }
     }
 
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
