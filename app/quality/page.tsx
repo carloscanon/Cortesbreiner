@@ -1022,7 +1022,7 @@ export default function QualityPage() {
       workshop_name: selectedSewingOrder?.workshops?.nombre_taller || selectedOrder?.workshops?.nombre_taller || form.workshop_name || '',
       items_inspected: totalInspected, items_approved: finalApproved, items_rejected: finalRejected,
       lavanderia: lavVal, saldos: salVal, costuras: cosVal, incompleto: incVal,
-      status: isClosing ? (['Aprobado', 'Rechazado', 'Pendiente'].includes(form.status) ? form.status : 'Aprobado') : (['Aprobado', 'Rechazado', 'Pendiente'].includes(form.status) ? form.status : 'Pendiente'),
+      status: isClosing ? (form.status === 'Rechazado' ? 'Rechazado' : 'Aprobado') : (form.status || 'Pendiente'),
       notes: formattedNotes,
       valor_prenda: valPrenda,
       descuento_defectos: descDefectos,
@@ -3796,12 +3796,15 @@ export default function QualityPage() {
                             <div>
                               <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#5b21b6', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Estado del Lote</label>
                               <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                {['Aprobado', 'Empacado', 'Rechazado'].map(s => (
-                                  <button key={s} type="button" onClick={() => setForm({ ...form, status: s })}
-                                    style={{ flex: 1, padding: '0.4rem 0.25rem', borderRadius: '8px', border: `2px solid ${form.status === s ? '#80082E' : '#e2e8f0'}`, backgroundColor: form.status === s ? '#fdf2f4' : 'white', color: form.status === s ? '#80082E' : '#64748b', fontWeight: '800', fontSize: '0.68rem', cursor: 'pointer' }}>
-                                    {s}
-                                  </button>
-                                ))}
+                                {['Aprobado', 'Empacado', 'Rechazado'].map(s => {
+                                  const isSelected = form.status === s || (s === 'Aprobado' && (!form.status || form.status === 'Pendiente'));
+                                  return (
+                                    <button key={s} type="button" onClick={() => setForm({ ...form, status: s })}
+                                      style={{ flex: 1, padding: '0.4rem 0.25rem', borderRadius: '8px', border: `2px solid ${isSelected ? '#80082E' : '#e2e8f0'}`, backgroundColor: isSelected ? '#fdf2f4' : 'white', color: isSelected ? '#80082E' : '#64748b', fontWeight: '800', fontSize: '0.68rem', cursor: 'pointer' }}>
+                                      {s}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                             <div>

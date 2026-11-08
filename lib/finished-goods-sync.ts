@@ -31,10 +31,16 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       return;
     }
 
-    // Solo procesar si el estado es Aprobado
-    if (inspection.status !== 'Aprobado') {
-      console.log(`Inspección ${inspectionId} no está aprobada (Estado: ${inspection.status}). No se sincroniza stock.`);
+    // Solo procesar si el estado es Aprobado o si ya se cerró en Etapa 4
+    const isApprovedOrClosed = inspection.status === 'Aprobado' || (Number(inspection.current_stage) === 4 && inspection.closed_at);
+    if (!isApprovedOrClosed) {
+      console.log(`Inspección ${inspectionId} no está aprobada ni cerrada en Etapa 4 (Estado: ${inspection.status}, Etapa: ${inspection.current_stage}). No se sincroniza stock.`);
       return;
+    }
+
+    // Asegurar que el status en quality_inspections quede 'Aprobado' si el lote está cerrado
+    if (inspection.status !== 'Aprobado') {
+      await supabase.from('quality_inspections').update({ status: 'Aprobado' }).eq('id', inspectionId);
     }
 
     // Evitar duplicar el ingreso si ya se registró para esta inspección
@@ -82,16 +88,55 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
 
     // Cargar maestros de tallas y colores para resolver ids
     const { data: sizes } = await supabase.from('sizes').select('id, codigo_talla');
-    const { data: colors } = await supabase.from('colors').select('id, nombre_color');
+    const { data: colors } = await supabase.from('colors').select('id, nombre_color, codigo_color');
     const { data: products } = await supabase.from('products').select('id, nombre_producto, name');
 
     const sizeMap = new Map(sizes?.map(s => [s.codigo_talla.toUpperCase().trim(), s.id]));
-    const colorMap = new Map(colors?.map(c => [c.nombre_color.toUpperCase().trim(), c.id]));
     const productMap = new Map();
     products?.forEach(p => {
       if (p.nombre_producto) productMap.set(p.nombre_producto.toUpperCase().trim(), p.id);
       if (p.name) productMap.set(p.name.toUpperCase().trim(), p.id);
     });
+
+    const resolveColorId = (colorStr: string | null): string | null => {
+      if (!colorStr || colorStr === '—') return null;
+      const clean = colorStr.toUpperCase().trim();
+      const validColors = (colors || []).filter(c => c.nombre_color && c.nombre_color.trim().length >= 3);
+
+      // 1. Exact match by name
+      let found = validColors.find(c => c.nombre_color.toUpperCase().trim() === clean);
+      if (found) return found.id;
+
+      // 2. Match by numeric code if present in the string (e.g. "AZUL OSC 5102" -> code "5102")
+      const codeMatch = clean.match(/(\d{2,6})/);
+      if (codeMatch) {
+        found = (colors || []).find(c => c.codigo_color && String(c.codigo_color).trim() === codeMatch[1]);
+        if (found) return found.id;
+      }
+
+      // 3. Match name without numbers (e.g. "PALO ROSA 20663" -> "PALO ROSA")
+      const cleanWithoutNumbers = clean.replace(/\d+/g, '').trim();
+      if (cleanWithoutNumbers.length >= 3) {
+        found = validColors.find(c => c.nombre_color.toUpperCase().trim() === cleanWithoutNumbers);
+        if (found) return found.id;
+      }
+
+      // 4. Substring / partial match on color names
+      found = validColors.find(c => {
+        const nom = c.nombre_color.toUpperCase().trim();
+        return cleanWithoutNumbers.includes(nom) || nom.includes(cleanWithoutNumbers);
+      });
+      if (found) return found.id;
+
+      // 5. First word match if length >= 4
+      const words = cleanWithoutNumbers.split(/\s+/).filter(w => w.length >= 4);
+      for (const w of words) {
+        found = validColors.find(c => c.nombre_color.toUpperCase().trim().includes(w));
+        if (found) return found.id;
+      }
+
+      return null;
+    };
 
     if (garments && garments.length > 0) {
       // Caso A: Usar prendas individuales aprobadas
@@ -107,10 +152,7 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
         }
         
         // Encontrar color_id
-        let colorId = null;
-        if (g.color_name && g.color_name !== '—') {
-          colorId = colorMap.get(g.color_name.toUpperCase().trim());
-        }
+        const colorId = resolveColorId(g.color_name);
         
         // Encontrar size_id
         const sizeId = g.size_code ? sizeMap.get(g.size_code.toUpperCase().trim()) : null;
@@ -297,7 +339,7 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
       }
     }
 
-    // 5. Asignar bodega principal a las prendas físicas individuales
+    // 5. Asignar bodega principal a las prendas físicas individuales aprobadas
     if (garments && garments.length > 0) {
       const barcodeIds = garments.map(g => g.id);
       await supabase
@@ -307,6 +349,22 @@ export async function syncQualityApprovalToInventory(inspectionId: string) {
         })
         .in('id', barcodeIds);
       console.log(`Asignada bodega principal a ${barcodeIds.length} prendas individuales.`);
+    }
+
+    // 6. Asignar bodega de rechazos a las prendas rechazadas (si existen)
+    const { data: rejectedGarments } = await supabase
+      .from('individual_garments')
+      .select('id')
+      .eq('quality_inspection_id', inspectionId)
+      .eq('status', 'Rechazada');
+
+    const BODEGA_RECHAZOS_ID = '710e4d52-771c-4ca5-a24b-83ba1aa9dc04';
+    if (rejectedGarments && rejectedGarments.length > 0) {
+      await supabase
+        .from('individual_garments')
+        .update({ warehouse_id: BODEGA_RECHAZOS_ID })
+        .in('id', rejectedGarments.map(g => g.id));
+      console.log(`Asignada Bodega Rechazos a ${rejectedGarments.length} prendas rechazadas.`);
     }
 
     console.log(`✓ Sincronización de inventario terminada para la inspección ${inspectionId}.`);
@@ -373,10 +431,11 @@ export async function revertQualityApprovalFromInventory(inspectionId: string) {
       await supabase.from('finished_goods_kardex').delete().eq('documento_origen', docOrigin);
       await supabase.from('finished_goods_inventory').delete().eq('quality_inspection_id', inspectionId);
       
-      // Revert individual garments and clear warehouse_id
+      // Revert individual garments and set warehouse_id back to Bodega Transito
+      const BODEGA_TRANSITO_ID = 'a7de052c-cff0-46a4-989d-ed6eaab21a0e';
       await supabase
         .from('individual_garments')
-        .update({ warehouse_id: null })
+        .update({ warehouse_id: BODEGA_TRANSITO_ID })
         .eq('quality_inspection_id', inspectionId);
 
       console.log(`✓ Inventario revertido exitosamente para la inspección #${inspectionId}.`);
