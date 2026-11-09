@@ -13,7 +13,14 @@ function getAdminClient() {
   });
 }
 
+// In-memory concurrency locks and idempotency cache
+const activeProcessingBarcodes = new Set<string>();
+const recentSalesFingerprints = new Map<string, number>();
+
 export async function POST(request: Request) {
+  let saleFingerprint: string | null = null;
+  const lockedBarcodesInThisRequest: string[] = [];
+
   try {
     const supabase = getAdminClient();
     const body = await request.json();
@@ -27,6 +34,30 @@ export async function POST(request: Request) {
     if (!salePayload || !Array.isArray(cart) || cart.length === 0) {
       return NextResponse.json({ error: 'Datos de venta o carrito inválidos' }, { status: 400 });
     }
+
+    // -------------------------------------------------------------------------
+    // PROTECCIÓN DE IDEMPOTENCIA Y RÁFAGAS: Evitar ventas repetidas (15s)
+    // -------------------------------------------------------------------------
+    const now = Date.now();
+    for (const [fp, ts] of recentSalesFingerprints.entries()) {
+      if (now - ts > 60000) recentSalesFingerprints.delete(fp);
+    }
+
+    const cartSig = cart
+      .map((c: any) => `${c.product_id || ''}-${c.color_id || ''}-${c.size_id || ''}-${c.cantidad || 1}`)
+      .sort()
+      .join('|');
+    const clientSig = (salePayload.cliente_id || salePayload.client_document || salePayload.client_name || 'general').trim();
+    saleFingerprint = `${store?.id || 'wh'}_${clientSig}_${Number(salePayload.total || 0).toFixed(2)}_${cartSig}`;
+
+    const lastSeenTime = recentSalesFingerprints.get(saleFingerprint);
+    if (lastSeenTime && (now - lastSeenTime < 15000)) {
+      console.warn(`[IDEMPOTENCY BLOCKED] Venta duplicada rechazada por ráfaga: ${saleFingerprint}`);
+      return NextResponse.json({
+        error: '⛔ Venta duplicada detectada: Una venta idéntica para este cliente y carrito ya fue enviada o está en proceso hace menos de 15 segundos. Por favor espera a que finalice.'
+      }, { status: 409 });
+    }
+    recentSalesFingerprints.set(saleFingerprint, now);
 
     // =========================================================================
     // VALIDACIÓN ESTRICTA: PREVENCIÓN DE FACTURAS DUPLICADAS Y PRENDAS YA VENDIDAS
@@ -56,9 +87,22 @@ export async function POST(request: Request) {
     }
 
     if (duplicateInCart.length > 0) {
+      if (saleFingerprint) recentSalesFingerprints.delete(saleFingerprint);
       return NextResponse.json({
         error: `⛔ El carrito contiene prendas duplicadas con el mismo código de barras: [${duplicateInCart.join(', ')}]. Cada prenda física solo puede ser vendida una sola vez.`
       }, { status: 400 });
+    }
+
+    // 1.1 Bloqueo de concurrencia en memoria para códigos de barra
+    for (const bc of directBarcodesToValidate) {
+      if (activeProcessingBarcodes.has(bc)) {
+        if (saleFingerprint) recentSalesFingerprints.delete(saleFingerprint);
+        return NextResponse.json({
+          error: `⛔ La prenda física con código de barras "${bc}" ya está siendo procesada en este instante por otra transacción. Solicitud rechazada para evitar duplicidad.`
+        }, { status: 409 });
+      }
+      activeProcessingBarcodes.add(bc);
+      lockedBarcodesInThisRequest.push(bc);
     }
 
     // 2. Validar contra individual_garments: comprobar si la prenda ya fue vendida o pertenece a otra bodega
@@ -442,7 +486,12 @@ export async function POST(request: Request) {
       sale: newSale
     });
   } catch (err: any) {
+    if (saleFingerprint) recentSalesFingerprints.delete(saleFingerprint);
     console.error('API /api/pos/sales error:', err);
     return NextResponse.json({ error: err.message || 'Error procesando venta en base de datos' }, { status: 500 });
+  } finally {
+    for (const bc of lockedBarcodesInThisRequest) {
+      activeProcessingBarcodes.delete(bc);
+    }
   }
 }

@@ -340,6 +340,7 @@ export default function POSPage() {
     cartRef.current = cart;
   }, [cart]);
   const processedScansRef = useRef<Map<string, number>>(new Map());
+  const isProcessingSaleRef = useRef(false);
   const [isProcessingSale, setIsProcessingSale] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [selectedProductForVariants, setSelectedProductForVariants] = useState<any>(null);
@@ -708,14 +709,14 @@ export default function POSPage() {
           return await fetchAllPages(
             supabase
               .from('finished_goods_stock')
-              .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla, nombre_talla), colors(id, nombre_color, hex_color, name, hex_code)')
               .eq('warehouse_id', selectedStore.bodega_asociada_id)
           );
         } else {
           return await fetchAllPages(
             supabase
               .from('store_inventory')
-              .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla), colors(id, nombre_color, hex_color)')
+              .select('id, store_id, product_id, color_id, size_id, cantidad_disponible, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla, nombre_talla), colors(id, nombre_color, hex_color, name, hex_code)')
               .eq('store_id', selectedStore.id)
           );
         }
@@ -3354,62 +3355,74 @@ export default function POSPage() {
   };
 
   const handleCheckout = async () => {
-    if (isProcessingSale) return;
-    if (!currentSession && isOnline) return alert('Debes abrir caja antes de registrar ventas.');
-    if (cart.length === 0) return alert('El carrito está vacío.');
-
-    // 0. Pre-validación local en carrito: detectar prendas duplicadas
-    const seenBarcodes = new Set<string>();
-    const dupes: string[] = [];
-    const barcodesToCheck: string[] = [];
-
-    for (const item of cart) {
-      if (Array.isArray(item.barcodes)) {
-        for (const b of item.barcodes) {
-          if (b && typeof b === 'string') {
-            const cleanB = b.trim();
-            if (seenBarcodes.has(cleanB)) {
-              dupes.push(cleanB);
-            } else {
-              seenBarcodes.add(cleanB);
-              barcodesToCheck.push(cleanB);
-            }
-          }
-        }
-      }
+    if (isProcessingSaleRef.current || isProcessingSale) {
+      console.warn('Venta ya en proceso, ignorando click duplicado.');
+      return;
     }
-
-    if (dupes.length > 0) {
-      return alert(`⛔ El carrito contiene prendas duplicadas con el mismo código de barras: [${dupes.join(', ')}]. Cada prenda física solo puede ser vendida una sola vez.`);
-    }
-
-    // 0.1 Pre-validar en servidor antes de procesar pago
-    if (isOnline && barcodesToCheck.length > 0) {
-      try {
-        const { data: gCheck } = await supabase
-          .from('individual_garments')
-          .select('barcode, warehouse_id, store_id, notes, defect_checklist')
-          .in('barcode', barcodesToCheck);
-
-        if (gCheck && gCheck.length > 0) {
-          for (const g of gCheck) {
-            const isSold = 
-              (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
-              (typeof g.notes === 'string' && (g.notes.toLowerCase().includes('venta pos') || g.notes.toLowerCase().includes('vendid') || g.notes.toLowerCase().includes('factur'))) ||
-              (!g.warehouse_id && !g.store_id);
-
-            if (isSold) {
-              return alert(`⛔ La prenda con código "${g.barcode}" ya figura como FACTURADA / VENDIDA (${g.notes || 'No disponible en bodega'}). No se puede volver a facturar.`);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Error pre-validating garments in client:', e);
-      }
-    }
-
+    isProcessingSaleRef.current = true;
     setIsProcessingSale(true);
+
     try {
+      if (!currentSession && isOnline) {
+        alert('Debes abrir caja antes de registrar ventas.');
+        return;
+      }
+      if (cart.length === 0) {
+        alert('El carrito está vacío.');
+        return;
+      }
+
+      // 0. Pre-validación local en carrito: detectar prendas duplicadas
+      const seenBarcodes = new Set<string>();
+      const dupes: string[] = [];
+      const barcodesToCheck: string[] = [];
+
+      for (const item of cart) {
+        if (Array.isArray(item.barcodes)) {
+          for (const b of item.barcodes) {
+            if (b && typeof b === 'string') {
+              const cleanB = b.trim();
+              if (seenBarcodes.has(cleanB)) {
+                dupes.push(cleanB);
+              } else {
+                seenBarcodes.add(cleanB);
+                barcodesToCheck.push(cleanB);
+              }
+            }
+          }
+        }
+      }
+
+      if (dupes.length > 0) {
+        alert(`⛔ El carrito contiene prendas duplicadas con el mismo código de barras: [${dupes.join(', ')}]. Cada prenda física solo puede ser vendida una sola vez.`);
+        return;
+      }
+
+      // 0.1 Pre-validar en servidor antes de procesar pago
+      if (isOnline && barcodesToCheck.length > 0) {
+        try {
+          const { data: gCheck } = await supabase
+            .from('individual_garments')
+            .select('barcode, warehouse_id, store_id, notes, defect_checklist')
+            .in('barcode', barcodesToCheck);
+
+          if (gCheck && gCheck.length > 0) {
+            for (const g of gCheck) {
+              const isSold = 
+                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
+                (typeof g.notes === 'string' && (g.notes.toLowerCase().includes('venta pos') || g.notes.toLowerCase().includes('vendid') || g.notes.toLowerCase().includes('factur'))) ||
+                (!g.warehouse_id && !g.store_id);
+
+              if (isSold) {
+                alert(`⛔ La prenda con código "${g.barcode}" ya figura como FACTURADA / VENDIDA (${g.notes || 'No disponible en bodega'}). No se puede volver a facturar.`);
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Error pre-validating garments in client:', e);
+        }
+      }
       const localDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
       
       const activePromo = promotions.find(p => {
@@ -3668,6 +3681,7 @@ export default function POSPage() {
     } catch (err: any) {
       alert('Error guardando venta: ' + err.message);
     } finally {
+      isProcessingSaleRef.current = false;
       setIsProcessingSale(false);
     }
   };
@@ -5182,7 +5196,7 @@ export default function POSPage() {
                                       </div>
                                     </td>
                                     <td style={{ padding: '0.75rem', color: '#64748b', fontWeight: '850' }}>{inv.products?.codigo_referencia || '-'}</td>
-                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.colors?.nombre_color || '-'}</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.colors?.nombre_color || inv.colors?.name || colors.find((c: any) => c.id === inv.color_id)?.nombre_color || '-'}</td>
                                     <td style={{ padding: '0.75rem', textAlign: 'center' }}>{inv.sizes?.codigo_talla || '-'}</td>
                                     <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '900', color: Number(inv.cantidad_disponible) > 5 ? '#10b981' : '#ef4444' }}>
                                       {inv.cantidad_disponible}
@@ -9490,12 +9504,17 @@ export default function POSPage() {
                 {productVariants.filter(inv => {
                   if (!variantSearch) return true;
                   const searchUpper = variantSearch.toUpperCase();
-                  const cName = (inv.colors?.nombre_color || '').toUpperCase();
-                  const sCode = (inv.sizes?.codigo_talla || '').toUpperCase();
+                  const colObj = inv.colors || colors.find((c: any) => c.id === inv.color_id);
+                  const szObj = inv.sizes || sizes.find((s: any) => s.id === inv.size_id);
+                  const cName = (colObj?.nombre_color || colObj?.name || '').toUpperCase();
+                  const sCode = (szObj?.codigo_talla || szObj?.nombre_talla || '').toUpperCase();
                   return cName.includes(searchUpper) || sCode.includes(searchUpper);
                 }).map((inv, idx) => {
-                  const cName = inv.colors?.nombre_color || '(Sin color)';
-                  const sCode = inv.sizes?.codigo_talla || '(Sin talla)';
+                  const colObj = inv.colors || colors.find((c: any) => c.id === inv.color_id);
+                  const szObj = inv.sizes || sizes.find((s: any) => s.id === inv.size_id);
+                  const cName = colObj?.nombre_color || colObj?.name || '(Sin color)';
+                  const cHex = colObj?.hex_color || colObj?.hex_code || '#cbd5e1';
+                  const sCode = szObj?.codigo_talla || szObj?.nombre_talla || '(Sin talla)';
                   return (
                     <button 
                       key={idx}
@@ -9531,7 +9550,7 @@ export default function POSPage() {
                           width: '24px',
                           height: '24px',
                           borderRadius: '6px',
-                          backgroundColor: inv.colors?.hex_color || '#cbd5e1',
+                          backgroundColor: cHex,
                           border: '1px solid rgba(0,0,0,0.1)'
                         }} />
                         <div>
