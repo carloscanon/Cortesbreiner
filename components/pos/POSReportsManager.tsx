@@ -5,7 +5,8 @@ import {
   Download, Printer, Filter, Calendar, Search, RefreshCw, 
   CheckCircle2, XCircle, TrendingUp, ShoppingBag, DollarSign, 
   CreditCard, ChevronLeft, ChevronRight, FileSpreadsheet, Eye, X, Loader2,
-  Store, Building2, RotateCcw
+  Store, Building2, RotateCcw,
+  Banknote, QrCode, ArrowDownRight, ArrowUpRight, Wallet, CheckCircle, AlertCircle
 } from 'lucide-react';
 
 interface POSReportsManagerProps {
@@ -72,6 +73,7 @@ export default function POSReportsManager({
   const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null);
   const [selectedShiftForModal, setSelectedShiftForModal] = useState<any | null>(null);
   const [shiftModalSales, setShiftModalSales] = useState<any[]>([]);
+  const [shiftModalMovements, setShiftModalMovements] = useState<any[]>([]);
   const [loadingShiftSales, setLoadingShiftSales] = useState<boolean>(false);
   const [selectedSaleForCreditNote, setSelectedSaleForCreditNote] = useState<any | null>(null);
   const [creditNoteReason, setCreditNoteReason] = useState<string>('Devolución de prendas / Anulación POS');
@@ -1666,185 +1668,560 @@ export default function POSReportsManager({
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {/* Shift KPI Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
-                <div style={{ backgroundColor: '#f8fafc', padding: '0.85rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Efectivo Inicial</span>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#0f172a' }}>${Number(selectedShiftForModal.monto_apertura || 0).toLocaleString('es-CO')}</div>
-                </div>
-                <div style={{ backgroundColor: '#f0fdf4', padding: '0.85rem', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: '800', textTransform: 'uppercase' }}>Total Ventas Turno</span>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#15803d' }}>
-                    ${shiftModalSales.filter(s => s.estado !== 'anulada').reduce((sum, s) => sum + Number(s.total || 0), 0).toLocaleString('es-CO')}
-                  </div>
-                </div>
-                <div style={{ backgroundColor: '#eff6ff', padding: '0.85rem', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: '800', textTransform: 'uppercase' }}>Efectivo Real en Cierre</span>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#1e3a8a' }}>
-                    {selectedShiftForModal.monto_cierre_real != null ? `${Number(selectedShiftForModal.monto_cierre_real).toLocaleString('es-CO')}` : 'Turno abierto'}
-                  </div>
-                </div>
-                <div style={{ backgroundColor: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#f0fdf4' : '#fef2f2', padding: '0.85rem', borderRadius: '10px', border: `1px solid ${Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#bbf7d0' : '#fca5a5'}` }}>
-                  <span style={{ fontSize: '0.65rem', color: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#166534' : '#991b1b', fontWeight: '800', textTransform: 'uppercase' }}>Diferencia / Cuadre</span>
-                  <div style={{ fontSize: '1.1rem', fontWeight: '950', color: Number(selectedShiftForModal.diferencia || 0) >= 0 ? '#15803d' : '#dc2626' }}>
-                    {selectedShiftForModal.diferencia != null ? `${Number(selectedShiftForModal.diferencia).toLocaleString('es-CO')}` : '-'}
-                  </div>
-                </div>
-              </div>
-
+            <div style={{ padding: "1.5rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "1.35rem" }}>
               {loadingShiftSales ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>
-                  <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto' }} />
-                  <p style={{ fontSize: '0.8rem', color: '#64748b' }}>Cargando transacciones y prendas vendidas...</p>
+                <div style={{ textAlign: "center", padding: "3rem" }}>
+                  <Loader2 size={28} className="animate-spin" style={{ margin: "0 auto", color: "#80082E" }} />
+                  <p style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.75rem", fontWeight: "700" }}>Cargando resumen de cierre de caja...</p>
                 </div>
-              ) : (
-                <>
-                  {/* PRENDAS VENDIDAS EN EL TURNO (AGRUPADAS) */}
-                  <div>
-                    <h4 style={{ margin: '0 0 0.65rem 0', fontSize: '0.85rem', fontWeight: '950', color: '#0f172a' }}>
-                      🏷️ Prendas Vendidas en Este Cierre
-                    </h4>
-                    {(() => {
-                      const itemMap = new Map();
-                      shiftModalSales.filter(s => s.estado !== 'anulada').forEach(s => {
-                        const items = s.pos_sale_items || s.items || [];
-                        items.forEach((it: any) => {
-                          const pName = it.products?.nombre_producto || it.nombre || 'Prenda';
-                          const pRef = it.products?.codigo_referencia || '';
-                          const col = it.colors?.nombre_color || it.color || '';
-                          const sz = it.sizes?.codigo_talla || it.talla || '';
-                          const key = `${pName}_${col}_${sz}`;
-                          const qty = Number(it.cantidad) || 1;
-                          const subtotal = Number(it.subtotal || it.total || (it.precio_unitario * qty) || 0);
+              ) : (() => {
+                const apertura = Number(selectedShiftForModal.monto_apertura || 0);
+                const salesNonCancelled = shiftModalSales.filter(s => s.estado !== "anulada");
+                const totalVendido = salesNonCancelled.reduce((sum, s) => sum + Number(s.total || 0), 0);
 
-                          if (itemMap.has(key)) {
-                            const cur = itemMap.get(key);
-                            cur.cantidad += qty;
-                            cur.total += subtotal;
-                          } else {
-                            itemMap.set(key, {
-                              name: pName,
-                              ref: pRef,
-                              color: col,
-                              size: sz,
-                              cantidad: qty,
-                              total: subtotal
-                            });
-                          }
-                        });
-                      });
+                // Breakdown by payment methods
+                let totalEfectivo = 0;
+                let totalTarjeta = 0;
+                let totalTransferencia = 0;
+                const transferenciasPorBanco: Record<string, number> = {};
+                let totalOtros = 0;
 
-                      const groupedItems = Array.from(itemMap.values());
-                      if (groupedItems.length === 0) {
-                        return <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', padding: '0.5rem 0' }}>No se registraron prendas en este turno.</div>;
+                salesNonCancelled.forEach((sale: any) => {
+                  const saleTotal = Number(sale.total || 0);
+                  const pays: any[] = sale.pos_payments && sale.pos_payments.length > 0 ? sale.pos_payments : [];
+
+                  if (pays.length > 0) {
+                    pays.forEach((p: any) => {
+                      const metodo = (p.metodo_pago || "").toLowerCase();
+                      const monto = Number(p.monto || 0);
+                      if (metodo.includes("efectivo")) {
+                        totalEfectivo += monto;
+                      } else if (metodo.includes("tarjeta") || metodo.includes("datafono")) {
+                        totalTarjeta += monto;
+                      } else if (metodo.includes("transferencia") || metodo.includes("banco") || metodo.includes("qr") || metodo.includes("nequi") || metodo.includes("daviplata")) {
+                        totalTransferencia += monto;
+                        let bankName = p.metodo_pago || "Transferencia";
+                        if (sale.observaciones) {
+                          const m = sale.observaciones.match(/Banco:\s*([^|,\n]+)/i);
+                          if (m && m[1]) bankName = m[1].trim();
+                        }
+                        transferenciasPorBanco[bankName] = (transferenciasPorBanco[bankName] || 0) + monto;
+                      } else {
+                        totalOtros += monto;
                       }
+                    });
+                  } else {
+                    const fallbackMetodo = (sale.metodo_pago || "efectivo").toLowerCase();
+                    if (fallbackMetodo.includes("efectivo")) totalEfectivo += saleTotal;
+                    else if (fallbackMetodo.includes("tarjeta") || fallbackMetodo.includes("datafono")) totalTarjeta += saleTotal;
+                    else if (fallbackMetodo.includes("transferencia") || fallbackMetodo.includes("banco") || fallbackMetodo.includes("qr")) {
+                      totalTransferencia += saleTotal;
+                      transferenciasPorBanco["Transferencia"] = (transferenciasPorBanco["Transferencia"] || 0) + saleTotal;
+                    } else totalOtros += saleTotal;
+                  }
+                });
 
-                      return (
-                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                // Movimientos de caja (ingresos y egresos)
+                let totalIngresos = 0;
+                let totalEgresos = 0;
+                shiftModalMovements.forEach((m: any) => {
+                  const tipo = (m.tipo || "").toLowerCase();
+                  const val = Number(m.monto || 0);
+                  if (tipo === "ingreso") totalIngresos += val;
+                  if (tipo === "egreso") totalEgresos += val;
+                });
+
+                // If no movement table entries found, check shift observations fallback
+                if (totalIngresos === 0 && totalEgresos === 0 && selectedShiftForModal.observaciones) {
+                  const obsLines = String(selectedShiftForModal.observaciones).split("\n");
+                  obsLines.forEach(line => {
+                    const match = line.match(/\[MOVIMIENTO CAJA - (INGRESO|EGRESO)\]:\s*\$([\d\.,]+)/i);
+                    if (match) {
+                      const t = match[1].toLowerCase();
+                      const cleanVal = parseFloat(match[2].replace(/\./g, "").replace(",", "."));
+                      if (!isNaN(cleanVal)) {
+                        if (t === "ingreso") totalIngresos += cleanVal;
+                        if (t === "egreso") totalEgresos += cleanVal;
+                      }
+                    }
+                  });
+                }
+
+                // Balance calculations
+                const efectivoEsperado = selectedShiftForModal.monto_cierre_esperado != null
+                  ? Number(selectedShiftForModal.monto_cierre_esperado)
+                  : (apertura + totalEfectivo + totalIngresos - totalEgresos);
+
+                const montoCierreReal = selectedShiftForModal.monto_cierre_real != null ? Number(selectedShiftForModal.monto_cierre_real) : null;
+                const diferencia = selectedShiftForModal.diferencia != null ? Number(selectedShiftForModal.diferencia) : (montoCierreReal != null ? montoCierreReal - efectivoEsperado : null);
+
+                return (
+                  <>
+                    {/* 1. SECCION SUPERIOR: VENTAS TOTALES DEL DIA */}
+                    <div style={{
+                      background: "linear-gradient(135deg, #80082E 0%, #4a0319 100%)",
+                      borderRadius: "16px",
+                      padding: "1.35rem 1.75rem",
+                      color: "white",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      boxShadow: "0 10px 25px -5px rgba(128, 8, 46, 0.35)"
+                    }}>
+                      <div>
+                        <span style={{ fontSize: "0.72rem", fontWeight: "800", letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.85, display: "block" }}>
+                          Ventas Totales del Día / Turno
+                        </span>
+                        <div style={{ fontSize: "2.1rem", fontWeight: "950", fontFamily: "monospace", marginTop: "0.15rem" }}>
+                          ${totalVendido.toLocaleString("es-CO")}
+                        </div>
+                        <span style={{ fontSize: "0.75rem", opacity: 0.9 }}>
+                          {salesNonCancelled.length} transacciones registradas · Base inicial: ${apertura.toLocaleString("es-CO")}
+                        </span>
+                      </div>
+                      <div style={{
+                        width: "56px",
+                        height: "56px",
+                        borderRadius: "14px",
+                        backgroundColor: "rgba(255, 255, 255, 0.15)",
+                        backdropFilter: "blur(6px)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: "1px solid rgba(255, 255, 255, 0.25)"
+                      }}>
+                        <TrendingUp size={30} style={{ color: "#ffffff" }} />
+                      </div>
+                    </div>
+
+                    {/* 2. DESAGREGACION DE VENTAS POR MEDIOS DE PAGO HABILITADOS */}
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginBottom: "0.75rem" }}>
+                        <Wallet size={16} style={{ color: "#80082E" }} />
+                        <h4 style={{ margin: 0, fontSize: "0.85rem", fontWeight: "950", color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Desagregación de Ventas por Medio de Pago
+                        </h4>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.85rem" }}>
+                        {/* EFECTIVO */}
+                        <div style={{
+                          backgroundColor: "#ecfdf5",
+                          border: "1.5px solid #a7f3d0",
+                          borderRadius: "14px",
+                          padding: "1rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.35rem"
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.68rem", fontWeight: "900", color: "#065f46", textTransform: "uppercase" }}>
+                              Efectivo en Ventas
+                            </span>
+                            <div style={{ width: "28px", height: "28px", borderRadius: "8px", backgroundColor: "#d1fae5", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <Banknote size={16} style={{ color: "#059669" }} />
+                            </div>
+                          </div>
+                          <span style={{ fontSize: "1.25rem", fontWeight: "950", color: "#047857", fontFamily: "monospace" }}>
+                            ${totalEfectivo.toLocaleString("es-CO")}
+                          </span>
+                          <span style={{ fontSize: "0.65rem", color: "#059669", fontWeight: "700" }}>
+                            {totalVendido > 0 ? ((totalEfectivo / totalVendido) * 100).toFixed(1) : 0}% de las ventas
+                          </span>
+                        </div>
+
+                        {/* TRANSFERENCIAS */}
+                        <div style={{
+                          backgroundColor: "#fffbeb",
+                          border: "1.5px solid #fde68a",
+                          borderRadius: "14px",
+                          padding: "1rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.35rem"
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.68rem", fontWeight: "900", color: "#92400e", textTransform: "uppercase" }}>
+                              Transferencias / QR
+                            </span>
+                            <div style={{ width: "28px", height: "28px", borderRadius: "8px", backgroundColor: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <QrCode size={16} style={{ color: "#d97706" }} />
+                            </div>
+                          </div>
+                          <span style={{ fontSize: "1.25rem", fontWeight: "950", color: "#b45309", fontFamily: "monospace" }}>
+                            ${totalTransferencia.toLocaleString("es-CO")}
+                          </span>
+                          {Object.keys(transferenciasPorBanco).length > 0 ? (
+                            <div style={{ fontSize: "0.62rem", color: "#78350f", display: "flex", flexDirection: "column", gap: "2px", marginTop: "0.15rem" }}>
+                              {Object.entries(transferenciasPorBanco).map(([banco, val]) => (
+                                <div key={banco} style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <span>{banco}:</span>
+                                  <strong style={{ fontFamily: "monospace" }}>${val.toLocaleString("es-CO")}</strong>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: "0.65rem", color: "#b45309", fontWeight: "700" }}>
+                              Bancolombia, Nequi, Daviplata
+                            </span>
+                          )}
+                        </div>
+
+                        {/* TARJETAS */}
+                        <div style={{
+                          backgroundColor: "#eff6ff",
+                          border: "1.5px solid #bfdbfe",
+                          borderRadius: "14px",
+                          padding: "1rem",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "0.35rem"
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: "0.68rem", fontWeight: "900", color: "#1e40af", textTransform: "uppercase" }}>
+                              Tarjetas / Datáfono
+                            </span>
+                            <div style={{ width: "28px", height: "28px", borderRadius: "8px", backgroundColor: "#dbeafe", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <CreditCard size={16} style={{ color: "#2563eb" }} />
+                            </div>
+                          </div>
+                          <span style={{ fontSize: "1.25rem", fontWeight: "950", color: "#1d4ed8", fontFamily: "monospace" }}>
+                            ${totalTarjeta.toLocaleString("es-CO")}
+                          </span>
+                          <span style={{ fontSize: "0.65rem", color: "#2563eb", fontWeight: "700" }}>
+                            Débito y Crédito
+                          </span>
+                        </div>
+
+                        {/* OTROS SI EXISTEN */}
+                        {totalOtros > 0 && (
+                          <div style={{
+                            backgroundColor: "#f5f3ff",
+                            border: "1.5px solid #ddd6fe",
+                            borderRadius: "14px",
+                            padding: "1rem",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.35rem"
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.68rem", fontWeight: "900", color: "#6d28d9", textTransform: "uppercase" }}>
+                                Otros Medios
+                              </span>
+                              <div style={{ width: "28px", height: "28px", borderRadius: "8px", backgroundColor: "#ede9fe", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <DollarSign size={16} style={{ color: "#7c3aed" }} />
+                              </div>
+                            </div>
+                            <span style={{ fontSize: "1.25rem", fontWeight: "950", color: "#5b21b6", fontFamily: "monospace" }}>
+                              ${totalOtros.toLocaleString("es-CO")}
+                            </span>
+                            <span style={{ fontSize: "0.65rem", color: "#7c3aed", fontWeight: "700" }}>Bonos / Mixto</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 3. MOVIMIENTOS DE CAJA (INGRESOS Y EGRESOS) */}
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginBottom: "0.75rem" }}>
+                        <RotateCcw size={15} style={{ color: "#475569" }} />
+                        <h4 style={{ margin: 0, fontSize: "0.85rem", fontWeight: "950", color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Movimientos de Caja (Ingresos y Egresos de Turno)
+                        </h4>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.85rem" }}>
+                        {/* INGRESOS */}
+                        <div style={{
+                          backgroundColor: "#f8fafc",
+                          border: "1.5px solid #cbd5e1",
+                          borderRadius: "12px",
+                          padding: "0.9rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.85rem"
+                        }}>
+                          <div style={{ width: "38px", height: "38px", borderRadius: "10px", backgroundColor: "#ecfdf5", display: "flex", alignItems: "center", justifyContent: "center", color: "#16a34a", flexShrink: 0 }}>
+                            <ArrowDownRight size={20} />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: "0.65rem", fontWeight: "800", color: "#64748b", textTransform: "uppercase", display: "block" }}>
+                              + Ingresos Adicionales
+                            </span>
+                            <span style={{ fontSize: "1.1rem", fontWeight: "950", color: "#16a34a", fontFamily: "monospace" }}>
+                              ${totalIngresos.toLocaleString("es-CO")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* EGRESOS / GASTOS */}
+                        <div style={{
+                          backgroundColor: "#f8fafc",
+                          border: "1.5px solid #cbd5e1",
+                          borderRadius: "12px",
+                          padding: "0.9rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.85rem"
+                        }}>
+                          <div style={{ width: "38px", height: "38px", borderRadius: "10px", backgroundColor: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626", flexShrink: 0 }}>
+                            <ArrowUpRight size={20} />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: "0.65rem", fontWeight: "800", color: "#64748b", textTransform: "uppercase", display: "block" }}>
+                              - Egresos / Gastos Menores
+                            </span>
+                            <span style={{ fontSize: "1.1rem", fontWeight: "950", color: "#dc2626", fontFamily: "monospace" }}>
+                              ${totalEgresos.toLocaleString("es-CO")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* BALANCE NETO EFECTIVO EN CAJA ESPERADO */}
+                        <div style={{
+                          backgroundColor: "#fef3c7",
+                          border: "1.5px solid #f59e0b",
+                          borderRadius: "12px",
+                          padding: "0.9rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.85rem"
+                        }}>
+                          <div style={{ width: "38px", height: "38px", borderRadius: "10px", backgroundColor: "#fde68a", display: "flex", alignItems: "center", justifyContent: "center", color: "#b45309", flexShrink: 0 }}>
+                            <DollarSign size={20} />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: "0.65rem", fontWeight: "900", color: "#92400e", textTransform: "uppercase", display: "block" }}>
+                              Efectivo Esperado en Caja
+                            </span>
+                            <span style={{ fontSize: "1.15rem", fontWeight: "950", color: "#92400e", fontFamily: "monospace" }}>
+                              ${efectivoEsperado.toLocaleString("es-CO")}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* LISTA DETALLADA DE MOVIMIENTOS SI EXISTEN */}
+                      {shiftModalMovements.length > 0 && (
+                        <div style={{ marginTop: "0.75rem", border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.72rem" }}>
                             <thead>
-                              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: '850', textAlign: 'left' }}>
-                                <th style={{ padding: '0.55rem 0.75rem' }}>Prenda / Referencia</th>
-                                <th style={{ padding: '0.55rem 0.75rem' }}>Color & Talla</th>
-                                <th style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>Unidades</th>
-                                <th style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>Total</th>
+                              <tr style={{ backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#64748b", fontWeight: "850", textAlign: "left" }}>
+                                <th style={{ padding: "0.45rem 0.65rem" }}>Tipo</th>
+                                <th style={{ padding: "0.45rem 0.65rem" }}>Concepto</th>
+                                <th style={{ padding: "0.45rem 0.65rem" }}>Observaciones</th>
+                                <th style={{ padding: "0.45rem 0.65rem" }}>Usuario</th>
+                                <th style={{ padding: "0.45rem 0.65rem", textAlign: "right" }}>Monto</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {groupedItems.map((gi: any, gIdx: number) => (
-                                <tr key={gIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                  <td style={{ padding: '0.55rem 0.75rem', fontWeight: '800', color: '#0f172a' }}>
-                                    {gi.name} {gi.ref ? `· Ref: ${gi.ref}` : ''}
-                                  </td>
-                                  <td style={{ padding: '0.55rem 0.75rem', color: '#475569' }}>
-                                    {gi.color || 'Standard'} / {gi.size || 'U'}
-                                  </td>
-                                  <td style={{ padding: '0.55rem 0.75rem', textAlign: 'center', fontWeight: '900', color: '#80082E' }}>
-                                    {gi.cantidad}
-                                  </td>
-                                  <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: '850', color: '#0f172a' }}>
-                                    ${gi.total.toLocaleString('es-CO')}
-                                  </td>
-                                </tr>
-                              ))}
+                              {shiftModalMovements.map((mov: any, mIdx: number) => {
+                                const isIngreso = (mov.tipo || "").toLowerCase() === "ingreso";
+                                return (
+                                  <tr key={mov.id || mIdx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "0.45rem 0.65rem" }}>
+                                      <span style={{
+                                        fontSize: "0.62rem",
+                                        fontWeight: "900",
+                                        padding: "0.15rem 0.4rem",
+                                        borderRadius: "4px",
+                                        backgroundColor: isIngreso ? "#dcfce7" : "#fee2e2",
+                                        color: isIngreso ? "#15803d" : "#b91c1c",
+                                        textTransform: "uppercase"
+                                      }}>
+                                        {mov.tipo}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: "0.45rem 0.65rem", fontWeight: "800", color: "#0f172a" }}>{mov.concepto || "Movimiento de Caja"}</td>
+                                    <td style={{ padding: "0.45rem 0.65rem", color: "#64748b" }}>{mov.observaciones || "—"}</td>
+                                    <td style={{ padding: "0.45rem 0.65rem", color: "#475569" }}>{mov.usuario || "Cajero"}</td>
+                                    <td style={{ padding: "0.45rem 0.65rem", textAlign: "right", fontWeight: "900", fontFamily: "monospace", color: isIngreso ? "#16a34a" : "#dc2626" }}>
+                                      {isIngreso ? "+" : "-"}${Number(mov.monto || 0).toLocaleString("es-CO")}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* LISTADO DE TRANSACCIONES / VENTAS DEL TURNO */}
-                  <div>
-                    <h4 style={{ margin: '0 0 0.65rem 0', fontSize: '0.85rem', fontWeight: '950', color: '#0f172a' }}>
-                      🧾 Transacciones Realizadas ({shiftModalSales.length})
-                    </h4>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-                        <thead>
-                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: '850', textAlign: 'left' }}>
-                            <th style={{ padding: '0.55rem 0.75rem' }}>Ticket</th>
-                            <th style={{ padding: '0.55rem 0.75rem' }}>Hora</th>
-                            <th style={{ padding: '0.55rem 0.75rem' }}>Cliente Titular</th>
-                            <th style={{ padding: '0.55rem 0.75rem' }}>Medio de Pago</th>
-                            <th style={{ padding: '0.55rem 0.75rem', textAlign: 'right' }}>Total</th>
-                            <th style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {shiftModalSales.map((s: any) => {
-                            const sCode = (s.stores?.codigo || currentSelectedStore?.codigo || (s.stores?.nombre || 'POS').substring(0, 3)).toUpperCase();
-                            const sTicket = `${sCode}-${String(s.consecutive || 0).padStart(4, '0')}`;
-                            const isAnulada = s.estado === 'anulada';
-
-                            return (
-                              <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isAnulada ? '#fff5f5' : 'white' }}>
-                                <td style={{ padding: '0.55rem 0.75rem', fontWeight: '900', color: isAnulada ? '#991b1b' : '#80082E' }}>
-                                  {sTicket}
-                                </td>
-                                <td style={{ padding: '0.55rem 0.75rem', color: '#64748b' }}>
-                                  {s.created_at ? new Date(s.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '-'}
-                                </td>
-                                <td style={{ padding: '0.55rem 0.75rem' }}>
-                                  <span style={{ fontWeight: '800', color: '#0f172a', display: 'block' }}>{s.client_name || s.cliente_nombre || 'Cliente General'}</span>
-                                  <span style={{ fontSize: '0.62rem', color: '#94a3b8' }}>C.C. {s.client_document || s.cliente_identificacion || '2222222222'}</span>
-                                </td>
-                                <td style={{ padding: '0.55rem 0.75rem' }}>
-                                  {s.pos_payments && s.pos_payments.length > 0 ? (
-                                    s.pos_payments.map((p: any, pIdx: number) => (
-                                      <span key={pIdx} style={{ fontSize: '0.65rem', backgroundColor: '#f1f5f9', padding: '0.1rem 0.35rem', borderRadius: '4px', marginRight: '0.2rem' }}>
-                                        {p.metodo_pago}
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{s.metodo_pago || 'Efectivo'}</span>
-                                  )}
-                                </td>
-                                <td style={{ padding: '0.55rem 0.75rem', textAlign: 'right', fontWeight: '900', color: isAnulada ? '#991b1b' : '#0f172a' }}>
-                                  ${Number(s.total || 0).toLocaleString('es-CO')}
-                                </td>
-                                <td style={{ padding: '0.55rem 0.75rem', textAlign: 'center' }}>
-                                  <span style={{
-                                    fontSize: '0.62rem',
-                                    fontWeight: '900',
-                                    padding: '0.15rem 0.45rem',
-                                    borderRadius: '4px',
-                                    backgroundColor: isAnulada ? '#fee2e2' : '#dcfce7',
-                                    color: isAnulada ? '#dc2626' : '#15803d'
-                                  }}>
-                                    {isAnulada ? 'Anulada' : 'Completada'}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      )}
                     </div>
-                  </div>
-                </>
-              )}
+
+                    {/* 4. PRENDAS VENDIDAS EN EL TURNO (AGRUPADAS) */}
+                    <div>
+                      <h4 style={{ margin: "0 0 0.65rem 0", fontSize: "0.85rem", fontWeight: "950", color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        🏷️ Prendas Vendidas en Este Cierre
+                      </h4>
+                      {(() => {
+                        const itemMap = new Map();
+                        salesNonCancelled.forEach(s => {
+                          const items = s.pos_sale_items || s.items || [];
+                          items.forEach((it: any) => {
+                            const pName = it.products?.nombre_producto || it.nombre || "Prenda";
+                            const pRef = it.products?.codigo_referencia || "";
+                            const col = it.colors?.nombre_color || it.color || "";
+                            const sz = it.sizes?.codigo_talla || it.talla || "";
+                            const key = `${pName}_${col}_${sz}`;
+                            const qty = Number(it.cantidad) || 1;
+                            const subtotal = Number(it.subtotal || it.total || (it.precio_unitario * qty) || 0);
+
+                            if (itemMap.has(key)) {
+                              const cur = itemMap.get(key);
+                              cur.cantidad += qty;
+                              cur.total += subtotal;
+                            } else {
+                              itemMap.set(key, {
+                                name: pName,
+                                ref: pRef,
+                                color: col,
+                                size: sz,
+                                cantidad: qty,
+                                total: subtotal
+                              });
+                            }
+                          });
+                        });
+
+                        const groupedItems = Array.from(itemMap.values());
+                        if (groupedItems.length === 0) {
+                          return <div style={{ fontSize: "0.78rem", color: "#94a3b8", fontStyle: "italic", padding: "0.5rem 0" }}>No se registraron prendas en este turno.</div>;
+                        }
+
+                        return (
+                          <div style={{ border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
+                              <thead>
+                                <tr style={{ backgroundColor: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#64748b", fontWeight: "850", textAlign: "left" }}>
+                                  <th style={{ padding: "0.55rem 0.75rem" }}>Prenda / Referencia</th>
+                                  <th style={{ padding: "0.55rem 0.75rem" }}>Color & Talla</th>
+                                  <th style={{ padding: "0.55rem 0.75rem", textAlign: "center" }}>Unidades</th>
+                                  <th style={{ padding: "0.55rem 0.75rem", textAlign: "right" }}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {groupedItems.map((gi: any, gIdx: number) => (
+                                  <tr key={gIdx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "0.55rem 0.75rem", fontWeight: "800", color: "#0f172a" }}>
+                                      {gi.name} {gi.ref ? `· Ref: ${gi.ref}` : ""}
+                                    </td>
+                                    <td style={{ padding: "0.55rem 0.75rem", color: "#475569" }}>
+                                      {gi.color || "Standard"} / {gi.size || "U"}
+                                    </td>
+                                    <td style={{ padding: "0.55rem 0.75rem", textAlign: "center", fontWeight: "900", color: "#80082E" }}>
+                                      {gi.cantidad}
+                                    </td>
+                                    <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: "850", color: "#0f172a" }}>
+                                      ${gi.total.toLocaleString("es-CO")}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* 5. CUADRO FINAL: LO REPORTADO POR LA CAJERA AL CIERRE Y BALANCE */}
+                    <div style={{
+                      marginTop: "0.5rem",
+                      border: "2px solid #e2e8f0",
+                      borderRadius: "16px",
+                      overflow: "hidden",
+                      backgroundColor: "#ffffff",
+                      boxShadow: "0 4px 16px rgba(0, 0, 0, 0.04)"
+                    }}>
+                      <div style={{
+                        padding: "0.9rem 1.25rem",
+                        backgroundColor: "#f8fafc",
+                        borderBottom: "1.5px solid #e2e8f0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center"
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          <CheckCircle2 size={18} style={{ color: "#16a34a" }} />
+                          <h4 style={{ margin: 0, fontSize: "0.9rem", fontWeight: "950", color: "#0f172a" }}>
+                            Reporte Final y Cuadre de Cierre de Caja
+                          </h4>
+                        </div>
+                        <span style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: "800" }}>
+                          Cajero(a): <strong>{selectedShiftForModal.usuario_apertura}</strong>
+                        </span>
+                      </div>
+
+                      <div style={{ padding: "1.25rem", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                        {/* Efectivo Esperado */}
+                        <div style={{ padding: "0.85rem 1rem", borderRadius: "12px", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                          <span style={{ fontSize: "0.65rem", fontWeight: "800", color: "#64748b", textTransform: "uppercase", display: "block" }}>
+                            Efectivo Esperado en Sistema
+                          </span>
+                          <span style={{ fontSize: "1.3rem", fontWeight: "950", color: "#0f172a", fontFamily: "monospace" }}>
+                            ${efectivoEsperado.toLocaleString("es-CO")}
+                          </span>
+                          <span style={{ fontSize: "0.62rem", color: "#94a3b8", display: "block", marginTop: "0.15rem" }}>
+                            Base + Efectivo Ventas + Ingresos - Egresos
+                          </span>
+                        </div>
+
+                        {/* Efectivo Real Reportado */}
+                        <div style={{
+                          padding: "0.85rem 1rem",
+                          borderRadius: "12px",
+                          backgroundColor: "#eff6ff",
+                          border: "1.5px solid #93c5fd"
+                        }}>
+                          <span style={{ fontSize: "0.65rem", fontWeight: "900", color: "#1e40af", textTransform: "uppercase", display: "block" }}>
+                            Efectivo Físico Reportado por Cajera
+                          </span>
+                          <span style={{ fontSize: "1.35rem", fontWeight: "950", color: "#1e3a8a", fontFamily: "monospace" }}>
+                            {montoCierreReal != null ? `$${montoCierreReal.toLocaleString("es-CO")}` : "Turno Activo (Sin cierre)"}
+                          </span>
+                          <span style={{ fontSize: "0.62rem", color: "#3b82f6", display: "block", marginTop: "0.15rem" }}>
+                            Monto contado y declarado en arqueo
+                          </span>
+                        </div>
+
+                        {/* Diferencia / Cuadre */}
+                        <div style={{
+                          padding: "0.85rem 1rem",
+                          borderRadius: "12px",
+                          backgroundColor: diferencia == null ? "#f8fafc" : (diferencia === 0 ? "#f0fdf4" : (diferencia > 0 ? "#eff6ff" : "#fef2f2")),
+                          border: `1.5px solid ${diferencia == null ? "#e2e8f0" : (diferencia === 0 ? "#86efac" : (diferencia > 0 ? "#93c5fd" : "#fca5a5"))}`
+                        }}>
+                          <span style={{
+                            fontSize: "0.65rem",
+                            fontWeight: "900",
+                            color: diferencia == null ? "#64748b" : (diferencia === 0 ? "#166534" : (diferencia > 0 ? "#1e40af" : "#991b1b")),
+                            textTransform: "uppercase",
+                            display: "block"
+                          }}>
+                            {diferencia == null ? "Estado del Cuadre" : (diferencia === 0 ? "✓ Arqueo Exacto (Cuadrado)" : (diferencia > 0 ? "▲ Sobrante en Caja" : "▼ Faltante en Caja"))}
+                          </span>
+                          <span style={{
+                            fontSize: "1.35rem",
+                            fontWeight: "950",
+                            fontFamily: "monospace",
+                            color: diferencia == null ? "#64748b" : (diferencia >= 0 ? "#15803d" : "#dc2626")
+                          }}>
+                            {diferencia != null ? `$${Math.abs(diferencia).toLocaleString("es-CO")}` : "—"}
+                          </span>
+                          <span style={{ fontSize: "0.62rem", color: "#64748b", display: "block", marginTop: "0.15rem" }}>
+                            {diferencia == null ? "Esperando declaración" : (diferencia === 0 ? "Sin descuadres de caja" : (diferencia > 0 ? "Excedente reportado" : "Faltante para conciliar"))}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Observaciones registradas al cierre */}
+                      {selectedShiftForModal.observaciones && (
+                        <div style={{ padding: "0.75rem 1.25rem", backgroundColor: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: "0.72rem", color: "#475569" }}>
+                          <strong style={{ color: "#0f172a" }}>Observaciones del Turno:</strong> {selectedShiftForModal.observaciones}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* Modal Footer */}
