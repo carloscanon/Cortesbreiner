@@ -142,7 +142,7 @@ export default function POSCashMovementModal({
       const { data: sessData } = await supabase
         .from('pos_cash_sessions')
         .select('observaciones')
-        .eq('id', currentSession.id)
+        .eq('id', activeSessionId)
         .maybeSingle();
 
       const existingObs = sessData?.observaciones || '';
@@ -151,10 +151,10 @@ export default function POSCashMovementModal({
         .update({
           observaciones: existingObs ? `${existingObs} \n${newObs}` : newObs
         })
-        .eq('id', currentSession.id);
+        .eq('id', activeSessionId);
 
       // Save to local storage for offline session ledger
-      const localLedgerKey = `pos_cash_ledger_${currentSession.id}`;
+      const localLedgerKey = `pos_cash_ledger_${activeSessionId}`;
       const existingLedger = JSON.parse(localStorage.getItem(localLedgerKey) || '[]');
       existingLedger.push({
         id: `mov_${Date.now()}`,
