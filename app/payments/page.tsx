@@ -203,6 +203,7 @@ export default function WorkshopPaymentsPage() {
   // Modal
   const [showModal, setShowModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<WorkshopGroup | null>(null);
+  const [selectedInspectionIds, setSelectedInspectionIds] = useState<string[]>([]);
   const [metodo, setMetodo] = useState('Transferencia Bancaria');
   const [paymentRef, setPaymentRef] = useState('');
   const [obs, setObs] = useState('');
@@ -320,26 +321,65 @@ export default function WorkshopPaymentsPage() {
   const pagadoMes = payments.filter(p => p.created_at.startsWith(thisMonth) && p.status === 'Pagado').reduce((s, p) => s + (p.total_neto || 0), 0);
   const numPagosMes = payments.filter(p => p.created_at.startsWith(thisMonth) && p.status === 'Pagado').length;
 
+  // Selected orders subset calculations for partial liquidation / plan de pagos
+  const activeInspections = selectedGroup
+    ? selectedGroup.inspections.filter(i => selectedInspectionIds.includes(i.id))
+    : [];
+  const selectedPrendas = activeInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
+  const selectedBruto = activeInspections.reduce((s, i) => s + ((i.items_approved || 0) * (i.valor_prenda || 0)), 0);
+  const selectedDescuentos = activeInspections.reduce((s, i) => s + (i.descuento_defectos || 0), 0);
+  const selectedEmpaque = activeInspections.reduce((s, i) => s + (i.pago_empaque || 0), 0);
+  const selectedNeto = activeInspections.reduce((s, i) => s + (i.valor_pagar || 0), 0);
+
+  const selectedGroupSubset: WorkshopGroup | null = selectedGroup ? {
+    ...selectedGroup,
+    inspections: activeInspections,
+    totalPrendas: selectedPrendas,
+    totalBruto: selectedBruto,
+    totalDescuentos: selectedDescuentos,
+    totalEmpaque: selectedEmpaque,
+    totalNeto: selectedNeto
+  } : null;
+
+  const toggleSelectInspection = (id: string) => {
+    setSelectedInspectionIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllInspections = () => {
+    if (!selectedGroup) return;
+    if (selectedInspectionIds.length === selectedGroup.inspections.length) {
+      setSelectedInspectionIds([]);
+    } else {
+      setSelectedInspectionIds(selectedGroup.inspections.map(i => i.id));
+    }
+  };
+
   // ── Confirm Payment ────────────────────────────────────────────────────────
   const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedGroup || saving) return;
+    if (activeInspections.length === 0) {
+      alert('Debes seleccionar al menos una orden para liquidar.');
+      return;
+    }
     setSaving(true);
     try {
       const g = selectedGroup;
       const now = new Date().toISOString();
       const payNumber = `PAG-${Date.now().toString().slice(-8)}`;
 
-      // 1. Insert workshop_payments
+      // 1. Insert workshop_payments for ONLY selected orders
       const { error: insErr } = await supabase.from('workshop_payments').insert({
         paid_at: now,
         workshop_id: g.workshopId !== 'sin-taller' ? g.workshopId : null,
         workshop_name: g.workshopName,
-        inspection_ids: g.inspections.map(i => i.id),
-        total_prendas: g.totalPrendas,
-        total_bruto: g.totalBruto,
-        total_descuentos: g.totalDescuentos,
-        total_neto: g.totalNeto,
+        inspection_ids: activeInspections.map(i => i.id),
+        total_prendas: selectedPrendas,
+        total_bruto: selectedBruto,
+        total_descuentos: selectedDescuentos,
+        total_neto: selectedNeto,
         metodo_pago: metodo,
         numero_referencia: paymentRef || null,
         observaciones: obs || null,
@@ -350,21 +390,23 @@ export default function WorkshopPaymentsPage() {
       });
       if (insErr) throw insErr;
 
-      // 2. Update quality_inspections pago_status → 'Pagado'
-      const ids = g.inspections.map(i => i.id);
+      // 2. Update quality_inspections pago_status → 'Pagado' for ONLY selected orders
+      const ids = activeInspections.map(i => i.id);
       const { error: updErr } = await supabase
         .from('quality_inspections')
         .update({ pago_status: 'Pagado' })
         .in('id', ids);
       if (updErr) throw updErr;
 
-      alert(`✅ Pago registrado correctamente para ${g.workshopName}.\nComprobante No.: ${payNumber}`);
+      const remainingCount = g.inspections.length - activeInspections.length;
+      alert(`✅ Pago registrado correctamente para ${g.workshopName}.\nComprobante No.: ${payNumber}\n${remainingCount > 0 ? `Quedan ${remainingCount} órdenes pendientes por pagar a este taller.` : 'Todas las órdenes de este taller han quedado pagadas.'}`);
       setShowModal(false);
       setShowPreview(false);
       setPaymentRef('');
       setObs('');
       setMetodo('Transferencia Bancaria');
       setSelectedGroup(null);
+      setSelectedInspectionIds([]);
       fetchAll();
     } catch (err: any) {
       alert('Error al registrar pago: ' + err.message);
@@ -521,7 +563,12 @@ export default function WorkshopPaymentsPage() {
                       </div>
                     </div>
                     <button
-                      onClick={() => { setSelectedGroup(g); setShowModal(true); setShowPreview(false); }}
+                      onClick={() => {
+                        setSelectedGroup(g);
+                        setSelectedInspectionIds(g.inspections.map(i => i.id));
+                        setShowModal(true);
+                        setShowPreview(false);
+                      }}
                       style={{ padding: '0.65rem 1.4rem', borderRadius: '10px', backgroundColor: '#7c3aed', color: 'white', border: 'none', fontSize: '0.8rem', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(124,58,237,0.3)', whiteSpace: 'nowrap', transition: 'all 0.2s' }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#6d28d9')}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#7c3aed')}
@@ -700,50 +747,116 @@ export default function WorkshopPaymentsPage() {
             </div>
 
             {!showPreview ? (
-              <form onSubmit={handleConfirmPayment} style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                {/* Resumen financiero */}
+              <form onSubmit={handleConfirmPayment} style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Selector de órdenes / Plan de Pagos */}
+                <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '900', color: '#0f172a' }}>Plan de Pagos: Seleccionar Órdenes a Liquidar</span>
+                      <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>
+                        {activeInspections.length} de {selectedGroup.inspections.length} órdenes seleccionadas para este pago
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleSelectAllInspections}
+                      style={{ fontSize: '0.72rem', fontWeight: '800', color: '#7c3aed', background: 'white', border: '1px solid #ddd6fe', padding: '0.35rem 0.65rem', borderRadius: '6px', cursor: 'pointer' }}
+                    >
+                      {selectedInspectionIds.length === selectedGroup.inspections.length ? 'Deseleccionar todas' : 'Seleccionar todas'}
+                    </button>
+                  </div>
+
+                  {/* Mini orders table with Checkboxes */}
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto', background: 'white' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0 }}>
+                          <th style={{ padding: '0.5rem 0.6rem', width: '36px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedGroup.inspections.length > 0 && selectedInspectionIds.length === selectedGroup.inspections.length}
+                              onChange={toggleSelectAllInspections}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          </th>
+                          {['Orden', 'Prendas', 'Tarifa', 'Descuento', 'Neto'].map(h => (
+                            <th key={h} style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: '#64748b', fontSize: '0.65rem', textTransform: 'uppercase', textAlign: h === 'Neto' || h === 'Tarifa' || h === 'Descuento' ? 'right' : h === 'Prendas' ? 'center' : 'left' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedGroup.inspections.map(insp => {
+                          const isChecked = selectedInspectionIds.includes(insp.id);
+                          return (
+                            <tr
+                              key={insp.id}
+                              onClick={() => toggleSelectInspection(insp.id)}
+                              style={{
+                                borderBottom: '1px solid #f1f5f9',
+                                cursor: 'pointer',
+                                background: isChecked ? '#f5f3ff' : 'white',
+                                transition: 'background 0.15s'
+                              }}
+                            >
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleSelectInspection(insp.id)}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: isChecked ? '#7c3aed' : '#64748b' }}>
+                                {insp.sewing_orders?.confeccion_code || insp.orders?.internal_code || '—'}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', fontWeight: '700', color: isChecked ? '#10b981' : '#64748b' }}>
+                                {insp.items_approved}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: '#64748b' }}>
+                                {formatCOP(insp.valor_prenda || 0)}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: insp.descuento_defectos > 0 ? '#ef4444' : '#94a3b8' }}>
+                                {insp.descuento_defectos > 0 ? `-${formatCOP(insp.descuento_defectos)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontWeight: '950', color: isChecked ? '#0f172a' : '#94a3b8' }}>
+                                {formatCOP(insp.valor_pagar || 0)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {activeInspections.length === 0 && (
+                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.72rem', color: '#ef4444', fontWeight: '700' }}>
+                      ⚠️ Debe marcar al menos una orden para generar la liquidación. Las órdenes no seleccionadas permanecerán pendientes para próximos pagos.
+                    </p>
+                  )}
+                </div>
+
+                {/* Resumen financiero de la selección */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
                   {[
-                    { label: 'Total Prendas', value: `${selectedGroup.totalPrendas} und`, color: '#7c3aed' },
-                    { label: 'Valor Bruto', value: formatCOP(selectedGroup.totalBruto), color: '#475569' },
-                    { label: 'Descuentos', value: `-${formatCOP(selectedGroup.totalDescuentos)}`, color: '#ef4444' },
+                    { label: 'Prendas a Liquidar', value: `${selectedPrendas} und`, color: '#7c3aed' },
+                    { label: 'Valor Bruto', value: formatCOP(selectedBruto), color: '#475569' },
+                    { label: 'Descuentos', value: `-${formatCOP(selectedDescuentos)}`, color: '#ef4444' },
                   ].map(r => (
-                    <div key={r.label} style={{ padding: '0.875rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                    <div key={r.label} style={{ padding: '0.75rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                       <p style={{ margin: 0, fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: '800', color: '#94a3b8' }}>{r.label}</p>
-                      <p style={{ margin: '4px 0 0', fontWeight: '950', fontSize: '1rem', color: r.color }}>{r.value}</p>
+                      <p style={{ margin: '3px 0 0', fontWeight: '950', fontSize: '0.95rem', color: r.color }}>{r.value}</p>
                     </div>
                   ))}
                 </div>
-                {/* Neto grande */}
-                <div style={{ padding: '1rem 1.5rem', borderRadius: '12px', background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '900', color: '#c4b5fd', textTransform: 'uppercase' }}>Total Neto a Pagar</p>
-                    <p style={{ margin: '2px 0 0', fontSize: '2rem', fontWeight: '950', color: 'white', lineHeight: 1 }}>{formatCOP(selectedGroup.totalNeto)}</p>
-                  </div>
-                  <DollarSign size={42} color="rgba(255,255,255,0.3)" />
-                </div>
 
-                {/* Mini orders table */}
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0 }}>
-                        {['Orden', 'Aprobadas', 'Tarifa', 'Neto'].map(h => (
-                          <th key={h} style={{ padding: '0.6rem 0.875rem', fontWeight: '800', color: '#64748b', fontSize: '0.65rem', textTransform: 'uppercase', textAlign: h === 'Neto' || h === 'Tarifa' ? 'right' : 'left' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedGroup.inspections.map(insp => (
-                        <tr key={insp.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.6rem 0.875rem', fontWeight: '800', color: '#7c3aed' }}>{insp.sewing_orders?.confeccion_code || insp.orders?.internal_code || '—'}</td>
-                          <td style={{ padding: '0.6rem 0.875rem', textAlign: 'center', fontWeight: '700', color: '#10b981' }}>{insp.items_approved}</td>
-                          <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right' }}>{formatCOP(insp.valor_prenda || 0)}</td>
-                          <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontWeight: '950' }}>{formatCOP(insp.valor_pagar || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                {/* Neto grande */}
+                <div style={{ padding: '1rem 1.5rem', borderRadius: '12px', background: activeInspections.length > 0 ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: '900', color: '#c4b5fd', textTransform: 'uppercase' }}>
+                      Total Neto de la Liquidación ({activeInspections.length} orden{activeInspections.length !== 1 ? 'es' : ''})
+                    </p>
+                    <p style={{ margin: '2px 0 0', fontSize: '1.85rem', fontWeight: '950', color: 'white', lineHeight: 1 }}>{formatCOP(selectedNeto)}</p>
+                  </div>
+                  <DollarSign size={38} color="rgba(255,255,255,0.3)" />
                 </div>
 
                 {/* Payment fields */}
@@ -765,7 +878,7 @@ export default function WorkshopPaymentsPage() {
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>Observaciones</label>
                   <textarea rows={2} value={obs} onChange={e => setObs(e.target.value)}
-                    placeholder="Observaciones o acuerdos adicionales..."
+                    placeholder="Observaciones o acuerdos adicionales del pago parcial / total..."
                     style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', outline: 'none', resize: 'vertical' }} />
                 </div>
 
@@ -774,14 +887,14 @@ export default function WorkshopPaymentsPage() {
                     style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', background: 'white', fontSize: '0.83rem', fontWeight: '700', cursor: 'pointer' }}>
                     Cancelar
                   </button>
-                  <button type="button" onClick={() => setShowPreview(true)}
-                    style={{ padding: '0.75rem 1.25rem', borderRadius: '10px', border: '1.5px solid #7c3aed', background: '#ede9fe', color: '#7c3aed', fontSize: '0.83rem', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button type="button" disabled={activeInspections.length === 0} onClick={() => setShowPreview(true)}
+                    style={{ padding: '0.75rem 1.25rem', borderRadius: '10px', border: '1.5px solid #7c3aed', background: '#ede9fe', color: '#7c3aed', fontSize: '0.83rem', fontWeight: '800', cursor: activeInspections.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: activeInspections.length === 0 ? 0.5 : 1 }}>
                     <Printer size={15} /> Previsualizar
                   </button>
-                  <button type="submit" disabled={saving}
-                    style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', fontSize: '0.83rem', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: saving ? 0.7 : 1 }}>
+                  <button type="submit" disabled={saving || activeInspections.length === 0}
+                    style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', fontSize: '0.83rem', fontWeight: '950', cursor: (saving || activeInspections.length === 0) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: (saving || activeInspections.length === 0) ? 0.7 : 1 }}>
                     {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                    {saving ? 'Registrando...' : 'Confirmar y Registrar Pago'}
+                    {saving ? 'Registrando...' : `Liquidar ${activeInspections.length} Orden${activeInspections.length !== 1 ? 'es' : ''}`}
                   </button>
                 </div>
               </form>
@@ -789,7 +902,7 @@ export default function WorkshopPaymentsPage() {
               <div style={{ padding: '1.5rem 2rem' }}>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '1rem' }}>
                   <PrintReceipt
-                    group={selectedGroup}
+                    group={selectedGroupSubset || selectedGroup}
                     paymentRef={paymentRef}
                     metodo={metodo}
                     obs={obs}
@@ -800,7 +913,7 @@ export default function WorkshopPaymentsPage() {
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button onClick={() => setShowPreview(false)}
                     style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1.5px solid #e2e8f0', background: 'white', fontSize: '0.83rem', fontWeight: '700', cursor: 'pointer' }}>
-                    ← Volver al Formulario
+                    ← Volver a Selección de Órdenes
                   </button>
                   <button onClick={handlePrint}
                     style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#7c3aed', color: 'white', fontSize: '0.83rem', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>

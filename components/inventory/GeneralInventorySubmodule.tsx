@@ -7,6 +7,7 @@ import {
 import HomologationTraceabilityModal from './HomologationTraceabilityModal';
 import BulkHomologationImportModal from './BulkHomologationImportModal';
 import ConsolidationWizard from './ConsolidationWizard';
+import RejectedGarmentsManager from './RejectedGarmentsManager';
 
 interface GeneralInventorySubmoduleProps {
   products: any[];
@@ -35,7 +36,7 @@ export default function GeneralInventorySubmodule({
   isAdmin,
   onRefreshData
 }: GeneralInventorySubmoduleProps) {
-  const [subTab, setSubTab] = useState<'consolidated' | 'wizard' | 'homologation_engine' | 'history'>('consolidated');
+  const [subTab, setSubTab] = useState<'consolidated' | 'wizard' | 'homologation_engine' | 'history' | 'rejected_cases'>('consolidated');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
 
@@ -338,6 +339,7 @@ export default function GeneralInventorySubmodule({
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           {[
             { id: 'consolidated', label: '📦 Vista Consolidada General', icon: Layers },
+            { id: 'rejected_cases', label: '🚨 Prendas Rechazadas / Casos (Reubicar 101)', icon: AlertTriangle },
             { id: 'wizard', label: '🔄 Cruzar y Consolidar Inventarios', icon: GitMerge },
             { id: 'homologation_engine', label: '⚡ Motor / Homologación Manual', icon: ShieldCheck },
             { id: 'history', label: '📜 Historial de Auditoría', icon: History }
@@ -677,6 +679,16 @@ export default function GeneralInventorySubmodule({
           </div>
 
         </div>
+      )}
+
+      {/* SUBTAB RECHAZADOS: VALIDACIÓN Y REUBICACIÓN EN BODEGA 101 */}
+      {subTab === 'rejected_cases' && (
+        <RejectedGarmentsManager
+          warehouses={warehouses}
+          user={user}
+          isAdmin={isAdmin}
+          onRefreshData={onRefreshData}
+        />
       )}
 
       {/* SUBTAB 4: HISTORIAL DE AUDITORÍA */}

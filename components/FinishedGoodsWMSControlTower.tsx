@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Package,
   Building2,
@@ -167,6 +168,9 @@ function isSameWarehouse(item: any, w: any) {
 }
 
 export default function FinishedGoodsWMSControlTower() {
+  const { user, profile } = useAuth();
+  const roleNameStr = (profile?.roles?.name || profile?.role?.name || profile?.role_id || '').toLowerCase();
+  const isSuperAdmin = roleNameStr.includes('super') || user?.email?.toLowerCase().includes('admin') || profile?.role_id === 'superadmin' || profile?.role_id === '919e9d20-54fe-4e89-845f-0292c3af3d2e';
   // ── ESTADOS PRINCIPALES ──
   const [darkMode, setDarkMode] = useState(false);
   const [executiveMode, setExecutiveMode] = useState(false);
@@ -777,7 +781,7 @@ export default function FinishedGoodsWMSControlTower() {
           { id: 'dashboard', label: '📊 Dashboard & Control Tower', icon: BarChart3 },
           { id: 'inventory', label: '📦 Inventario General', icon: Package },
           { id: 'warehouses', label: '🏛️ Observador & Estado de Bodegas', icon: Building2 },
-          { id: 'kardex', label: '📜 Kardex General', icon: Clock },
+          ...(isSuperAdmin ? [{ id: 'kardex', label: '📜 Kardex General (SuperAdmin)', icon: Clock }] : []),
           { id: 'alerts', label: '🚨 Alertas Inteligentes', icon: ShieldAlert },
           { id: 'analytics', label: '📈 Inventory Intelligence (ABC)', icon: TrendingUp }
         ].map(tab => {

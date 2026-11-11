@@ -35,6 +35,8 @@ const allMenuItems = [
   { icon: Truck, label: 'Confección', href: '/sewing', module: 'sewing' },
   { icon: Package, label: 'Inventario General', href: '/inventory', module: 'inventory' },
   { icon: Building2, label: 'Inventario & Bodegas WMS', href: '/inventory-finished', module: 'inventory' },
+  { icon: LayoutDashboard, label: 'Punto de Venta (POS)', href: '/pos', module: 'pos' },
+  { icon: Database, label: 'Administración de Tiendas POS', href: '/store-admin', module: 'store_admin' },
   { icon: Calculator, label: 'Costos', href: '/costs', module: 'costs' },
   { icon: Layers, label: 'Seguimiento', href: '/tracking', module: 'tracking' },
   { icon: ShieldCheck, label: 'Calidad', href: '/quality', module: 'quality' },
@@ -106,13 +108,15 @@ export default function Sidebar() {
 
   const isTaller = profile?.roles?.name === 'Taller';
   const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
-  const isPOS = roleNameLower.includes('pos') || 
-                roleNameLower.includes('post') || 
-                roleNameLower.includes('punto') || 
-                roleNameLower.includes('tienda') || 
-                roleNameLower.includes('vendedor') || 
-                roleNameLower.includes('cajero') ||
-                !!user?.user_metadata?.pos_role_id;
+  const isStrictPOS = (
+    roleNameLower.includes('pos') || 
+    roleNameLower.includes('post') || 
+    roleNameLower.includes('punto') || 
+    roleNameLower.includes('tienda') || 
+    roleNameLower.includes('vendedor') || 
+    roleNameLower.includes('cajero') ||
+    !!user?.user_metadata?.pos_role_id
+  ) && !allowedModules.some(m => ['payments', 'financial', 'orders', 'cutting', 'sewing', 'quality', 'inventory'].includes(m));
 
   const isSuperAdmin = roleNameLower.includes('super');
 
@@ -129,7 +133,7 @@ export default function Sidebar() {
 
   const filteredMenuItems = isTaller
     ? tallerMenuItems
-    : isPOS
+    : isStrictPOS
       ? posMenuItems
       : isSuperAdmin
         ? allMenuItems

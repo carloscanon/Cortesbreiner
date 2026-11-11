@@ -135,7 +135,7 @@ function isSameWarehouse(item: any, w: any) {
 export default function FinishedGoodsInventory() {
   const { user, profile } = useAuth();
   const roleNameStr = (profile?.roles?.name || profile?.role?.name || profile?.role_id || '').toLowerCase();
-  const isSuperAdmin = !profile || roleNameStr.includes('super') || roleNameStr.includes('admin') || user?.email?.toLowerCase().includes('admin') || profile?.role_id === 'superadmin' || true;
+  const isSuperAdmin = roleNameStr.includes('super') || user?.email?.toLowerCase().includes('admin') || profile?.role_id === 'superadmin' || profile?.role_id === '919e9d20-54fe-4e89-845f-0292c3af3d2e';
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
   // Masters
@@ -2833,11 +2833,11 @@ export default function FinishedGoodsInventory() {
           { id: 'dashboard', label: 'Panel Resumen', badge: null },
           { id: 'audit_control', label: 'Auditoría y Control', badge: 'En Vivo' },
           { id: 'general_inventory', label: 'Inventario General', badge: null },
-          { id: 'consolidated_stock', label: 'Stock Único', badge: null },
+          ...(isSuperAdmin ? [{ id: 'consolidated_stock', label: 'Stock Único (SuperAdmin)', badge: '🔒' }] : []),
           { id: 'stock', label: 'Existencias por SKU', badge: null },
           { id: 'item_locator', label: 'Localizador de Prenda', badge: null },
-          { id: 'reference_locator', label: 'Localizador por Categorías', badge: 'Nuevo' },
-          { id: 'kardex', label: 'Kardex Historial', badge: null },
+          ...(isSuperAdmin ? [{ id: 'reference_locator', label: 'Categorías (SuperAdmin)', badge: '🔒' }] : []),
+          ...(isSuperAdmin ? [{ id: 'kardex', label: 'Kardex Historial (SuperAdmin)', badge: '🔒' }] : []),
           { id: 'transfers', label: 'En Tránsito', badge: transfers.filter(t => t.estado === 'Pendiente').length > 0 ? `${transfers.filter(t => t.estado === 'Pendiente').length}` : null },
           { id: 'historical_inventory', label: 'Inventario Histórico', badge: null }
         ].map(t => (

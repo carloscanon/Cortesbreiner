@@ -29,23 +29,28 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
     // Restrict POS users to POS (/pos), store admin (/store-admin) and help (/help)
     const roleNameLower = profile?.roles?.name?.toLowerCase() || '';
-    const isPOS = roleNameLower.includes('pos') || 
-                  roleNameLower.includes('post') || 
-                  roleNameLower.includes('punto') || 
-                  roleNameLower.includes('tienda') || 
-                  roleNameLower.includes('vendedor') || 
-                  roleNameLower.includes('cajero') ||
-                  !!user?.user_metadata?.pos_role_id;
-    if (!loading && user && isPOS && pathname !== '/pos' && pathname !== '/store-admin' && pathname !== '/help') {
+    const isStrictPOS = (
+      roleNameLower.includes('pos') || 
+      roleNameLower.includes('post') || 
+      roleNameLower.includes('punto') || 
+      roleNameLower.includes('tienda') || 
+      roleNameLower.includes('vendedor') || 
+      roleNameLower.includes('cajero') ||
+      !!user?.user_metadata?.pos_role_id
+    ) && !roleNameLower.includes('tesorero') && !roleNameLower.includes('pagador');
+
+    if (!loading && user && isStrictPOS && pathname !== '/pos' && pathname !== '/store-admin' && pathname !== '/help') {
       router.push('/pos');
     }
-    // Block central ERP users (non-POS) from accessing POS paths (except superadmins/admins)
+    // Block central ERP users (non-POS) from accessing POS paths (except superadmins/admins/tesorero/pagador)
     const isSuperAdmin = roleNameLower.includes('admin') || roleNameLower.includes('super');
-    if (!loading && user && !isPOS && !isSuperAdmin && (pathname === '/pos' || pathname === '/store-admin')) {
+    const isTreasurer = roleNameLower.includes('tesorero') || roleNameLower.includes('pagador');
+
+    if (!loading && user && !isStrictPOS && !isSuperAdmin && !isTreasurer && (pathname === '/pos' || pathname === '/store-admin')) {
       router.push('/');
     }
     // Block non-superadmins from accessing the financial module
-    if (!loading && user && pathname === '/financial' && !isSuperAdmin) {
+    if (!loading && user && pathname === '/financial' && !isSuperAdmin && !isTreasurer) {
       router.push('/');
     }
   }, [user, profile, loading, pathname, router]);

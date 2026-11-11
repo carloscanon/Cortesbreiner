@@ -57,27 +57,49 @@ export default function POSWarehouseStockModal({
         setWarehousesList(whData);
       }
 
-      // 2. Fetch Finished Goods Stock with relations
-      const { data: stockData, error: stErr } = await supabase
-        .from('finished_goods_stock')
-        .select(`
-          id,
-          warehouse_id,
-          product_id,
-          color_id,
-          size_id,
-          cantidad_disponible,
-          cantidad_reservada,
-          cantidad_en_transito,
-          warehouses(id, nombre_bodega, tipo, responsable),
-          products(id, nombre_producto, codigo_referencia, precio, imagen_url),
-          colors(id, nombre_color, hex_color),
-          sizes(id, codigo_talla, nombre_talla)
-        `);
+      // 2. Fetch Finished Goods Stock with relations (paginated to avoid 1000-row limit)
+      let allStock: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (!stErr && stockData) {
-        setAllStockData(stockData);
+      while (hasMore) {
+        const { data: stockPage, error: stErr } = await supabase
+          .from('finished_goods_stock')
+          .select(`
+            id,
+            warehouse_id,
+            product_id,
+            color_id,
+            size_id,
+            cantidad_disponible,
+            cantidad_reservada,
+            cantidad_en_transito,
+            warehouses(id, nombre_bodega, tipo, responsable),
+            products(id, nombre_producto, codigo_referencia, precio, imagen_url),
+            colors(id, nombre_color, hex_color),
+            sizes(id, codigo_talla, nombre_talla)
+          `)
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (stErr) {
+          console.error('Error fetching finished_goods_stock page:', stErr);
+          break;
+        }
+
+        if (stockPage && stockPage.length > 0) {
+          allStock = allStock.concat(stockPage);
+          if (stockPage.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
       }
+
+      setAllStockData(allStock);
     } catch (err: any) {
       console.error('Error fetching warehouse stock in POS:', err);
     } finally {
