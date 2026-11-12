@@ -595,48 +595,80 @@ export default function WorkshopPaymentsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                       <thead>
                         <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0' }}>
-                          {['Orden Confección', 'Cliente / Producto', 'Aprobadas', 'Rechazadas', 'Tarifa/Prenda', 'Descuento', 'Empaque', 'Neto'].map(h => (
-                            <th key={h} style={{ padding: '0.75rem 1rem', fontWeight: '900', fontSize: '0.67rem', textTransform: 'uppercase', color: '#64748b', textAlign: h === 'Neto' || h === 'Tarifa/Prenda' || h === 'Descuento' || h === 'Empaque' ? 'right' : 'left' }}>{h}</th>
+                          {['Orden Confección', 'Fecha Orden', 'Prenda / Producto', 'Aprobadas', 'Rechazadas', 'Tarifa/Prenda', 'Descuento', 'Empaque', 'Neto', 'Detalle'].map(h => (
+                            <th key={h} style={{ padding: '0.75rem 1rem', fontWeight: '900', fontSize: '0.67rem', textTransform: 'uppercase', color: '#64748b', textAlign: h === 'Neto' || h === 'Tarifa/Prenda' || h === 'Descuento' || h === 'Empaque' ? 'right' : h === 'Aprobadas' || h === 'Rechazadas' || h === 'Fecha Orden' || h === 'Detalle' ? 'center' : 'left' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {g.inspections.map((insp, idx) => (
-                          <tr key={insp.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
-                            <td style={{ padding: '0.85rem 1rem', fontWeight: '900', color: '#7c3aed' }}>
-                              {insp.sewing_orders?.confeccion_code || insp.orders?.internal_code || '—'}
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem' }}>
-                              <div style={{ fontWeight: '700', color: '#0f172a' }}>{insp.sewing_orders?.parent_order?.client_name || insp.orders?.client_name || '—'}</div>
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
-                              <span style={{ fontWeight: '900', fontSize: '0.95rem', color: '#10b981' }}>{insp.items_approved}</span>
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
-                              <span style={{ fontWeight: '700', color: insp.items_rejected > 0 ? '#ef4444' : '#94a3b8' }}>{insp.items_rejected}</span>
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700' }}>{formatCOP(insp.valor_prenda || 0)}</td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', color: '#ef4444', fontWeight: '700' }}>
-                              {insp.descuento_defectos > 0 ? `-${formatCOP(insp.descuento_defectos)}` : '—'}
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', color: '#10b981', fontWeight: '700' }}>
-                              {insp.pago_empaque > 0 ? `+${formatCOP(insp.pago_empaque)}` : '—'}
-                            </td>
-                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '0.95rem', color: '#0f172a' }}>
-                              {formatCOP(insp.valor_pagar || 0)}
-                            </td>
-                          </tr>
-                        ))}
+                        {g.inspections.map((insp, idx) => {
+                          const rawDate = insp.sewing_orders?.created_at || insp.orders?.created_at || insp.created_at;
+                          const formattedOrderDate = rawDate ? new Date(rawDate).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+                          const prodName = insp.sewing_orders?.products?.nombre_producto || insp.sewing_orders?.parent_order?.client_name || insp.orders?.client_name || 'Prenda Confección';
+                          const prodCat = insp.sewing_orders?.products?.categoria ? ` (${insp.sewing_orders.products.categoria})` : '';
+
+                          return (
+                            <tr key={insp.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#fafafa' }}>
+                              <td style={{ padding: '0.85rem 1rem', fontWeight: '900', color: '#7c3aed', whiteSpace: 'nowrap' }}>
+                                {insp.sewing_orders?.confeccion_code || insp.orders?.internal_code || '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'center', color: '#475569', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                                {formattedOrderDate}
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem' }}>
+                                <div style={{ fontWeight: '700', color: '#0f172a' }}>{prodName}{prodCat}</div>
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                                <span style={{ fontWeight: '900', fontSize: '0.95rem', color: '#10b981' }}>{insp.items_approved}</span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                                <span style={{ fontWeight: '700', color: insp.items_rejected > 0 ? '#ef4444' : '#94a3b8' }}>{insp.items_rejected}</span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '700' }}>{formatCOP(insp.valor_prenda || 0)}</td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'right', color: '#ef4444', fontWeight: '700' }}>
+                                {insp.descuento_defectos > 0 ? `-${formatCOP(insp.descuento_defectos)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'right', color: '#10b981', fontWeight: '700' }}>
+                                {insp.pago_empaque > 0 ? `+${formatCOP(insp.pago_empaque)}` : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '0.95rem', color: '#0f172a' }}>
+                                {formatCOP(insp.valor_pagar || 0)}
+                              </td>
+                              <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectingOrderGarments(insp)}
+                                  style={{
+                                    border: '1px solid #ddd6fe',
+                                    backgroundColor: '#ede9fe',
+                                    color: '#6d28d9',
+                                    padding: '0.3rem 0.6rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '800',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem'
+                                  }}
+                                >
+                                  <Eye size={12} /> Ver Prenda
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'linear-gradient(135deg, #faf5ff, #ede9fe)', borderTop: '2px solid #7c3aed' }}>
-                          <td colSpan={2} style={{ padding: '0.85rem 1rem', fontWeight: '900', fontSize: '0.8rem', textTransform: 'uppercase', color: '#7c3aed' }}>TOTALES</td>
+                          <td colSpan={3} style={{ padding: '0.85rem 1rem', fontWeight: '900', fontSize: '0.8rem', textTransform: 'uppercase', color: '#7c3aed' }}>TOTALES</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: '950', color: '#10b981', fontSize: '0.95rem' }}>{g.totalPrendas}</td>
                           <td />
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950' }}>{formatCOP(g.totalBruto)}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950', color: '#ef4444' }}>-{formatCOP(g.totalDescuentos)}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950', color: '#10b981' }}>+{formatCOP(g.totalEmpaque)}</td>
                           <td style={{ padding: '0.85rem 1rem', textAlign: 'right', fontWeight: '950', fontSize: '1.05rem', color: '#7c3aed' }}>{formatCOP(g.totalNeto)}</td>
+                          <td />
                         </tr>
                       </tfoot>
                     </table>
@@ -785,14 +817,19 @@ export default function WorkshopPaymentsPage() {
                               style={{ cursor: 'pointer' }}
                             />
                           </th>
-                          {['Orden', 'Prendas', 'Tarifa', 'Descuento', 'Neto'].map(h => (
-                            <th key={h} style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: '#64748b', fontSize: '0.65rem', textTransform: 'uppercase', textAlign: h === 'Neto' || h === 'Tarifa' || h === 'Descuento' ? 'right' : h === 'Prendas' ? 'center' : 'left' }}>{h}</th>
+                          {['Orden', 'Fecha Orden', 'Prenda / Referencia', 'Prendas', 'Tarifa', 'Descuento', 'Neto', 'Detalle'].map(h => (
+                            <th key={h} style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: '#64748b', fontSize: '0.65rem', textTransform: 'uppercase', textAlign: h === 'Neto' || h === 'Tarifa' || h === 'Descuento' ? 'right' : h === 'Prendas' || h === 'Fecha Orden' || h === 'Detalle' ? 'center' : 'left' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {selectedGroup.inspections.map(insp => {
                           const isChecked = selectedInspectionIds.includes(insp.id);
+                          const rawDate = insp.sewing_orders?.created_at || insp.orders?.created_at || insp.created_at;
+                          const formattedOrderDate = rawDate ? new Date(rawDate).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+                          const prodName = insp.sewing_orders?.products?.nombre_producto || insp.sewing_orders?.parent_order?.client_name || insp.orders?.client_name || 'Prenda Confección';
+                          const prodCat = insp.sewing_orders?.products?.categoria ? ` (${insp.sewing_orders.products.categoria})` : '';
+
                           return (
                             <tr
                               key={insp.id}
@@ -812,8 +849,14 @@ export default function WorkshopPaymentsPage() {
                                   style={{ cursor: 'pointer' }}
                                 />
                               </td>
-                              <td style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: isChecked ? '#7c3aed' : '#64748b' }}>
+                              <td style={{ padding: '0.5rem 0.6rem', fontWeight: '800', color: isChecked ? '#7c3aed' : '#64748b', whiteSpace: 'nowrap' }}>
                                 {insp.sewing_orders?.confeccion_code || insp.orders?.internal_code || '—'}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', color: '#475569', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                                {formattedOrderDate}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', color: '#0f172a', fontWeight: '600', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${prodName}${prodCat}`}>
+                                {prodName}
                               </td>
                               <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center', fontWeight: '700', color: isChecked ? '#10b981' : '#64748b' }}>
                                 {insp.items_approved}
@@ -826,6 +869,28 @@ export default function WorkshopPaymentsPage() {
                               </td>
                               <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontWeight: '950', color: isChecked ? '#0f172a' : '#94a3b8' }}>
                                 {formatCOP(insp.valor_pagar || 0)}
+                              </td>
+                              <td style={{ padding: '0.5rem 0.6rem', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectingOrderGarments(insp)}
+                                  title="Ver detalle del tipo de prendas de esta orden"
+                                  style={{
+                                    border: '1px solid #ddd6fe',
+                                    backgroundColor: '#ede9fe',
+                                    color: '#6d28d9',
+                                    padding: '0.2rem 0.45rem',
+                                    borderRadius: '6px',
+                                    fontSize: '0.68rem',
+                                    fontWeight: '800',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.2rem'
+                                  }}
+                                >
+                                  <Eye size={11} /> Ver Prenda
+                                </button>
                               </td>
                             </tr>
                           );
