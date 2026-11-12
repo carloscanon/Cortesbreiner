@@ -1047,6 +1047,119 @@ export default function WorkshopPaymentsPage() {
           </div>
         </div>
       )}
+
+      {/* ── MODAL ESPECIFICACIÓN TIPO DE PRENDAS DE LA ORDEN ── */}
+      {inspectingOrderGarments && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100, backdropFilter: 'blur(6px)', padding: '1.25rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '540px', padding: '1.75rem', borderRadius: '20px', boxShadow: '0 25px 60px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: '1.2rem', backgroundColor: 'white' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.85rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '950', fontSize: '1.15rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  👔 Tipo de Prendas a Liquidar
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: '800' }}>
+                  Orden: {inspectingOrderGarments.sewing_orders?.confeccion_code || inspectingOrderGarments.orders?.internal_code || '—'}
+                </span>
+              </div>
+              <button onClick={() => setInspectingOrderGarments(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Card principal del tipo de prenda */}
+              <div style={{ padding: '1.25rem', borderRadius: '14px', background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)', border: '1.5px solid #ddd6fe' }}>
+                <span style={{ fontSize: '0.68rem', fontWeight: '900', color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.35rem' }}>
+                  REFERENCIA Y TIPO DE PRODUCTO
+                </span>
+                <h4 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '950', color: '#4c1d95' }}>
+                  {inspectingOrderGarments.sewing_orders?.products?.nombre_producto || inspectingOrderGarments.sewing_orders?.parent_order?.client_name || inspectingOrderGarments.orders?.client_name || 'Prenda de Confección'}
+                </h4>
+                {inspectingOrderGarments.sewing_orders?.products?.categoria && (
+                  <span style={{ display: 'inline-block', marginTop: '0.4rem', padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: '#7c3aed', color: 'white' }}>
+                    Categoría: {inspectingOrderGarments.sewing_orders.products.categoria}
+                  </span>
+                )}
+                {inspectingOrderGarments.sewing_orders?.products?.codigo_referencia && (
+                  <span style={{ display: 'inline-block', marginLeft: '0.5rem', marginTop: '0.4rem', padding: '0.2rem 0.6rem', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: '800', backgroundColor: 'white', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
+                    Ref: {inspectingOrderGarments.sewing_orders.products.codigo_referencia}
+                  </span>
+                )}
+              </div>
+
+              {/* Métricas y resumen de pago de la prenda */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                <div style={{ padding: '0.85rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Fecha de Orden</span>
+                  <p style={{ margin: '0.2rem 0 0', fontWeight: '900', color: '#0f172a', fontSize: '0.88rem' }}>
+                    {(() => {
+                      const d = inspectingOrderGarments.sewing_orders?.created_at || inspectingOrderGarments.orders?.created_at || inspectingOrderGarments.created_at;
+                      return d ? new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+                    })()}
+                  </p>
+                </div>
+
+                <div style={{ padding: '0.85rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Taller Asignado</span>
+                  <p style={{ margin: '0.2rem 0 0', fontWeight: '900', color: '#0f172a', fontSize: '0.88rem' }}>
+                    {inspectingOrderGarments.workshop_name}
+                  </p>
+                </div>
+
+                <div style={{ padding: '0.85rem', borderRadius: '10px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase' }}>Prendas Aprobadas</span>
+                  <p style={{ margin: '0.2rem 0 0', fontWeight: '950', color: '#15803d', fontSize: '1.25rem' }}>
+                    {inspectingOrderGarments.items_approved} und
+                  </p>
+                </div>
+
+                <div style={{ padding: '0.85rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Tarifa Unitaria</span>
+                  <p style={{ margin: '0.2rem 0 0', fontWeight: '900', color: '#0f172a', fontSize: '1.1rem' }}>
+                    {formatCOP(inspectingOrderGarments.valor_prenda || 0)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Liquidación total de la orden */}
+              <div style={{ padding: '1rem', borderRadius: '12px', background: '#1e293b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '800', textTransform: 'uppercase' }}>Total a Pagar por esta Prenda</span>
+                  <p style={{ margin: 0, fontSize: '1.35rem', fontWeight: '950', color: '#38bdf8' }}>
+                    {formatCOP(inspectingOrderGarments.valor_pagar || 0)}
+                  </p>
+                </div>
+                {inspectingOrderGarments.descuento_defectos > 0 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.68rem', color: '#fca5a5', fontWeight: '800' }}>Descuento defectos</span>
+                    <p style={{ margin: 0, fontSize: '0.88rem', fontWeight: '800', color: '#f87171' }}>
+                      -{formatCOP(inspectingOrderGarments.descuento_defectos)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setInspectingOrderGarments(null)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: '#7c3aed',
+                color: 'white',
+                fontWeight: '900',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                marginTop: '0.5rem'
+              }}
+            >
+              Cerrar Detalle
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
