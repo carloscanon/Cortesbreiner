@@ -34,11 +34,13 @@ interface Inspection {
   sewing_orders?: {
     id: string;
     confeccion_code: string;
+    created_at?: string;
     status: string;
+    products?: { id: string; nombre_producto: string; codigo_referencia?: string; categoria?: string; };
     workshops?: { id: string; nombre_taller: string; responsable?: string; };
-    parent_order?: { id: string; client_name?: string; internal_code?: string; };
+    parent_order?: { id: string; client_name?: string; internal_code?: string; created_at?: string; };
   };
-  orders?: { id: string; consecutive?: string; internal_code?: string; client_name?: string; brand?: string; };
+  orders?: { id: string; consecutive?: string; internal_code?: string; client_name?: string; brand?: string; created_at?: string; };
 }
 
 interface WorkshopGroup {
@@ -213,6 +215,9 @@ export default function WorkshopPaymentsPage() {
   // View payment detail modal
   const [viewingPayment, setViewingPayment] = useState<Payment | null>(null);
 
+  // Modal detalle de prendas por orden
+  const [inspectingOrderGarments, setInspectingOrderGarments] = useState<Inspection | null>(null);
+
   // ── Fetch ─────────────────────────────────────────────────────────────────
   // ── Realtime & Subscriptions ──────────────────────────────────────────────
   useEffect(() => {
@@ -262,11 +267,12 @@ export default function WorkshopPaymentsPage() {
           .select(`
             *,
             sewing_orders (
-              id, confeccion_code, status,
+              id, confeccion_code, created_at, status,
+              products ( id, nombre_producto, codigo_referencia, categoria ),
               workshops ( id, nombre_taller, responsable ),
-              parent_order:orders ( id, client_name, internal_code )
+              parent_order:orders ( id, client_name, internal_code, created_at )
             ),
-            orders ( id, consecutive, internal_code, client_name, brand )
+            orders ( id, consecutive, internal_code, client_name, brand, created_at )
           `)
           .eq('pago_status', 'Autorizado para Pago')
           .order('created_at', { ascending: false })
