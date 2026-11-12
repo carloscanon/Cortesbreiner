@@ -20,7 +20,18 @@ async function resolveAlegraContact(clientInput: any): Promise<number | string> 
     const email = String(clientInput.email || '').trim() || 'facturacion@febrainershop.com';
     const phone = String(clientInput.phone || clientInput.mobile || '').trim();
 
-    if (identification && identification !== '222222222222') {
+    const isGenericClient = !identification || 
+      identification === '222222222222' || 
+      identification === '2222222222' ||
+      fullName === 'CLIENTE GENERAL' ||
+      fullName === 'CLIENTE MOSTRADOR' ||
+      fullName === 'CONSUMIDOR FINAL';
+
+    if (isGenericClient) {
+      return 1; // Contacto oficial Consumidor Final (222222222222) en Alegra
+    }
+
+    if (identification) {
       try {
         const searchRes = await AlegraClient.request('GET', `/contacts?identification=${encodeURIComponent(identification)}`);
         if (searchRes.ok && Array.isArray(searchRes.data) && searchRes.data.length > 0) {
@@ -75,7 +86,7 @@ async function resolveAlegraContact(clientInput: any): Promise<number | string> 
     }
   }
 
-  return 22;
+  return 1;
 }
 
 export async function GET(req: Request) {

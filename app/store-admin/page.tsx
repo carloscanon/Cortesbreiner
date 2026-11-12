@@ -1567,24 +1567,96 @@ export default function StoreAdminPage() {
 
           const invoiceDate = sale.created_at ? new Date(sale.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
+          // Determinar forma y métodos de pago reales a partir de pos_payments y observaciones
+          const paymentsList: any[] = sale.pos_payments && sale.pos_payments.length > 0 ? sale.pos_payments : [];
+          let paymentMethodAlegra = 'CASH';
+          let paymentsPayload: any[] | undefined = undefined;
+          let paymentLabel = 'Efectivo';
+
+          const obsUpper = String(sale.observaciones || '').toUpperCase();
+          const hasTransferObs = obsUpper.includes('TRANSFERENCIA') || obsUpper.includes('BANCOLOMBIA') || obsUpper.includes('MERCADO PAGO') || obsUpper.includes('ADDI') || obsUpper.includes('NEQUI') || obsUpper.includes('DAVIPLATA');
+
+          if (paymentsList.length > 1) {
+            paymentMethodAlegra = 'MUTUAL_AGREEMENT';
+            paymentLabel = 'Pago Mixto (Efectivo y Transferencia)';
+            paymentsPayload = paymentsList.map((p: any) => {
+              const pMethodUpper = String(p.metodo_pago || '').toUpperCase();
+              const isTransf = pMethodUpper.includes('TRANSFER') || pMethodUpper.includes('BANCO') || pMethodUpper.includes('NEQUI') || pMethodUpper.includes('MERCADO') || pMethodUpper.includes('ADDI');
+              return {
+                date: invoiceDate,
+                account: { id: isTransf ? 3 : 2 }, // 3: Banco 1, 2: Caja general
+                amount: Number(p.monto || 0),
+                paymentMethod: isTransf ? 'transfer' : 'cash'
+              };
+            });
+          } else if (paymentsList.length === 1) {
+            const singleMethod = String(paymentsList[0].metodo_pago || '').toUpperCase();
+            if (singleMethod.includes('TRANSFER') || singleMethod.includes('BANCO') || singleMethod.includes('NEQUI') || singleMethod.includes('MERCADO') || singleMethod.includes('ADDI')) {
+              paymentMethodAlegra = 'BANK_DEPOSIT';
+              paymentLabel = 'Transferencia Bancaria';
+              paymentsPayload = [{
+                date: invoiceDate,
+                account: { id: 3 },
+                amount: Number(paymentsList[0].monto || sale.total || 0),
+                paymentMethod: 'transfer'
+              }];
+            } else if (singleMethod.includes('MIXTO')) {
+              paymentMethodAlegra = 'MUTUAL_AGREEMENT';
+              paymentLabel = 'Pago Mixto';
+            } else {
+              paymentMethodAlegra = 'CASH';
+              paymentLabel = 'Efectivo';
+              paymentsPayload = [{
+                date: invoiceDate,
+                account: { id: 2 },
+                amount: Number(paymentsList[0].monto || sale.total || 0),
+                paymentMethod: 'cash'
+              }];
+            }
+          } else if (hasTransferObs) {
+            paymentMethodAlegra = 'BANK_DEPOSIT';
+            paymentLabel = 'Transferencia Bancaria';
+            paymentsPayload = [{
+              date: invoiceDate,
+              account: { id: 3 },
+              amount: Number(sale.total || 0),
+              paymentMethod: 'transfer'
+            }];
+          } else {
+            paymentMethodAlegra = 'CASH';
+            paymentLabel = 'Efectivo';
+            paymentsPayload = [{
+              date: invoiceDate,
+              account: { id: 2 },
+              amount: Number(sale.total || 0),
+              paymentMethod: 'cash'
+            }];
+          }
+
+          const invoicePayload: any = {
+            date: invoiceDate,
+            dueDate: invoiceDate,
+            client: {
+              name: clientName,
+              identification: clientDoc,
+              email: clientEmail
+            },
+            items: itemsPayload,
+            paymentForm: 'CASH',
+            paymentMethod: paymentMethodAlegra,
+            anotation: `Factura POS Ticket #${sale.consecutive} - Tienda ${sale.stores?.nombre || ''} - Pago: ${paymentLabel}`
+          };
+
+          if (paymentsPayload && paymentsPayload.length > 0) {
+            invoicePayload.payments = paymentsPayload;
+          }
+
           // Post to Alegra Electronic Invoicing API with automatic Contact resolution & DIAN stamping
           const response = await fetch('/api/alegra/invoices', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              invoice: {
-                date: invoiceDate,
-                dueDate: invoiceDate,
-                client: {
-                  name: clientName,
-                  identification: clientDoc,
-                  email: clientEmail
-                },
-                items: itemsPayload,
-                paymentForm: 'CASH',
-                paymentMethod: 'CASH',
-                anotation: `Factura POS Ticket #${sale.consecutive} - Tienda ${sale.stores?.nombre || ''}`
-              },
+              invoice: invoicePayload,
               autoStamp: true
             })
           });

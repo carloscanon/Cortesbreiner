@@ -26,10 +26,11 @@ async function resolveAlegraContact(clientInput: any): Promise<number | string> 
       identification === '222222222222' || 
       identification === '2222222222' ||
       fullName === 'CLIENTE GENERAL' ||
-      fullName === 'CLIENTE MOSTRADOR';
+      fullName === 'CLIENTE MOSTRADOR' ||
+      fullName === 'CONSUMIDOR FINAL';
 
     if (isGenericClient) {
-      return 22; // Contacto Consumidor Final predeterminado en Alegra
+      return 1; // Contacto oficial Consumidor Final (222222222222) en Alegra
     }
 
     // 1. Search existing contact by identification
@@ -106,7 +107,7 @@ async function resolveAlegraContact(clientInput: any): Promise<number | string> 
   }
 
   // Fallback contact ID if impossible to create
-  return 22;
+  return 1;
 }
 
 /**
