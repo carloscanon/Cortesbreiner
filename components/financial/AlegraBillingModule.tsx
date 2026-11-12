@@ -399,6 +399,7 @@ export default function AlegraBillingModule({ isSuperAdmin = true }: { isSuperAd
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Fecha</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Cliente</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'left' }}>Documento</th>
+                  <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Método de Pago</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Subtotal</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>IVA</th>
                   <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Total</th>
@@ -426,6 +427,35 @@ export default function AlegraBillingModule({ isSuperAdmin = true }: { isSuperAd
                       </td>
                       <td style={{ padding: '0.85rem 1rem', fontFamily: 'monospace', color: '#475569' }}>
                         {clientDoc}
+                      </td>
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                        {(() => {
+                          const pMethod = String(inv.paymentMethod || '').toUpperCase();
+                          const anot = String(inv.anotation || '').toUpperCase();
+                          const obs = String(inv.observations || '').toUpperCase();
+                          const isMixed = pMethod === 'MUTUAL_AGREEMENT' || anot.includes('MIXTO') || obs.includes('MIXTO');
+                          const isTransfer = pMethod === 'BANK_DEPOSIT' || anot.includes('TRANSFERENCIA') || obs.includes('TRANSFERENCIA') || anot.includes('BANCO');
+
+                          if (isMixed) {
+                            return (
+                              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '9999px', fontSize: '0.65rem', fontWeight: '900', backgroundColor: '#fef3c7', color: '#b45309' }}>
+                                🔀 Mixto
+                              </span>
+                            );
+                          }
+                          if (isTransfer) {
+                            return (
+                              <span style={{ padding: '0.2rem 0.5rem', borderRadius: '9999px', fontSize: '0.65rem', fontWeight: '900', backgroundColor: '#ede9fe', color: '#6b21a8' }}>
+                                🏦 Transferencia
+                              </span>
+                            );
+                          }
+                          return (
+                            <span style={{ padding: '0.2rem 0.5rem', borderRadius: '9999px', fontSize: '0.65rem', fontWeight: '900', backgroundColor: '#dcfce7', color: '#166534' }}>
+                              💵 Efectivo
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '0.85rem 1rem', textAlign: 'right', color: '#475569' }}>
                         ${Number(inv.subtotal || 0).toLocaleString('es-CO')}
@@ -475,7 +505,7 @@ export default function AlegraBillingModule({ isSuperAdmin = true }: { isSuperAd
 
                 {invoices.length === 0 && !loadingInvoices && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
                       No hay facturas registradas en Alegra actualmente.
                     </td>
                   </tr>
@@ -949,7 +979,14 @@ export default function AlegraBillingModule({ isSuperAdmin = true }: { isSuperAd
                 <div><strong>Cliente:</strong> {selectedInvoice.client?.name}</div>
                 <div><strong>Documento:</strong> {selectedInvoice.client?.identification}</div>
                 <div><strong>Forma de Pago:</strong> {selectedInvoice.paymentForm}</div>
+                <div><strong>Método de Pago:</strong> {selectedInvoice.paymentMethod === 'BANK_DEPOSIT' ? 'Transferencia Bancaria' : selectedInvoice.paymentMethod === 'MUTUAL_AGREEMENT' ? 'Pago Mixto' : 'Efectivo'}</div>
                 <div><strong>Total Factura:</strong> ${Number(selectedInvoice.total || 0).toLocaleString('es-CO')}</div>
+                {selectedInvoice.observations && (
+                  <div style={{ gridColumn: 'span 2', color: '#0369a1', fontWeight: '750' }}><strong>Observación:</strong> {selectedInvoice.observations}</div>
+                )}
+                {selectedInvoice.anotation && (
+                  <div style={{ gridColumn: 'span 2', color: '#475569' }}><strong>Anotación:</strong> {selectedInvoice.anotation}</div>
+                )}
               </div>
 
               {selectedInvoice.stamp && (

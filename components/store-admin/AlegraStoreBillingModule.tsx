@@ -350,6 +350,7 @@ export default function AlegraStoreBillingModule({
           items: itemsPayload,
           paymentForm: 'CASH', // De contado oficial DIAN
           paymentMethod: paymentMethodAlegra,
+          observations: `FORMA DE PAGO: ${paymentLabel.toUpperCase()}`,
           anotation: `Factura POS Ticket #${sale.consecutive} - Tienda ${sale.stores?.nombre || ''} - Pago: ${paymentLabel}`
         };
 
@@ -883,6 +884,7 @@ export default function AlegraStoreBillingModule({
                 <th style={{ padding: '0.85rem 1rem' }}>Fecha</th>
                 <th style={{ padding: '0.85rem 1rem' }}>Sucursal</th>
                 <th style={{ padding: '0.85rem 1rem' }}>Cliente Titular</th>
+                <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Método de Pago</th>
                 <th style={{ padding: '0.85rem 1rem' }}>Prendas Vendidas</th>
                 <th style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>Total Venta</th>
                 <th style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>Estado</th>
@@ -894,7 +896,7 @@ export default function AlegraStoreBillingModule({
             <tbody>
               {filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={activeStatusTab === 'por_facturar' ? 9 : 8} style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                  <td colSpan={activeStatusTab === 'por_facturar' ? 10 : 9} style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
                     <Package size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                     <p style={{ margin: 0, fontWeight: '750' }}>No se encontraron ventas en este estado con los filtros seleccionados.</p>
                   </td>
@@ -956,6 +958,83 @@ export default function AlegraStoreBillingModule({
                             ✏️ Editar
                           </button>
                         </div>
+                      </td>
+
+                      {/* Columna Método de Pago */}
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                        {(() => {
+                          const pList = sale.pos_payments && sale.pos_payments.length > 0 ? sale.pos_payments : [];
+                          const obsUp = String(sale.observaciones || '').toUpperCase();
+                          const isMixedObs = obsUp.includes('PAGO MIXTO') || obsUp.includes('MIXTO');
+                          const hasTransfObs = obsUp.includes('TRANSFERENCIA') || obsUp.includes('BANCOLOMBIA') || obsUp.includes('NEQUI') || obsUp.includes('DAVIPLATA') || obsUp.includes('MERCADO PAGO') || obsUp.includes('ADDI');
+                          
+                          if (pList.length > 1 || isMixedObs) {
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', alignItems: 'center' }}>
+                                <span style={{
+                                  padding: '0.2rem 0.55rem',
+                                  borderRadius: '9999px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: '900',
+                                  backgroundColor: '#fef3c7',
+                                  color: '#b45309',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem'
+                                }}>
+                                  🔀 Pago Mixto
+                                </span>
+                                {pList.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.62rem', color: '#64748b' }}>
+                                    {pList.map((p: any, pIdx: number) => (
+                                      <span key={pIdx}>
+                                        {p.metodo_pago}: ${Number(p.monto || 0).toLocaleString('es-CO')}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          
+                          const singlePay = pList[0];
+                          const singleMethod = String(singlePay?.metodo_pago || '').toUpperCase();
+                          const isTransfer = singleMethod.includes('TRANSFER') || singleMethod.includes('BANCO') || singleMethod.includes('NEQUI') || singleMethod.includes('MERCADO') || singleMethod.includes('ADDI') || hasTransfObs;
+
+                          if (isTransfer) {
+                            return (
+                              <span style={{
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '9999px',
+                                fontSize: '0.7rem',
+                                fontWeight: '900',
+                                backgroundColor: '#ede9fe',
+                                color: '#6b21a8',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem'
+                              }}>
+                                🏦 Transferencia
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <span style={{
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.7rem',
+                              fontWeight: '900',
+                              backgroundColor: '#dcfce7',
+                              color: '#166534',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem'
+                            }}>
+                              💵 Efectivo
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Columna Detalle Prendas con botón de Ver Detalle */}

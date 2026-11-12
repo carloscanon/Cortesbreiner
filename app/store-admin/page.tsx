@@ -1646,6 +1646,7 @@ export default function StoreAdminPage() {
             items: itemsPayload,
             paymentForm: 'CASH',
             paymentMethod: paymentMethodAlegra,
+            observations: `FORMA DE PAGO: ${paymentLabel.toUpperCase()}`,
             anotation: `Factura POS Ticket #${sale.consecutive} - Tienda ${sale.stores?.nombre || ''} - Pago: ${paymentLabel}`
           };
 
