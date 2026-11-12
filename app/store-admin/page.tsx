@@ -1593,14 +1593,15 @@ export default function StoreAdminPage() {
 
           if (response.ok && resData.success && resData.invoice?.id) {
             successCount++;
-            const alegraNumber = resData.invoice?.numberTemplate?.fullNumber || `ALEGRA-#${resData.invoice?.id}`;
+            const alegraNumber = resData.invoice?.numberTemplate?.fullNumber || `FEA${resData.invoice?.id}`;
             const cufe = resData.invoice?.stamp?.cufe || resData.stamp?.data?.[0]?.emissionStatus || 'TIMBRADA';
+            const prevObs = (sale.observaciones || '').replace(/^Facturado ALEGRA DIAN:[^|]*\|?/i, '').trim();
 
             await supabase
               .from('pos_sales')
               .update({
                 sincronizado_erp: true,
-                observaciones: `Facturado ALEGRA DIAN: ${alegraNumber} (${cufe})`
+                observaciones: `Facturado ALEGRA DIAN: ${alegraNumber} (${cufe})${prevObs ? ` | ${prevObs}` : ''}`
               })
               .eq('id', sale.id);
 

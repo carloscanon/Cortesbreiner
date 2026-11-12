@@ -221,6 +221,10 @@ export async function POST(req: Request) {
     if (!sanitizedInvoice.paymentMethod) {
       sanitizedInvoice.paymentMethod = 'CASH';
     }
+    // Asegurar resolución de numeración electrónica FEA activa si no se especificó
+    if (!sanitizedInvoice.numberTemplate) {
+      sanitizedInvoice.numberTemplate = { id: 16 };
+    }
 
     // 2. Create Invoice in Alegra
     const createRes = await AlegraClient.createInvoice(sanitizedInvoice);

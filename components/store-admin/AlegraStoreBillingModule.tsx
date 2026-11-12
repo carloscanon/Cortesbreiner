@@ -142,8 +142,8 @@ export default function AlegraStoreBillingModule({
     if (s.estado === 'remision' || obs.includes('REMISIÓN ALEGRA') || obs.includes('REMISI')) {
       return 'remisionados';
     }
-    // Facturado específicamente en Alegra
-    if (obs.includes('FACTURADO ALEGRA') || obs.includes('ALEGRA DIAN') || obs.includes('FED100')) {
+    // Facturado específicamente en Alegra (FED, FEA o mención a DIAN / Alegra)
+    if (obs.includes('FACTURADO ALEGRA') || obs.includes('ALEGRA DIAN') || obs.includes('FED100') || obs.includes('FEA')) {
       return 'facturados';
     }
     // Todo lo demás vendido en los puntos queda en "Por Facturar"
@@ -223,14 +223,13 @@ export default function AlegraStoreBillingModule({
     for (const sale of salesToProcess) {
       idx++;
 
-      // Prevenir facturar electrónicamente una venta ya facturada previamente ante la DIAN
+      // Prevenir facturar electrónicamente una venta ya facturada previamente ante la DIAN en Alegra
+      const obs = typeof sale.observaciones === 'string' ? sale.observaciones.toUpperCase() : '';
       const isAlreadyInvoiced = 
-        sale.sincronizado_erp || 
-        (typeof sale.observaciones === 'string' && (
-          sale.observaciones.includes('Facturado ALEGRA DIAN') ||
-          sale.observaciones.includes('TIMBRADA') ||
-          sale.observaciones.includes('FED')
-        ));
+        obs.includes('FACTURADO ALEGRA DIAN') ||
+        obs.includes('FACTURADO ALEGRA') ||
+        (obs.includes('TIMBRADA') && (obs.includes('FEA') || obs.includes('FED'))) ||
+        (obs.includes('FEA') && obs.includes('STAMPED'));
 
       if (isAlreadyInvoiced) {
         errorsList.push(`Ticket #${sale.consecutive}: Ya cuenta con Factura Electrónica en Alegra previamente. No se puede volver a facturar.`);
@@ -296,15 +295,16 @@ export default function AlegraStoreBillingModule({
 
         if (response.ok && resData.success && resData.invoice?.id) {
           successCount++;
-          const alegraNumber = resData.invoice?.numberTemplate?.fullNumber || `FED100${resData.invoice?.id}`;
+          const alegraNumber = resData.invoice?.numberTemplate?.fullNumber || `FEA${resData.invoice?.id}`;
           const cufe = resData.invoice?.stamp?.cufe || resData.stamp?.data?.[0]?.emissionStatus || 'TIMBRADA';
+          const prevObs = (sale.observaciones || '').replace(/^Facturado ALEGRA DIAN:[^|]*\|?/i, '').trim();
 
           await supabase
             .from('pos_sales')
             .update({
               estado: 'completada',
               sincronizado_erp: true,
-              observaciones: `Facturado ALEGRA DIAN: ${alegraNumber} (${cufe})`
+              observaciones: `Facturado ALEGRA DIAN: ${alegraNumber} (${cufe})${prevObs ? ` | ${prevObs}` : ''}`
             })
             .eq('id', sale.id);
         } else {
