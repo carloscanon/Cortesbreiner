@@ -1565,7 +1565,9 @@ export default function StoreAdminPage() {
                 tax: [{ id: 4 }]
               }];
 
-          const invoiceDate = sale.created_at ? new Date(sale.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+          // Para emisión electrónica oficial ante la DIAN, la fecha de la factura debe ser SIEMPRE la fecha actual
+          const todayStr = new Date().toISOString().split('T')[0];
+          const invoiceDate = todayStr;
 
           // Determinar forma y métodos de pago reales a partir de pos_payments y observaciones
           const paymentsList: any[] = sale.pos_payments && sale.pos_payments.length > 0 ? sale.pos_payments : [];
