@@ -1542,7 +1542,8 @@ export default function StoreAdminPage() {
         try {
           const clientName = (sale.client_name || 'Cliente Mostrador').trim();
           const clientDoc = (sale.client_document || '').trim() || '222222222222';
-          const clientEmail = (sale.client_email || '').trim() || 'facturacion@febrainershop.com';
+          const obsEmailMatch = String(sale.observaciones || '').match(/\[CLIENT_EMAIL:\s*([^\]]+)\]/i);
+          const clientEmail = (sale.client_email || (obsEmailMatch ? obsEmailMatch[1].trim() : '')).trim() || 'facturacion@febrainershop.com';
 
           // Format items for Alegra
           const itemsPayload = (sale.pos_sale_items && sale.pos_sale_items.length > 0)

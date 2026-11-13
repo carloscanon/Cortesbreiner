@@ -41,9 +41,23 @@ export async function POST(request: Request) {
     const store = sale.stores;
     const storeCode = (store?.codigo || (store?.nombre || 'POS').substring(0, 3)).toUpperCase();
     const ticketRef = `${storeCode}-${String(sale.consecutive).padStart(4, '0')}`;
-    const targetWarehouseId = store?.bodega_asociada_id || null;
+    let targetWarehouseId = store?.bodega_asociada_id || null;
+    if (!targetWarehouseId && sale.store_id) {
+      const { data: stRow } = await supabase
+        .from('stores')
+        .select('id, codigo, nombre, bodega_asociada_id')
+        .eq('id', sale.store_id)
+        .maybeSingle();
+      if (stRow?.bodega_asociada_id) {
+        targetWarehouseId = stRow.bodega_asociada_id;
+      }
+    }
+    // Fallback general a Bodega Principal si ninguna bodega estaba asignada
+    if (!targetWarehouseId) {
+      targetWarehouseId = '65797b78-39c1-4078-9475-80d7385823a6';
+    }
 
-    // 2. Extract barcodes from sale observations and items
+    // 2. Extract barcodes from sale observations, items, and defect_checklist link
     const barcodesToRestore: string[] = [];
     const obs = sale.observaciones || '';
     const barcodeMatch = obs.match(/\[BARCODES:\s*([^\]]+)\]/i);
@@ -51,6 +65,34 @@ export async function POST(request: Request) {
       barcodeMatch[1].split(',').forEach((b: string) => {
         const clean = b.trim();
         if (clean && !barcodesToRestore.includes(clean)) barcodesToRestore.push(clean);
+      });
+    }
+
+    // Also look up any individual_garments linked directly to this sale_id in defect_checklist
+    const { data: linkedGarments } = await supabase
+      .from('individual_garments')
+      .select('id, barcode')
+      .filter('defect_checklist->>sale_id', 'eq', saleId);
+
+    if (linkedGarments && linkedGarments.length > 0) {
+      linkedGarments.forEach((g: any) => {
+        if (g.barcode && !barcodesToRestore.includes(g.barcode)) {
+          barcodesToRestore.push(g.barcode);
+        }
+      });
+    }
+
+    // Also check if garments have notes mentioning this specific sale ticket
+    const { data: notesGarments } = await supabase
+      .from('individual_garments')
+      .select('id, barcode')
+      .ilike('notes', `%${ticketRef}%`);
+
+    if (notesGarments && notesGarments.length > 0) {
+      notesGarments.forEach((g: any) => {
+        if (g.barcode && !barcodesToRestore.includes(g.barcode)) {
+          barcodesToRestore.push(g.barcode);
+        }
       });
     }
 
@@ -77,8 +119,15 @@ export async function POST(request: Request) {
         .from('individual_garments')
         .update({
           warehouse_id: targetWarehouseId,
-          store_id: store?.id || null,
+          store_id: store?.id || sale.store_id || null,
           status: 'Aprobada',
+          defect_checklist: {
+            is_sold: false,
+            restored_at: new Date().toISOString(),
+            restored_by: userEmail || 'Nota Crédito',
+            credit_note_ref: ticketRef,
+            reason: reason
+          },
           notes: `Restaurada por Nota Crédito (${ticketRef}) - ${reason}`,
           updated_at: new Date().toISOString()
         })

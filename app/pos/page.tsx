@@ -736,9 +736,9 @@ export default function POSPage() {
       const garmentPromise = (async () => {
         let garmentQuery = supabase
           .from('individual_garments')
-          .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at')
+          .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at, defect_checklist')
           .neq('status', 'Vendido')
-          .not('notes', 'ilike', '%Venta POS%')
+          .not('defect_checklist->>is_sold', 'eq', 'true')
           .order('created_at', { ascending: false });
 
         if (selectedStore.bodega_asociada_id) {
@@ -2994,12 +2994,17 @@ export default function POSPage() {
         }
 
         // Check if garment is already sold
-        const isAlreadySold = 
+        const isRestored = 
+          (garment.defect_checklist && typeof garment.defect_checklist === 'object' && garment.defect_checklist.is_sold === false) ||
+          (typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('restaurada por nota cr'));
+
+        const isAlreadySold = !isRestored && (
           garment.status === 'Vendido' || 
           garment.status === 'vendido' ||
           (garment.defect_checklist && typeof garment.defect_checklist === 'object' && garment.defect_checklist.is_sold === true) ||
           (typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('vendid')) ||
-          (!garment.warehouse_id && !garment.store_id && typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('pos'));
+          (!garment.warehouse_id && !garment.store_id && typeof garment.notes === 'string' && garment.notes.toLowerCase().includes('pos'))
+        );
 
         if (isAlreadySold) {
           return {
@@ -3426,10 +3431,15 @@ export default function POSPage() {
 
           if (gCheck && gCheck.length > 0) {
             for (const g of gCheck) {
-              const isSold = 
+              const isRestored = 
+                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === false) ||
+                (typeof g.notes === 'string' && g.notes.toLowerCase().includes('restaurada por nota cr'));
+
+              const isSold = !isRestored && (
                 (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
                 (typeof g.notes === 'string' && (g.notes.toLowerCase().includes('venta pos') || g.notes.toLowerCase().includes('vendid') || g.notes.toLowerCase().includes('factur'))) ||
-                (!g.warehouse_id && !g.store_id);
+                (!g.warehouse_id && !g.store_id)
+              );
 
               if (isSold) {
                 alert(`⛔ La prenda con código "${g.barcode}" ya figura como FACTURADA / VENDIDA (${g.notes || 'No disponible en bodega'}). No se puede volver a facturar.`);
@@ -3794,12 +3804,17 @@ export default function POSPage() {
           }
 
           if (data) {
-            const isAlreadySold = 
+            const isRestored = 
+              (data.defect_checklist && typeof data.defect_checklist === 'object' && (data.defect_checklist as any).is_sold === false) ||
+              (typeof data.notes === 'string' && data.notes.toLowerCase().includes('restaurada por nota cr'));
+
+            const isAlreadySold = !isRestored && (
               data.status === 'Vendido' || 
               data.status === 'vendido' ||
               (data.defect_checklist && typeof data.defect_checklist === 'object' && (data.defect_checklist as any).is_sold === true) ||
               (typeof data.notes === 'string' && data.notes.toLowerCase().includes('vendid')) ||
-              (!data.warehouse_id && !data.store_id && typeof data.notes === 'string' && data.notes.toLowerCase().includes('pos'));
+              (!data.warehouse_id && !data.store_id && typeof data.notes === 'string' && data.notes.toLowerCase().includes('pos'))
+            );
 
             (data as any).is_already_sold = isAlreadySold;
 

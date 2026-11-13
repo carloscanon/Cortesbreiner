@@ -3449,12 +3449,16 @@ export default function FinishedGoodsInventory() {
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
                             {(() => {
-                              const isSold = 
+                              const isRestored = 
+                                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === false) ||
+                                (typeof g.notes === 'string' && g.notes.toLowerCase().includes('restaurada por nota cr'));
+                              const isSold = !isRestored && (
                                 g.status === 'Vendido' || 
                                 g.status === 'vendido' ||
                                 (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
                                 (typeof g.notes === 'string' && g.notes.toLowerCase().includes('vendid')) ||
-                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'));
+                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'))
+                              );
                               return (
                                 <>
                                   <span style={{ 
@@ -3486,12 +3490,16 @@ export default function FinishedGoodsInventory() {
                           <div>
                             <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase' }}>Ubicación Actual</span>
                             {(() => {
-                              const isSold = 
+                              const isRestored = 
+                                (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === false) ||
+                                (typeof g.notes === 'string' && g.notes.toLowerCase().includes('restaurada por nota cr'));
+                              const isSold = !isRestored && (
                                 g.status === 'Vendido' || 
                                 g.status === 'vendido' ||
                                 (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
                                 (typeof g.notes === 'string' && g.notes.toLowerCase().includes('vendid')) ||
-                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'));
+                                (!g.warehouse_id && !g.store_id && typeof g.notes === 'string' && g.notes.toLowerCase().includes('pos'))
+                              );
                               if (isSold) {
                                 return (
                                   <strong style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem' }}>

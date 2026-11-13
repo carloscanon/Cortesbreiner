@@ -8,22 +8,40 @@ export const maxDuration = 45;
  * Reversión de inventario para una venta anulada/revertida.
  * Devuelve las existencias a la bodega de la tienda y restaura los códigos de barra de prendas individuales.
  */
-async function revertSaleInventory(saleId: string) {
+async function revertSaleInventory(saleId: string, reason?: string) {
   try {
-    // 1. Fetch sale with its items
+    // 1. Fetch sale with its items and store
     const { data: sale, error: sErr } = await supabase
       .from('pos_sales')
-      .select('id, store_id, stores(bodega_asociada_id), pos_sale_items(*)')
+      .select('id, consecutive, observaciones, store_id, stores(id, codigo, nombre, bodega_asociada_id), pos_sale_items(*)')
       .eq('id', saleId)
       .maybeSingle();
 
     if (sErr || !sale) return;
 
-    const warehouseId = (sale.stores as any)?.bodega_asociada_id || null;
+    let warehouseId = (sale.stores as any)?.bodega_asociada_id || null;
+    if (!warehouseId && sale.store_id) {
+      const { data: stRow } = await supabase
+        .from('stores')
+        .select('bodega_asociada_id')
+        .eq('id', sale.store_id)
+        .maybeSingle();
+      if (stRow?.bodega_asociada_id) {
+        warehouseId = stRow.bodega_asociada_id;
+      }
+    }
+    if (!warehouseId) {
+      warehouseId = '65797b78-39c1-4078-9475-80d7385823a6';
+    }
 
-    // 2. For each item in sale
+    const store = sale.stores as any;
+    const storeCode = (store?.codigo || (store?.nombre || 'POS').substring(0, 3)).toUpperCase();
+    const ticketRef = `${storeCode}-${String(sale.consecutive || 0).padStart(4, '0')}`;
+
+    // 2. For each item in sale, restore finished_goods_stock and kardex
     for (const item of (sale.pos_sale_items || [])) {
       const qtyToReturn = Number(item.cantidad) || 1;
+      if (qtyToReturn <= 0) continue;
 
       // Re-increment finished_goods_stock
       if (warehouseId && item.product_id) {
@@ -46,36 +64,107 @@ async function revertSaleInventory(saleId: string) {
               updated_at: new Date().toISOString()
             })
             .eq('id', stockRows[0].id);
+
+          await supabase.from('finished_goods_kardex').insert({
+            warehouse_id: warehouseId,
+            product_id: item.product_id,
+            size_id: item.size_id || null,
+            color_id: item.color_id || null,
+            tipo_movimiento: 'Devolución Venta POS (Nota Crédito Alegra)',
+            cantidad: qtyToReturn,
+            cantidad_anterior: currentQty,
+            cantidad_nueva: currentQty + qtyToReturn,
+            documento_referencia: `Nota Crédito #${ticketRef}`,
+            observaciones: `Devolución y reversión de inventario por Nota Crédito #${ticketRef}: ${reason || 'Anulación Alegra'}`,
+            created_at: new Date().toISOString()
+          });
         } else {
           // If no row existed, insert with returned quantity
           await supabase.from('finished_goods_stock').insert([{
             warehouse_id: warehouseId,
             product_id: item.product_id,
-            size_id: item.size_id,
-            color_id: item.color_id,
+            size_id: item.size_id || null,
+            color_id: item.color_id || null,
             cantidad_disponible: qtyToReturn,
+            cantidad_reservada: 0,
             updated_at: new Date().toISOString()
           }]);
+
+          await supabase.from('finished_goods_kardex').insert({
+            warehouse_id: warehouseId,
+            product_id: item.product_id,
+            size_id: item.size_id || null,
+            color_id: item.color_id || null,
+            tipo_movimiento: 'Devolución Venta POS (Nota Crédito Alegra)',
+            cantidad: qtyToReturn,
+            cantidad_anterior: 0,
+            cantidad_nueva: qtyToReturn,
+            documento_referencia: `Nota Crédito #${ticketRef}`,
+            observaciones: `Devolución y creación inicial de stock por Nota Crédito #${ticketRef}`,
+            created_at: new Date().toISOString()
+          });
         }
       }
     }
 
-    // 3. Restore individual_garments barcodes disassociated in notes
-    const { data: garments } = await supabase
-      .from('individual_garments')
-      .select('id, notes')
-      .ilike('notes', `%Ticket #${saleId}%`);
+    // 3. Extract all barcodes associated with this sale
+    const barcodesToRestore: string[] = [];
+    const obs = sale.observaciones || '';
+    const barcodeMatch = obs.match(/\[BARCODES:\s*([^\]]+)\]/i);
+    if (barcodeMatch && barcodeMatch[1]) {
+      barcodeMatch[1].split(',').forEach((b: string) => {
+        const clean = b.trim();
+        if (clean && !barcodesToRestore.includes(clean)) barcodesToRestore.push(clean);
+      });
+    }
 
-    if (garments && garments.length > 0) {
+    // Direct lookup by defect_checklist->>sale_id
+    const { data: linkedGarments } = await supabase
+      .from('individual_garments')
+      .select('id, barcode')
+      .filter('defect_checklist->>sale_id', 'eq', saleId);
+
+    if (linkedGarments && linkedGarments.length > 0) {
+      linkedGarments.forEach((g: any) => {
+        if (g.barcode && !barcodesToRestore.includes(g.barcode)) {
+          barcodesToRestore.push(g.barcode);
+        }
+      });
+    }
+
+    // Lookup by ticketRef or saleId in notes
+    const { data: notesGarments } = await supabase
+      .from('individual_garments')
+      .select('id, barcode')
+      .or(`notes.ilike.%${ticketRef}%,notes.ilike.%Ticket #${saleId}%,notes.ilike.%#${sale.consecutive}%`);
+
+    if (notesGarments && notesGarments.length > 0) {
+      notesGarments.forEach((g: any) => {
+        if (g.barcode && !barcodesToRestore.includes(g.barcode)) {
+          barcodesToRestore.push(g.barcode);
+        }
+      });
+    }
+
+    // Restore all matched individual garments
+    if (barcodesToRestore.length > 0 && warehouseId) {
       await supabase
         .from('individual_garments')
         .update({
           warehouse_id: warehouseId,
-          store_id: sale.store_id,
+          store_id: sale.store_id || null,
+          status: 'Aprobada',
+          defect_checklist: {
+            is_sold: false,
+            restored_at: new Date().toISOString(),
+            restored_by: 'Nota Crédito Alegra',
+            credit_note_ref: ticketRef,
+            reason: reason || 'Anulación Alegra'
+          },
           updated_at: new Date().toISOString(),
-          notes: `Reincorporado al inventario por Nota Crédito (Venta #${saleId})`
+          notes: `Restaurada por Nota Crédito (${ticketRef}) - ${reason || 'Anulación Alegra'}`
         })
-        .in('id', garments.map(g => g.id));
+        .in('barcode', barcodesToRestore);
     }
   } catch (err) {
     console.warn('Error in revertSaleInventory:', err);
@@ -132,7 +221,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Revert physical inventory and individual garments
-    await revertSaleInventory(saleId);
+    await revertSaleInventory(saleId, reason);
 
     // 3. Update sale status in Supabase
     const cnNumber = alegraCreditNoteResult?.numberTemplate?.fullNumber || alegraCreditNoteResult?.id ? `NC-ALEGRA-#${alegraCreditNoteResult?.id}` : 'NC-LOCAL';

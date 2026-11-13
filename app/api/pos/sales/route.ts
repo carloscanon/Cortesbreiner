@@ -116,15 +116,20 @@ export async function POST(request: Request) {
         console.error('Error consultando individual_garments en validación:', gCheckErr);
       } else if (garmentCheck && garmentCheck.length > 0) {
         for (const g of garmentCheck) {
+          const isRestored = 
+            (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === false) ||
+            (typeof g.notes === 'string' && g.notes.toLowerCase().includes('restaurada por nota cr'));
+
           // Verificar si ya fue vendida o facturada
-          const isAlreadySold = 
+          const isAlreadySold = !isRestored && (
             (g.defect_checklist && typeof g.defect_checklist === 'object' && g.defect_checklist.is_sold === true) ||
             (typeof g.notes === 'string' && (
               g.notes.toLowerCase().includes('venta pos') || 
               g.notes.toLowerCase().includes('vendid') || 
               g.notes.toLowerCase().includes('factur')
             )) ||
-            (!g.warehouse_id && !g.store_id);
+            (!g.warehouse_id && !g.store_id)
+          );
 
           if (isAlreadySold) {
             return NextResponse.json({

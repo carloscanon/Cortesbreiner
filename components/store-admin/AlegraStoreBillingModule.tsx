@@ -81,16 +81,42 @@ export default function AlegraStoreBillingModule({
     if (!editingClientSale) return;
     setSavingClient(true);
     try {
+      const trimmedName = editClientName.trim() || 'Cliente Mostrador';
+      const trimmedDoc = editClientDoc.trim() || '222222222222';
+      const trimmedEmail = editClientEmail.trim() || null;
+
+      // Actualizar observaciones conservando notas existentes y agregando o reemplazando [CLIENT_EMAIL: ...]
+      let currentObs = (editingClientSale.observaciones || '').trim();
+      currentObs = currentObs.replace(/\|\s*\[CLIENT_EMAIL:[^\]]+\]/gi, '').replace(/\[CLIENT_EMAIL:[^\]]+\]/gi, '').trim();
+      if (trimmedEmail) {
+        currentObs = currentObs ? `${currentObs} | [CLIENT_EMAIL: ${trimmedEmail}]` : `[CLIENT_EMAIL: ${trimmedEmail}]`;
+      }
+
+      // Actualizar pos_sales (únicamente columnas que existen en la tabla: client_name, client_document, observaciones)
       const { error } = await supabase
         .from('pos_sales')
         .update({
-          client_name: editClientName.trim() || 'Cliente Mostrador',
-          client_document: editClientDoc.trim() || '222222222222',
-          client_email: editClientEmail.trim() || null
+          client_name: trimmedName,
+          client_document: trimmedDoc,
+          observaciones: currentObs
         })
         .eq('id', editingClientSale.id);
 
       if (error) throw error;
+
+      // Sincronizar o registrar también en siigo_customers si tiene documento
+      if (trimmedDoc && trimmedDoc !== '222222222222') {
+        try {
+          await supabase.from('siigo_customers').upsert({
+            identification: trimmedDoc,
+            name: trimmedName,
+            email: trimmedEmail || undefined
+          }, { onConflict: 'identification' });
+        } catch (eCust) {
+          console.warn('Customer upsert sync notice:', eCust);
+        }
+      }
+
       alert('✓ Datos del cliente actualizados exitosamente para la venta.');
       setEditingClientSale(null);
       onRefreshSales();
@@ -105,6 +131,30 @@ export default function AlegraStoreBillingModule({
     if (!selectedSaleForCN) return;
     setProcessingCreditNote(true);
     try {
+      // 1. Check if the sale had an electronic invoice issued in Alegra
+      const obs = String(selectedSaleForCN.observaciones || '');
+      const alegraInvMatch = obs.match(/(?:FEA|FED)\s*(\d+)/i) || obs.match(/ALEGRA\s*DIAN:\s*(?:FEA|FED)?(\d+)/i);
+      const alegraInvoiceId = alegraInvMatch ? alegraInvMatch[1] : null;
+
+      // If it was invoiced in Alegra, also create credit note in Alegra
+      if (alegraInvoiceId) {
+        try {
+          await fetch('/api/alegra/credit-notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              saleId: selectedSaleForCN.id,
+              alegraInvoiceId: Number(alegraInvoiceId),
+              reason: creditNoteReason,
+              autoStamp: true
+            })
+          });
+        } catch (eAlegra) {
+          console.warn('Alegra credit note sync notice:', eAlegra);
+        }
+      }
+
+      // 2. Execute local credit note & warehouse garment return
       const res = await fetch('/api/pos/credit-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -249,7 +299,8 @@ export default function AlegraStoreBillingModule({
       try {
         const clientName = (sale.client_name || 'Cliente Mostrador').trim();
         const clientDoc = (sale.client_document || '').trim() || '222222222222';
-        const clientEmail = (sale.client_email || '').trim() || 'facturacion@febrainershop.com';
+        const obsEmailMatch = String(sale.observaciones || '').match(/\[CLIENT_EMAIL:\s*([^\]]+)\]/i);
+        const clientEmail = (sale.client_email || (obsEmailMatch ? obsEmailMatch[1].trim() : '')).trim() || 'facturacion@febrainershop.com';
 
         const itemsPayload = (sale.pos_sale_items && sale.pos_sale_items.length > 0)
           ? sale.pos_sale_items.map((item: any) => ({
@@ -436,7 +487,8 @@ export default function AlegraStoreBillingModule({
       try {
         const clientName = (sale.client_name || 'Cliente Mostrador').trim();
         const clientDoc = (sale.client_document || '').trim() || '222222222222';
-        const clientEmail = (sale.client_email || '').trim() || 'facturacion@febrainershop.com';
+        const obsEmailMatch = String(sale.observaciones || '').match(/\[CLIENT_EMAIL:\s*([^\]]+)\]/i);
+        const clientEmail = (sale.client_email || (obsEmailMatch ? obsEmailMatch[1].trim() : '')).trim() || 'facturacion@febrainershop.com';
 
         const itemsPayload = (sale.pos_sale_items && sale.pos_sale_items.length > 0)
           ? sale.pos_sale_items.map((item: any) => ({
@@ -939,10 +991,12 @@ export default function AlegraStoreBillingModule({
                             type="button"
                             title="Editar cliente para facturación DIAN"
                             onClick={() => {
+                              const obsEmail = String(sale.observaciones || '').match(/\[CLIENT_EMAIL:\s*([^\]]+)\]/i);
+                              const currentEmail = sale.client_email || (obsEmail ? obsEmail[1].trim() : '');
                               setEditingClientSale(sale);
                               setEditClientName(sale.client_name || '');
                               setEditClientDoc(sale.client_document || '');
-                              setEditClientEmail(sale.client_email || '');
+                              setEditClientEmail(currentEmail);
                             }}
                             style={{
                               border: '1px solid #cbd5e1',
