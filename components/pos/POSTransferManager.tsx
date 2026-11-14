@@ -138,8 +138,9 @@ export default function POSTransferManager({
       if (originWarehouseId) {
         query = query.eq('warehouse_id', originWarehouseId);
       }
-      const { data: stockRows, error } = await query.limit(500);
-      if (error) throw error;
+
+      // Traer la totalidad de las existencias paginando para evitar que el límite de 500 omita referencias
+      const stockRows = await fetchAllPages(query, 50000);
       setManualAvailableStock(stockRows || []);
     } catch (e) {
       console.error('Error fetching origin stock:', e);
