@@ -451,6 +451,7 @@ export default function POSPage() {
   // Inline inventory states
   const [inventoryList, setInventoryList] = useState<any[]>([]);
   const [individualGarments, setIndividualGarments] = useState<any[]>([]);
+  const [isRefreshingInventory, setIsRefreshingInventory] = useState(false);
   const [inventoryViewMode, setInventoryViewMode] = useState<'etiquetas' | 'resumen'>('etiquetas');
   const [garmentsPage, setGarmentsPage] = useState(0);
   const [invSearch, setInvSearch] = useState('');
@@ -714,6 +715,7 @@ export default function POSPage() {
   const fetchInlineInventory = async () => {
     try {
       if (!selectedStore?.id) return;
+      setIsRefreshingInventory(true);
 
       const stockPromise = (async () => {
         if (selectedStore.bodega_asociada_id) {
@@ -755,6 +757,8 @@ export default function POSPage() {
       if (garments) setIndividualGarments(garments);
     } catch (e) {
       console.error('Error in fetchInlineInventory:', e);
+    } finally {
+      setIsRefreshingInventory(false);
     }
   };
 
@@ -1573,6 +1577,15 @@ export default function POSPage() {
       clearTimeout(debounceTimer);
       supabase.removeChannel(liveStockChannel);
     };
+  }, [selectedStore?.id, selectedStore?.bodega_asociada_id]);
+
+  // Periodic automatic inventory synchronization every 30 seconds to guarantee fresh stock
+  useEffect(() => {
+    if (!selectedStore?.id) return;
+    const interval = setInterval(() => {
+      fetchInlineInventory();
+    }, 30000);
+    return () => clearInterval(interval);
   }, [selectedStore?.id, selectedStore?.bodega_asociada_id]);
 
     useEffect(() => {
@@ -4613,6 +4626,26 @@ export default function POSPage() {
 
             {/* User status widgets */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', position: 'relative', flexShrink: 0 }}>
+              <button
+                type="button"
+                className="pos-header-btn"
+                onClick={() => fetchInlineInventory()}
+                disabled={isRefreshingInventory}
+                style={{
+                  backgroundColor: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(2,132,199,0.35)',
+                  cursor: isRefreshingInventory ? 'not-allowed' : 'pointer'
+                }}
+                title="Actualizar existencias e inventario en tiempo real"
+                onMouseEnter={e => !isRefreshingInventory && (e.currentTarget.style.transform = 'translateY(-1px)')}
+                onMouseLeave={e => !isRefreshingInventory && (e.currentTarget.style.transform = 'translateY(0)')}
+              >
+                <RefreshCw size={15} className={isRefreshingInventory ? 'animate-spin' : ''} />
+                <span className="pos-header-btn-text">{isRefreshingInventory ? 'Actualizando...' : 'Actualizar'}</span>
+              </button>
+
               <button
                 type="button"
                 className="pos-header-btn"
