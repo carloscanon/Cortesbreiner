@@ -92,10 +92,32 @@ export function cleanPriceListDesc(rawDesc?: string | null): string {
   return str.replace(/\s+/g, ' ').trim();
 }
 
+async function fetchAllPages(query: any): Promise<any[]> {
+  const PAGE_SIZE = 1000;
+  let allData: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+    if (error) {
+      console.error('fetchAllPages error:', error);
+      break;
+    }
+    if (data && data.length > 0) {
+      allData = allData.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    } else {
+      break;
+    }
+  }
+  return allData;
+}
+
 export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
   let categorias_permitidas: string[] = [];
+  let excepciones_productos: string[] = [];
   let body_discount_type = 'precio_fijo';
   let body_discount_val: number | string = '';
   let top_discount_type = 'precio_fijo';
@@ -119,6 +141,9 @@ export function parsePriceListRules(pl: any) {
         }
         if (Array.isArray(parsed.categorias_permitidas)) {
           categorias_permitidas = parsed.categorias_permitidas;
+        }
+        if (Array.isArray(parsed.excepciones_productos)) {
+          excepciones_productos = parsed.excepciones_productos;
         }
         if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
         if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
@@ -147,6 +172,9 @@ export function parsePriceListRules(pl: any) {
           if (Array.isArray(parsed.categorias_permitidas)) {
             categorias_permitidas = parsed.categorias_permitidas;
           }
+          if (Array.isArray(parsed.excepciones_productos)) {
+            excepciones_productos = parsed.excepciones_productos;
+          }
           if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
           if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
           if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
@@ -169,6 +197,9 @@ export function parsePriceListRules(pl: any) {
   if (Array.isArray(pl?.categorias_permitidas)) {
     categorias_permitidas = pl.categorias_permitidas;
   }
+  if (Array.isArray(pl?.excepciones_productos)) {
+    excepciones_productos = pl.excepciones_productos;
+  }
 
   const userDesc = cleanPriceListDesc(rawDesc);
 
@@ -176,6 +207,7 @@ export function parsePriceListRules(pl: any) {
     cantidad_minima,
     aplica_todas_categorias,
     categorias_permitidas,
+    excepciones_productos,
     body_discount_type,
     body_discount_val,
     top_discount_type,
@@ -292,6 +324,7 @@ export default function StoreAdminPage() {
   const [pricingInputs, setPricingInputs] = useState<{ [key: string]: string }>({});
   const [pricingSearch, setPricingSearch] = useState('');
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState('all');
+  const [pricingExceptionSearch, setPricingExceptionSearch] = useState('');
   const [pricingViewMode, setPricingViewMode] = useState<'products' | 'categories'>('products');
   const [modalScopeTab, setModalScopeTab] = useState<'categories' | 'products'>('categories');
   const [modalScopeSearch, setModalScopeSearch] = useState('');
@@ -321,6 +354,13 @@ export default function StoreAdminPage() {
   } | null>(null);
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [showStoreInvModal, setShowStoreInvModal] = useState(false);
+
+  // Modal para Conectar Bodega a Punto de Venta y migrar inventario completo
+  const [showConnectWarehouseModal, setShowConnectWarehouseModal] = useState(false);
+  const [selectedStoreForConnection, setSelectedStoreForConnection] = useState<any>(null);
+  const [newWarehouseIdForStore, setNewWarehouseIdForStore] = useState<string>('');
+  const [migrateExistingStock, setMigrateExistingStock] = useState<boolean>(true);
+  const [isConnectingWarehouse, setIsConnectingWarehouse] = useState<boolean>(false);
 
   // Conceptos y Estados de Catalogación de Ventas POS
   const [salesConcepts, setSalesConcepts] = useState<any[]>([]);
@@ -564,6 +604,7 @@ export default function StoreAdminPage() {
     cantidad_minima: '1',
     aplica_todas_categorias: true,
     categorias_permitidas: [] as string[],
+    excepciones_productos: [] as string[],
     body_discount_type: 'precio_fijo',
     body_discount_val: '',
     top_discount_type: 'precio_fijo',
@@ -906,7 +947,7 @@ export default function StoreAdminPage() {
         .order('created_at', { ascending: false });
       
       const { data: wh } = await supabase.from('warehouses').select('*').eq('estado', 'activo');
-      const { data: prod } = await supabase.from('products').select('*, categories(*)').order('nombre_producto');
+      const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)').order('nombre_producto'));
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
       const { data: sales } = await supabase.from('pos_sales').select('*, stores(nombre), pos_payments(*), pos_sale_items(*, products(*), colors(*), sizes(*))').order('created_at', { ascending: false });
@@ -1076,6 +1117,16 @@ export default function StoreAdminPage() {
     const metaVal = Number(storeForm.meta_mensual) || 0;
     let targetStoreId = storeForm.id;
     try {
+      // Validar regla de negocio: un punto solo debe tener una única bodega y una bodega no puede estar en dos puntos activos
+      if (storeForm.bodega_asociada_id) {
+        const storeWithSameWh = stores.find(st => st.id !== storeForm.id && st.bodega_asociada_id === storeForm.bodega_asociada_id);
+        if (storeWithSameWh) {
+          alert(`⚠️ La bodega seleccionada ya está conectada al punto de venta "${storeWithSameWh.nombre}". Cada punto de venta debe tener su propia bodega exclusiva.`);
+          setSavingStore(false);
+          return;
+        }
+      }
+
       if (storeForm.id) {
         const updatePayload: any = {
           codigo: storeForm.codigo,
@@ -1164,6 +1215,152 @@ export default function StoreAdminPage() {
       console.error(err);
     } finally {
       setSavingStore(false);
+    }
+  };
+
+  // Función para reasignar / conectar una nueva bodega a un punto de venta y opcionalmente trasladar todo su stock
+  const handleExecuteConnectWarehouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStoreForConnection || !newWarehouseIdForStore) {
+      alert('Por favor selecciona una bodega para conectar al punto.');
+      return;
+    }
+
+    const currentWhId = selectedStoreForConnection.bodega_asociada_id;
+    const targetWhId = newWarehouseIdForStore;
+
+    if (currentWhId === targetWhId) {
+      alert('La bodega seleccionada ya es la bodega actualmente conectada a este punto.');
+      return;
+    }
+
+    // Verificar que la bodega de destino no pertenezca ya a otro punto
+    const otherStore = stores.find(s => s.id !== selectedStoreForConnection.id && s.bodega_asociada_id === targetWhId);
+    if (otherStore) {
+      alert(`⚠️ La bodega destino ya está asignada al punto de venta "${otherStore.nombre}". Desasígnela primero o elija otra bodega.`);
+      return;
+    }
+
+    setIsConnectingWarehouse(true);
+    try {
+      // 1. Si se solicita migrar el inventario existente desde la bodega anterior
+      if (migrateExistingStock && currentWhId) {
+        // Consultar stock de la bodega origen
+        const { data: sourceStockList, error: stockFetchErr } = await supabase
+          .from('finished_goods_stock')
+          .select('*')
+          .eq('warehouse_id', currentWhId)
+          .gt('cantidad_disponible', 0);
+
+        if (stockFetchErr) throw stockFetchErr;
+
+        if (sourceStockList && sourceStockList.length > 0) {
+          // Trasladar registro a registro en finished_goods_stock y asentar kardex
+          for (const sItem of sourceStockList) {
+            const qtyToMove = Number(sItem.cantidad_disponible) || 0;
+            if (qtyToMove <= 0) continue;
+
+            // Restar de la bodega origen
+            await supabase
+              .from('finished_goods_stock')
+              .update({
+                cantidad_disponible: 0,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', sItem.id);
+
+            // Buscar si ya existe la fila en la bodega destino
+            let destStockQuery = supabase
+              .from('finished_goods_stock')
+              .select('id, cantidad_disponible')
+              .eq('warehouse_id', targetWhId)
+              .eq('product_id', sItem.product_id);
+
+            if (sItem.color_id) destStockQuery = destStockQuery.eq('color_id', sItem.color_id);
+            else destStockQuery = destStockQuery.is('color_id', null);
+
+            if (sItem.size_id) destStockQuery = destStockQuery.eq('size_id', sItem.size_id);
+            else destStockQuery = destStockQuery.is('size_id', null);
+
+            if (sItem.fabric_id) destStockQuery = destStockQuery.eq('fabric_id', sItem.fabric_id);
+            else destStockQuery = destStockQuery.is('fabric_id', null);
+
+            const { data: destExisting } = await destStockQuery.maybeSingle();
+
+            if (destExisting) {
+              await supabase
+                .from('finished_goods_stock')
+                .update({
+                  cantidad_disponible: Number(destExisting.cantidad_disponible || 0) + qtyToMove,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', destExisting.id);
+            } else {
+              await supabase
+                .from('finished_goods_stock')
+                .insert([{
+                  warehouse_id: targetWhId,
+                  product_id: sItem.product_id,
+                  color_id: sItem.color_id,
+                  size_id: sItem.size_id,
+                  fabric_id: sItem.fabric_id,
+                  location_id: null,
+                  cantidad_disponible: qtyToMove,
+                  cantidad_reservada: 0,
+                  cantidad_en_transito: 0,
+                  stock_minimo: sItem.stock_minimo || 5,
+                  stock_maximo: sItem.stock_maximo || 100
+                }]);
+            }
+
+            // Registrar movimiento en el kardex
+            await supabase.from('finished_goods_kardex').insert([{
+              product_id: sItem.product_id,
+              color_id: sItem.color_id,
+              size_id: sItem.size_id,
+              fabric_id: sItem.fabric_id,
+              tipo_movimiento: 'TRASLADO_SALIDA',
+              cantidad: qtyToMove,
+              saldo_anterior: qtyToMove,
+              saldo_nuevo: 0,
+              warehouse_orig_id: currentWhId,
+              warehouse_dest_id: targetWhId,
+              documento_origen: `CONEXION_BODEGA_${selectedStoreForConnection.codigo}`,
+              usuario: profile?.full_name || profile?.email || 'Sistema',
+              observaciones: `Reubicación total de stock por cambio de bodega conectada al punto ${selectedStoreForConnection.nombre}`
+            }]);
+          }
+
+          // Actualizar ubicación física de prendas individuales con sticker/código
+          await supabase
+            .from('individual_garments')
+            .update({ warehouse_id: targetWhId })
+            .eq('warehouse_id', currentWhId);
+        }
+      }
+
+      // 2. Conectar la nueva bodega al punto de venta en la tabla stores
+      const { error: storeUpdateErr } = await supabase
+        .from('stores')
+        .update({
+          bodega_asociada_id: targetWhId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedStoreForConnection.id);
+
+      if (storeUpdateErr) throw storeUpdateErr;
+
+      const targetWhName = warehouses.find(w => w.id === targetWhId)?.nombre_bodega || 'Nueva Bodega';
+      alert(`✅ Conexión completada exitosamente.\nEl punto "${selectedStoreForConnection.nombre}" ahora está conectado exclusivamente a "${targetWhName}"${migrateExistingStock ? ' y se trasladó todo el inventario.' : '.'}`);
+
+      setShowConnectWarehouseModal(false);
+      setSelectedStoreForConnection(null);
+      setNewWarehouseIdForStore('');
+      await fetchData();
+    } catch (err: any) {
+      alert('Error al conectar la bodega al punto: ' + (err.message || err));
+    } finally {
+      setIsConnectingWarehouse(false);
     }
   };
 
@@ -1271,6 +1468,7 @@ export default function StoreAdminPage() {
         cantidad_minima: minQty,
         aplica_todas_categorias: priceListForm.aplica_todas_categorias !== false,
         categorias_permitidas: priceListForm.categorias_permitidas || [],
+        excepciones_productos: priceListForm.excepciones_productos || [],
         body_discount_type: priceListForm.body_discount_type || 'precio_fijo',
         body_discount_val: priceListForm.body_discount_val,
         top_discount_type: priceListForm.top_discount_type || 'precio_fijo',
@@ -1381,6 +1579,7 @@ export default function StoreAdminPage() {
         cantidad_minima: '1',
         aplica_todas_categorias: true,
         categorias_permitidas: [],
+        excepciones_productos: [],
         body_discount_type: 'precio_fijo',
         body_discount_val: '',
         top_discount_type: 'precio_fijo',
@@ -2225,7 +2424,7 @@ export default function StoreAdminPage() {
               else if (activeTab === 'registers') setRegisterForm({ id: '', store_id: '', codigo_caja: '', estado: 'cerrada' });
               else if (activeTab === 'promotions') setPromoForm({ id: '', nombre: '', tipo: 'Porcentaje', valor: 0, fecha_inicio: '', fecha_fin: '', activo: true });
               else if (activeTab === 'shifts') setShiftForm({ id: '', store_id: '', user_id: '', assigned_register_id: '', fecha: new Date().toISOString().split('T')[0], hora_entrada: '08:00', hora_salida: '17:00', estado: 'programado', observaciones: '' });
-              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [], body_discount_type: 'precio_fijo', body_discount_val: '', top_discount_type: 'precio_fijo', top_discount_val: '', croptop_discount_type: 'precio_fijo', croptop_discount_val: '' });
+              else if (activeTab === 'price_lists') setPriceListForm({ id: '', nombre: '', descripcion: '', activo: true, tipo_descuento_global: 'porcentaje', valor_descuento_global: '', cantidad_minima: '1', aplica_todas_categorias: true, categorias_permitidas: [], excepciones_productos: [], body_discount_type: 'precio_fijo', body_discount_val: '', top_discount_type: 'precio_fijo', top_discount_val: '', croptop_discount_type: 'precio_fijo', croptop_discount_val: '' });
               else if (activeTab === 'inventory_monitoring') setStoreInvForm({ store_id: '', product_id: '', size_id: '', color_id: '', cantidad: 1, type: 'ingreso' });
               
               if (activeTab === 'stores') setShowStoreModal(true);
@@ -2448,18 +2647,45 @@ export default function StoreAdminPage() {
                           }}>{s.estado}</span>
                         </td>
                         <td style={{ padding: '1rem', textAlign: 'center' }}>
-                          <button
-                            onClick={() => {
-                              setStoreForm({
-                                ...s,
-                                meta_mensual: s.meta_mensual ? String(s.meta_mensual) : ''
-                              });
-                              setShowStoreModal(true);
-                            }}
-                            style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', marginRight: '0.5rem', color: '#475569' }}
-                          >
-                            <Edit3 size={16} />
-                          </button>
+                          <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                            <button
+                              onClick={() => {
+                                setSelectedStoreForConnection(s);
+                                setNewWarehouseIdForStore(s.bodega_asociada_id || '');
+                                setMigrateExistingStock(true);
+                                setShowConnectWarehouseModal(true);
+                              }}
+                              style={{
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                backgroundColor: '#f8fafc',
+                                color: '#1e293b',
+                                fontSize: '0.75rem',
+                                fontWeight: '750',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem'
+                              }}
+                              title="Conectar Bodega exclusiva / Trasladar todo el stock"
+                            >
+                              🔗 Conectar Bodega
+                            </button>
+                            <button
+                              onClick={() => {
+                                setStoreForm({
+                                  ...s,
+                                  meta_mensual: s.meta_mensual ? String(s.meta_mensual) : ''
+                                });
+                                setShowStoreModal(true);
+                              }}
+                              style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#475569', padding: '0.35rem' }}
+                              title="Editar Sucursal"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2638,6 +2864,7 @@ export default function StoreAdminPage() {
                             cantidad_minima: '1',
                             aplica_todas_categorias: true,
                             categorias_permitidas: [],
+                            excepciones_productos: [],
                             body_discount_type: 'precio_fijo',
                             body_discount_val: '',
                             top_discount_type: 'precio_fijo',
@@ -2949,6 +3176,7 @@ export default function StoreAdminPage() {
                                             cantidad_minima: String(parsedRules.cantidad_minima || 1),
                                             aplica_todas_categorias: parsedRules.aplica_todas_categorias !== false,
                                             categorias_permitidas: parsedRules.categorias_permitidas || [],
+                                            excepciones_productos: parsedRules.excepciones_productos || [],
                                             body_discount_type: bType,
                                             body_discount_val: bVal,
                                             top_discount_type: tType,
@@ -5170,6 +5398,78 @@ export default function StoreAdminPage() {
                 )}
               </div>
 
+              {/* REGLA 4: PRENDAS EXCLUIDAS / EXCEPCIONES (SIN DESCUENTO) */}
+              <div style={{ backgroundColor: '#fef2f2', padding: '1rem', borderRadius: '12px', border: '1.5px solid #fecaca', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '850', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🚫 Prendas Excluidas / Excepciones (Sin Descuento)
+                  </label>
+                  <span style={{ fontSize: '0.68rem', fontWeight: '800', backgroundColor: '#fee2e2', color: '#b91c1c', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                    {(priceListForm.excepciones_productos || []).length} seleccionadas
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: '#7f1d1d', margin: 0 }}>
+                  A las prendas seleccionadas aquí <strong>NUNCA se les aplicará ningún descuento</strong> (mantendrán siempre su precio base estándar en el POS aunque pertenezcan a la lista o categoría).
+                </p>
+
+                <input
+                  type="text"
+                  placeholder="Buscar prendas para agregar como excepción..."
+                  value={pricingExceptionSearch}
+                  onChange={e => setPricingExceptionSearch(e.target.value)}
+                  style={{ padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid #fca5a5', fontSize: '0.78rem', backgroundColor: 'white', outline: 'none' }}
+                />
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', maxHeight: '150px', overflowY: 'auto', paddingRight: '0.2rem', backgroundColor: 'white', padding: '0.6rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                  {products.filter(p => {
+                    const sq = pricingExceptionSearch.trim().toLowerCase();
+                    const prodCat = getPremiumReferenceCategory(p);
+                    return !sq || 
+                      (p.codigo_referencia || '').toLowerCase().includes(sq) ||
+                      (p.nombre_producto || '').toLowerCase().includes(sq) ||
+                      prodCat.toLowerCase().includes(sq);
+                  }).map(p => {
+                    const isExempt = (priceListForm.excepciones_productos || []).includes(p.id) || (priceListForm.excepciones_productos || []).includes(p.codigo_referencia);
+                    return (
+                      <label
+                        key={p.id}
+                        style={{
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: '6px',
+                          border: isExempt ? '1.5px solid #dc2626' : '1px solid #e2e8f0',
+                          backgroundColor: isExempt ? '#fee2e2' : '#f8fafc',
+                          color: isExempt ? '#991b1b' : '#475569',
+                          fontSize: '0.72rem',
+                          fontWeight: isExempt ? '850' : '600',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isExempt}
+                          onChange={e => {
+                            const current = priceListForm.excepciones_productos || [];
+                            const updated = e.target.checked
+                              ? [...current, p.id]
+                              : current.filter(c => c !== p.id && c !== p.codigo_referencia);
+                            setPriceListForm({ ...priceListForm, excepciones_productos: updated });
+                          }}
+                          style={{ display: 'none' }}
+                        />
+                        <span style={{ fontFamily: 'monospace', fontWeight: '900', color: isExempt ? '#b91c1c' : '#0f172a' }}>
+                          [{p.codigo_referencia || 'REF'}]
+                        </span>
+                        <span>{p.nombre_producto}</span>
+                        {isExempt && <span style={{ color: '#dc2626', fontWeight: '900' }}>✕ Sin Descuento</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '750' }}>
                   <input
@@ -5384,17 +5684,27 @@ export default function StoreAdminPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>Bodega central asociada</label>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.4rem' }}>
+                  Bodega de Producto Terminado (Exclusiva)
+                </label>
                 <select
                   value={storeForm.bodega_asociada_id}
                   onChange={e => setStoreForm({ ...storeForm, bodega_asociada_id: e.target.value })}
                   style={{ width: '100%', padding: '0.625rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
                 >
                   <option value="">Ninguna...</option>
-                  {warehouses.map(w => (
-                    <option key={w.id} value={w.id}>{w.nombre_bodega}</option>
-                  ))}
+                  {warehouses.map(w => {
+                    const occupiedByOther = stores.find(st => st.id !== storeForm.id && st.bodega_asociada_id === w.id);
+                    return (
+                      <option key={w.id} value={w.id} disabled={!!occupiedByOther}>
+                        {w.nombre_bodega} {occupiedByOther ? `(Ya conectada a ${occupiedByOther.nombre})` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                <span style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '0.2rem', display: 'block' }}>
+                  * Cada punto de venta debe tener una única bodega exclusiva.
+                </span>
               </div>
 
               <div>
@@ -5437,6 +5747,102 @@ export default function StoreAdminPage() {
                 <button type="button" onClick={() => setShowStoreModal(false)} className="btn" style={{ flex: 1 }}>Cancelar</button>
                 <button type="submit" disabled={savingStore} className="btn btn-primary" style={{ flex: 1 }}>
                   {savingStore ? 'Guardando...' : 'Guardar Sucursal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONECTAR BODEGA EXCLUSIVA A UN PUNTO DE VENTA Y TRASLADAR STOCK */}
+      {showConnectWarehouseModal && selectedStoreForConnection && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, backdropFilter: 'blur(4px)' }}>
+          <div className="card" style={{ width: '90%', maxWidth: '540px', padding: '2rem', borderRadius: '16px', backgroundColor: 'white', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: '950', fontSize: '1.2rem', color: '#0f172a' }}>
+                  🔗 Conectar Bodega a Punto de Venta
+                </h3>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                  Sucursal: <strong>{selectedStoreForConnection.nombre} ({selectedStoreForConnection.codigo})</strong>
+                </p>
+              </div>
+              <button onClick={() => setShowConnectWarehouseModal(false)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteConnectWarehouse} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#334155' }}>
+                <div style={{ marginBottom: '0.4rem' }}>
+                  <span style={{ color: '#64748b' }}>Bodega Actual: </span>
+                  <strong style={{ color: '#0f172a' }}>{selectedStoreForConnection.warehouses?.nombre_bodega || 'Sin Bodega Conectada'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748b' }}>Regla de Negocio: </span>
+                  <strong style={{ color: '#80082E' }}>Un punto de venta solo puede tener 1 única bodega exclusiva.</strong>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '800', color: '#0f172a', marginBottom: '0.5rem' }}>
+                  Seleccionar Bodega de Destino para este Punto:
+                </label>
+                <select
+                  required
+                  value={newWarehouseIdForStore}
+                  onChange={e => setNewWarehouseIdForStore(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600' }}
+                >
+                  <option value="">Selecciona una bodega...</option>
+                  {warehouses.map(w => {
+                    const occupiedByOther = stores.find(st => st.id !== selectedStoreForConnection.id && st.bodega_asociada_id === w.id);
+                    return (
+                      <option key={w.id} value={w.id} disabled={!!occupiedByOther}>
+                        {w.nombre_bodega} ({w.tipo}) {occupiedByOther ? `— [En uso por: ${occupiedByOther.nombre}]` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {selectedStoreForConnection.bodega_asociada_id && (
+                <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderRadius: '10px', border: '1.5px solid #86efac' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={migrateExistingStock}
+                      onChange={e => setMigrateExistingStock(e.target.checked)}
+                      style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#166534' }}>
+                        📦 Trasladar automáticamente todo el inventario existente
+                      </span>
+                      <span style={{ fontSize: '0.74rem', color: '#15803d' }}>
+                        Mueve todo el stock disponible y las prendas unitarias de la bodega anterior a la nueva bodega elegida, registrando kardex y dejando la bodega anterior en 0.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowConnectWarehouseModal(false)}
+                  className="btn"
+                  style={{ flex: 1, padding: '0.75rem', borderRadius: '8px' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isConnectingWarehouse || !newWarehouseIdForStore}
+                  className="btn btn-primary"
+                  style={{ flex: 1.5, padding: '0.75rem', borderRadius: '8px', fontWeight: '900', backgroundColor: '#80082E', border: 'none', color: 'white', cursor: isConnectingWarehouse ? 'not-allowed' : 'pointer' }}
+                >
+                  {isConnectingWarehouse ? 'Procesando conexión y traslado...' : 'Confirmar Conexión'}
                 </button>
               </div>
             </form>

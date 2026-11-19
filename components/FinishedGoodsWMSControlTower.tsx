@@ -137,33 +137,19 @@ function isSameWarehouse(item: any, w: any) {
   if (!item) return false;
   if (!w || w === 'all' || w.id === 'all') return true;
   
-  // 1. Coincidencia directa de ID
+  // Coincidencia estricta por ID de base de datos
   const itemWhId = item.warehouse_id || item.warehouses?.id;
-  if (itemWhId && (itemWhId === w.id || itemWhId === w._id)) return true;
-  
-  // 2. Coincidencia por nombre de bodega
-  const nameA = (item.warehouses?.nombre_bodega || item.nombre_bodega || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  const nameB = (w.nombre_bodega || w.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  
-  if (nameA && nameB && (nameA === nameB || nameA.includes(nameB) || nameB.includes(nameA))) return true;
-  
-  // 3. Coincidencias de número de bodega (ej: Bodega 2, Bodega 102, Confección)
-  if (
-    (nameA.includes('bodega 2') || nameA.includes('102') || nameA.includes('confeccion')) &&
-    (nameB.includes('bodega 2') || nameB.includes('102') || nameB.includes('confeccion'))
-  ) {
-    return true;
-  }
-  
-  // 4. Palabras clave principales
-  const keywords = ['principal', '101', 'lavanderia', 'saldos', 'incompletos', 'transito', 'local 1', 'local 2', 'confeccion', 'bodega 2', '102'];
-  for (const kw of keywords) {
-    if (nameA.includes(kw) && nameB.includes(kw)) return true;
+  const targetWhId = w.id || w._id;
+
+  if (itemWhId && targetWhId) {
+    return String(itemWhId) === String(targetWhId);
   }
 
-  // 5. Fallback: Si el ítem no tiene warehouse especificado pero la bodega es 'Principal', incluirlo por omisión
-  if (!itemWhId && !nameA && (nameB.includes('principal') || nameB.includes('101'))) return true;
-
+  // Si el ítem no tiene ID pero sí un nombre de bodega exacto
+  if (!itemWhId && item.warehouses?.nombre_bodega && w.nombre_bodega) {
+    return item.warehouses.nombre_bodega.trim().toLowerCase() === w.nombre_bodega.trim().toLowerCase();
+  }
+  
   return false;
 }
 

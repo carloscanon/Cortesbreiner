@@ -129,6 +129,7 @@ export function parsePriceListRules(pl: any) {
   let cantidad_minima = 1;
   let aplica_todas_categorias = true;
   let categorias_permitidas: string[] = [];
+  let excepciones_productos: string[] = [];
   let body_discount_type = 'precio_fijo';
   let body_discount_val: number | string = '';
   let top_discount_type = 'precio_fijo';
@@ -152,6 +153,9 @@ export function parsePriceListRules(pl: any) {
         }
         if (Array.isArray(parsed.categorias_permitidas)) {
           categorias_permitidas = parsed.categorias_permitidas;
+        }
+        if (Array.isArray(parsed.excepciones_productos)) {
+          excepciones_productos = parsed.excepciones_productos;
         }
         if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
         if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
@@ -180,6 +184,9 @@ export function parsePriceListRules(pl: any) {
           if (Array.isArray(parsed.categorias_permitidas)) {
             categorias_permitidas = parsed.categorias_permitidas;
           }
+          if (Array.isArray(parsed.excepciones_productos)) {
+            excepciones_productos = parsed.excepciones_productos;
+          }
           if (parsed.body_discount_type) body_discount_type = parsed.body_discount_type;
           if (parsed.body_discount_val !== undefined && parsed.body_discount_val !== null) body_discount_val = parsed.body_discount_val;
           if (parsed.top_discount_type) top_discount_type = parsed.top_discount_type;
@@ -202,6 +209,9 @@ export function parsePriceListRules(pl: any) {
   if (Array.isArray(pl?.categorias_permitidas)) {
     categorias_permitidas = pl.categorias_permitidas;
   }
+  if (Array.isArray(pl?.excepciones_productos)) {
+    excepciones_productos = pl.excepciones_productos;
+  }
 
   const userDesc = cleanPriceListDesc(rawDesc);
 
@@ -209,6 +219,7 @@ export function parsePriceListRules(pl: any) {
     cantidad_minima,
     aplica_todas_categorias,
     categorias_permitidas,
+    excepciones_productos,
     body_discount_type,
     body_discount_val,
     top_discount_type,
@@ -2699,6 +2710,21 @@ export default function POSPage() {
     const prodId = product.id || '';
     const prodName = (product.nombre_producto || '').toLowerCase();
 
+    // Regla 1.5: Excepciones de Prendas (Para estas prendas NO aplica ningún descuento ni precio especial)
+    if (rules.excepciones_productos && rules.excepciones_productos.length > 0) {
+      const isExempt = rules.excepciones_productos.some(ex => {
+        const e = (ex || '').toLowerCase().trim();
+        return e === prodId.toLowerCase() ||
+               e === prodRef.toLowerCase() ||
+               e === `ref:${prodRef}`.toLowerCase() ||
+               e === `prod:${prodId}`.toLowerCase() ||
+               prodName === e;
+      });
+      if (isExempt) {
+        return basePrice; // Precio original sin descuento
+      }
+    }
+
     // Regla 2: Filtro de Categorías / Referencias Permitidas
     if (!rules.aplica_todas_categorias && rules.categorias_permitidas && rules.categorias_permitidas.length > 0) {
       const isAllowed = rules.categorias_permitidas.some(allowed => {
@@ -3384,8 +3410,19 @@ export default function POSPage() {
   const handleUpdateQty = (index: number, qty: number) => {
     const newCart = [...cart];
     newCart[index].cantidad += qty;
-    if (newCart[index].cantidad === 0) {
+    if (newCart[index].cantidad <= 0) {
       newCart.splice(index, 1);
+    }
+    setCart(newCart);
+  };
+
+  const handleSetExactQty = (index: number, newQty: number) => {
+    const cleanQty = Math.floor(Number(newQty));
+    const newCart = [...cart];
+    if (isNaN(cleanQty) || cleanQty <= 0) {
+      newCart.splice(index, 1);
+    } else {
+      newCart[index].cantidad = cleanQty;
     }
     setCart(newCart);
   };
@@ -3743,14 +3780,25 @@ export default function POSPage() {
         });
       });
 
+      // Limpieza integral y refresco de estado para la nueva venta
       setSelectedCustomer({ name: 'Cliente General', document: '2222222222' });
+      setSelectedPriceListId('');
+      setPaymentMethod('Efectivo');
       setCart([]);
       setCartNotes('');
+      setObservaciones('');
+      setSearchQuery('');
+      setCartCurrentStep('cart');
       setTransferReferenceCode('');
       setTransferItems([{ id: '1', methodId: selectedTransferMethodId || 'bancolombia-1', monto: '', referencia: '' }]);
       setMixedCashAmount('');
       setMixedCardAmount('');
       setMixedTransferAmount('');
+      setShowMixedTransfer(false);
+      setResolvedBarcodeRef(null);
+      setScannedGarment(null);
+
+      // Refrescar inventario y totales en tiempo real
       if (currentSession) {
         fetchSessionSalesTotal(currentSession.id);
         fetchSessionSalesDetails(currentSession.id);
@@ -8394,20 +8442,49 @@ export default function POSPage() {
                           REF: {item.codigo_referencia || '0132'} - Talla: {sizes.find(s => s.id === item.size_id)?.codigo_talla || 'M'} - Color: {colors.find(c => c.id === item.color_id)?.nombre_color || 'Blanco'}
                         </div>
 
-                        {/* Quantity Adjuster inline */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.35rem' }}>
+                        {/* Quantity Adjuster inline con soporte para escribir el número directamente */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.35rem' }}>
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '0.5rem',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: '4px',
-                            padding: '0.15rem 0.4rem',
-                            backgroundColor: '#f8fafc'
+                            border: '1.5px solid #cbd5e1',
+                            borderRadius: '6px',
+                            backgroundColor: '#f8fafc',
+                            overflow: 'hidden'
                           }}>
-                            <button type="button" onClick={() => handleUpdateQty(idx, -1)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#64748b', fontSize: '0.68rem' }}>-</button>
-                            <span style={{ fontSize: '0.7rem', fontWeight: '850', color: '#0f172a', minWidth: '12px', textAlign: 'center' }}>{item.cantidad}</span>
-                            <button type="button" onClick={() => handleUpdateQty(idx, 1)} style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#0f172a', fontSize: '0.68rem' }}>+</button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateQty(idx, -1)}
+                              style={{ border: 'none', backgroundColor: '#f1f5f9', cursor: 'pointer', color: '#64748b', fontSize: '0.75rem', fontWeight: '900', padding: '0.15rem 0.45rem' }}
+                              title="Restar 1"
+                            >-</button>
+                            <input
+                              type="number"
+                              min={1}
+                              value={item.cantidad}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                handleSetExactQty(idx, isNaN(val) ? 1 : val);
+                              }}
+                              style={{
+                                width: '38px',
+                                border: 'none',
+                                textAlign: 'center',
+                                fontSize: '0.75rem',
+                                fontWeight: '900',
+                                color: '#0f172a',
+                                padding: '0.15rem 0.1rem',
+                                outline: 'none',
+                                backgroundColor: 'white'
+                              }}
+                              title="Escribe la cantidad directamente (ej: 20)"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateQty(idx, 1)}
+                              style={{ border: 'none', backgroundColor: '#f1f5f9', cursor: 'pointer', color: '#0f172a', fontSize: '0.75rem', fontWeight: '900', padding: '0.15rem 0.45rem' }}
+                              title="Sumar 1"
+                            >+</button>
                           </div>
                           
                           {/* Item Trash delete button */}
@@ -8416,7 +8493,7 @@ export default function POSPage() {
                             newCart.splice(idx, 1);
                             setCart(newCart);
                           }} style={{ border: 'none', backgroundColor: 'transparent', color: '#dc2626', cursor: 'pointer', padding: '0.2rem' }}>
-                            <Trash2 size={12} />
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </div>
