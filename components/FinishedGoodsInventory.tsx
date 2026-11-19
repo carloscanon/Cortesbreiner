@@ -17,76 +17,79 @@ import AuditGunScannerView from '@/components/audit/AuditGunScannerView';
 import AuditReconciliationModal from '@/components/audit/AuditReconciliationModal';
 
 // Componente de código de barras usando bwip-js (estándar industrial ISO/IEC)
-// Renderiza en canvas oculto y exporta como <img> para impresión confiable
+// Renderiza en canvas oculto y exporta como <img> (data:image/png) para impresión confiable y offline
 function BarcodeCanvas({ text, type, height, garmentId }: { text: string; type: string; height: number; garmentId?: string }) {
   const [imgSrc, setImgSrc] = useState<string>('');
 
   useEffect(() => {
     if (!text) return;
 
-    if (type === 'qr') return;
-
+    let isMounted = true;
     const canvas = document.createElement('canvas');
-    const bcid = type === 'code39' ? 'code39' : 'code128';
+    const isQr = type === 'qr';
+    const bcid = isQr ? 'qrcode' : (type === 'code39' ? 'code39' : 'code128');
     const encodetext = type === 'code39'
       ? text.toUpperCase().replace(/[^0-9A-Z\-\. ]/g, '')
       : text;
 
     import('bwip-js').then((bwipjs) => {
       try {
-        bwipjs.toCanvas(canvas, {
-          bcid,
-          text: encodetext,
-          scale: 4,
-          height: 14,
-          includetext: false,
-          paddingleft: 8,
-          paddingright: 8,
-          paddingtop: 2,
-          paddingbottom: 2,
-          backgroundcolor: 'ffffff',
-          barcolor: '000000',
-        });
-        setImgSrc(canvas.toDataURL('image/png'));
+        if (isQr) {
+          bwipjs.toCanvas(canvas, {
+            bcid: 'qrcode',
+            text: encodetext,
+            scale: 3,
+            paddingleft: 2,
+            paddingright: 2,
+            paddingtop: 2,
+            paddingbottom: 2,
+            backgroundcolor: 'ffffff',
+            barcolor: '000000',
+          });
+        } else {
+          bwipjs.toCanvas(canvas, {
+            bcid,
+            text: encodetext,
+            scale: 4,
+            height: 14,
+            includetext: false,
+            paddingleft: 8,
+            paddingright: 8,
+            paddingtop: 2,
+            paddingbottom: 2,
+            backgroundcolor: 'ffffff',
+            barcolor: '000000',
+          });
+        }
+        if (isMounted) {
+          setImgSrc(canvas.toDataURL('image/png'));
+        }
       } catch (e) {
         console.error('bwip-js error:', e);
       }
     });
+
+    return () => {
+      isMounted = false;
+    };
   }, [text, type, height]);
 
-  if (type === 'qr') {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}&margin=6&ecc=M`;
-    return (
-      <img
-        src={qrUrl}
-        alt={text}
-        data-barcode-garment-id={garmentId}
-        style={{
-          width: `${height * 1.6}px`,
-          height: `${height * 1.6}px`,
-          display: 'block',
-          margin: '0 auto',
-          WebkitPrintColorAdjust: 'exact',
-          printColorAdjust: 'exact'
-        }}
-      />
-    );
-  }
-
   if (!imgSrc) {
-    return <div style={{ height: `${height}px`, width: '100%' }} />;
+    return <div style={{ height: `${type === 'qr' ? height * 1.6 : height}px`, width: '100%' }} />;
   }
 
+  const isQr = type === 'qr';
   return (
     <img
       src={imgSrc}
       alt={text}
       data-barcode-garment-id={garmentId}
       style={{
+        width: isQr ? `${height * 1.6}px` : undefined,
+        maxWidth: '100%',
+        height: `${isQr ? height * 1.6 : height}px`,
         display: 'block',
         margin: '0 auto',
-        maxWidth: '100%',
-        height: `${height}px`,
         objectFit: 'contain',
         imageRendering: 'crisp-edges',
         WebkitPrintColorAdjust: 'exact',
