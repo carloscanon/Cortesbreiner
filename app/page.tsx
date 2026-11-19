@@ -953,20 +953,32 @@ export default function Dashboard() {
           targetSewingOrderId = newSo.id;
         }
       } else {
-        // 1. Update sewing order status to 'Enviado a Calidad' for all products
+        // 1. Update ONLY THIS sewing order status to 'Enviado a Calidad'
         const { error: statusErr } = await supabase
           .from('sewing_orders')
           .update({ status: 'Enviado a Calidad' })
-          .eq('parent_order_id', so.parent_order_id)
-          .eq('workshop_id', so.workshop_id);
+          .eq('id', targetSewingOrderId);
         if (statusErr) throw statusErr;
       }
 
       if (so.parent_order_id) {
-        await supabase
-          .from('orders')
-          .update({ status: 'Enviado a Calidad' })
-          .eq('id', so.parent_order_id);
+        // Verificar si todas las órdenes de confección hermanas ya fueron enviadas a calidad o terminadas
+        const { data: siblingOrders } = await supabase
+          .from('sewing_orders')
+          .select('id, status')
+          .eq('parent_order_id', so.parent_order_id);
+
+        const allReported = siblingOrders && siblingOrders.every(s => 
+          (s.id === targetSewingOrderId ? 'Enviado a Calidad' : s.status) === 'Enviado a Calidad' || 
+          s.status === 'Terminada'
+        );
+
+        if (allReported) {
+          await supabase
+            .from('orders')
+            .update({ status: 'Enviado a Calidad' })
+            .eq('id', so.parent_order_id);
+        }
       }
 
       // 2. Create or update quality inspection

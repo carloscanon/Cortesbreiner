@@ -1441,6 +1441,26 @@ export default function SewingPage() {
         if (statusErr) throw statusErr;
       }
 
+      // Actualizar la orden principal solo si todas sus órdenes de confección ya fueron enviadas o terminadas
+      if (so.parent_order_id) {
+        const { data: siblingOrders } = await supabase
+          .from('sewing_orders')
+          .select('id, status')
+          .eq('parent_order_id', so.parent_order_id);
+
+        const allReported = siblingOrders && siblingOrders.every(s => 
+          (s.id === targetSewingOrderId ? 'Enviado a Calidad' : s.status) === 'Enviado a Calidad' || 
+          s.status === 'Terminada'
+        );
+
+        if (allReported) {
+          await supabase
+            .from('orders')
+            .update({ status: 'Enviado a Calidad' })
+            .eq('id', so.parent_order_id);
+        }
+      }
+
       // 2. Create quality inspection
       const { data: existingInspections } = await supabase
         .from('quality_inspections')
@@ -1604,7 +1624,7 @@ export default function SewingPage() {
       const workshopName = ws ? ws.nombre_taller : 'Nuevo Taller';
 
       const timestamp = new Date().toLocaleDateString('es-ES');
-      const updatedNotes = `${so.prep_notes || ''}\n[Reasignado a ${workshopName} el ${timestamp}]. Obs: ${reassignNotes}`.trim();
+      const updatedNotes = `${so.workshop_notes || ''}\n[Reasignado a ${workshopName} el ${timestamp}]. Obs: ${reassignNotes}`.trim();
 
       // 1. Actualizar taller y estado de la orden en la base de datos
       const { error: updateErr } = await supabase
@@ -1612,7 +1632,7 @@ export default function SewingPage() {
         .update({
           workshop_id: reassignWorkshopId,
           status: 'Enviado a Taller',
-          prep_notes: updatedNotes
+          workshop_notes: updatedNotes
         })
         .eq('id', so.id);
 
