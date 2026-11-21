@@ -728,13 +728,34 @@ export default function POSPage() {
       if (!selectedStore?.id) return;
       setIsRefreshingInventory(true);
 
+      // Consultar siempre la bodega asociada fresca y directa desde la base de datos para garantizar consistencia total
+      let activeWarehouseId = selectedStore.bodega_asociada_id;
+      let activeWarehouseName = selectedStore.warehouses?.nombre_bodega || '';
+      try {
+        const { data: freshStoreRow } = await supabase
+          .from('stores')
+          .select('id, bodega_asociada_id, warehouses:bodega_asociada_id(id, nombre_bodega)')
+          .eq('id', selectedStore.id)
+          .maybeSingle();
+
+        if (freshStoreRow) {
+          activeWarehouseId = freshStoreRow.bodega_asociada_id;
+          activeWarehouseName = (freshStoreRow as any).warehouses?.nombre_bodega || activeWarehouseName;
+          if (activeWarehouseId !== selectedStore.bodega_asociada_id) {
+            setSelectedStore((prev: any) => prev ? { ...prev, bodega_asociada_id: activeWarehouseId, warehouses: (freshStoreRow as any).warehouses } : prev);
+          }
+        }
+      } catch (errStoreLookup) {
+        console.warn('Could not re-fetch fresh store bodega_asociada_id:', errStoreLookup);
+      }
+
       const stockPromise = (async () => {
-        if (selectedStore.bodega_asociada_id) {
+        if (activeWarehouseId) {
           return await fetchAllPages(
             supabase
               .from('finished_goods_stock')
               .select('id, warehouse_id, product_id, color_id, size_id, cantidad_disponible, cantidad_reservada, products(id, nombre_producto, codigo_referencia, precio, categoria, category_id, categories(id, categoria)), sizes(id, codigo_talla, nombre_talla), colors(id, nombre_color, hex_color, name, hex_code)')
-              .eq('warehouse_id', selectedStore.bodega_asociada_id)
+              .eq('warehouse_id', activeWarehouseId)
           );
         } else {
           return await fetchAllPages(
@@ -754,8 +775,8 @@ export default function POSPage() {
           .not('defect_checklist->>is_sold', 'eq', 'true')
           .order('created_at', { ascending: false });
 
-        if (selectedStore.bodega_asociada_id) {
-          garmentQuery = garmentQuery.eq('warehouse_id', selectedStore.bodega_asociada_id);
+        if (activeWarehouseId) {
+          garmentQuery = garmentQuery.eq('warehouse_id', activeWarehouseId);
         } else {
           garmentQuery = garmentQuery.eq('store_id', selectedStore.id);
         }
@@ -1709,7 +1730,7 @@ export default function POSPage() {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const { data: st } = await supabase.from('stores').select('*').eq('estado', 'activo');
+      const { data: st } = await supabase.from('stores').select('*, warehouses:bodega_asociada_id(id, nombre_bodega, tipo)').eq('estado', 'activo');
       const prod = await fetchAllPages(supabase.from('products').select('*, categories(*)').neq('estado', 'inactivo'));
       const { data: col } = await supabase.from('colors').select('*');
       const { data: sz } = await supabase.from('sizes').select('*').order('orden_visual');
@@ -5083,8 +5104,17 @@ export default function POSPage() {
             {activeMenuId === 'productos' ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1.5rem', overflowY: 'auto', gap: '1.25rem', backgroundColor: '#f8fafc' }} className="pos-scrollbar">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Inventario y Recepción</h2>
-                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{selectedStore?.nombre || 'Sucursal'}</span>
+                  <div>
+                    <h2 style={{ fontSize: '1.1rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Inventario y Recepción</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0f172a' }}>{selectedStore?.nombre || 'Sucursal'}</span>
+                      {selectedStore?.warehouses?.nombre_bodega && (
+                        <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '6px', backgroundColor: '#e0f2fe', color: '#0369a1', fontWeight: '800', border: '1px solid #bae6fd' }}>
+                          🏢 Bodega conectada: {selectedStore.warehouses.nombre_bodega}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 
                 {/* Tabs */}

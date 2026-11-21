@@ -176,6 +176,16 @@ export default function FinishedGoodsInventory() {
   // Inter-Warehouse Transfer Detail & PDF Modal
   const [showTransferDetailModal, setShowTransferDetailModal] = useState(false);
   const [selectedTransferForDetail, setSelectedTransferForDetail] = useState<any>(null);
+  const [exportingTransferExcelId, setExportingTransferExcelId] = useState<string | null>(null);
+
+  // Modal y filtros para Reporte Consolidado Macro de Traslados por Bodega y Día
+  const [showMacroTransferModal, setShowMacroTransferModal] = useState(false);
+  const [macroDestWarehouseId, setMacroDestWarehouseId] = useState<string>('');
+  const [macroTransferDate, setMacroTransferDate] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().slice(0, 10);
+  });
+  const [isExportingMacroTransfer, setIsExportingMacroTransfer] = useState(false);
 
   const handlePrintTransferPDF = (tx: any) => {
     const printWin = window.open('', '_blank');
@@ -190,7 +200,6 @@ export default function FinishedGoodsInventory() {
     const itemsHtml = items.map((it: any, index: number) => {
       const prodName = it.resolved_display_name || it.products?.nombre_producto || 'Prenda';
       const refCode = it.products?.codigo_referencia || 'N/A';
-      const colorName = it.colors?.nombre_color || 'N/A';
       const sizeCode = it.sizes?.codigo_talla || 'N/A';
       const barcodesList = (it.barcodes || []).join(', ') || 'N/A';
 
@@ -201,7 +210,6 @@ export default function FinishedGoodsInventory() {
             <strong style="color: #0f172a; font-size: 14px;">${prodName}</strong><br/>
             <span style="font-size: 11px; color: #64748b;">Ref: ${refCode}</span>
           </td>
-          <td style="padding: 10px 12px; font-weight: 600; color: #334155;">${colorName}</td>
           <td style="padding: 10px 12px; text-align: center;"><span style="background-color: #f1f5f9; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 12px;">${sizeCode}</span></td>
           <td style="padding: 10px 12px; text-align: right; font-weight: 900; color: #0f172a; font-size: 14px;">${it.cantidad}</td>
           <td style="padding: 10px 12px; font-size: 10px; color: #475569; max-width: 200px; word-break: break-all;">${barcodesList}</td>
@@ -395,7 +403,6 @@ export default function FinishedGoodsInventory() {
                 <tr>
                   <th style="text-align: center;">#</th>
                   <th style="text-align: left;">Producto / Referencia</th>
-                  <th style="text-align: left;">Color</th>
                   <th style="text-align: center;">Talla</th>
                   <th style="text-align: right;">Cantidad</th>
                   <th style="text-align: left;">Códigos Únicos (Stickers)</th>
@@ -437,6 +444,601 @@ export default function FinishedGoodsInventory() {
     printWin.document.open();
     printWin.document.write(htmlContent);
     printWin.document.close();
+  };
+
+  const handleDownloadTransferExcel = async (tx: any) => {
+    if (!tx) return;
+    setExportingTransferExcelId(tx.id);
+    try {
+      const XLSX = await import('xlsx');
+      const items = tx.finished_goods_transfer_items || [];
+      const txCode = `TR-${tx.consecutive || tx.id?.slice(0, 6)}`;
+      const txDate = tx.created_at ? new Date(tx.created_at).toLocaleString('es-CO') : '—';
+      const origName = tx.orig?.nombre_bodega || '—';
+      const destName = tx.dest?.nombre_bodega || '—';
+      const totalUnits = items.reduce((acc: number, it: any) => acc + (Number(it.cantidad) || 0), 0);
+
+      // Consultar en BD los detalles exactos por código de barras para enriquecer referencia, talla y color
+      const txBarcodes: string[] = [];
+      items.forEach((it: any) => {
+        if (Array.isArray(it.barcodes)) {
+          it.barcodes.forEach((bc: any) => {
+            const clean = String(bc || '').trim();
+            if (clean) txBarcodes.push(clean);
+          });
+        }
+      });
+
+      const garmentByBarcode: Record<string, { reference_name?: string; color_name?: string; size_code?: string }> = {};
+      if (txBarcodes.length > 0) {
+        const uniqueBarcodes = Array.from(new Set(txBarcodes));
+        const chunkSize = 200;
+        for (let i = 0; i < uniqueBarcodes.length; i += chunkSize) {
+          const chunk = uniqueBarcodes.slice(i, i + chunkSize);
+          const { data: garmentsData } = await supabase
+            .from('individual_garments')
+            .select('barcode, reference_name, color_name, size_code')
+            .in('barcode', chunk);
+
+          (garmentsData || []).forEach((g: any) => {
+            if (g.barcode) {
+              garmentByBarcode[String(g.barcode).trim().toUpperCase()] = {
+                reference_name: g.reference_name,
+                color_name: g.color_name,
+                size_code: g.size_code
+              };
+            }
+          });
+        }
+      }
+
+      // ── HOJA 1: Resumen por Referencia / Talla / Color ──
+      const summaryRows: any[][] = [
+        ['COMPROBANTE DE TRASLADO INTER-BODEGA - CORTES BREINER'],
+        ['Consecutivo', txCode, 'Fecha', txDate],
+        ['Bodega Origen', origName, 'Bodega Destino', destName],
+        ['Estado', tx.estado || '—', 'Responsable', tx.usuario || 'Sistema'],
+        ['Observaciones', tx.observaciones || '—', 'Total Prendas', totalUnits],
+        [],
+        ['#', 'Código Referencia', 'Producto / Referencia', 'Color', 'Talla', 'Cantidad', 'Códigos de Barras']
+      ];
+
+      items.forEach((it: any, index: number) => {
+        const barcodesArr: string[] = Array.isArray(it.barcodes)
+          ? it.barcodes.map((b: any) => String(b || '').trim()).filter(Boolean)
+          : [];
+        const firstGarment = barcodesArr.length > 0 ? garmentByBarcode[barcodesArr[0].toUpperCase()] : undefined;
+
+        const refCode = String(it.products?.codigo_referencia || 'N/A');
+        const prodName = it.resolved_display_name || firstGarment?.reference_name || it.products?.nombre_producto || 'Prenda';
+        const colorName = it.colors?.nombre_color || firstGarment?.color_name || 'N/A';
+        const sizeCode = it.sizes?.codigo_talla || firstGarment?.size_code || 'N/A';
+        const qty = Number(it.cantidad) || 0;
+        const barcodesStr = barcodesArr.length > 0 ? barcodesArr.join(', ') : 'N/A (Lote Global)';
+
+        summaryRows.push([
+          index + 1,
+          refCode,
+          prodName,
+          colorName,
+          sizeCode,
+          qty,
+          barcodesStr
+        ]);
+      });
+
+      summaryRows.push(['', '', '', '', 'TOTAL PRENDAS', totalUnits, '']);
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+      // Forzar texto en Código Referencia (col B) y Códigos de Barras (col G) para evitar notación científica
+      for (let r = 7; r < summaryRows.length - 1; r++) {
+        const refCell = wsSummary[XLSX.utils.encode_cell({ r, c: 1 })];
+        if (refCell) { refCell.t = 's'; refCell.z = '@'; }
+        const bcCell = wsSummary[XLSX.utils.encode_cell({ r, c: 6 })];
+        if (bcCell) { bcCell.t = 's'; bcCell.z = '@'; }
+      }
+      wsSummary['!cols'] = [
+        { wch: 6 },
+        { wch: 20 },
+        { wch: 36 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 48 }
+      ];
+
+      // ── HOJA 2: Detalle Unidad por Unidad (Referencia, Talla, Color y Código de Barras) ──
+      const detailRows: any[][] = [
+        [
+          '#',
+          'Consecutivo',
+          'Fecha',
+          'Bodega Origen',
+          'Bodega Destino',
+          'Estado',
+          'Código Referencia',
+          'Producto / Referencia',
+          'Color',
+          'Talla',
+          'Cantidad',
+          'Código de Barras'
+        ]
+      ];
+
+      let detailIndex = 1;
+      let detailTotalQty = 0;
+
+      items.forEach((it: any) => {
+        const barcodesArr: string[] = Array.isArray(it.barcodes)
+          ? it.barcodes.map((b: any) => String(b || '').trim()).filter(Boolean)
+          : [];
+        const itemQty = Number(it.cantidad) || 0;
+        const baseRefCode = String(it.products?.codigo_referencia || 'N/A');
+        const baseProdName = it.resolved_display_name || it.products?.nombre_producto || 'Prenda';
+        const baseColor = it.colors?.nombre_color || 'N/A';
+        const baseSize = it.sizes?.codigo_talla || 'N/A';
+
+        if (barcodesArr.length > 0) {
+          barcodesArr.forEach((bc) => {
+            const g = garmentByBarcode[bc.toUpperCase()];
+            detailRows.push([
+              detailIndex++,
+              txCode,
+              txDate,
+              origName,
+              destName,
+              tx.estado || '—',
+              baseRefCode,
+              g?.reference_name || baseProdName,
+              it.colors?.nombre_color || g?.color_name || baseColor,
+              it.sizes?.codigo_talla || g?.size_code || baseSize,
+              1,
+              bc
+            ]);
+            detailTotalQty += 1;
+          });
+
+          if (itemQty > barcodesArr.length) {
+            const remainder = itemQty - barcodesArr.length;
+            detailRows.push([
+              detailIndex++,
+              txCode,
+              txDate,
+              origName,
+              destName,
+              tx.estado || '—',
+              baseRefCode,
+              baseProdName,
+              baseColor,
+              baseSize,
+              remainder,
+              'Sin código de barras individual'
+            ]);
+            detailTotalQty += remainder;
+          }
+        } else {
+          detailRows.push([
+            detailIndex++,
+            txCode,
+            txDate,
+            origName,
+            destName,
+            tx.estado || '—',
+            baseRefCode,
+            baseProdName,
+            baseColor,
+            baseSize,
+            itemQty,
+            'N/A (Lote Global)'
+          ]);
+          detailTotalQty += itemQty;
+        }
+      });
+
+      detailRows.push(['', '', '', '', '', '', '', '', '', 'TOTAL PRENDAS', detailTotalQty, '']);
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+      // Forzar texto en Código Referencia (col G, idx 6) y Código de Barras (col L, idx 11)
+      for (let r = 1; r < detailRows.length - 1; r++) {
+        const refCell = wsDetail[XLSX.utils.encode_cell({ r, c: 6 })];
+        if (refCell) { refCell.t = 's'; refCell.z = '@'; }
+        const bcCell = wsDetail[XLSX.utils.encode_cell({ r, c: 11 })];
+        if (bcCell) { bcCell.t = 's'; bcCell.z = '@'; }
+      }
+      wsDetail['!cols'] = [
+        { wch: 6 },
+        { wch: 14 },
+        { wch: 20 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 36 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 28 }
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen Referencias');
+      XLSX.utils.book_append_sheet(wb, wsDetail, 'Detalle Codigos Barras');
+
+      const safeDate = tx.created_at ? new Date(tx.created_at).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const filename = `Traslado_${txCode}_${safeDate}.xlsx`;
+      
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Error al exportar traslado a Excel:', err);
+      alert('Error al generar el Excel del traslado: ' + (err?.message || err));
+    } finally {
+      setExportingTransferExcelId(null);
+    }
+  };
+
+  const handleExportMacroTransfersByDayAndWarehouse = async () => {
+    if (!macroDestWarehouseId) {
+      alert('Por favor selecciona la bodega de destino.');
+      return;
+    }
+    if (!macroTransferDate) {
+      alert('Por favor selecciona la fecha del traslado.');
+      return;
+    }
+
+    setIsExportingMacroTransfer(true);
+    try {
+      const XLSX = await import('xlsx');
+      const destWh = warehouses.find(w => String(w.id) === String(macroDestWarehouseId));
+      const destWhName = destWh?.nombre_bodega || 'Bodega';
+
+      // Definir rango de fecha (día completo en hora local)
+      const startDateStr = `${macroTransferDate}T00:00:00.000Z`;
+      const endDateStr = `${macroTransferDate}T23:59:59.999Z`;
+
+      // Consultar todos los traslados que tuvieron como destino esta bodega en la fecha indicada
+      const { data: dbTransfers, error: fetchErr } = await supabase
+        .from('finished_goods_transfers')
+        .select(`
+          *,
+          orig:warehouses!finished_goods_transfers_warehouse_orig_id_fkey (nombre_bodega),
+          dest:warehouses!finished_goods_transfers_warehouse_dest_id_fkey (nombre_bodega),
+          finished_goods_transfer_items (
+            *,
+            products (nombre_producto, codigo_referencia),
+            colors (nombre_color),
+            sizes (codigo_talla)
+          )
+        `)
+        .eq('warehouse_dest_id', macroDestWarehouseId)
+        .gte('created_at', startDateStr)
+        .lte('created_at', endDateStr)
+        .order('created_at', { ascending: true });
+
+      if (fetchErr) throw fetchErr;
+
+      // Filtrar también en memoria por fecha si hay discrepancias de zona horaria
+      let targetTransfers = (dbTransfers || []).filter((tx: any) => {
+        if (!tx.created_at) return false;
+        const localDate = new Date(tx.created_at).toLocaleDateString('en-CA'); // YYYY-MM-DD
+        return localDate === macroTransferDate || tx.created_at.startsWith(macroTransferDate);
+      });
+
+      // Si no encontró por rango estricto UTC, verificar con filtro amplio
+      if (targetTransfers.length === 0 && (dbTransfers || []).length > 0) {
+        targetTransfers = dbTransfers || [];
+      }
+
+      if (targetTransfers.length === 0) {
+        alert(`No se encontraron traslados hacia la bodega "${destWhName}" en la fecha ${macroTransferDate}.`);
+        setIsExportingMacroTransfer(false);
+        return;
+      }
+
+      // Recopilar todos los códigos de barras
+      const allBarcodes: string[] = [];
+      targetTransfers.forEach((tx: any) => {
+        (tx.finished_goods_transfer_items || []).forEach((it: any) => {
+          if (Array.isArray(it.barcodes)) {
+            it.barcodes.forEach((b: any) => {
+              const clean = String(b || '').trim();
+              if (clean) allBarcodes.push(clean);
+            });
+          }
+        });
+      });
+
+      const garmentMap: Record<string, { reference_name?: string; color_name?: string; size_code?: string }> = {};
+      if (allBarcodes.length > 0) {
+        const uniqueBarcodes = Array.from(new Set(allBarcodes));
+        const chunkSize = 200;
+        for (let i = 0; i < uniqueBarcodes.length; i += chunkSize) {
+          const chunk = uniqueBarcodes.slice(i, i + chunkSize);
+          const { data: gData } = await supabase
+            .from('individual_garments')
+            .select('barcode, reference_name, color_name, size_code')
+            .in('barcode', chunk);
+
+          (gData || []).forEach((g: any) => {
+            if (g.barcode) {
+              garmentMap[String(g.barcode).trim().toUpperCase()] = {
+                reference_name: g.reference_name,
+                color_name: g.color_name,
+                size_code: g.size_code
+              };
+            }
+          });
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // HOJA 1: CONSOLIDADO (Agrupado por Referencia, Color y Talla)
+      // ─────────────────────────────────────────────────────────────
+      // Estructura de consolidación
+      type ConsolidatedRow = {
+        refCode: string;
+        prodName: string;
+        colorName: string;
+        sizeCode: string;
+        totalQty: number;
+        transferCodes: Set<string>;
+        origins: Set<string>;
+        barcodes: string[];
+      };
+
+      const consolidatedMap: Record<string, ConsolidatedRow> = {};
+      let macroGrandTotalUnits = 0;
+
+      targetTransfers.forEach((tx: any) => {
+        const txCode = `TR-${tx.consecutive || tx.id?.slice(0, 6)}`;
+        const origName = tx.orig?.nombre_bodega || 'Origen';
+
+        (tx.finished_goods_transfer_items || []).forEach((it: any) => {
+          const barcodesArr: string[] = Array.isArray(it.barcodes)
+            ? it.barcodes.map((b: any) => String(b || '').trim()).filter(Boolean)
+            : [];
+          const firstG = barcodesArr.length > 0 ? garmentMap[barcodesArr[0].toUpperCase()] : undefined;
+
+          const refCode = String(it.products?.codigo_referencia || 'N/A');
+          const prodName = it.resolved_display_name || firstG?.reference_name || it.products?.nombre_producto || 'Prenda';
+          const colorName = it.colors?.nombre_color || firstG?.color_name || 'N/A';
+          const sizeCode = it.sizes?.codigo_talla || firstG?.size_code || 'N/A';
+          const qty = Number(it.cantidad) || 0;
+
+          macroGrandTotalUnits += qty;
+
+          const groupKey = `${refCode.trim().toUpperCase()}_${colorName.trim().toUpperCase()}_${sizeCode.trim().toUpperCase()}`;
+
+          if (!consolidatedMap[groupKey]) {
+            consolidatedMap[groupKey] = {
+              refCode,
+              prodName,
+              colorName,
+              sizeCode,
+              totalQty: 0,
+              transferCodes: new Set<string>(),
+              origins: new Set<string>(),
+              barcodes: []
+            };
+          }
+
+          consolidatedMap[groupKey].totalQty += qty;
+          consolidatedMap[groupKey].transferCodes.add(txCode);
+          consolidatedMap[groupKey].origins.add(origName);
+          if (barcodesArr.length > 0) {
+            consolidatedMap[groupKey].barcodes.push(...barcodesArr);
+          }
+        });
+      });
+
+      const sheet1Rows: any[][] = [
+        ['INFORME CONSOLIDADO DE TRASLADOS HACIA BODEGA'],
+        ['Bodega Destino', destWhName, 'Fecha de Traslado', macroTransferDate],
+        ['Total Traslados', targetTransfers.length, 'Total Prendas Despachadas', macroGrandTotalUnits],
+        ['Generado el', new Date().toLocaleString('es-CO'), 'Usuario', profile?.nombre || user?.email || 'Sistema'],
+        [],
+        ['#', 'Código Referencia', 'Producto / Referencia', 'Color', 'Talla', 'Cantidad Consolidada', 'Traslados Incluidos', 'Bodegas de Origen']
+      ];
+
+      const sortedConsolidated = Object.values(consolidatedMap).sort((a, b) => {
+        if (a.refCode < b.refCode) return -1;
+        if (a.refCode > b.refCode) return 1;
+        return a.sizeCode.localeCompare(b.sizeCode);
+      });
+
+      sortedConsolidated.forEach((item, idx) => {
+        sheet1Rows.push([
+          idx + 1,
+          item.refCode,
+          item.prodName,
+          item.colorName,
+          item.sizeCode,
+          item.totalQty,
+          Array.from(item.transferCodes).join(', '),
+          Array.from(item.origins).join(', ')
+        ]);
+      });
+
+      sheet1Rows.push(['', '', '', '', 'TOTAL GENERAL CONSOLIDADO', macroGrandTotalUnits, '', '']);
+
+      const wsConsolidado = XLSX.utils.aoa_to_sheet(sheet1Rows);
+      // Forzar formato texto en Código Referencia (col B)
+      for (let r = 6; r < sheet1Rows.length - 1; r++) {
+        const refCell = wsConsolidado[XLSX.utils.encode_cell({ r, c: 1 })];
+        if (refCell) { refCell.t = 's'; refCell.z = '@'; }
+      }
+      wsConsolidado['!cols'] = [
+        { wch: 6 },
+        { wch: 20 },
+        { wch: 38 },
+        { wch: 20 },
+        { wch: 12 },
+        { wch: 22 },
+        { wch: 30 },
+        { wch: 30 }
+      ];
+
+      // ─────────────────────────────────────────────────────────────
+      // HOJA 2: DISCRIMINADO (Detallado por prenda y código de barras)
+      // ─────────────────────────────────────────────────────────────
+      const sheet2Rows: any[][] = [
+        [
+          '#',
+          'Consecutivo Traslado',
+          'Fecha / Hora',
+          'Bodega Origen',
+          'Bodega Destino',
+          'Estado',
+          'Código Referencia',
+          'Producto / Referencia',
+          'Color',
+          'Talla',
+          'Cantidad',
+          'Código de Barras',
+          'Responsable'
+        ]
+      ];
+
+      let discIndex = 1;
+      let discTotalUnits = 0;
+
+      targetTransfers.forEach((tx: any) => {
+        const txCode = `TR-${tx.consecutive || tx.id?.slice(0, 6)}`;
+        const txDateTime = tx.created_at ? new Date(tx.created_at).toLocaleString('es-CO') : macroTransferDate;
+        const origName = tx.orig?.nombre_bodega || '—';
+        const usuario = tx.usuario || 'Sistema';
+
+        (tx.finished_goods_transfer_items || []).forEach((it: any) => {
+          const barcodesArr: string[] = Array.isArray(it.barcodes)
+            ? it.barcodes.map((b: any) => String(b || '').trim()).filter(Boolean)
+            : [];
+          const itemQty = Number(it.cantidad) || 0;
+          const baseRefCode = String(it.products?.codigo_referencia || 'N/A');
+          const baseProdName = it.resolved_display_name || it.products?.nombre_producto || 'Prenda';
+          const baseColor = it.colors?.nombre_color || 'N/A';
+          const baseSize = it.sizes?.codigo_talla || 'N/A';
+
+          if (barcodesArr.length > 0) {
+            barcodesArr.forEach((bc) => {
+              const g = garmentMap[bc.toUpperCase()];
+              sheet2Rows.push([
+                discIndex++,
+                txCode,
+                txDateTime,
+                origName,
+                destWhName,
+                tx.estado || '—',
+                baseRefCode,
+                g?.reference_name || baseProdName,
+                it.colors?.nombre_color || g?.color_name || baseColor,
+                it.sizes?.codigo_talla || g?.size_code || baseSize,
+                1,
+                bc,
+                usuario
+              ]);
+              discTotalUnits += 1;
+            });
+
+            if (itemQty > barcodesArr.length) {
+              const remainder = itemQty - barcodesArr.length;
+              sheet2Rows.push([
+                discIndex++,
+                txCode,
+                txDateTime,
+                origName,
+                destWhName,
+                tx.estado || '—',
+                baseRefCode,
+                baseProdName,
+                baseColor,
+                baseSize,
+                remainder,
+                'Sin código individual',
+                usuario
+              ]);
+              discTotalUnits += remainder;
+            }
+          } else {
+            sheet2Rows.push([
+              discIndex++,
+              txCode,
+              txDateTime,
+              origName,
+              destWhName,
+              tx.estado || '—',
+              baseRefCode,
+              baseProdName,
+              baseColor,
+              baseSize,
+              itemQty,
+              'N/A (Lote Global)',
+              usuario
+            ]);
+            discTotalUnits += itemQty;
+          }
+        });
+      });
+
+      sheet2Rows.push(['', '', '', '', '', '', '', '', '', 'TOTAL PRENDAS DISCRIMINADAS', discTotalUnits, '', '']);
+
+      const wsDiscriminado = XLSX.utils.aoa_to_sheet(sheet2Rows);
+      // Forzar formato texto en Código Referencia (col G, idx 6) y Código de Barras (col L, idx 11)
+      for (let r = 1; r < sheet2Rows.length - 1; r++) {
+        const refCell = wsDiscriminado[XLSX.utils.encode_cell({ r, c: 6 })];
+        if (refCell) { refCell.t = 's'; refCell.z = '@'; }
+        const bcCell = wsDiscriminado[XLSX.utils.encode_cell({ r, c: 11 })];
+        if (bcCell) { bcCell.t = 's'; bcCell.z = '@'; }
+      }
+      wsDiscriminado['!cols'] = [
+        { wch: 6 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 36 },
+        { wch: 18 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 28 },
+        { wch: 20 }
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsConsolidado, 'Consolidado');
+      XLSX.utils.book_append_sheet(wb, wsDiscriminado, 'Discriminado');
+
+      const cleanWh = destWhName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const macroFilename = `Reporte_Traslados_${cleanWh}_${macroTransferDate}.xlsx`;
+
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = macroFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setShowMacroTransferModal(false);
+    } catch (err: any) {
+      console.error('Error al exportar macro de traslados:', err);
+      alert('Error al generar el reporte de traslados en Excel: ' + (err?.message || err));
+    } finally {
+      setIsExportingMacroTransfer(false);
+    }
   };
 
   // Filters
@@ -3908,22 +4510,49 @@ export default function FinishedGoodsInventory() {
       {activeTab === 'transfers' && (
         <div className="card" style={{ padding: 0, borderRadius: '16px', overflow: 'hidden', backgroundColor: 'white', border: '1px solid var(--border)' }}>
           <div style={{ padding: '1.25rem 1.5rem', backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Transferencias Inter-Bodega</h3>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-              <input
-                type="text"
-                placeholder="Buscar traslado..."
-                value={transfersSearchQuery}
-                onChange={e => { setTransfersSearchQuery(e.target.value); setTransfersPage(1); }}
+            <div>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>Historial de Transferencias Inter-Bodega</h3>
+              <p style={{ fontSize: '0.74rem', color: '#64748b', margin: '0.15rem 0 0' }}>Trazabilidad y remisiones oficiales entre bodegas de producto terminado.</p>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setShowMacroTransferModal(true)}
                 style={{
-                  padding: '0.5rem 1rem 0.5rem 2.2rem',
+                  padding: '0.5rem 1rem',
                   borderRadius: '8px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '0.8rem',
-                  width: '280px'
+                  backgroundColor: '#15803d',
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: '900',
+                  fontSize: '0.78rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  boxShadow: '0 2px 4px rgba(21, 128, 61, 0.25)'
                 }}
-              />
+              >
+                <FileSpreadsheet size={16} /> 📊 Descargar Consolidado Macro (Excel)
+              </button>
+
+              <div style={{ position: 'relative' }}>
+                <Search size={16} style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  placeholder="Buscar traslado..."
+                  value={transfersSearchQuery}
+                  onChange={e => { setTransfersSearchQuery(e.target.value); setTransfersPage(1); }}
+                  style={{
+                    padding: '0.5rem 1rem 0.5rem 2.2rem',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.8rem',
+                    width: '260px'
+                  }}
+                />
+              </div>
             </div>
           </div>
           <div style={{ overflowX: 'auto' }}>
@@ -7081,6 +7710,172 @@ export default function FinishedGoodsInventory() {
                   }}
                 >
                   <Download size={16} /> {exportingWarehouseFlat ? 'Generando...' : 'Descargar Plano (.CSV)'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10. MODAL REPORTE MACRO DE TRASLADOS POR DÍA Y BODEGA */}
+      {showMacroTransferModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '20px',
+            maxWidth: '540px',
+            width: '100%',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+            border: '1px solid #cbd5e1'
+          }}>
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              backgroundColor: '#15803d',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <FileSpreadsheet size={22} />
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: 'white' }}>
+                  Consolidado Macro de Traslados (Excel)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMacroTransferModal(false)}
+                style={{ background: 'none', border: 'none', color: '#bbf7d0', cursor: 'pointer', padding: '0.2rem' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>
+                  Bodega Destino:
+                </label>
+                <select
+                  value={macroDestWarehouseId}
+                  onChange={e => setMacroDestWarehouseId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.88rem',
+                    fontWeight: '700',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="">-- Seleccionar Bodega Destino --</option>
+                  {warehouses.map(w => (
+                    <option key={w.id} value={w.id}>{w.nombre_bodega} ({w.tipo || 'Almacenamiento'})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '800', color: '#334155', marginBottom: '0.4rem' }}>
+                  Fecha de los Traslados:
+                </label>
+                <input
+                  type="date"
+                  value={macroTransferDate}
+                  onChange={e => setMacroTransferDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.88rem',
+                    fontWeight: '700',
+                    backgroundColor: 'white'
+                  }}
+                />
+              </div>
+
+              <div style={{
+                backgroundColor: '#f0fdf4',
+                padding: '0.9rem 1rem',
+                borderRadius: '12px',
+                border: '1.5px solid #bbf7d0',
+                fontSize: '0.8rem',
+                color: '#166534'
+              }}>
+                <div style={{ fontWeight: '800', marginBottom: '0.3rem' }}>
+                  📑 Estructura del libro Excel (.xlsx):
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <div>
+                    <strong>Hoja 1 (Consolidado):</strong> Agrupado por referencia, color y talla con las cantidades totales despachadas hacia la bodega ese día.
+                  </div>
+                  <div>
+                    <strong>Hoja 2 (Discriminado):</strong> Desglose detallado prenda por prenda con sus códigos de barras individuales (stickers), consecutivos de traslado y origen.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMacroTransferModal(false)}
+                  style={{
+                    padding: '0.65rem 1.25rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    backgroundColor: 'white',
+                    fontWeight: '800',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!macroDestWarehouseId || !macroTransferDate || isExportingMacroTransfer}
+                  onClick={handleExportMacroTransfersByDayAndWarehouse}
+                  style={{
+                    padding: '0.65rem 1.5rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    backgroundColor: '#15803d',
+                    color: 'white',
+                    fontWeight: '900',
+                    fontSize: '0.85rem',
+                    cursor: (!macroDestWarehouseId || !macroTransferDate || isExportingMacroTransfer) ? 'not-allowed' : 'pointer',
+                    opacity: (!macroDestWarehouseId || !macroTransferDate || isExportingMacroTransfer) ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    boxShadow: '0 2px 4px rgba(21, 128, 61, 0.25)'
+                  }}
+                >
+                  {isExportingMacroTransfer ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Generando Macro...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet size={16} /> Descargar Libro Excel
+                    </>
+                  )}
                 </button>
               </div>
             </div>
