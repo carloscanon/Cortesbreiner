@@ -3857,13 +3857,16 @@ export default function POSPage() {
       setResolvedBarcodeRef(null);
       setScannedGarment(null);
 
-      // Refrescar inventario y totales en tiempo real
+      // Refrescar totales de sesión y ventas en segundo plano sin congelar la UI
       if (currentSession) {
         fetchSessionSalesTotal(currentSession.id);
         fetchSessionSalesDetails(currentSession.id);
       }
-      await fetchInlineInventory();
       fetchInlineSales();
+      // El inventario inline se refresca en background sin bloquear la pantalla del cajero
+      setTimeout(() => {
+        fetchInlineInventory();
+      }, 100);
     } catch (err: any) {
       alert('Error guardando venta: ' + err.message);
     } finally {
