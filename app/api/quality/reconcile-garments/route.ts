@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       const existing = (garments || []).filter(g =>
         !matchedGarmentIds.has(g.id) &&
         isRefMatch(g.reference_name || '', row.productName || '') &&
-        (g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() &&
+        ((g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() || !g.color_name) &&
         (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
       );
 
@@ -96,17 +96,20 @@ export async function POST(req: Request) {
         const assignedWarehouseId = targetStatus === 'Rechazada' ? BODEGA_RECHAZOS_ID : BODEGA_TRANSITO_ID;
 
         if (g && targetStatus) {
-          // Ambos existen: check if status changed, warehouse cambió o inspection_id falta
+          // Ambos existen: check if status changed, warehouse cambió, inspection_id falta, o color_name necesita actualizarse
+          const colorNeedsUpdate = !g.color_name && row.colorName;
           const needsUpdate = g.status !== targetStatus || 
             (targetStatus === 'Rechazada' && g.warehouse_id !== BODEGA_RECHAZOS_ID) || 
-            (savedInspectionId && g.quality_inspection_id !== savedInspectionId);
+            (savedInspectionId && g.quality_inspection_id !== savedInspectionId) ||
+            colorNeedsUpdate;
             
           if (needsUpdate) {
             updates.push({
               id: g.id,
               status: targetStatus,
               warehouse_id: assignedWarehouseId,
-              quality_inspection_id: savedInspectionId || g.quality_inspection_id || null
+              quality_inspection_id: savedInspectionId || g.quality_inspection_id || null,
+              color_name: g.color_name || row.colorName || ''
             });
           }
         } else if (targetStatus) {
@@ -187,7 +190,8 @@ export async function POST(req: Request) {
       const results = await Promise.all(updates.map(upd =>
         supabaseAdmin.from('individual_garments').update({
           status: upd.status,
-          quality_inspection_id: upd.quality_inspection_id
+          quality_inspection_id: upd.quality_inspection_id,
+          color_name: upd.color_name
         }).eq('id', upd.id)
       ));
       const failed = results.find(r => r.error);

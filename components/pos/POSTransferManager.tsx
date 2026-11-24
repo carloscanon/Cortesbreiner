@@ -905,6 +905,37 @@ export default function POSTransferManager({
             status: 'Aprobada'
           })
           .in('barcode', barcodesToApprove);
+      } else if (destWhId) {
+        // Fallback robusto: si el traslado no traía códigos explícitos escaneados, reasignar prendas 'en_transito'
+        for (const item of (selectedReceiveTransfer.finished_goods_transfer_items || [])) {
+          const qty = Number(item.quantity_sent || item.quantity_received || item.cantidad || 0);
+          if (qty > 0) {
+            let query = supabase
+              .from('individual_garments')
+              .select('id')
+              .eq('status', 'en_transito')
+              .limit(qty);
+
+            if (item.product_id) {
+              const { data: prod } = await supabase.from('products').select('nombre_producto, codigo_referencia').eq('id', item.product_id).maybeSingle();
+              if (prod?.nombre_producto) {
+                query = query.ilike('reference_name', `%${prod.nombre_producto.split(' ')[0]}%`);
+              }
+            }
+
+            const { data: transitGarms } = await query;
+            if (transitGarms && transitGarms.length > 0) {
+              await supabase
+                .from('individual_garments')
+                .update({
+                  warehouse_id: destWhId,
+                  store_id: destStoreId || null,
+                  status: 'Aprobada'
+                })
+                .in('id', transitGarms.map(g => g.id));
+            }
+          }
+        }
       }
 
       const receiptVoucher = {

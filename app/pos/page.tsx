@@ -772,7 +772,6 @@ export default function POSPage() {
           .from('individual_garments')
           .select('id, barcode, reference_name, color_name, size_code, status, warehouse_id, store_id, created_at, defect_checklist')
           .neq('status', 'Vendido')
-          .not('defect_checklist->>is_sold', 'eq', 'true')
           .order('created_at', { ascending: false });
 
         if (activeWarehouseId) {
@@ -781,7 +780,15 @@ export default function POSPage() {
           garmentQuery = garmentQuery.eq('store_id', selectedStore.id);
         }
 
-        return await fetchAllPages(garmentQuery);
+        const rawGarments = await fetchAllPages(garmentQuery);
+        // Filtrar en memoria para no descartar registros donde defect_checklist->>is_sold sea null
+        return (rawGarments || []).filter((g: any) => {
+          if (g.status === 'Vendido' || g.status === 'vendido') return false;
+          if (g.defect_checklist && typeof g.defect_checklist === 'object') {
+            if (g.defect_checklist.is_sold === true || g.defect_checklist.is_sold === 'true') return false;
+          }
+          return true;
+        });
       })();
 
       const [inv, garments] = await Promise.all([stockPromise, garmentPromise]);
@@ -2962,6 +2969,17 @@ export default function POSPage() {
       const words = cleanRef.split(' ').filter((w: string) => w.length > 3);
       return words.length > 0 && words.every((w: string) => pName.includes(w) || pCat.includes(w));
     });
+    if (found) return found;
+
+    // 5. Short keyword / category fallback (e.g. "emy" -> "Body Emy" / "Body Emy Premium")
+    const shortWords = cleanRef.split(' ').filter((w: string) => w.length >= 3);
+    if (shortWords.length > 0) {
+      found = products.find(p => {
+        const pName = (p.nombre_producto || '').trim().toLowerCase();
+        const pCat = (p.categories?.categoria || '').trim().toLowerCase();
+        return shortWords.some((w: string) => pName.includes(w) || pCat.includes(w));
+      });
+    }
 
     return found || null;
   };
@@ -3043,7 +3061,10 @@ export default function POSPage() {
         if (selectedStore?.bodega_asociada_id) {
           const isAssignedToThisBodega = 
             (garment.warehouse_id === selectedStore.bodega_asociada_id) || 
-            (garment.store_id && garment.store_id === selectedStore.id);
+            (garment.store_id && garment.store_id === selectedStore.id) ||
+            // Compatibilidad histórica para Local 1 y Local 2
+            (selectedStore.id === '792b5869-5171-4610-ac82-efa434df72fb' && (garment.warehouse_id === 'ef962be9-4a7c-481b-b5b4-65099cae0ed1' || garment.warehouse_id === 'e8224540-34d8-483c-b3f1-daf4f46129be')) ||
+            (selectedStore.id === '1fdebcae-4b5b-4c7b-84d0-19fae1b477c1' && (garment.warehouse_id === 'd792762c-6dfd-4d57-aa9a-6e7e8cb46cdf' || garment.warehouse_id === '05db1bd3-dc68-4f48-8efb-9e21520b954b'));
           if (!isAssignedToThisBodega) {
             return {
               success: false,
