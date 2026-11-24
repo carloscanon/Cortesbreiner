@@ -144,8 +144,11 @@ export default function Sidebar() {
             return allowedModules.includes(item.module) || item.module === 'dashboard';
           });
 
+  const isPlatformAdmin = roleNameLower.includes('admin') || roleNameLower.includes('super');
+
   const filteredBottomItems = allBottomItems.filter(item => {
     if (item.module === 'super_admin') return isSuperAdmin;
+    if (item.module === 'settings') return isPlatformAdmin;
     if (isTaller) return item.module === 'help';
     if (isSuperAdmin) return true;
     return allowedModules.includes(item.module) || item.module === 'help';

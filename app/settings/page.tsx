@@ -550,6 +550,30 @@ export default function SettingsPage() {
     }
   };
 
+  const roleName = profile?.roles?.name?.toLowerCase() || '';
+  const isPlatformAdmin = roleName.includes('admin') || roleName.includes('super');
+
+  if (!loading && !isPlatformAdmin) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '2rem' }}>
+        <div style={{ backgroundColor: '#fee2e2', color: '#dc2626', padding: '1rem', borderRadius: '50%', marginBottom: '1rem' }}>
+          <AlertTriangle size={48} />
+        </div>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a', marginBottom: '0.5rem' }}>Acceso Restringido</h2>
+        <p style={{ color: '#64748b', maxWidth: '420px', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+          Este módulo y la configuración del sistema son de uso exclusivo para usuarios Administradores. Tu perfil actual ({profile?.roles?.name || 'Usuario'}) no cuenta con estos privilegios.
+        </p>
+        <button 
+          onClick={() => window.location.href = '/'}
+          className="btn btn-primary"
+          style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', fontWeight: '800' }}
+        >
+          Volver al Inicio
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

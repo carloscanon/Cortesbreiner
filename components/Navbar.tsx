@@ -316,9 +316,24 @@ export default function Navbar() {
           )}
         </button>
         
-        <Link href="/settings" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'transform 0.15s' }} onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'} onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
-          <Settings size={iconSize} color="var(--text-muted)" />
-        </Link>
+        {/* Icono de Ajustes / Configuración: Exclusivo para Administrador / Superadministrador */}
+        {(() => {
+          const roleName = profile?.roles?.name?.toLowerCase() || '';
+          const isPlatformAdmin = roleName.includes('admin') || roleName.includes('super');
+          if (!isPlatformAdmin) return null;
+
+          return (
+            <Link 
+              href="/settings" 
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'transform 0.15s' }} 
+              onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'} 
+              onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+              title="Configuración del Sistema"
+            >
+              <Settings size={iconSize} color="var(--text-muted)" />
+            </Link>
+          );
+        })()}
 
         <div 
           onClick={(e) => {

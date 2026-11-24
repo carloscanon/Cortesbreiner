@@ -2987,13 +2987,30 @@ export default function POSPage() {
   const resolveColorForGarment = (colorNameRaw: string) => {
     const gColor = (colorNameRaw || '').trim().toLowerCase();
     if (!gColor) return null;
-    return colors.find(c => {
+
+    // 1. Coincidencia exacta por nombre completo (prioridad para colores con código ej: "PALO ROSA 20663")
+    const exactMatch = colors.find(c => {
       const cName = (c.nombre_color || '').trim().toLowerCase();
+      const cNameAlt = (c.name || '').trim().toLowerCase();
+      return cName === gColor || cNameAlt === gColor;
+    });
+    if (exactMatch) return exactMatch;
+
+    // 2. Coincidencia por código de color
+    const byCode = colors.find(c => {
       const cCode = (c.codigo_color || '').trim().toLowerCase();
-      return cName === gColor || (cCode && gColor.includes(cCode)) || 
-        (cName.length >= 4 && gColor.includes(cName)) || 
-        (gColor.length >= 4 && cName.includes(gColor));
-    }) || null;
+      return cCode && gColor.includes(cCode);
+    });
+    if (byCode) return byCode;
+
+    // 3. Coincidencia por contención de nombre (de mayor a menor longitud para no colisionar)
+    return colors
+      .filter(c => {
+        const cName = (c.nombre_color || '').trim().toLowerCase();
+        return (cName.length >= 4 && gColor.includes(cName)) || 
+               (gColor.length >= 4 && cName.includes(gColor));
+      })
+      .sort((a, b) => ((b.nombre_color || '').length - (a.nombre_color || '').length))[0] || null;
   };
 
   const resolveSizeForGarment = (sizeCodeRaw: string) => {

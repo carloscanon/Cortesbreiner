@@ -34,7 +34,7 @@ import {
 const BODEGA_RECHAZOS_ID = '710e4d52-771c-4ca5-a24b-83ba1aa9dc04';
 
 // Componente de renderizado de código de barras industrial con bwip-js
-function BarcodeCanvas({ text, height = 36 }: { text: string; height?: number }) {
+function BarcodeCanvas({ text, height = 36, scale = 3 }: { text: string; height?: number; scale?: number }) {
   const [imgSrc, setImgSrc] = useState<string>('');
 
   useEffect(() => {
@@ -45,11 +45,11 @@ function BarcodeCanvas({ text, height = 36 }: { text: string; height?: number })
         bwipjs.toCanvas(canvas, {
           bcid: 'code128',
           text,
-          scale: 3,
-          height: Math.max(10, Math.round(height / 2.8)),
+          scale: Math.max(1, Math.min(5, scale || 3)),
+          height: Math.max(8, Math.round(height / 2.8)),
           includetext: false,
-          paddingleft: 4,
-          paddingright: 4,
+          paddingleft: 2,
+          paddingright: 2,
           paddingtop: 1,
           paddingbottom: 1,
           backgroundcolor: 'ffffff',
@@ -60,7 +60,7 @@ function BarcodeCanvas({ text, height = 36 }: { text: string; height?: number })
         console.error('bwip-js rejection label error:', e);
       }
     });
-  }, [text, height]);
+  }, [text, height, scale]);
 
   if (!imgSrc) {
     return (
@@ -180,10 +180,17 @@ export default function RejectionsWarehousePage() {
     showWorkshop: true,
     showDefects: true,
     showDate: true,
-    fontSize: 'normal' as 'compact' | 'normal' | 'large',
+    fontSize: 'normal' as 'compact' | 'normal' | 'large' | 'custom',
+    customFontPt: 9,
     widthMm: 50,
     heightMm: 40,
-    barcodeHeight: 36
+    barcodeHeight: 36,
+    barcodeScale: 3,
+    paddingMm: 3,
+    textAlign: 'center' as 'center' | 'left',
+    showBarcodeText: true,
+    boldReference: true,
+    footerNote: ''
   });
   const [showTicketConfigMenu, setShowTicketConfigMenu] = useState(false);
 
@@ -1208,30 +1215,36 @@ export default function RejectionsWarehousePage() {
               
               {/* PANEL IZQUIERDO: VISTA PREVIA DEL TICKET */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
-                  Vista previa ({ticketConfig.widthMm}mm × {ticketConfig.heightMm}mm)
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>
+                    Vista previa ({ticketConfig.widthMm}mm × {ticketConfig.heightMm}mm)
+                  </span>
+                  <span style={{ fontSize: '0.65rem', backgroundColor: '#e2e8f0', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: '800' }}>
+                    {ticketConfig.fontSize === 'custom' ? `${ticketConfig.customFontPt}pt` : ticketConfig.fontSize}
+                  </span>
+                </div>
 
                 {/* CONTENEDOR DEL TICKET DE RECHAZO (IMPRIMIBLE) */}
                 <div
                   id="printable-rejection-ticket"
                   style={{
                     width: '100%',
-                    maxWidth: `${Math.round(ticketConfig.widthMm * 5.5)}px`,
-                    padding: ticketConfig.fontSize === 'compact' ? '0.5rem 0.6rem' : ticketConfig.fontSize === 'large' ? '1rem 1.1rem' : '0.75rem 0.85rem',
+                    maxWidth: `${Math.round(ticketConfig.widthMm * 5.2)}px`,
+                    padding: `${Math.max(2, ticketConfig.paddingMm || 3)}mm`,
                     border: '1.5px dashed #94a3b8',
                     borderRadius: '8px',
                     backgroundColor: '#ffffff',
-                    textAlign: 'center',
+                    textAlign: ticketConfig.textAlign || 'center',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                    fontSize: ticketConfig.fontSize === 'compact' ? '0.7rem' : ticketConfig.fontSize === 'large' ? '0.9rem' : '0.8rem',
-                    lineHeight: 1.25
+                    fontSize: ticketConfig.fontSize === 'compact' ? '0.7rem' : ticketConfig.fontSize === 'large' ? '0.95rem' : ticketConfig.fontSize === 'custom' ? `${ticketConfig.customFontPt || 9}pt` : '0.8rem',
+                    lineHeight: 1.22,
+                    boxSizing: 'border-box'
                   }}
                 >
-                  {/* Título opcional y personalizable (por defecto sin 'BODEGA DE RECHAZOS') */}
+                  {/* Título opcional y personalizable */}
                   {ticketConfig.showTitle && ticketConfig.titleText && (
                     <div style={{
-                      fontSize: ticketConfig.fontSize === 'compact' ? '0.62rem' : '0.7rem',
+                      fontSize: ticketConfig.fontSize === 'compact' ? '0.62rem' : ticketConfig.fontSize === 'large' ? '0.78rem' : ticketConfig.fontSize === 'custom' ? `${Math.max(7, (ticketConfig.customFontPt || 9) - 1)}pt` : '0.7rem',
                       fontWeight: '950',
                       color: '#dc2626',
                       textTransform: 'uppercase',
@@ -1245,8 +1258,8 @@ export default function RejectionsWarehousePage() {
                   {/* Referencia de la prenda */}
                   <h4 style={{
                     margin: '0.1rem 0',
-                    fontSize: ticketConfig.fontSize === 'compact' ? '0.85rem' : ticketConfig.fontSize === 'large' ? '1.1rem' : '0.95rem',
-                    fontWeight: '950',
+                    fontSize: ticketConfig.fontSize === 'compact' ? '0.85rem' : ticketConfig.fontSize === 'large' ? '1.15rem' : ticketConfig.fontSize === 'custom' ? `${(ticketConfig.customFontPt || 9) + 2}pt` : '0.95rem',
+                    fontWeight: ticketConfig.boldReference ? '950' : '700',
                     color: '#0f172a'
                   }}>
                     {showBarcodeModal.reference_name}
@@ -1254,8 +1267,8 @@ export default function RejectionsWarehousePage() {
 
                   {/* Talla y Color */}
                   <p style={{
-                    margin: '0.15rem 0 0.4rem',
-                    fontSize: ticketConfig.fontSize === 'compact' ? '0.7rem' : ticketConfig.fontSize === 'large' ? '0.85rem' : '0.75rem',
+                    margin: '0.15rem 0 0.35rem',
+                    fontSize: ticketConfig.fontSize === 'compact' ? '0.7rem' : ticketConfig.fontSize === 'large' ? '0.88rem' : ticketConfig.fontSize === 'custom' ? `${ticketConfig.customFontPt || 9}pt` : '0.75rem',
                     color: '#334155'
                   }}>
                     Talla: <strong>{showBarcodeModal.size_code}</strong> | Color: <strong>{showBarcodeModal.color_name}</strong>
@@ -1265,12 +1278,12 @@ export default function RejectionsWarehousePage() {
                   {(ticketConfig.showOrderInfo || ticketConfig.showWorkshop) && (
                     <div style={{
                       display: 'flex',
-                      justifyContent: 'center',
+                      justifyContent: ticketConfig.textAlign === 'left' ? 'flex-start' : 'center',
                       gap: '0.4rem',
                       flexWrap: 'wrap',
-                      fontSize: '0.68rem',
+                      fontSize: ticketConfig.fontSize === 'compact' ? '0.62rem' : ticketConfig.fontSize === 'custom' ? `${Math.max(6.5, (ticketConfig.customFontPt || 9) - 2)}pt` : '0.68rem',
                       color: '#64748b',
-                      marginBottom: '0.35rem'
+                      marginBottom: '0.3rem'
                     }}>
                       {ticketConfig.showOrderInfo && showBarcodeModal.sewing_orders?.confeccion_code && (
                         <span>Lote: <strong>{showBarcodeModal.sewing_orders.confeccion_code}</strong></span>
@@ -1282,24 +1295,31 @@ export default function RejectionsWarehousePage() {
                   )}
 
                   {/* Código de barras industrial */}
-                  <div style={{ margin: '0.25rem 0' }}>
-                    <BarcodeCanvas text={showBarcodeModal.barcode} height={ticketConfig.barcodeHeight} />
+                  <div style={{ margin: '0.2rem 0', display: 'flex', justifyContent: ticketConfig.textAlign === 'left' ? 'flex-start' : 'center' }}>
+                    <BarcodeCanvas text={showBarcodeModal.barcode} height={ticketConfig.barcodeHeight} scale={ticketConfig.barcodeScale || 3} />
                   </div>
 
-                  <span style={{
-                    fontFamily: 'monospace',
-                    fontWeight: '900',
-                    fontSize: ticketConfig.fontSize === 'compact' ? '0.8rem' : ticketConfig.fontSize === 'large' ? '1rem' : '0.88rem',
-                    letterSpacing: '0.08em',
-                    color: '#0f172a',
-                    display: 'block'
-                  }}>
-                    {showBarcodeModal.barcode}
-                  </span>
+                  {ticketConfig.showBarcodeText && (
+                    <span style={{
+                      fontFamily: 'monospace',
+                      fontWeight: '900',
+                      fontSize: ticketConfig.fontSize === 'compact' ? '0.78rem' : ticketConfig.fontSize === 'large' ? '1rem' : ticketConfig.fontSize === 'custom' ? `${ticketConfig.customFontPt || 9}pt` : '0.88rem',
+                      letterSpacing: '0.08em',
+                      color: '#0f172a',
+                      display: 'block'
+                    }}>
+                      {showBarcodeModal.barcode}
+                    </span>
+                  )}
 
                   {/* Novedades o defectos (Opcional) */}
                   {ticketConfig.showDefects && (
-                    <div style={{ marginTop: '0.3rem', fontSize: '0.65rem', color: '#b91c1c', fontWeight: '750' }}>
+                    <div style={{
+                      marginTop: '0.25rem',
+                      fontSize: ticketConfig.fontSize === 'compact' ? '0.6rem' : ticketConfig.fontSize === 'custom' ? `${Math.max(6.5, (ticketConfig.customFontPt || 9) - 2)}pt` : '0.65rem',
+                      color: '#b91c1c',
+                      fontWeight: '750'
+                    }}>
                       {showBarcodeModal.defect_checklist && Object.keys(showBarcodeModal.defect_checklist).length > 0
                         ? Object.keys(showBarcodeModal.defect_checklist).join(' • ')
                         : showBarcodeModal.notes || 'Defecto / Rechazo'}
@@ -1308,8 +1328,27 @@ export default function RejectionsWarehousePage() {
 
                   {/* Fecha (Opcional) */}
                   {ticketConfig.showDate && (
-                    <div style={{ marginTop: '0.2rem', fontSize: '0.6rem', color: '#94a3b8' }}>
+                    <div style={{
+                      marginTop: '0.15rem',
+                      fontSize: ticketConfig.fontSize === 'compact' ? '0.55rem' : ticketConfig.fontSize === 'custom' ? `${Math.max(6, (ticketConfig.customFontPt || 9) - 2.5)}pt` : '0.6rem',
+                      color: '#94a3b8'
+                    }}>
                       {showBarcodeModal.created_at ? new Date(showBarcodeModal.created_at).toLocaleDateString('es-CO') : ''}
+                    </div>
+                  )}
+
+                  {/* Pie de ticket personalizado */}
+                  {ticketConfig.footerNote && (
+                    <div style={{
+                      marginTop: '0.2rem',
+                      fontSize: '0.58rem',
+                      color: '#475569',
+                      fontWeight: '700',
+                      fontStyle: 'italic',
+                      borderTop: '0.5px dashed #cbd5e1',
+                      paddingTop: '0.15rem'
+                    }}>
+                      {ticketConfig.footerNote}
                     </div>
                   )}
                 </div>
@@ -1320,7 +1359,7 @@ export default function RejectionsWarehousePage() {
                   onClick={() => window.print()}
                   style={{
                     width: '100%',
-                    maxWidth: `${Math.round(ticketConfig.widthMm * 5.5)}px`,
+                    maxWidth: `${Math.round(ticketConfig.widthMm * 5.2)}px`,
                     marginTop: '1rem',
                     padding: '0.7rem',
                     borderRadius: '10px',
@@ -1352,14 +1391,62 @@ export default function RejectionsWarehousePage() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '0.85rem',
-                  maxHeight: '440px',
+                  maxHeight: '480px',
                   overflowY: 'auto'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderBottom: '1px solid #cbd5e1', paddingBottom: '0.4rem' }}>
-                    <Sliders size={16} color="#0284c7" />
-                    <span style={{ fontSize: '0.82rem', fontWeight: '950', color: '#0f172a' }}>
-                      Personalizar Ticket
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #cbd5e1', paddingBottom: '0.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Sliders size={16} color="#0284c7" />
+                      <span style={{ fontSize: '0.82rem', fontWeight: '950', color: '#0f172a' }}>
+                        Parámetros Avanzados del Ticket
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: '4px', fontWeight: '800' }}>
+                      Auto-guardado
                     </span>
+                  </div>
+
+                  {/* Presets Rápidos de Etiquetas Térmicas */}
+                  <div>
+                    <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#475569', marginBottom: '0.35rem' }}>
+                      ⚡ Formatos Estándar Predefinidos:
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.35rem' }}>
+                      {[
+                        { label: '50×40 mm', w: 50, h: 40, bh: 36, bs: 3 },
+                        { label: '50×30 mm', w: 50, h: 30, bh: 26, bs: 3 },
+                        { label: '58×40 mm', w: 58, h: 40, bh: 38, bs: 3 },
+                        { label: '80×50 mm', w: 80, h: 50, bh: 48, bs: 4 },
+                        { label: '40×30 mm', w: 40, h: 30, bh: 24, bs: 2 },
+                        { label: '60×40 mm', w: 60, h: 40, bh: 38, bs: 3 },
+                        { label: '70×50 mm', w: 70, h: 50, bh: 44, bs: 4 },
+                        { label: '100×50 mm', w: 100, h: 50, bh: 50, bs: 4 }
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => handleUpdateTicketConfig({
+                            widthMm: preset.w,
+                            heightMm: preset.h,
+                            barcodeHeight: preset.bh,
+                            barcodeScale: preset.bs
+                          })}
+                          style={{
+                            padding: '0.35rem 0.2rem',
+                            borderRadius: '6px',
+                            border: ticketConfig.widthMm === preset.w && ticketConfig.heightMm === preset.h ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                            backgroundColor: ticketConfig.widthMm === preset.w && ticketConfig.heightMm === preset.h ? '#e0f2fe' : 'white',
+                            color: ticketConfig.widthMm === preset.w && ticketConfig.heightMm === preset.h ? '#0369a1' : '#334155',
+                            fontSize: '0.68rem',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            textAlign: 'center'
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Configuración de Título */}
@@ -1375,7 +1462,7 @@ export default function RejectionsWarehousePage() {
                     {ticketConfig.showTitle && (
                       <input
                         type="text"
-                        placeholder="Ej: RECHAZO TALLER o CORTES BREINER"
+                        placeholder="Ej: BODEGA DE RECHAZOS o CORTES BREINER"
                         value={ticketConfig.titleText}
                         onChange={(e) => handleUpdateTicketConfig({ titleText: e.target.value })}
                         style={{ width: '100%', marginTop: '0.35rem', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem' }}
@@ -1383,42 +1470,52 @@ export default function RejectionsWarehousePage() {
                     )}
                   </div>
 
-                  {/* Tamaño del ticket y código de barras */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  {/* Dimensiones EXACTAS personalizadas (Milímetros al gusto del validador) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
                     <div>
                       <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
-                        Ancho ({ticketConfig.widthMm}mm)
+                        Ancho (mm)
                       </span>
-                      <select
+                      <input
+                        type="number"
+                        min={30}
+                        max={120}
                         value={ticketConfig.widthMm}
-                        onChange={(e) => handleUpdateTicketConfig({ widthMm: Number(e.target.value) })}
+                        onChange={(e) => handleUpdateTicketConfig({ widthMm: Math.max(25, Number(e.target.value)) })}
                         style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '800' }}
-                      >
-                        <option value={40}>40 mm (Compacto)</option>
-                        <option value={50}>50 mm (Estándar 5x4)</option>
-                        <option value={58}>58 mm (POS Pequeño)</option>
-                        <option value={80}>80 mm (POS Grande)</option>
-                      </select>
+                      />
                     </div>
 
                     <div>
                       <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
-                        Largo ({ticketConfig.heightMm}mm)
+                        Largo (mm)
                       </span>
-                      <select
+                      <input
+                        type="number"
+                        min={20}
+                        max={150}
                         value={ticketConfig.heightMm}
-                        onChange={(e) => handleUpdateTicketConfig({ heightMm: Number(e.target.value) })}
+                        onChange={(e) => handleUpdateTicketConfig({ heightMm: Math.max(15, Number(e.target.value)) })}
                         style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '800' }}
-                      >
-                        <option value={25}>25 mm (Mini)</option>
-                        <option value={30}>30 mm (Bajo)</option>
-                        <option value={40}>40 mm (Normal)</option>
-                        <option value={50}>50 mm (Extendido)</option>
-                      </select>
+                      />
+                    </div>
+
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
+                        Márgenes (mm)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={ticketConfig.paddingMm || 3}
+                        onChange={(e) => handleUpdateTicketConfig({ paddingMm: Math.max(1, Number(e.target.value)) })}
+                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '800' }}
+                      />
                     </div>
                   </div>
 
-                  {/* Escala de texto y barra */}
+                  {/* Escala de texto y tipografía */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                     <div>
                       <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
@@ -1432,19 +1529,70 @@ export default function RejectionsWarehousePage() {
                         <option value="compact">Compacto / Pequeño</option>
                         <option value="normal">Normal</option>
                         <option value="large">Grande</option>
+                        <option value="custom">Manual (en Puntos pt)</option>
                       </select>
                     </div>
 
+                    <div>
+                      {ticketConfig.fontSize === 'custom' ? (
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
+                            Puntos pt ({ticketConfig.customFontPt || 9}pt)
+                          </span>
+                          <input
+                            type="number"
+                            min={6}
+                            max={16}
+                            step={0.5}
+                            value={ticketConfig.customFontPt || 9}
+                            onChange={(e) => handleUpdateTicketConfig({ customFontPt: Number(e.target.value) })}
+                            style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '800' }}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
+                            Alineación
+                          </span>
+                          <select
+                            value={ticketConfig.textAlign || 'center'}
+                            onChange={(e: any) => handleUpdateTicketConfig({ textAlign: e.target.value })}
+                            style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem', fontWeight: '800' }}
+                          >
+                            <option value="center">Centrado</option>
+                            <option value="left">Alineado a la Izquierda</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Código de barras: Alto y Densidad */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                     <div>
                       <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
                         Alto Código ({ticketConfig.barcodeHeight}px)
                       </span>
                       <input
                         type="range"
-                        min={20}
-                        max={60}
+                        min={16}
+                        max={70}
                         value={ticketConfig.barcodeHeight}
                         onChange={(e) => handleUpdateTicketConfig({ barcodeHeight: Number(e.target.value) })}
+                        style={{ width: '100%', accentColor: '#0f172a' }}
+                      />
+                    </div>
+
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
+                        Grosor Barras ({ticketConfig.barcodeScale || 3}x)
+                      </span>
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        value={ticketConfig.barcodeScale || 3}
+                        onChange={(e) => handleUpdateTicketConfig({ barcodeScale: Number(e.target.value) })}
                         style={{ width: '100%', accentColor: '#0f172a' }}
                       />
                     </div>
@@ -1452,14 +1600,14 @@ export default function RejectionsWarehousePage() {
 
                   {/* Elementos a mostrar */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px solid #cbd5e1', paddingTop: '0.5rem' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: '900', color: '#475569' }}>CONTENIDO VISIBLE:</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: '900', color: '#475569' }}>CAMPOS VISIBLES EN EL TICKET:</span>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', color: '#334155', cursor: 'pointer' }}>
                       <input
                         type="checkbox"
                         checked={ticketConfig.showOrderInfo}
                         onChange={(e) => handleUpdateTicketConfig({ showOrderInfo: e.target.checked })}
                       />
-                      Mostrar Lote / Orden
+                      Mostrar Lote / Orden de Confección
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', color: '#334155', cursor: 'pointer' }}>
                       <input
@@ -1467,7 +1615,7 @@ export default function RejectionsWarehousePage() {
                         checked={ticketConfig.showWorkshop}
                         onChange={(e) => handleUpdateTicketConfig({ showWorkshop: e.target.checked })}
                       />
-                      Mostrar Taller
+                      Mostrar Taller Satélite
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', color: '#334155', cursor: 'pointer' }}>
                       <input
@@ -1475,7 +1623,7 @@ export default function RejectionsWarehousePage() {
                         checked={ticketConfig.showDefects}
                         onChange={(e) => handleUpdateTicketConfig({ showDefects: e.target.checked })}
                       />
-                      Mostrar Defectos / Novedades
+                      Mostrar Defectos / Motivo de Rechazo
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', color: '#334155', cursor: 'pointer' }}>
                       <input
@@ -1483,38 +1631,105 @@ export default function RejectionsWarehousePage() {
                         checked={ticketConfig.showDate}
                         onChange={(e) => handleUpdateTicketConfig({ showDate: e.target.checked })}
                       />
-                      Mostrar Fecha
+                      Mostrar Fecha de Registro
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.74rem', color: '#334155', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={ticketConfig.showBarcodeText !== false}
+                        onChange={(e) => handleUpdateTicketConfig({ showBarcodeText: e.target.checked })}
+                      />
+                      Mostrar Número del Código en Texto
                     </label>
                   </div>
 
-                  {/* Reset rápido */}
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateTicketConfig({
-                      titleText: '',
-                      showTitle: false,
-                      showOrderInfo: true,
-                      showWorkshop: true,
-                      showDefects: true,
-                      showDate: true,
-                      fontSize: 'compact',
-                      widthMm: 50,
-                      heightMm: 40,
-                      barcodeHeight: 30
-                    })}
-                    style={{
-                      padding: '0.35rem 0.6rem',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      backgroundColor: 'white',
-                      color: '#64748b',
-                      fontSize: '0.7rem',
-                      fontWeight: '800',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Restablecer a formato Compacto
-                  </button>
+                  {/* Texto de pie de página personalizado */}
+                  <div>
+                    <span style={{ display: 'block', fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '0.2rem' }}>
+                      Nota / Pie de Ticket (Opcional):
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Ej: Pendiente por reproceso en taller"
+                      value={ticketConfig.footerNote || ''}
+                      onChange={(e) => handleUpdateTicketConfig({ footerNote: e.target.value })}
+                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1.5px solid #cbd5e1', fontSize: '0.75rem' }}
+                    />
+                  </div>
+
+                  {/* Botones de acción */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateTicketConfig({
+                        titleText: '',
+                        showTitle: false,
+                        showOrderInfo: true,
+                        showWorkshop: true,
+                        showDefects: true,
+                        showDate: true,
+                        fontSize: 'compact',
+                        customFontPt: 8.5,
+                        widthMm: 50,
+                        heightMm: 40,
+                        barcodeHeight: 30,
+                        barcodeScale: 3,
+                        paddingMm: 3,
+                        textAlign: 'center',
+                        showBarcodeText: true,
+                        boldReference: true,
+                        footerNote: ''
+                      })}
+                      style={{
+                        flex: 1,
+                        padding: '0.4rem 0.6rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: 'white',
+                        color: '#64748b',
+                        fontSize: '0.7rem',
+                        fontWeight: '800',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Restablecer Compacto (50×40)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateTicketConfig({
+                        titleText: '',
+                        showTitle: false,
+                        showOrderInfo: true,
+                        showWorkshop: true,
+                        showDefects: true,
+                        showDate: true,
+                        fontSize: 'normal',
+                        customFontPt: 10,
+                        widthMm: 80,
+                        heightMm: 50,
+                        barcodeHeight: 44,
+                        barcodeScale: 4,
+                        paddingMm: 4,
+                        textAlign: 'center',
+                        showBarcodeText: true,
+                        boldReference: true,
+                        footerNote: ''
+                      })}
+                      style={{
+                        flex: 1,
+                        padding: '0.4rem 0.6rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: 'white',
+                        color: '#0284c7',
+                        fontSize: '0.7rem',
+                        fontWeight: '800',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Formato Grande (80×50)
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1578,6 +1793,10 @@ export default function RejectionsWarehousePage() {
       {/* Estilos de impresión exactos para que el ticket salga al tamaño deseado y no ocupe toda la página */}
       <style>{`
         @media print {
+          @page {
+            size: ${ticketConfig.widthMm}mm ${ticketConfig.heightMm}mm;
+            margin: 0mm;
+          }
           body {
             visibility: hidden !important;
             margin: 0 !important;
@@ -1591,12 +1810,16 @@ export default function RejectionsWarehousePage() {
             top: 0 !important;
             left: 0 !important;
             margin: 0 !important;
-            padding: 4mm 5mm !important;
+            padding: ${Math.max(1, ticketConfig.paddingMm || 3)}mm !important;
             width: ${ticketConfig.widthMm}mm !important;
             max-width: ${ticketConfig.widthMm}mm !important;
+            height: ${ticketConfig.heightMm}mm !important;
+            max-height: ${ticketConfig.heightMm}mm !important;
+            box-sizing: border-box !important;
             border: none !important;
             box-shadow: none !important;
             background: white !important;
+            overflow: hidden !important;
           }
           #printable-rejection-ticket * {
             visibility: visible !important;
