@@ -5,10 +5,17 @@ import { supabase } from '@/lib/supabase';
 import {
   CreditCard, CheckCircle2, Clock, DollarSign, Users, FileText, Printer,
   Search, X, Loader2, ChevronDown, ChevronUp, AlertCircle, Building2,
-  Banknote, Receipt, Calendar, Filter, RefreshCw, TrendingUp, Eye
+  Banknote, Receipt, Calendar, Filter, RefreshCw, TrendingUp, Eye,
+  Plus, Trash2, Tag, Percent
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+export interface DiscountItem {
+  id: string;
+  motivo: string;
+  monto: number;
+}
 
 interface Inspection {
   id: string;
@@ -53,6 +60,7 @@ interface WorkshopGroup {
   totalDescuentos: number;
   totalEmpaque: number;
   totalNeto: number;
+  customDiscounts?: DiscountItem[];
 }
 
 interface Payment {
@@ -71,6 +79,7 @@ interface Payment {
   status: string;
   created_by: string | null;
   paid_by: string | null;
+  discounts_breakdown?: DiscountItem[] | null;
 }
 
 const METODOS_PAGO = ['Transferencia Bancaria', 'Efectivo', 'Cheque', 'Nequi', 'Daviplata', 'Otro'];
@@ -150,9 +159,23 @@ function PrintReceipt({ group, paymentRef, metodo, obs, companyName, paymentNumb
             <span>{formatCOP(group.totalBruto)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: '#fff0f0' }}>
-            <span style={{ fontWeight: '700', fontSize: '10px', color: '#c00' }}>(-) Descuentos:</span>
-            <span style={{ color: '#c00' }}>-{formatCOP(group.totalDescuentos)}</span>
+            <span style={{ fontWeight: '700', fontSize: '10px', color: '#c00' }}>(-) Descuentos Totales:</span>
+            <span style={{ color: '#c00', fontWeight: '800' }}>-{formatCOP(group.totalDescuentos)}</span>
           </div>
+          {/* Discriminación de Descuentos si existen */}
+          {group.customDiscounts && group.customDiscounts.length > 0 && (
+            <div style={{ padding: '4px 10px', background: '#fef2f2', borderTop: '1px dashed #fecaca', borderBottom: '1px dashed #fecaca' }}>
+              <span style={{ fontSize: '9px', fontWeight: '800', color: '#991b1b', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                Discriminación de Descuentos:
+              </span>
+              {group.customDiscounts.map((d, dIdx) => (
+                <div key={d.id || dIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#b91c1c', padding: '1px 0' }}>
+                  <span>• {d.motivo}:</span>
+                  <span style={{ fontWeight: '700' }}>-{formatCOP(d.monto)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {group.totalEmpaque > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: '#f0fff0' }}>
               <span style={{ fontWeight: '700', fontSize: '10px', color: '#008' }}>(+) Empaque:</span>
@@ -206,6 +229,9 @@ export default function WorkshopPaymentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<WorkshopGroup | null>(null);
   const [selectedInspectionIds, setSelectedInspectionIds] = useState<string[]>([]);
+  const [customDiscounts, setCustomDiscounts] = useState<DiscountItem[]>([]);
+  const [newDiscountMotivo, setNewDiscountMotivo] = useState('');
+  const [newDiscountMonto, setNewDiscountMonto] = useState('');
   const [metodo, setMetodo] = useState('Transferencia Bancaria');
   const [paymentRef, setPaymentRef] = useState('');
   const [obs, setObs] = useState('');
@@ -333,9 +359,18 @@ export default function WorkshopPaymentsPage() {
     : [];
   const selectedPrendas = activeInspections.reduce((s, i) => s + (i.items_approved || 0), 0);
   const selectedBruto = activeInspections.reduce((s, i) => s + ((i.items_approved || 0) * (i.valor_prenda || 0)), 0);
-  const selectedDescuentos = activeInspections.reduce((s, i) => s + (i.descuento_defectos || 0), 0);
+  const selectedDefectos = activeInspections.reduce((s, i) => s + (i.descuento_defectos || 0), 0);
+  const selectedCustomDiscountsTotal = customDiscounts.reduce((s, d) => s + (Number(d.monto) || 0), 0);
+  const selectedDescuentos = selectedDefectos + selectedCustomDiscountsTotal;
   const selectedEmpaque = activeInspections.reduce((s, i) => s + (i.pago_empaque || 0), 0);
-  const selectedNeto = activeInspections.reduce((s, i) => s + (i.valor_pagar || 0), 0);
+  const baseNeto = activeInspections.reduce((s, i) => s + (i.valor_pagar || 0), 0);
+  const selectedNeto = Math.max(0, baseNeto - selectedCustomDiscountsTotal);
+
+  // Lista consolidada de todos los descuentos para la discriminación
+  const allDiscountsBreakdown: DiscountItem[] = [
+    ...(selectedDefectos > 0 ? [{ id: 'defectos-calidad', motivo: 'Descuento por defectos en inspección de calidad', monto: selectedDefectos }] : []),
+    ...customDiscounts
+  ];
 
   const selectedGroupSubset: WorkshopGroup | null = selectedGroup ? {
     ...selectedGroup,
@@ -344,8 +379,34 @@ export default function WorkshopPaymentsPage() {
     totalBruto: selectedBruto,
     totalDescuentos: selectedDescuentos,
     totalEmpaque: selectedEmpaque,
-    totalNeto: selectedNeto
+    totalNeto: selectedNeto,
+    customDiscounts: allDiscountsBreakdown
   } : null;
+
+  const handleAddDiscount = () => {
+    const motivoTrimmed = newDiscountMotivo.trim();
+    const montoNum = parseFloat(newDiscountMonto);
+    if (!motivoTrimmed) {
+      alert('Ingresa el motivo del descuento (ej: Adelanto de nómina, Faltante de tela, Daño de insumo, etc.).');
+      return;
+    }
+    if (isNaN(montoNum) || montoNum <= 0) {
+      alert('Ingresa un monto válido mayor a $0.');
+      return;
+    }
+    const newDisc: DiscountItem = {
+      id: `disc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      motivo: motivoTrimmed,
+      monto: montoNum
+    };
+    setCustomDiscounts(prev => [...prev, newDisc]);
+    setNewDiscountMotivo('');
+    setNewDiscountMonto('');
+  };
+
+  const handleRemoveDiscount = (id: string) => {
+    setCustomDiscounts(prev => prev.filter(d => d.id !== id));
+  };
 
   const toggleSelectInspection = (id: string) => {
     setSelectedInspectionIds(prev => 
@@ -376,6 +437,14 @@ export default function WorkshopPaymentsPage() {
       const now = new Date().toISOString();
       const payNumber = `PAG-${Date.now().toString().slice(-8)}`;
 
+      // Preparar observaciones con desglose de descuentos si existen
+      let finalObs = obs.trim();
+      if (allDiscountsBreakdown.length > 0) {
+        const discText = allDiscountsBreakdown.map(d => `• ${d.motivo}: -${formatCOP(d.monto)}`).join('\n');
+        const breakdownSection = `[DESCUENTOS APLICADOS]:\n${discText}`;
+        finalObs = finalObs ? `${finalObs}\n\n${breakdownSection}` : breakdownSection;
+      }
+
       // 1. Insert workshop_payments for ONLY selected orders
       const { error: insErr } = await supabase.from('workshop_payments').insert({
         paid_at: now,
@@ -388,7 +457,7 @@ export default function WorkshopPaymentsPage() {
         total_neto: selectedNeto,
         metodo_pago: metodo,
         numero_referencia: paymentRef || null,
-        observaciones: obs || null,
+        observaciones: finalObs || null,
         status: 'Pagado',
         created_by: currentUser?.full_name || null,
         paid_by: currentUser?.full_name || null,
@@ -413,6 +482,9 @@ export default function WorkshopPaymentsPage() {
       setMetodo('Transferencia Bancaria');
       setSelectedGroup(null);
       setSelectedInspectionIds([]);
+      setCustomDiscounts([]);
+      setNewDiscountMotivo('');
+      setNewDiscountMonto('');
       fetchAll();
     } catch (err: any) {
       alert('Error al registrar pago: ' + err.message);
@@ -572,6 +644,9 @@ export default function WorkshopPaymentsPage() {
                       onClick={() => {
                         setSelectedGroup(g);
                         setSelectedInspectionIds(g.inspections.map(i => i.id));
+                        setCustomDiscounts([]);
+                        setNewDiscountMotivo('');
+                        setNewDiscountMonto('');
                         setShowModal(true);
                         setShowPreview(false);
                       }}
@@ -903,6 +978,115 @@ export default function WorkshopPaymentsPage() {
                       ⚠️ Debe marcar al menos una orden para generar la liquidación. Las órdenes no seleccionadas permanecerán pendientes para próximos pagos.
                     </p>
                   )}
+                </div>
+
+                {/* ── DISCRIMINACIÓN Y GESTIÓN DE DESCUENTOS ── */}
+                <div style={{ background: '#fff5f5', border: '1.5px solid #fed7aa', borderRadius: '14px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <div style={{ padding: '0.35rem', borderRadius: '8px', background: '#fee2e2', color: '#dc2626' }}>
+                        <Tag size={16} />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.82rem', fontWeight: '900', color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                          Discriminación de Descuentos
+                        </span>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#7f1d1d' }}>
+                          Agrega deducciones detalladas (anticipos, faltantes, arreglos, insumos o préstamos)
+                        </p>
+                      </div>
+                    </div>
+                    {selectedDescuentos > 0 && (
+                      <span style={{ fontSize: '0.85rem', fontWeight: '950', color: '#dc2626', background: '#fee2e2', padding: '0.2rem 0.6rem', borderRadius: '8px' }}>
+                        Total Descuentos: -{formatCOP(selectedDescuentos)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Lista de descuentos discriminados */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                    {/* Descuento automático de calidad por defectos si aplica */}
+                    {selectedDefectos > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '0.55rem 0.85rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: '800', background: '#fef2f2', color: '#b91c1c', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                            Calidad
+                          </span>
+                          <span style={{ fontSize: '0.78rem', color: '#334155', fontWeight: '700' }}>
+                            Descuento por prendas rechazadas / defectos en confección
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '900', color: '#dc2626' }}>
+                          -{formatCOP(selectedDefectos)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Descuentos personalizados adicionales agregados */}
+                    {customDiscounts.map((disc, idx) => (
+                      <div key={disc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '0.55rem 0.85rem', borderRadius: '8px', border: '1px solid #fed7aa', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: '800', background: '#fff7ed', color: '#c2410c', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                            #{idx + 1}
+                          </span>
+                          <span style={{ fontSize: '0.82rem', color: '#1e293b', fontWeight: '800' }}>
+                            {disc.motivo}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontSize: '0.88rem', fontWeight: '950', color: '#dc2626' }}>
+                            -{formatCOP(disc.monto)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDiscount(disc.id)}
+                            title="Eliminar este descuento"
+                            style={{ border: 'none', background: '#fee2e2', color: '#dc2626', width: '26px', height: '26px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s' }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {allDiscountsBreakdown.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '0.75rem', background: 'rgba(255,255,255,0.6)', borderRadius: '8px', border: '1px dashed #fca5a5', color: '#991b1b', fontSize: '0.75rem' }}>
+                        No hay descuentos aplicados a esta liquidación. Puedes agregar uno o más descuentos a continuación si corresponde.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Formulario para añadir un nuevo descuento */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr auto', gap: '0.5rem', alignItems: 'center', background: 'white', padding: '0.65rem', borderRadius: '10px', border: '1px solid #fed7aa' }}>
+                    <input
+                      type="text"
+                      placeholder="Motivo del descuento (ej: Adelanto, Hilos, Faltante...)"
+                      value={newDiscountMotivo}
+                      onChange={e => setNewDiscountMotivo(e.target.value)}
+                      style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', outline: 'none' }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddDiscount(); } }}
+                    />
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', left: '0.6rem', fontSize: '0.75rem', fontWeight: '800', color: '#64748b' }}>$</span>
+                      <input
+                        type="number"
+                        placeholder="Monto"
+                        min="0"
+                        step="100"
+                        value={newDiscountMonto}
+                        onChange={e => setNewDiscountMonto(e.target.value)}
+                        style={{ width: '100%', padding: '0.45rem 0.65rem 0.45rem 1.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.78rem', outline: 'none' }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddDiscount(); } }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddDiscount}
+                      style={{ padding: '0.45rem 0.85rem', borderRadius: '6px', border: 'none', background: '#dc2626', color: 'white', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}
+                    >
+                      <Plus size={14} /> Agregar Descuento
+                    </button>
+                  </div>
                 </div>
 
                 {/* Resumen financiero de la selección */}

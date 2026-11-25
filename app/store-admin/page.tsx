@@ -314,6 +314,16 @@ export default function StoreAdminPage() {
   const [priceListItems, setPriceListItems] = useState<any[]>([]);
   const [priceListSearch, setPriceListSearch] = useState('');
 
+  // Dashboard Date & Store Filters (Gestión al Día)
+  const [dashStoreFilter, setDashStoreFilter] = useState<string>('all');
+  const [dashDatePreset, setDashDatePreset] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'>('all');
+  const [dashStartDate, setDashStartDate] = useState<string>('');
+  const [dashEndDate, setDashEndDate] = useState<string>('');
+  const [dashSellerFilter, setDashSellerFilter] = useState<string>('all');
+  const [dashPaymentFilter, setDashPaymentFilter] = useState<string>('all');
+  const [dashDayViewPage, setDashDayViewPage] = useState<number>(0);
+  const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
+
   // Inventory Monitoring States
   const [invSearchQuery, setInvSearchQuery] = useState('');
   const [invStoreFilter, setInvStoreFilter] = useState('all');
@@ -2249,32 +2259,212 @@ export default function StoreAdminPage() {
     }
   };
 
-  // Dashboard calculations
-  const totalRevenue = salesList.reduce((sum, s) => sum + Number(s.total || 0), 0);
-  const avgTicket = salesList.length > 0 ? (totalRevenue / salesList.length) : 0;
-  const cashDiscrepancies = sessions.reduce((sum, s) => sum + Number(s.diferencia || 0), 0);
+  // Dashboard Dynamic Filtered Calculations (Gestión al Día por Sucursal y Fecha)
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  
+  // Set date ranges according to presets
+  const applyDatePreset = (preset: 'today' | 'yesterday' | 'week' | 'month' | 'all') => {
+    setDashDatePreset(preset);
+    const now = new Date();
+    if (preset === 'today') {
+      setDashStartDate(todayStr);
+      setDashEndDate(todayStr);
+    } else if (preset === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yStr = y.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+      setDashStartDate(yStr);
+      setDashEndDate(yStr);
+    } else if (preset === 'week') {
+      const w = new Date(now);
+      w.setDate(w.getDate() - 7);
+      const wStr = w.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+      setDashStartDate(wStr);
+      setDashEndDate(todayStr);
+    } else if (preset === 'month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+      setDashStartDate(firstDay);
+      setDashEndDate(todayStr);
+    } else if (preset === 'all') {
+      setDashStartDate('');
+      setDashEndDate('');
+    }
+  };
 
-  // Sales by store
-  const salesByStore = stores.map(store => {
-    const storeSales = salesList.filter(s => s.store_id === store.id);
-    const storeRevenue = storeSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
-    return {
-      name: store.nombre,
-      revenue: storeRevenue,
-      salesCount: storeSales.length,
-      meta_mensual: Number(store.meta_mensual) || 0,
-      avgTicket: storeSales.length > 0 ? (storeRevenue / storeSales.length) : 0
-    };
+  // Filtered sales according to active dashboard filters
+  const filteredDashboardSales = salesList.filter(s => {
+    // 1. Store filter
+    if (dashStoreFilter !== 'all' && s.store_id !== dashStoreFilter) return false;
+
+    // 2. Date range filter
+    const saleDateStr = new Date(s.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    if (dashStartDate && saleDateStr < dashStartDate) return false;
+    if (dashEndDate && saleDateStr > dashEndDate) return false;
+
+    // 3. Seller filter
+    if (dashSellerFilter !== 'all' && s.vendedor !== dashSellerFilter) return false;
+
+    // 4. Payment method filter
+    if (dashPaymentFilter !== 'all') {
+      const hasPayment = (s.pos_payments || []).some((p: any) => 
+        (p.metodo_pago || '').toLowerCase().includes(dashPaymentFilter.toLowerCase())
+      );
+      if (!hasPayment) return false;
+    }
+
+    return true;
   });
 
-  // Sales by payment method
-  const paymentMethodsTotal = salesList.reduce((acc: any, s) => {
+  // Unique sellers in sales for filter select
+  const uniqueSellers = Array.from(new Set(salesList.map(s => s.vendedor).filter(Boolean))).sort();
+
+  // Dashboard calculations over filtered sales
+  const totalRevenue = filteredDashboardSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+  const avgTicket = filteredDashboardSales.length > 0 ? (totalRevenue / filteredDashboardSales.length) : 0;
+  const totalGarmentsSold = filteredDashboardSales.reduce((sum, s) => {
+    const itemsQty = (s.pos_sale_items || []).reduce((q: number, it: any) => q + (Number(it.cantidad) || 0), 0);
+    return sum + itemsQty;
+  }, 0);
+
+  // Filtered sessions for cash discrepancies
+  const filteredSessions = sessions.filter(sess => {
+    if (dashStoreFilter !== 'all' && sess.store_id !== dashStoreFilter) return false;
+    const sessDate = new Date(sess.created_at || sess.fecha_apertura).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    if (dashStartDate && sessDate < dashStartDate) return false;
+    if (dashEndDate && sessDate > dashEndDate) return false;
+    return true;
+  });
+  const cashDiscrepancies = filteredSessions.reduce((sum, s) => sum + Number(s.diferencia || 0), 0);
+
+  // Sales by store (Dynamic based on filtered sales)
+  const salesByStore = stores
+    .filter(st => dashStoreFilter === 'all' || st.id === dashStoreFilter)
+    .map(store => {
+      const storeSales = filteredDashboardSales.filter(s => s.store_id === store.id);
+      const storeRevenue = storeSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+      const garmentsCount = storeSales.reduce((acc, s) => acc + (s.pos_sale_items || []).reduce((q: number, it: any) => q + (Number(it.cantidad) || 0), 0), 0);
+      return {
+        id: store.id,
+        name: store.nombre,
+        revenue: storeRevenue,
+        salesCount: storeSales.length,
+        garmentsCount,
+        meta_mensual: Number(store.meta_mensual) || 0,
+        avgTicket: storeSales.length > 0 ? (storeRevenue / storeSales.length) : 0
+      };
+    });
+
+  // Sales by payment method (Dynamic based on filtered sales)
+  const paymentMethodsTotal = filteredDashboardSales.reduce((acc: any, s) => {
     (s.pos_payments || []).forEach((p: any) => {
-      const method = p.metodo_pago || 'Efectivo';
-      acc[method] = (acc[method] || 0) + Number(p.monto || 0);
+      const rawMethod = (p.metodo_pago || 'Efectivo').trim();
+      let cleanMethod = 'Efectivo';
+      if (rawMethod.toLowerCase().includes('tarjeta')) cleanMethod = 'Tarjeta';
+      else if (rawMethod.toLowerCase().includes('transferencia')) cleanMethod = 'Transferencia';
+      else if (rawMethod.toLowerCase().includes('mixto')) cleanMethod = 'Mixto';
+      
+      acc[cleanMethod] = (acc[cleanMethod] || 0) + Number(p.monto || 0);
     });
     return acc;
   }, { Efectivo: 0, Tarjeta: 0, Transferencia: 0, Mixto: 0 });
+
+  // Agrupado por Día (Para el gran reporte de gestión al día)
+  const salesByDayMap = new Map<string, { date: string; totalRevenue: number; salesCount: number; garmentsCount: number; storeBreakdown: { [storeName: string]: number } }>();
+  filteredDashboardSales.forEach(s => {
+    const dStr = new Date(s.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const existing = salesByDayMap.get(dStr) || {
+      date: dStr,
+      totalRevenue: 0,
+      salesCount: 0,
+      garmentsCount: 0,
+      storeBreakdown: {}
+    };
+
+    const sTotal = Number(s.total || 0);
+    const sGarments = (s.pos_sale_items || []).reduce((acc: number, it: any) => acc + (Number(it.cantidad) || 0), 0);
+    const stName = s.stores?.nombre || 'Tienda';
+
+    existing.totalRevenue += sTotal;
+    existing.salesCount += 1;
+    existing.garmentsCount += sGarments;
+    existing.storeBreakdown[stName] = (existing.storeBreakdown[stName] || 0) + sTotal;
+
+    salesByDayMap.set(dStr, existing);
+  });
+  const salesByDayList = Array.from(salesByDayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+  // Exportar Gran Reporte a Excel con desglose consolidado y detalle día a día
+  const exportDashboardToExcel = async () => {
+    try {
+      setIsExportingExcel(true);
+      const XLSX = await import('xlsx');
+
+      // Hoja 1: Resumen Ejecutivo por Día
+      const summaryRows = salesByDayList.map(d => {
+        const row: any = {
+          'Fecha (Día)': d.date,
+          'Total Ventas ($)': d.totalRevenue,
+          'N° Transacciones': d.salesCount,
+          'Prendas Vendidas': d.garmentsCount,
+          'Ticket Promedio ($)': d.salesCount > 0 ? Math.round(d.totalRevenue / d.salesCount) : 0
+        };
+        // Agregar columna por cada tienda
+        stores.forEach(st => {
+          row[st.nombre] = d.storeBreakdown[st.nombre] || 0;
+        });
+        return row;
+      });
+
+      // Hoja 2: Detalle Completo de Ventas
+      const detailRows = filteredDashboardSales.map(s => {
+        const saleDate = new Date(s.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+        const paymentStr = (s.pos_payments || []).map((p: any) => `${p.metodo_pago}: $${Number(p.monto).toLocaleString('es-CO')}`).join(' | ');
+        const itemsCount = (s.pos_sale_items || []).reduce((acc: number, it: any) => acc + (Number(it.cantidad) || 0), 0);
+        return {
+          'ID Venta': s.id,
+          'Consecutivo': s.consecutive ? `#${s.consecutive}` : s.id.substring(0, 8),
+          'Fecha y Hora': saleDate,
+          'Tienda': s.stores?.nombre || '—',
+          'Vendedor': s.vendedor || '—',
+          'Cliente': s.client_name || 'Cliente General',
+          'Documento Cliente': s.client_document || '—',
+          'Total ($)': Number(s.total || 0),
+          'Prendas': itemsCount,
+          'Método Pago': paymentStr || 'Efectivo',
+          'Observaciones': s.observaciones || ''
+        };
+      });
+
+      // Hoja 3: Consolidado por Sucursal
+      const storeRows = salesByStore.map(st => ({
+        'Sucursal': st.name,
+        'Total Ingresos ($)': st.revenue,
+        'Transacciones': st.salesCount,
+        'Prendas Vendidas': st.garmentsCount,
+        'Ticket Promedio ($)': Math.round(st.avgTicket),
+        'Meta Mensual ($)': st.meta_mensual,
+        '% Cumplimiento': st.meta_mensual > 0 ? `${Math.round((st.revenue / st.meta_mensual) * 100)}%` : 'N/A'
+      }));
+
+      const wb = XLSX.utils.book_new();
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      const wsDetails = XLSX.utils.json_to_sheet(detailRows);
+      const wsStores = XLSX.utils.json_to_sheet(storeRows);
+
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Gestión por Día');
+      XLSX.utils.book_append_sheet(wb, wsStores, 'Consolidado Sucursales');
+      XLSX.utils.book_append_sheet(wb, wsDetails, 'Detalle de Ventas');
+
+      const fileDate = dashStartDate ? `${dashStartDate}_al_${dashEndDate || todayStr}` : todayStr;
+      XLSX.writeFile(wb, `Reporte_Gestion_POS_${fileDate}.xlsx`);
+    } catch (e: any) {
+      console.error('Error exportando Excel:', e);
+      alert('Error generando Excel: ' + (e?.message || e));
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
 
   // UX Manager Handlers
   const handleSaveTheme = async (e: React.FormEvent) => {
@@ -2500,60 +2690,458 @@ export default function StoreAdminPage() {
         <>
           {/* DASHBOARD GERENCIAL TAB */}
           {activeTab === 'dashboard' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+              
+              {/* FILTROS Y CONTROL DE GESTIÓN AL DÍA */}
+              <div className="card" style={{
+                padding: '1.25rem 1.5rem',
+                backgroundColor: 'white',
+                border: '1px solid #cbd5e1',
+                borderRadius: '16px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+              }}>
+                {/* Header de la Barra de Filtros */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{ padding: '0.5rem', backgroundColor: '#e0e7ff', color: '#3730a3', borderRadius: '8px' }}>
+                      <Filter size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#0f172a' }}>
+                        Centro de Control & Filtros de Gestión
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>
+                        Filtra ventas consolidadas por tienda, fecha y día para auditoría en tiempo real
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Botón de Exportar Excel */}
+                  <button
+                    onClick={exportDashboardToExcel}
+                    disabled={isExportingExcel}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      backgroundColor: '#16a34a',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.65rem 1.25rem',
+                      fontSize: '0.82rem',
+                      fontWeight: '800',
+                      cursor: isExportingExcel ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {isExportingExcel ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Generando Excel...
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet size={16} />
+                        Exportar Gran Reporte Excel (.xlsx)
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Presets de Fecha Rápidos */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', paddingTop: '0.25rem', borderTop: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginRight: '0.25rem' }}>
+                    Rango Rápido:
+                  </span>
+                  {[
+                    { id: 'today', label: 'Hoy' },
+                    { id: 'yesterday', label: 'Ayer' },
+                    { id: 'week', label: 'Últimos 7 Días' },
+                    { id: 'month', label: 'Este Mes' },
+                    { id: 'all', label: 'Todo el Histórico' },
+                  ].map(preset => (
+                    <button
+                      key={preset.id}
+                      onClick={() => applyDatePreset(preset.id as any)}
+                      style={{
+                        padding: '0.35rem 0.85rem',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: '750',
+                        border: dashDatePreset === preset.id ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
+                        backgroundColor: dashDatePreset === preset.id ? '#eff6ff' : '#ffffff',
+                        color: dashDatePreset === preset.id ? '#1d4ed8' : '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Controles de Selección: Tienda, Fechas, Vendedor, Método Pago */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '0.85rem',
+                  alignItems: 'end',
+                  backgroundColor: '#f8fafc',
+                  padding: '0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  {/* Tienda */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                      🏪 Tienda / Sucursal
+                    </label>
+                    <select
+                      value={dashStoreFilter}
+                      onChange={(e) => setDashStoreFilter(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: '600',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="all">Todas las Tiendas (Consolidado)</option>
+                      {stores.map(st => (
+                        <option key={st.id} value={st.id}>{st.nombre} ({st.codigo})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Fecha Inicio */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                      📅 Fecha Desde
+                    </label>
+                    <input
+                      type="date"
+                      value={dashStartDate}
+                      onChange={(e) => {
+                        setDashStartDate(e.target.value);
+                        setDashDatePreset('custom');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: '600',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+
+                  {/* Fecha Fin */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                      📅 Fecha Hasta
+                    </label>
+                    <input
+                      type="date"
+                      value={dashEndDate}
+                      onChange={(e) => {
+                        setDashEndDate(e.target.value);
+                        setDashDatePreset('custom');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.65rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: '600',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+
+                  {/* Vendedor */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                      👤 Vendedor / Cajero
+                    </label>
+                    <select
+                      value={dashSellerFilter}
+                      onChange={(e) => setDashSellerFilter(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: '600',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="all">Todos los Vendedores</option>
+                      {uniqueSellers.map(v => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Método Pago */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#475569', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                      💳 Método de Pago
+                    </label>
+                    <select
+                      value={dashPaymentFilter}
+                      onChange={(e) => setDashPaymentFilter(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.82rem',
+                        fontWeight: '600',
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="all">Todos los Métodos</option>
+                      <option value="efectivo">Efectivo</option>
+                      <option value="tarjeta">Tarjeta (Débito/Crédito)</option>
+                      <option value="transferencia">Transferencia / QR</option>
+                      <option value="mixto">Mixto</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Resumen de filtro activo */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#475569', paddingTop: '0.2rem' }}>
+                  <span>
+                    Mostrando resultados para: <strong>{dashStoreFilter === 'all' ? 'Todas las Tiendas' : (stores.find(s => s.id === dashStoreFilter)?.nombre || dashStoreFilter)}</strong>
+                    {dashStartDate ? ` | Desde: ${dashStartDate}` : ''}
+                    {dashEndDate ? ` | Hasta: ${dashEndDate}` : ''}
+                    {dashSellerFilter !== 'all' ? ` | Vendedor: ${dashSellerFilter}` : ''}
+                    {dashPaymentFilter !== 'all' ? ` | Pago: ${dashPaymentFilter}` : ''}
+                  </span>
+                  <span style={{ fontWeight: '800', color: '#1e40af' }}>
+                    {filteredDashboardSales.length} transacciones encontradas
+                  </span>
+                </div>
+              </div>
               
               {/* Executive KPI Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1.25rem' }}>
                 
-                <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: '1px solid #bfdbfe' }}>
-                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#1e40af' }}>
+                {/* Total Ingresos */}
+                <div className="card" style={{ padding: '1.35rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: '1px solid #bfdbfe', borderRadius: '14px' }}>
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#1e40af', boxShadow: '0 2px 6px rgba(30,64,175,0.1)' }}>
                     <DollarSign size={24} />
                   </div>
                   <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ventas Totales</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#1e3a8a' }}>${totalRevenue.toLocaleString('es-CO')}</span>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ventas Totales</span>
+                    <span style={{ fontSize: '1.45rem', fontWeight: '950', color: '#1e3a8a' }}>${totalRevenue.toLocaleString('es-CO')}</span>
                   </div>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', border: '1px solid #bbf7d0' }}>
-                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#166534' }}>
+                {/* Transacciones */}
+                <div className="card" style={{ padding: '1.35rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', border: '1px solid #bbf7d0', borderRadius: '14px' }}>
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#166534', boxShadow: '0 2px 6px rgba(22,101,52,0.1)' }}>
                     <ShoppingBag size={24} />
                   </div>
                   <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Transacciones</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#14532d' }}>{salesList.length}</span>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Transacciones</span>
+                    <span style={{ fontSize: '1.45rem', fontWeight: '950', color: '#14532d' }}>{filteredDashboardSales.length}</span>
                   </div>
                 </div>
 
-                <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)', border: '1px solid #e9d5ff' }}>
-                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#6b21a8' }}>
+                {/* Prendas Vendidas */}
+                <div className="card" style={{ padding: '1.35rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)', border: '1px solid #fed7aa', borderRadius: '14px' }}>
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#c2410c', boxShadow: '0 2px 6px rgba(194,65,12,0.1)' }}>
+                    <Shirt size={24} />
+                  </div>
+                  <div>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prendas Vendidas</span>
+                    <span style={{ fontSize: '1.45rem', fontWeight: '950', color: '#9a3412' }}>{totalGarmentsSold.toLocaleString('es-CO')} u.</span>
+                  </div>
+                </div>
+
+                {/* Ticket Promedio */}
+                <div className="card" style={{ padding: '1.35rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%)', border: '1px solid #e9d5ff', borderRadius: '14px' }}>
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: '#6b21a8', boxShadow: '0 2px 6px rgba(107,33,168,0.1)' }}>
                     <Activity size={24} />
                   </div>
                   <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ticket Promedio</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: '950', color: '#581c87' }}>${Math.round(avgTicket).toLocaleString('es-CO')}</span>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ticket Promedio</span>
+                    <span style={{ fontSize: '1.45rem', fontWeight: '950', color: '#581c87' }}>${Math.round(avgTicket).toLocaleString('es-CO')}</span>
                   </div>
                 </div>
 
+                {/* Diferencia Caja */}
                 <div className="card" style={{
-                  padding: '1.5rem',
+                  padding: '1.35rem',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '1rem',
                   background: Math.abs(cashDiscrepancies) > 0 ? 'linear-gradient(135deg, #fff5f5 0%, #fee2e2 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-                  border: Math.abs(cashDiscrepancies) > 0 ? '1px solid #fecaca' : '1px solid var(--border)'
+                  border: Math.abs(cashDiscrepancies) > 0 ? '1px solid #fecaca' : '1px solid var(--border)',
+                  borderRadius: '14px'
                 }}>
-                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: Math.abs(cashDiscrepancies) > 0 ? '#c53030' : '#475569' }}>
+                  <div style={{ padding: '0.75rem', borderRadius: '12px', backgroundColor: 'white', color: Math.abs(cashDiscrepancies) > 0 ? '#c53030' : '#475569', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
                     <AlertTriangle size={24} />
                   </div>
                   <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', color: Math.abs(cashDiscrepancies) > 0 ? '#9b2c2c' : '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Diferencia Caja</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: '950', color: Math.abs(cashDiscrepancies) > 0 ? '#742a2a' : '#1e293b' }}>
+                    <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: '800', color: Math.abs(cashDiscrepancies) > 0 ? '#9b2c2c' : '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Diferencia Caja</span>
+                    <span style={{ fontSize: '1.45rem', fontWeight: '950', color: Math.abs(cashDiscrepancies) > 0 ? '#742a2a' : '#1e293b' }}>
                       {cashDiscrepancies > 0 ? `+` : ''}${cashDiscrepancies.toLocaleString('es-CO')}
                     </span>
                   </div>
                 </div>
 
+              </div>
+
+              {/* GRAN REPORTE: GESTIÓN DE VENTAS DÍA A DÍA */}
+              <div className="card" style={{ padding: '1.5rem', borderRadius: '16px', backgroundColor: 'white', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1.5px solid #f1f5f9', paddingBottom: '0.85rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '900', color: '#0f172a' }}>
+                      📅 Gestión y Control de Ventas Día a Día
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>
+                      Desglose consolidado por fecha con total recaudado, prendas despachadas y distribución por tienda
+                    </p>
+                  </div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: '750', color: '#475569', backgroundColor: '#f8fafc', padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    Total Días Registrados: {salesByDayList.length}
+                  </div>
+                </div>
+
+                {salesByDayList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#64748b' }}>
+                    <p style={{ fontSize: '0.95rem', fontWeight: '700', margin: 0 }}>No se encontraron ventas para los filtros seleccionados.</p>
+                    <span style={{ fontSize: '0.8rem' }}>Intenta ajustar el rango de fechas o seleccionar "Todas las Tiendas".</span>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155' }}>Fecha (Día)</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155' }}>Total Vendido</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155', textAlign: 'center' }}>Ventas</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155', textAlign: 'center' }}>Prendas</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155' }}>Ticket Promedio</th>
+                            <th style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#334155' }}>Aporte por Sucursal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {salesByDayList
+                            .slice((dashDayViewPage - 1) * 10, dashDayViewPage * 10)
+                            .map((row, idx) => {
+                              const dayAvg = row.salesCount > 0 ? (row.totalRevenue / row.salesCount) : 0;
+                              return (
+                                <tr key={row.date} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa' }} className="hover:bg-blue-50/50">
+                                  <td style={{ padding: '0.85rem 1rem', fontWeight: '850', color: '#1e293b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <Calendar size={14} style={{ color: '#2563eb' }} />
+                                      {row.date}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '0.85rem 1rem', fontWeight: '950', color: '#166534', fontSize: '0.92rem' }}>
+                                    ${row.totalRevenue.toLocaleString('es-CO')}
+                                  </td>
+                                  <td style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: '800', color: '#0f172a' }}>
+                                    <span style={{ backgroundColor: '#f1f5f9', padding: '0.2rem 0.55rem', borderRadius: '12px' }}>
+                                      {row.salesCount} vts
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: '800', color: '#c2410c' }}>
+                                    <span style={{ backgroundColor: '#fff7ed', padding: '0.2rem 0.55rem', borderRadius: '12px', border: '1px solid #ffedd5' }}>
+                                      {row.garmentsCount} u.
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.85rem 1rem', fontWeight: '750', color: '#475569' }}>
+                                    ${Math.round(dayAvg).toLocaleString('es-CO')}
+                                  </td>
+                                  <td style={{ padding: '0.85rem 1rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                      {Object.entries(row.storeBreakdown).map(([stName, amount]) => (
+                                        <span
+                                          key={stName}
+                                          style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: '750',
+                                            padding: '0.2rem 0.5rem',
+                                            borderRadius: '6px',
+                                            backgroundColor: '#eff6ff',
+                                            color: '#1d4ed8',
+                                            border: '1px solid #dbeafe',
+                                            whiteSpace: 'nowrap'
+                                          }}
+                                        >
+                                          {stName}: <strong>${amount.toLocaleString('es-CO')}</strong>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Paginación de Días */}
+                    {salesByDayList.length > 10 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          Página {dashDayViewPage} de {Math.ceil(salesByDayList.length / 10)} ({salesByDayList.length} días en total)
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            onClick={() => setDashDayViewPage(prev => Math.max(1, prev - 1))}
+                            disabled={dashDayViewPage === 1}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: dashDayViewPage === 1 ? '#f1f5f9' : 'white',
+                              color: dashDayViewPage === 1 ? '#94a3b8' : '#334155',
+                              cursor: dashDayViewPage === 1 ? 'not-allowed' : 'pointer',
+                              fontSize: '0.78rem',
+                              fontWeight: '750'
+                            }}
+                          >
+                            Anterior
+                          </button>
+                          <button
+                            onClick={() => setDashDayViewPage(prev => Math.min(Math.ceil(salesByDayList.length / 10), prev + 1))}
+                            disabled={dashDayViewPage >= Math.ceil(salesByDayList.length / 10)}
+                            style={{
+                              padding: '0.35rem 0.75rem',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: dashDayViewPage >= Math.ceil(salesByDayList.length / 10) ? '#f1f5f9' : 'white',
+                              color: dashDayViewPage >= Math.ceil(salesByDayList.length / 10) ? '#94a3b8' : '#334155',
+                              cursor: dashDayViewPage >= Math.ceil(salesByDayList.length / 10) ? 'not-allowed' : 'pointer',
+                              fontSize: '0.78rem',
+                              fontWeight: '750'
+                            }}
+                          >
+                            Siguiente
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Charts & Detail Widgets */}
