@@ -46,6 +46,14 @@ const EMPTY_FORM = {
   operator_name: ''
 };
 
+const getAssignmentsFromJson = (order: any) => {
+  if (!order || !order.observaciones) return null;
+  const matches = Array.from(order.observaciones.matchAll(/<!--ASSIGNMENTS_JSON:([\s\S]*?)-->/g));
+  if (!matches || matches.length === 0) return null;
+  const lastMatch: any = matches[matches.length - 1];
+  try { return JSON.parse(lastMatch[1]); } catch (e) { return null; }
+};
+
 const fetchAll = async (queryFn: () => any) => {
   let allData: any[] = [];
   let from = 0;
@@ -346,7 +354,7 @@ export default function QualityPage() {
       if (allOrdIds.length > 0) {
         const { data: fetchedOrd, error: ordErr } = await supabase
           .from('orders')
-          .select('id, consecutive, internal_code, client_name, brand, cuts(id, color_id, fabric_id, product_id, products(id, nombre_producto, codigo_referencia))')
+          .select('id, consecutive, internal_code, client_name, brand, workshop_id, observaciones, cuts(id, color_id, fabric_id, product_id, products(id, nombre_producto, codigo_referencia))')
           .in('id', allOrdIds);
 
         if (ordErr) console.error('Error fetching orders by IDs:', ordErr);
@@ -534,10 +542,20 @@ export default function QualityPage() {
             return gClean.includes(rPrefix) || rClean.includes(gPrefix) || (gFirst.length >= 3 && gFirst === rFirst);
           };
 
+          const isColorMatch = (garmentColor: string, rowColName: string) => {
+            const gClean = (garmentColor || '').replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').trim().toUpperCase();
+            const rClean = (rowColName || '').replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').trim().toUpperCase();
+            if (!gClean || !rClean) return true;
+            if (gClean === rClean) return true;
+            const gFirst = gClean.split(' ')[0];
+            const rFirst = rClean.split(' ')[0];
+            return gClean.includes(rClean) || rClean.includes(gClean) || (gFirst.length >= 3 && gFirst === rFirst);
+          };
+
           const matchingGarments = garments.filter(g =>
             !matchedGarmentIds.has(g.id) &&
             isRefMatch(g.reference_name || '', row.productName || '') &&
-            ((g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() || !g.color_name) &&
+            isColorMatch(g.color_name || '', row.colorName || '') &&
             (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
           );
 
@@ -807,122 +825,61 @@ export default function QualityPage() {
     return fab ? fab.nombre_tela : '—';
   };
 
-  // Helper para limpiar nombres de color (remover códigos numéricos o prefijos de tela)
-  const cleanColorDisplayName = (rawColor: string) => {
-    if (!rawColor) return '';
-    let str = rawColor.trim();
-    if (str.includes('/')) {
-      str = str.split('/').slice(1).join('/').trim();
-    }
-    str = str.replace(/^[,\s-]+/, '').trim();
-    const matchNumericCode = str.match(/^(.*?)[-\s]+(\d{1,6})$/);
-    if (matchNumericCode && matchNumericCode[1].trim().length >= 3) {
-      str = matchNumericCode[1].trim();
-    }
-    return str;
-  };
-
-  // Helper unificado para resolver tela y color exacto de un corte
-  const resolveColorAndFabricForCut = (cut: any) => {
-    const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
-    let rawFabricName = fabricObj?.nombre_tela || fabricObj?.nombre || fabricObj?.codigo_tela || cut.tela || cut.fabric_name || '';
-
-    const joinedColor = cut.colors;
-    const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
-    let colorObj = joinedColor || localColor;
-
-    let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
-    let fabricName = rawFabricName || '—';
-
-    // 1. Extraer nombre de tela y color si viene separado por , o / o -
-    if (rawFabricName) {
-      const cleanFab = rawFabricName.trim();
-      if (cleanFab.includes(',')) {
-        const parts = cleanFab.split(',');
-        fabricName = parts[0].replace(/\/$/, '').trim() || '—';
-        if (!rawColorString && parts[1]) {
-          rawColorString = parts.slice(1).join(' ').trim();
-        }
-      } else if (cleanFab.includes('/')) {
-        const parts = cleanFab.split('/');
-        fabricName = parts[0].trim() || '—';
-        if (!rawColorString && parts[1]) {
-          rawColorString = parts.slice(1).join(' ').trim();
-        }
-      } else if (cleanFab.includes('-')) {
-        const parts = cleanFab.split('-');
-        fabricName = parts[0].trim() || '—';
-        if (!rawColorString && parts[1]) {
-          rawColorString = parts.slice(1).join(' ').trim();
-        }
-      }
-    }
-
-    // 2. Si aún no tenemos colorObj, buscar en el maestro de colores
-    if (!colorObj && (rawColorString || rawFabricName)) {
-      const sortedColors = [...colors].sort((a: any, b: any) => ((b.nombre_color || '').length - (a.nombre_color || '').length));
-
-      // A. Buscar en rawColorString si existe
-      if (rawColorString) {
-        const cleanCand = cleanColorDisplayName(rawColorString).toUpperCase();
-        const firstWord = cleanCand.split(/[\s-]+/)[0];
-
-        colorObj = sortedColors.find((c: any) => {
-          const cClean = cleanColorDisplayName(c.nombre_color || '').toUpperCase();
-          return cClean && (cClean === cleanCand || cClean === firstWord || (cClean.length >= 3 && cleanCand.startsWith(cClean)));
-        });
-      }
-
-      // B. Si aún no encuentra, buscar si alguna palabra en rawFabricName coincide con un color
-      if (!colorObj && rawFabricName) {
-        const rawUpper = rawFabricName.toUpperCase();
-        for (const c of sortedColors) {
-          const cClean = cleanColorDisplayName(c.nombre_color || '').toUpperCase();
-          if (!cClean || cClean.length < 3) continue;
-          const regex = new RegExp(`(^|[^a-zA-Z0-9])${cClean}([^a-zA-Z0-9]|$)`, 'i');
-          if (regex.test(rawUpper)) {
-            colorObj = c;
-            break;
-          }
-        }
-      }
-    }
-
-    let colorName = '';
-    if (colorObj) {
-      colorName = cleanColorDisplayName(colorObj.nombre_color || colorObj.codigo_color || '');
-    } else if (rawColorString) {
-      colorName = cleanColorDisplayName(rawColorString);
-    }
-
-    // C. Si aún no hay color definido, pero en la tela viene un color evidente en la segunda parte tras guion o espacio
-    if (!colorName && rawFabricName) {
-      const parts = rawFabricName.trim().split(/[\s-]+/);
-      if (parts.length > 1) {
-        const candidate = cleanColorDisplayName(parts.slice(1).join(' ')).trim();
-        if (candidate && !/^\d+$/.test(candidate)) {
-          colorName = candidate;
-        }
-      }
-    }
-
-    const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
-    return { colorName, colorHex, fabricName };
-  };
-
   const getDetailRows = (order: any) => {
     if (!order) return [];
+
+    const cleanColorUnified = (rawColorString: string) => {
+      if (!rawColorString) return '—';
+      let s = rawColorString.replace(/JABON\s*\/?,?\s*/gi, '').trim();
+      s = s.replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+      if (s.startsWith('VERDE')) return 'VERDE';
+      if (s.startsWith('AMARILLO')) return 'AMARILLO';
+      if (s.startsWith('PALO ROSA') || s.startsWith('PALO DE ROSA')) return 'PALO ROSA';
+      if (s.startsWith('VINO')) return 'VINO';
+      if (s.startsWith('CAFE')) return 'CAFE';
+      return s || '—';
+    };
+
     if (order.sewing_order_sizes) {
       const sewingOrder = order;
       const parent = sewingOrder.parent_order;
-      const matchingCuts = parent.cuts.filter((cut: any) => !sewingOrder.product_id || String(cut.product_id) === String(sewingOrder.product_id));
-      const cutsToProcess = matchingCuts.length > 0 ? matchingCuts : parent.cuts;
-      const rows: any[] = [];
+      const parentAssignments = getAssignmentsFromJson(parent);
+      const rowWorkshops = parentAssignments?.rowWorkshops;
+      const targetWorkshopId = sewingOrder.workshop_id || sewingOrder.workshops?.id;
+
+      let cutsToProcess = parent?.cuts || [];
+      if (sewingOrder.product_id) {
+        const filteredByProd = cutsToProcess.filter((cut: any) => String(cut.product_id) === String(sewingOrder.product_id));
+        if (filteredByProd.length > 0) {
+          cutsToProcess = filteredByProd;
+        }
+      }
+
+      const groupedRows = new Map<string, any>();
       cutsToProcess.forEach((cut: any) => {
         const prod = sewingOrder.products || cut.products || products.find((p: any) => String(p.id) === String(cut.product_id));
         
-        // Resolución robusta de Tela y Color
-        const { colorName, colorHex, fabricName } = resolveColorAndFabricForCut(cut);
+        // Resolución de Tela y Color desde el objeto de Tela o Corte
+        const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+        let rawFabricName = fabricObj?.nombre_tela || fabricObj?.nombre || fabricObj?.codigo_tela || cut.tela || cut.fabric_name || '';
+
+        const joinedColor = cut.colors;
+        const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+        let colorObj = joinedColor || localColor;
+
+        let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+        let fabricName = rawFabricName || '—';
+
+        if (rawFabricName.includes(',')) {
+          const parts = rawFabricName.split(',').map((p: string) => p.trim());
+          fabricName = parts[0].replace(/\/$/, '').trim() || '—';
+          if (!rawColorString && parts[1]) {
+            rawColorString = parts[1];
+          }
+        }
+
+        const colorName = cleanColorUnified(rawColorString || colorObj?.nombre_color || '');
+        const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
 
         const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
         const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
@@ -936,6 +893,15 @@ export default function QualityPage() {
           const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
           const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
 
+          // Validar asignación de taller en matriz si existe
+          if (rowWorkshops && targetWorkshopId) {
+            const cellKey = `${cut.product_id}_${sz}`;
+            const assignedWId = rowWorkshops[cellKey];
+            if (assignedWId && String(assignedWId).toLowerCase().trim() !== String(targetWorkshopId).toLowerCase().trim()) {
+              return;
+            }
+          }
+
           if (sosList.length > 0) {
             const sosMatch = sosList.find((sos: any) => String(sos.size_id) === String(cs.size_id));
             if (!sosMatch || (Number(sosMatch.cantidad_planeada) || 0) <= 0) return;
@@ -947,19 +913,56 @@ export default function QualityPage() {
           if (realQty <= 0) realQty = Number(cs.quantity) || 0;
 
           if (realQty > 0) {
-            rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: realQty });
+            const groupKey = `${productName}_${colorName}_${sz}`;
+            const existing = groupedRows.get(groupKey);
+            if (existing) {
+              existing.quantity += realQty;
+            } else {
+              groupedRows.set(groupKey, {
+                key: groupKey,
+                productName,
+                colorName,
+                colorHex,
+                fabricName,
+                categoryName,
+                size: sz,
+                quantity: realQty
+              });
+            }
           }
         });
       });
-      return rows;
+      return Array.from(groupedRows.values());
     }
     if (!order.cuts) return [];
-    const rows: any[] = [];
+    const groupedRows = new Map<string, any>();
+    const orderAssignments = getAssignmentsFromJson(order);
+    const rowWorkshops = orderAssignments?.rowWorkshops;
+    const targetWorkshopId = order.workshop_id || form.workshop_name;
+
     order.cuts.forEach((cut: any) => {
       const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
       
-      // Resolución robusta de Tela y Color
-      const { colorName, colorHex, fabricName } = resolveColorAndFabricForCut(cut);
+      const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+      let rawFabricName = fabricObj?.nombre_tela || fabricObj?.nombre || fabricObj?.codigo_tela || cut.tela || cut.fabric_name || '';
+
+      const joinedColor = cut.colors;
+      const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+      let colorObj = joinedColor || localColor;
+
+      let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+      let fabricName = rawFabricName || '—';
+
+      if (rawFabricName.includes(',')) {
+        const parts = rawFabricName.split(',').map((p: string) => p.trim());
+        fabricName = parts[0].replace(/\/$/, '').trim() || '—';
+        if (!rawColorString && parts[1]) {
+          rawColorString = parts[1];
+        }
+      }
+
+      const colorName = cleanColorUnified(rawColorString || colorObj?.nombre_color || '');
+      const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
 
       const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
       const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
@@ -969,12 +972,38 @@ export default function QualityPage() {
       (cut.cut_sizes || []).forEach((cs: any) => {
         const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
         const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+        if (rowWorkshops && targetWorkshopId) {
+          const cellKey = `${cut.product_id}_${sz}`;
+          const assignedWId = rowWorkshops[cellKey];
+          if (assignedWId && String(assignedWId).toLowerCase().trim() !== String(targetWorkshopId).toLowerCase().trim()) {
+            return;
+          }
+        }
+
         let qty = cs.quantity_produced !== undefined && cs.quantity_produced !== null ? Number(cs.quantity_produced) : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
         if (qty <= 0) qty = Number(cs.quantity) || 0;
-        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: qty });
+        if (qty > 0) {
+          const groupKey = `${productName}_${colorName}_${sz}`;
+          const existing = groupedRows.get(groupKey);
+          if (existing) {
+            existing.quantity += qty;
+          } else {
+            groupedRows.set(groupKey, {
+              key: groupKey,
+              productName,
+              colorName,
+              colorHex,
+              fabricName,
+              categoryName,
+              size: sz,
+              quantity: qty
+            });
+          }
+        }
       });
     });
-    return rows;
+    return Array.from(groupedRows.values());
   };
 
   const computeTotalsFromRows = (rows: any[]) => {
@@ -1490,41 +1519,6 @@ export default function QualityPage() {
       garments = data || [];
     }
     if (garments.length === 0) { alert('Sin prendas unitarias registradas. Abre la inspección y genera prendas en la Etapa 2.'); return; }
-
-    // Validación de seguridad de color: si alguna prenda no tiene color_name, intentar resolverlo o asignar fallback
-    const hasMissingColors = garments.some(g => !g.color_name || g.color_name.trim() === '');
-    if (hasMissingColors) {
-      try {
-        const orderToQuery = orderId || item.sewing_orders?.order_id;
-        if (orderToQuery) {
-          const { data: cutsData } = await supabase
-            .from('cuts')
-            .select('id, color_id, colors(name), fabrics(name), cut_sizes(size, quantity)')
-            .eq('order_id', orderToQuery);
-
-          if (cutsData && cutsData.length > 0) {
-            // Resolver color por corte
-            const colorOptions = cutsData.map((c: any) => {
-              const res = resolveColorAndFabricForCut(c);
-              return res.colorName;
-            }).filter(Boolean);
-
-            if (colorOptions.length > 0) {
-              garments = garments.map(g => {
-                if (!g.color_name || g.color_name.trim() === '') {
-                  // Asignar primer color disponible o fallback
-                  return { ...g, color_name: colorOptions[0] || 'Color Único' };
-                }
-                return g;
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('No se pudo resolver color faltante de cortes:', err);
-      }
-    }
-
     setIndividualGarments(garments);
     setOrderDetail((prev: any) => prev ? prev : { consecutive: item.sewing_orders?.confeccion_code || '' });
     setShowLabelsModal(true);

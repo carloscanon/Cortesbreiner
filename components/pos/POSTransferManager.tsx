@@ -337,13 +337,46 @@ export default function POSTransferManager({
   };
 
   // Agregar ítem manual desde el catálogo de existencias
-  const handleAddManualItem = (stockItem: any, qty: number) => {
+  const handleAddManualItem = async (stockItem: any, qty: number) => {
     if (!stockItem || qty <= 0) return;
 
     const available = Number(stockItem.cantidad_disponible || 0);
     if (qty > available) {
       alert(`⚠️ Solo hay ${available} unidades disponibles en existencias para esta referencia.`);
       return;
+    }
+
+    // Intentar buscar los códigos de barras de las prendas físicas reales disponibles en la bodega
+    let autoBarcodes: string[] = [];
+    try {
+      if (originWarehouseId) {
+        const prodName = (stockItem.products?.nombre_producto || '').replace(/premium/gi, '').trim();
+        const colName = (stockItem.colors?.nombre_color || '').trim();
+        const szCode = (stockItem.sizes?.codigo_talla || '').trim();
+
+        let q = supabase
+          .from('individual_garments')
+          .select('barcode')
+          .eq('warehouse_id', originWarehouseId)
+          .neq('status', 'Vendido');
+
+        if (prodName) q = q.ilike('reference_name', `%${prodName}%`);
+        if (colName) q = q.ilike('color_name', `%${colName}%`);
+        if (szCode) q = q.ilike('size_code', `%${szCode}%`);
+
+        // Excluir códigos ya agregados al despacho
+        const allAlreadyAdded = dispatchItems.flatMap(it => it.barcodes || []);
+        if (allAlreadyAdded.length > 0) {
+          q = q.not('barcode', 'in', `(${allAlreadyAdded.map((b: string) => `"${b}"`).join(',')})`);
+        }
+
+        const { data: foundGarments } = await q.limit(qty);
+        if (foundGarments && foundGarments.length > 0) {
+          autoBarcodes = foundGarments.map(g => g.barcode).filter(Boolean);
+        }
+      }
+    } catch (errAutoBc) {
+      console.warn('No se pudieron precargar los códigos de barra automáticamente:', errAutoBc);
     }
 
     const newItem = {
@@ -356,7 +389,7 @@ export default function POSTransferManager({
       size_id: stockItem.size_id || null,
       sizeCode: stockItem.sizes?.codigo_talla || 'ST',
       cantidad: qty,
-      barcodes: []
+      barcodes: autoBarcodes
     };
 
     setDispatchItems(prev => {
@@ -369,6 +402,10 @@ export default function POSTransferManager({
       if (existingIdx >= 0) {
         const updated = [...prev];
         updated[existingIdx].cantidad += qty;
+        if (autoBarcodes.length > 0) {
+          const combined = Array.from(new Set([...(updated[existingIdx].barcodes || []), ...autoBarcodes]));
+          updated[existingIdx].barcodes = combined;
+        }
         return updated;
       }
       return [...prev, newItem];
@@ -1290,7 +1327,7 @@ export default function POSTransferManager({
                         <th style={{ padding: '0.65rem 1rem' }}>Color</th>
                         <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Talla</th>
                         <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Cant.</th>
-                        <th style={{ padding: '0.65rem 1rem' }}>Etiquetas / Códigos</th>
+                        <th style={{ padding: '0.65rem 1rem' }}>Etiquetas / Códigos de Barras</th>
                         <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Quitar</th>
                       </tr>
                     </thead>
@@ -1300,6 +1337,24 @@ export default function POSTransferManager({
                           <td style={{ padding: '0.75rem 1rem', fontWeight: '850', color: '#0f172a' }}>
                             {it.productName}
                             <span style={{ display: 'block', fontSize: '0.68rem', color: primaryColor }}>Ref: {it.productRef}</span>
+                            
+                            {/* Etiqueta visible del traslado bajo la referencia */}
+                            <div style={{ marginTop: '0.35rem' }}>
+                              {it.barcodes && it.barcodes.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                  <span style={{ fontSize: '0.68rem', fontWeight: '800', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    🏷️ <strong style={{ color: '#0f172a' }}>Etiqueta{it.barcodes.length > 1 ? 's' : ''}:</strong> 
+                                    <span style={{ fontFamily: 'monospace', color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+                                      {it.barcodes.length === 1 ? it.barcodes[0] : `${it.barcodes[0]} (+${it.barcodes.length - 1} más)`}
+                                    </span>
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '0.68rem', color: '#64748b', backgroundColor: '#f1f5f9', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid #e2e8f0', fontWeight: '700' }}>
+                                  🏷️ Etiqueta: Sin código individual (Despacho por lote)
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: '0.75rem 1rem', color: '#334155', fontWeight: '750' }}>{it.colorName}</td>
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
@@ -1312,15 +1367,17 @@ export default function POSTransferManager({
                           </td>
                           <td style={{ padding: '0.75rem 1rem' }}>
                             {it.barcodes && it.barcodes.length > 0 ? (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxWidth: '200px' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxWidth: '240px' }}>
                                 {it.barcodes.map((bc: string) => (
-                                  <span key={bc} style={{ fontFamily: 'monospace', fontSize: '0.68rem', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.1rem 0.35rem', borderRadius: '4px', fontWeight: '850' }}>
+                                  <span key={bc} style={{ fontFamily: 'monospace', fontSize: '0.7rem', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.15rem 0.4rem', borderRadius: '4px', fontWeight: '900' }}>
                                     🏷️ {bc}
                                   </span>
                                 ))}
                               </div>
                             ) : (
-                              <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>Lote Global</span>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b', fontStyle: 'italic', backgroundColor: '#f8fafc', padding: '0.2rem 0.5rem', borderRadius: '5px', border: '1px solid #e2e8f0' }}>
+                                Sin etiqueta unitaria
+                              </span>
                             )}
                           </td>
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
@@ -2086,11 +2143,27 @@ export default function POSTransferManager({
                 <span style={{ fontSize: '0.72rem', fontWeight: '900', color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>
                   Detalle de Prendas y Códigos Despachados
                 </span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
                   {lastDispatchedTransfer.items?.map((it: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.25rem' }}>
-                      <span><strong>{it.productName}</strong> ({it.colorName} | {it.sizeCode})</span>
-                      <span style={{ fontWeight: '900' }}>{it.cantidad} uds</span>
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.78rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.35rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span><strong>{it.productName}</strong> ({it.colorName} | {it.sizeCode})</span>
+                        <span style={{ fontWeight: '900' }}>{it.cantidad} uds</span>
+                      </div>
+                      {it.barcodes && it.barcodes.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem' }}>
+                          <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: '800' }}>Etiquetas:</span>
+                          {it.barcodes.map((bc: string) => (
+                            <span key={bc} style={{ fontFamily: 'monospace', fontSize: '0.65rem', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.05rem 0.3rem', borderRadius: '4px', fontWeight: '800' }}>
+                              🏷️ {bc}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                          Sin etiquetas unitarias (Lote)
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>

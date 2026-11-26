@@ -1,0 +1,16 @@
+  const printLabelsForInspection = async (item: any) => {
+    const sewingId = item.sewing_order_id;
+    const orderId = item.order_id;
+    let garments: any[] = [];
+    if (sewingId) {
+      const { data } = await supabase.from('individual_garments').select('*').eq('sewing_order_id', sewingId).order('barcode', { ascending: true });
+      garments = data || [];
+    } else if (orderId) {
+      const { data } = await supabase.from('individual_garments').select('*').eq('order_id', orderId).order('barcode', { ascending: true });
+      garments = data || [];
+    }
+    if (garments.length === 0) { alert('Sin prendas unitarias registradas. Abre la inspección y genera prendas en la Etapa 2.'); return; }
+    setIndividualGarments(garments);
+    setOrderDetail((prev: any) => prev ? prev : { consecutive: item.sewing_orders?.confeccion_code || '' });
+    setShowLabelsModal(true);
+  };

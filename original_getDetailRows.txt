@@ -1,0 +1,155 @@
+      if (firstCut?.fabric_id) {
+        const fab = fabrics.find(f => String(f.id) === String(firstCut.fabric_id));
+        if (fab) return fab.nombre_tela;
+      }
+      return '—';
+    }
+    const fab = fabrics.find(f => String(f.id) === String(fabricId));
+    return fab ? fab.nombre_tela : '—';
+  };
+
+  const getDetailRows = (order: any) => {
+    if (!order) return [];
+    if (order.sewing_order_sizes) {
+      const sewingOrder = order;
+      const parent = sewingOrder.parent_order;
+      const matchingCuts = parent.cuts.filter((cut: any) => !sewingOrder.product_id || String(cut.product_id) === String(sewingOrder.product_id));
+      const cutsToProcess = matchingCuts.length > 0 ? matchingCuts : parent.cuts;
+      const rows: any[] = [];
+      cutsToProcess.forEach((cut: any) => {
+        const prod = sewingOrder.products || cut.products || products.find((p: any) => String(p.id) === String(cut.product_id));
+        
+        // Resolución de Tela y Color desde el objeto de Tela o Corte
+        const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+        let rawFabricName = fabricObj?.nombre_tela || fabricObj?.nombre || fabricObj?.codigo_tela || cut.tela || cut.fabric_name || '';
+
+        // 1. Intentar obtener el color desde la relación/ID directa con el maestro
+        const joinedColor = cut.colors;
+        const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+        let colorObj = joinedColor || localColor;
+
+        let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+        let fabricName = rawFabricName || '—';
+
+        // Si la cadena de tela contiene una coma (ej: "JABON/, NEGRO 10" o "JABON, NEGRO 10")
+        if (rawFabricName.includes(',')) {
+          const parts = rawFabricName.split(',').map((p: string) => p.trim());
+          fabricName = parts[0].replace(/\/$/, '').trim() || '—'; // "JABON"
+          if (!rawColorString && parts[1]) {
+            rawColorString = parts[1]; // "NEGRO 10"
+          }
+        }
+
+        // Si tenemos un string de color pero no objeto del maestro, buscar en el maestro de colores
+        if (!colorObj && rawColorString) {
+          // Extraer prefijo o nombre (ej: "NEGRO 10" -> "NEGRO")
+          const cleanPrefix = rawColorString.split('/')[0].split('-')[0].trim().toUpperCase();
+          const firstWord = cleanPrefix.split(' ')[0];
+          
+          if (cleanPrefix) {
+            colorObj = colors.find((c: any) => {
+              const cName = (c.nombre_color || '').trim().toUpperCase();
+              const cCode = (c.codigo_color || '').trim().toUpperCase();
+              return cName === cleanPrefix || cCode === cleanPrefix || cName === firstWord || cCode === firstWord;
+            });
+          }
+        }
+
+        // Determinar nombre y hex final del color
+        let colorName = colorObj?.nombre_color || colorObj?.codigo_color || '';
+        if (!colorName && rawColorString) {
+          colorName = rawColorString.trim();
+        }
+        const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
+
+        const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
+        const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
+        const rawProdName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
+        const productName = rawProdName.trim();
+        const layersProyec = cut.layers || 1;
+        const layersProduced = cut.layers_produced || 0;
+
+        const sosList = sewingOrder.sewing_order_sizes || [];
+        (cut.cut_sizes || []).forEach((cs: any) => {
+          const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
+          const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+
+          if (sosList.length > 0) {
+            const sosMatch = sosList.find((sos: any) => String(sos.size_id) === String(cs.size_id));
+            if (!sosMatch || (Number(sosMatch.cantidad_planeada) || 0) <= 0) return;
+          }
+
+          let realQty = cs.quantity_produced !== undefined && cs.quantity_produced !== null
+            ? Number(cs.quantity_produced)
+            : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
+          if (realQty <= 0) realQty = Number(cs.quantity) || 0;
+
+          if (realQty > 0) {
+            rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: realQty });
+          }
+        });
+      });
+      return rows;
+    }
+    if (!order.cuts) return [];
+    const rows: any[] = [];
+    order.cuts.forEach((cut: any) => {
+      const prod = products.find((p: any) => String(p.id) === String(cut.product_id)) || cut.products;
+      
+      // Resolución de Tela y Color desde el objeto de Tela o Corte
+      const fabricObj = fabrics.find((f: any) => String(f.id) === String(cut.fabric_id)) || cut.fabrics;
+      let rawFabricName = fabricObj?.nombre_tela || fabricObj?.nombre || fabricObj?.codigo_tela || cut.tela || cut.fabric_name || '';
+
+      // 1. Intentar obtener el color desde la relación/ID directa con el maestro
+      const joinedColor = cut.colors;
+      const localColor = cut.color_id ? colors.find((c: any) => String(c.id) === String(cut.color_id)) : null;
+      let colorObj = joinedColor || localColor;
+
+      let rawColorString = cut.color || cut.color_name || cut.nombre_color || '';
+      let fabricName = rawFabricName || '—';
+
+      // Si la cadena de tela contiene una coma (ej: "JABON/, NEGRO 10")
+      if (rawFabricName.includes(',')) {
+        const parts = rawFabricName.split(',').map((p: string) => p.trim());
+        fabricName = parts[0].replace(/\/$/, '').trim() || '—'; // "JABON"
+        if (!rawColorString && parts[1]) {
+          rawColorString = parts[1]; // "NEGRO 10"
+        }
+      }
+
+      // Si tenemos un string de color pero no objeto del maestro, buscar en el maestro de colores
+      if (!colorObj && rawColorString) {
+        const cleanPrefix = rawColorString.split('/')[0].split('-')[0].trim().toUpperCase();
+        const firstWord = cleanPrefix.split(' ')[0];
+        
+        if (cleanPrefix) {
+          colorObj = colors.find((c: any) => {
+            const cName = (c.nombre_color || '').trim().toUpperCase();
+            const cCode = (c.codigo_color || '').trim().toUpperCase();
+            return cName === cleanPrefix || cCode === cleanPrefix || cName === firstWord || cCode === firstWord;
+          });
+        }
+      }
+
+      // Determinar nombre y hex final del color
+      let colorName = colorObj?.nombre_color || colorObj?.codigo_color || '';
+      if (!colorName && rawColorString) {
+        colorName = rawColorString.trim();
+      }
+      const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
+
+      const categoryObj = categories.find((cat: any) => String(cat.id) === String(prod?.category_id)) || prod?.categories;
+      const categoryName = categoryObj ? (categoryObj.categoria || categoryObj.nombre_categoria) : '';
+      const productName = prod ? (prod.nombre_producto || prod.name || prod.codigo_referencia || 'Sin Referencia') : 'Sin Referencia';
+      const layersProyec = cut.layers || 1;
+      const layersProduced = cut.layers_produced || 0;
+      (cut.cut_sizes || []).forEach((cs: any) => {
+        const sizeObj = sizes.find((s: any) => String(s.id) === String(cs.size_id));
+        const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+        let qty = cs.quantity_produced !== undefined && cs.quantity_produced !== null ? Number(cs.quantity_produced) : Math.round((Number(cs.quantity) || 0) / layersProyec * layersProduced);
+        if (qty <= 0) qty = Number(cs.quantity) || 0;
+        if (qty > 0) rows.push({ key: `${cut.id}_${cs.id}`, productName, colorName, colorHex, fabricName, categoryName, size: sz, quantity: qty });
+      });
+    });
+    return rows;
+  };

@@ -71,11 +71,21 @@ export async function POST(req: Request) {
         return gClean.includes(rPrefix) || rClean.includes(gPrefix) || (gFirst.length >= 3 && gFirst === rFirst);
       };
 
+      const isColorMatch = (garmentColor: string, rowColName: string) => {
+        const gClean = (garmentColor || '').replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').trim().toUpperCase();
+        const rClean = (rowColName || '').replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').trim().toUpperCase();
+        if (!gClean || !rClean) return true;
+        if (gClean === rClean) return true;
+        const gFirst = gClean.split(' ')[0];
+        const rFirst = rClean.split(' ')[0];
+        return gClean.includes(rClean) || rClean.includes(gClean) || (gFirst.length >= 3 && gFirst === rFirst);
+      };
+
       // Filtrar existentes no procesadas previamente para esta combinación
       const existing = (garments || []).filter(g =>
         !matchedGarmentIds.has(g.id) &&
         isRefMatch(g.reference_name || '', row.productName || '') &&
-        ((g.color_name || '').toUpperCase().trim() === (row.colorName || '').toUpperCase().trim() || !g.color_name) &&
+        isColorMatch(g.color_name || '', row.colorName || '') &&
         (g.size_code || '').toUpperCase().trim() === (row.size || '').toUpperCase().trim()
       );
 

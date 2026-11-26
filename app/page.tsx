@@ -4104,43 +4104,105 @@ export default function Dashboard() {
       assignedOrders.forEach(o => {
         finalWorkshopsList.forEach(w => {
           const wIdStr = String(w.id).toLowerCase().trim();
+          const assignments = getOrderAssignments(o);
           
-          // Verificar si ya existe un registro explícito en sewing_orders para esta orden y taller
-          const hasExplicit = explicitSewingOrdersRaw.some(so => 
-            String(so.parent_order_id) === String(o.id) &&
-            String(so.workshop_id).toLowerCase().trim() === wIdStr
-          );
-          if (hasExplicit) return;
+          if (!assignments || !assignments.rowWorkshops) {
+            // Verificar si ya existe un registro explícito en sewing_orders para esta orden y taller
+            const hasExplicit = explicitSewingOrdersRaw.some(so => 
+              String(so.parent_order_id) === String(o.id) &&
+              String(so.workshop_id).toLowerCase().trim() === wIdStr
+            );
+            if (hasExplicit) return;
 
-          const prendasWs = getPrendasParaTaller(o, w.id);
-          const planQty = prendasWs.planeadas || 0;
-          const confQty = prendasWs.confeccionadas || 0;
-          if (planQty <= 0 && confQty <= 0) return;
+            const prendasWs = getPrendasParaTaller(o, w.id);
+            const planQty = prendasWs.planeadas || 0;
+            const confQty = prendasWs.confeccionadas || 0;
+            if (planQty <= 0 && confQty <= 0) return;
 
-          const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+            const prodObj = o.cuts && o.cuts.length > 0 ? productsList.find(p => String(p.id) === String(o.cuts![0].product_id)) : null;
+            const itemStatus = o.status === 'Devuelta por Taller' ? 'Devuelta por Taller' : 'Enviado a Taller';
 
-          const itemStatus = o.status === 'Devuelta por Taller' ? 'Devuelta por Taller' : 'Enviado a Taller';
+            let code = 'ORDEN-1';
+            try {
+              code = getConfeccionCode(o, w.id);
+            } catch (e) {
+              // fallback gracefully
+            }
 
-          let code = 'ORDEN-1';
-          try {
-            code = getConfeccionCode(o, w.id);
-          } catch (e) {
-            // fallback gracefully
+            fallbackItems.push({
+              id: `fallback-${o.id}-${w.id}`,
+              parent_order_id: o.id,
+              workshop_id: w.id,
+              product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
+              confeccion_code: code,
+              status: itemStatus,
+              cantidad_planeada: planQty,
+              cantidad_confeccionada: confQty,
+              created_at: o.created_at,
+              parent_order: o,
+              products: prodObj,
+              workshops: w
+            });
+            return;
           }
 
-          fallbackItems.push({
-            id: `fallback-${o.id}-${w.id}`,
-            parent_order_id: o.id,
-            workshop_id: w.id,
-            product_id: o.cuts && o.cuts.length > 0 ? o.cuts[0].product_id : '',
-            confeccion_code: code,
-            status: itemStatus,
-            cantidad_planeada: planQty,
-            cantidad_confeccionada: confQty,
-            created_at: o.created_at,
-            parent_order: o,
-            products: prodObj,
-            workshops: w
+          // Extraer productos únicos asignados específicamente a este taller en la orden
+          const prodIdsForWs: string[] = [];
+          (o.cuts || []).forEach((c: any) => {
+            const pId = String(c.product_id);
+            (c.cut_sizes || []).forEach((cs: any) => {
+              const sizeObj = sizesList.find(s => String(s.id) === String(cs.size_id));
+              const sz = sizeObj ? sizeObj.codigo_talla : 'S/T';
+              const cellKey = `${pId}_${sz}`;
+              const assignedWId = assignments.rowWorkshops[cellKey] ? String(assignments.rowWorkshops[cellKey]).toLowerCase().trim() : '';
+              if (assignedWId === wIdStr && !prodIdsForWs.includes(pId)) {
+                prodIdsForWs.push(pId);
+              }
+            });
+          });
+
+          if (prodIdsForWs.length === 0 && o.workshop_id && String(o.workshop_id).toLowerCase().trim() === wIdStr) {
+            (o.cuts || []).forEach((c: any) => {
+              const pId = String(c.product_id);
+              if (!prodIdsForWs.includes(pId)) prodIdsForWs.push(pId);
+            });
+          }
+
+          prodIdsForWs.forEach(pId => {
+            // Verificar si ya existe un registro explícito en sewing_orders para esta orden, taller y producto
+            const hasExplicit = explicitSewingOrdersRaw.some(so => 
+              String(so.parent_order_id) === String(o.id) &&
+              String(so.workshop_id).toLowerCase().trim() === wIdStr &&
+              (!so.product_id || String(so.product_id) === String(pId))
+            );
+            if (hasExplicit) return;
+
+            const prendas = getPrendasParaTallerYProducto(o, w.id, pId);
+            if (prendas.planeadas <= 0 && prendas.confeccionadas <= 0) return;
+
+            let confeccionCode = 'ORDEN-1';
+            try {
+              confeccionCode = getConfeccionCode(o, w.id, pId);
+            } catch (e) {
+              // fallback gracefully
+            }
+            const prodObj = productsList.find(p => String(p.id) === String(pId));
+            const itemStatus = o.status === 'Devuelta por Taller' ? 'Devuelta por Taller' : 'Enviado a Taller';
+
+            fallbackItems.push({
+              id: `fallback-${o.id}-${w.id}-${pId}`,
+              parent_order_id: o.id,
+              workshop_id: w.id,
+              product_id: pId,
+              confeccion_code: confeccionCode,
+              status: itemStatus,
+              cantidad_planeada: prendas.planeadas,
+              cantidad_confeccionada: prendas.confeccionadas,
+              created_at: o.created_at,
+              parent_order: o,
+              products: prodObj,
+              workshops: w
+            });
           });
         });
       });
