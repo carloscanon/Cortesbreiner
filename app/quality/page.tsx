@@ -895,6 +895,17 @@ export default function QualityPage() {
       colorName = cleanColorDisplayName(rawColorString);
     }
 
+    // C. Si aún no hay color definido, pero en la tela viene un color evidente en la segunda parte tras guion o espacio
+    if (!colorName && rawFabricName) {
+      const parts = rawFabricName.trim().split(/[\s-]+/);
+      if (parts.length > 1) {
+        const candidate = cleanColorDisplayName(parts.slice(1).join(' ')).trim();
+        if (candidate && !/^\d+$/.test(candidate)) {
+          colorName = candidate;
+        }
+      }
+    }
+
     const colorHex = colorObj?.hex_color || localColor?.hex_color || '';
     return { colorName, colorHex, fabricName };
   };
@@ -1479,6 +1490,41 @@ export default function QualityPage() {
       garments = data || [];
     }
     if (garments.length === 0) { alert('Sin prendas unitarias registradas. Abre la inspección y genera prendas en la Etapa 2.'); return; }
+
+    // Validación de seguridad de color: si alguna prenda no tiene color_name, intentar resolverlo o asignar fallback
+    const hasMissingColors = garments.some(g => !g.color_name || g.color_name.trim() === '');
+    if (hasMissingColors) {
+      try {
+        const orderToQuery = orderId || item.sewing_orders?.order_id;
+        if (orderToQuery) {
+          const { data: cutsData } = await supabase
+            .from('cuts')
+            .select('id, color_id, colors(name), fabrics(name), cut_sizes(size, quantity)')
+            .eq('order_id', orderToQuery);
+
+          if (cutsData && cutsData.length > 0) {
+            // Resolver color por corte
+            const colorOptions = cutsData.map((c: any) => {
+              const res = resolveColorAndFabricForCut(c);
+              return res.colorName;
+            }).filter(Boolean);
+
+            if (colorOptions.length > 0) {
+              garments = garments.map(g => {
+                if (!g.color_name || g.color_name.trim() === '') {
+                  // Asignar primer color disponible o fallback
+                  return { ...g, color_name: colorOptions[0] || 'Color Único' };
+                }
+                return g;
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudo resolver color faltante de cortes:', err);
+      }
+    }
+
     setIndividualGarments(garments);
     setOrderDetail((prev: any) => prev ? prev : { consecutive: item.sewing_orders?.confeccion_code || '' });
     setShowLabelsModal(true);
@@ -4043,7 +4089,9 @@ export default function QualityPage() {
                             <span style={{ fontSize: `${stickerConfig.refFontSize}px`, fontWeight: stickerConfig.refFontWeight as any, color: '#000000', textAlign: 'center', lineHeight: 1.2 }}>
                               {(g.reference_name || 'Referencia').replace(/\s*\[.*?\]/g, '').trim()}
                             </span>
-                            {g.color_name && <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: stickerConfig.monochromeMode ? '#000000' : '#64748b', fontWeight: '800' }}>{g.color_name}</span>}
+                            <span style={{ fontSize: `${Math.max(10, stickerConfig.refFontSize - 3)}px`, color: stickerConfig.monochromeMode ? '#000000' : '#64748b', fontWeight: '800' }}>
+                              {(g.color_name && g.color_name.trim() !== '') ? g.color_name : 'Color Único'}
+                            </span>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
                               <BarcodeCanvas text={g.barcode || '00420001'} type={stickerConfig.barcodeType || 'code128'} height={stickerConfig.barcodeHeight || 55} garmentId={g.id} />
                               <span style={{ fontSize: `${stickerConfig.barcodeFontSize || 12}px`, fontWeight: '950', color: '#000', letterSpacing: '0.14em', marginTop: '0.15rem', fontFamily: 'monospace' }}>
@@ -4132,7 +4180,9 @@ export default function QualityPage() {
                               <span style="font-size:${stickerConfig.refFontSize}px;font-weight:${stickerConfig.refFontWeight};color:#000000;text-align:center;">
                                 ${refName}
                               </span>
-                              ${g.color_name ? `<span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:${colorTextColor};">${g.color_name}</span>` : ''}
+                              <span style="font-size:${Math.max(10, stickerConfig.refFontSize - 3)}px;color:${colorTextColor};font-weight:800;">
+                                ${(g.color_name && g.color_name.trim() !== '') ? g.color_name : 'Color Único'}
+                              </span>
                               ${imgSrc ? `<img src="${imgSrc}" style="max-width:90%;height:auto;" />` : ''}
                               <span style="font-size:${stickerConfig.barcodeFontSize || 12}px;font-family:monospace;letter-spacing:0.12em;font-weight:900;">
                                 ${g.barcode || '00420001'}

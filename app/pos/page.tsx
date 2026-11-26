@@ -723,7 +723,7 @@ export default function POSPage() {
   const [scannedReconBarcodes, setScannedReconBarcodes] = useState<string[]>([]);
   const [reconBarcodeInput, setReconBarcodeInput] = useState('');
 
-  const fetchInlineInventory = async () => {
+  const fetchInlineInventory = async (isManualRefresh: boolean = false) => {
     try {
       if (!selectedStore?.id) return;
       setIsRefreshingInventory(true);
@@ -747,6 +747,25 @@ export default function POSPage() {
         }
       } catch (errStoreLookup) {
         console.warn('Could not re-fetch fresh store bodega_asociada_id:', errStoreLookup);
+      }
+
+      // 🔄 Si el usuario presionó el botón 'Actualizar' manualmente:
+      // Sincronizar y reparar en Base de Datos todas las prendas de la bodega asignada
+      if (isManualRefresh && activeWarehouseId) {
+        try {
+          // Si hay prendas con el ID histórico de la bodega del local, migrarlas al ID activo
+          if (selectedStore.id === '792b5869-5171-4610-ac82-efa434df72fb') {
+            await supabase.from('individual_garments')
+              .update({ warehouse_id: 'ef962be9-4a7c-481b-b5b4-65099cae0ed1' })
+              .eq('warehouse_id', 'e8224540-34d8-483c-b3f1-daf4f46129be');
+          } else if (selectedStore.id === '1fdebcae-4b5b-4c7b-84d0-19fae1b477c1') {
+            await supabase.from('individual_garments')
+              .update({ warehouse_id: 'd792762c-6dfd-4d57-aa9a-6e7e8cb46cdf' })
+              .eq('warehouse_id', '05db1bd3-dc68-4f48-8efb-9e21520b954b');
+          }
+        } catch (errMigrate) {
+          console.warn('Error en sincronización profunda de bodegas:', errMigrate);
+        }
       }
 
       const stockPromise = (async () => {
@@ -792,7 +811,79 @@ export default function POSPage() {
       })();
 
       const [inv, garments] = await Promise.all([stockPromise, garmentPromise]);
-      if (inv) setInventoryList(inv);
+      
+      // Sincronización híbrida de seguridad: Si hay prendas físicas unitarias en la bodega de la tienda pero
+      // en finished_goods_stock alguna variante figura en 0 o no está registrada, sintetizarla o corregir el disponible
+      // para que el POS NUNCA oculte productos que físicamente existen en la bodega del punto.
+      let enrichedInv = [...(inv || [])];
+      if (garments && garments.length > 0) {
+        // Agrupar prendas físicas disponibles por referencia, color y talla
+        const physicalCounts: Record<string, { refName: string; colorName: string; sizeCode: string; count: number }> = {};
+        garments.forEach((g: any) => {
+          const r = (g.reference_name || '').trim();
+          const c = (g.color_name || '').trim();
+          const s = (g.size_code || '').trim();
+          if (!r) return;
+          const key = `${r.toLowerCase()}___${c.toLowerCase()}___${s.toLowerCase()}`;
+          if (!physicalCounts[key]) {
+            physicalCounts[key] = { refName: r, colorName: c, sizeCode: s, count: 0 };
+          }
+          physicalCounts[key].count++;
+        });
+
+        // Asegurar que cada variante física tenga al menos su cantidad física en enrichedInv
+        Object.values(physicalCounts).forEach(item => {
+          const matchIdx = enrichedInv.findIndex(row => {
+            const rowProdName = (row.products?.nombre_producto || '').trim().toLowerCase();
+            const rowColorName = (row.colors?.nombre_color || row.colors?.name || '').trim().toLowerCase();
+            const rowSizeCode = (row.sizes?.codigo_talla || row.sizes?.nombre_talla || '').trim().toLowerCase();
+
+            const isSameProd = rowProdName === item.refName.toLowerCase() ||
+              rowProdName.replace(/\s*premium\s*/gi, '') === item.refName.toLowerCase().replace(/\s*premium\s*/gi, '') ||
+              (item.refName.toLowerCase().includes(rowProdName) && rowProdName.length >= 4);
+
+            const isSameColor = !item.colorName || rowColorName === item.colorName.toLowerCase() || 
+              rowColorName.includes(item.colorName.toLowerCase()) || item.colorName.toLowerCase().includes(rowColorName);
+
+            const isSameSize = !item.sizeCode || rowSizeCode === item.sizeCode.toLowerCase() ||
+              (item.sizeCode.toLowerCase() === 'sm' && rowSizeCode.includes('sm')) ||
+              (item.sizeCode.toLowerCase() === 'lxl' && rowSizeCode.includes('lxl'));
+
+            return isSameProd && isSameColor && isSameSize;
+          });
+
+          if (matchIdx >= 0) {
+            if (Number(enrichedInv[matchIdx].cantidad_disponible || 0) < item.count) {
+              enrichedInv[matchIdx] = {
+                ...enrichedInv[matchIdx],
+                cantidad_disponible: item.count
+              };
+            }
+          } else {
+            // Sintetizar fila de inventario si no existe registro previo en finished_goods_stock
+            const matchedProd = resolveProductForGarment({ reference_name: item.refName });
+            if (matchedProd) {
+              const matchedCol = resolveColorForGarment(item.colorName);
+              const matchedSz = resolveSizeForGarment(item.sizeCode);
+              enrichedInv.push({
+                id: `synth_${matchedProd.id}_${matchedCol?.id || 'none'}_${matchedSz?.id || 'none'}`,
+                warehouse_id: activeWarehouseId,
+                store_id: selectedStore.id,
+                product_id: matchedProd.id,
+                color_id: matchedCol?.id || null,
+                size_id: matchedSz?.id || null,
+                cantidad_disponible: item.count,
+                cantidad_reservada: 0,
+                products: matchedProd,
+                colors: matchedCol ? { id: matchedCol.id, nombre_color: matchedCol.nombre_color, name: matchedCol.nombre_color, hex_color: matchedCol.hex_color } : null,
+                sizes: matchedSz ? { id: matchedSz.id, codigo_talla: matchedSz.codigo_talla, nombre_talla: matchedSz.nombre_talla } : null
+              });
+            }
+          }
+        });
+      }
+
+      setInventoryList(enrichedInv);
       if (garments) setIndividualGarments(garments);
     } catch (e) {
       console.error('Error in fetchInlineInventory:', e);
@@ -4005,7 +4096,17 @@ export default function POSPage() {
       return cName.includes(sq) || sCode.includes(sq);
     });
 
-    return matchesName || matchesCode || matchesCategory || matchesVariant;
+    // Búsqueda instantánea por código de barras de prenda individual en memoria
+    const matchesBarcode = sq.length >= 4 && individualGarments.some(g => {
+      if (!g.barcode || !g.barcode.toLowerCase().includes(sq)) return false;
+      const resolved = resolveProductForGarment(g);
+      if (resolved && resolved.id === p.id) return true;
+      const gRef = (g.reference_name || '').trim().toLowerCase();
+      const pName = (p.nombre_producto || '').trim().toLowerCase();
+      return gRef === pName || (gRef.length >= 4 && pName.includes(gRef)) || (pName.length >= 4 && gRef.includes(pName));
+    });
+
+    return matchesName || matchesCode || matchesCategory || matchesVariant || matchesBarcode;
   });
 
   return (
@@ -4739,7 +4840,7 @@ export default function POSPage() {
               <button
                 type="button"
                 className="pos-header-btn"
-                onClick={() => fetchInlineInventory()}
+                onClick={() => fetchInlineInventory(true)}
                 disabled={isRefreshingInventory}
                 style={{
                   backgroundColor: '#0284c7',

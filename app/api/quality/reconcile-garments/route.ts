@@ -97,7 +97,8 @@ export async function POST(req: Request) {
 
         if (g && targetStatus) {
           // Ambos existen: check if status changed, warehouse cambió, inspection_id falta, o color_name necesita actualizarse
-          const colorNeedsUpdate = !g.color_name && row.colorName;
+          const effectiveColor = (row.colorName || g.color_name || 'Color Único').trim();
+          const colorNeedsUpdate = !g.color_name || (row.colorName && g.color_name !== row.colorName);
           const needsUpdate = g.status !== targetStatus || 
             (targetStatus === 'Rechazada' && g.warehouse_id !== BODEGA_RECHAZOS_ID) || 
             (savedInspectionId && g.quality_inspection_id !== savedInspectionId) ||
@@ -109,18 +110,19 @@ export async function POST(req: Request) {
               status: targetStatus,
               warehouse_id: assignedWarehouseId,
               quality_inspection_id: savedInspectionId || g.quality_inspection_id || null,
-              color_name: g.color_name || row.colorName || ''
+              color_name: effectiveColor
             });
           }
         } else if (targetStatus) {
           // No existe: INSERT
+          const effectiveColor = (row.colorName || 'Color Único').trim();
           inserts.push({
             sewing_order_id: isSewingOrder ? orderDetailId : null,
             order_id: isSewingOrder ? (parentOrderId || null) : orderDetailId,
             quality_inspection_id: savedInspectionId || null,
             barcode: '', 
             reference_name: row.productName,
-            color_name: row.colorName,
+            color_name: effectiveColor,
             size_code: sizeCode,
             status: targetStatus,
             defect_checklist: {},
