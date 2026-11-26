@@ -76,6 +76,9 @@ export async function POST(req: Request) {
         const rClean = (rowColName || '').replace(/\d+/g, '').replace(/[\/\-,]/g, ' ').trim().toUpperCase();
         if (!gClean || !rClean) return true;
         if (gClean === rClean) return true;
+        if (gClean.includes('VERDE') || rClean.includes('VERDE')) {
+          return gClean === rClean;
+        }
         const gFirst = gClean.split(' ')[0];
         const rFirst = rClean.split(' ')[0];
         return gClean.includes(rClean) || rClean.includes(gClean) || (gFirst.length >= 3 && gFirst === rFirst);
